@@ -46,6 +46,7 @@ developer account.
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
+| `⌘[` `⌘]` | back / forward through the active pane's directory history |
 | `⌘I` | Info window for the selected file (exactly one) |
 | `⌘A` | select all -- in the path box it selects the text, otherwise every row |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
@@ -82,6 +83,30 @@ The extension point is `PaneState` in `Model/AppState.swift`. Add a property
 there plus a line in `PaneModel.snapshot` and `restore`, and it is saved,
 reloaded, and carried across a pane swap -- the store, the window code and the
 JSON handling need no changes.
+
+## History and filtering
+
+Each pane has its own bar above the path: back and forward arrows on the left,
+a filter on the right.
+
+**Back / Forward** (`⌘[` and `⌘]`) walk that pane's own history of visited
+directories. Going somewhere new after going back discards the forward trail,
+as a browser does. History is per-session; it is not saved.
+
+**The filter** takes a shell pattern by default -- `*.txt`, matched by `fnmatch`,
+the same routine the shell uses -- or a regular expression when **RegEx** is
+ticked, where the equivalent is `.*\.txt`. The expression is anchored, so it
+filters the way a glob does rather than finding a fragment anywhere in the name.
+Matching is case-insensitive, because the file system is. A regex that will not
+compile turns the field red instead of silently matching nothing.
+
+**Hide** decides what happens to items that do not match:
+
+- off (default) -- they stay listed but greyed out, cannot be selected, and the
+  arrow keys step over them
+- on -- they are not listed at all
+
+`..` always matches; it is navigation, not content.
 
 ## Settings
 

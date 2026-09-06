@@ -26,6 +26,7 @@ final class KeyRouter {
         // marked "Delete" on a PC keyboard. Both must work.
         case delete = 51, forwardDelete = 117
         case home = 115, end = 119, pageUp = 116, pageDown = 121
+        case upArrow = 126, downArrow = 125
         case f1 = 122, f2 = 120, f3 = 99, f4 = 118
         case f5 = 96, f6 = 97, f7 = 98, f8 = 100, f9 = 101
     }

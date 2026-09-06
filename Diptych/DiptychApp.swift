@@ -109,6 +109,12 @@ struct FileCommands: Commands {
         CommandMenu("Files") {
             Button("Open") { model?.openSelection() }
                 .keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Back") { model?.goBack() }
+                .keyboardShortcut("[")
+                .disabled(model?.active.canGoBack != true)
+            Button("Forward") { model?.goForward() }
+                .keyboardShortcut("]")
+                .disabled(model?.active.canGoForward != true)
             Button("Enclosing Folder") { model?.active.goUp() }
                 .keyboardShortcut(.upArrow, modifiers: .command)
             Button("Go to Folder...") { model?.requestPathEdit() }

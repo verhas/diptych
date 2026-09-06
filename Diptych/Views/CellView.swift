@@ -10,12 +10,18 @@ struct CellView: View {
     let model: AppModel
     let activate: () -> Void
 
+    /// Rows the filter excludes are drawn faded, and cannot be selected.
+    private var isDimmed: Bool { !pane.matchesFilter(item) }
+
     var body: some View {
-        switch column {
-        case .name:        nameCell
-        case .permissions: permissionsCell
-        default:           plainText
+        Group {
+            switch column {
+            case .name:        nameCell
+            case .permissions: permissionsCell
+            default:           plainText
+            }
         }
+        .opacity(isDimmed ? 0.35 : 1)
     }
 
     private var plainText: some View {

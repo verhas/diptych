@@ -282,6 +282,24 @@ final class AppModel {
         moveCursor(to: current + delta)
     }
 
+    /// Steps past rows the filter greyed out, so Down never lands on one.
+    func moveCursorSkippingFiltered(by delta: Int) {
+        let rows = active.rows
+        guard !rows.isEmpty else { return }
+
+        let current = rows.firstIndex { active.selection.contains($0.id) }
+            ?? (delta > 0 ? -1 : rows.count)
+        var index = current + delta
+
+        while index >= 0 && index < rows.count {
+            if active.matchesFilter(rows[index]) {
+                moveCursor(to: index)
+                return
+            }
+            index += delta
+        }
+    }
+
     func moveCursor(to index: Int) {
         let rows = active.rows
         guard !rows.isEmpty else { return }
@@ -972,6 +990,9 @@ final class AppModel {
     }
 
     /// Exchange the two panes wholesale, with everything they contain.
+    func goBack()    { active.goBack() }
+    func goForward() { active.goForward() }
+
     func refreshPanes() {
         left.reload()
         right.reload()
@@ -1104,6 +1125,14 @@ final class AppModel {
         case .f6:             moveSelection()
         case .f7:             requestNewFolder()
         case .f8, .delete, .forwardDelete: requestTrash()
+        // Only taken over while rows are greyed out; otherwise the table's own
+        // arrow handling is better than anything we would write.
+        case .upArrow, .downArrow:
+            guard active.hasFilter, active.filterIsValid, !active.filterHidesOthers else {
+                return false
+            }
+            moveCursorSkippingFiltered(by: key == .downArrow ? 1 : -1)
+
         case .home:           moveCursor(to: 0)
         case .end:            moveCursor(to: Int.max)
         case .pageUp:         moveCursor(by: -pageStride)

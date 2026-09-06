@@ -24,6 +24,7 @@ struct PaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            toolRow
             pathBar
             Divider()
             table
@@ -61,6 +62,58 @@ struct PaneView: View {
     }
 
     // MARK: - Pieces
+
+    /// History on the left, filter on the right.
+    private var toolRow: some View {
+        HStack(spacing: 6) {
+            Button {
+                activate()
+                pane.goBack()
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!pane.canGoBack)
+            .help("Back")
+
+            Button {
+                activate()
+                pane.goForward()
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!pane.canGoForward)
+            .help("Forward")
+
+            Spacer(minLength: 6)
+
+            TextField("Filter", text: $pane.filterText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .frame(minWidth: 70, idealWidth: 120, maxWidth: 160)
+                // Red while a regular expression will not compile, so a
+                // half-typed pattern is obviously half-typed rather than
+                // looking like a filter that matches nothing.
+                .foregroundStyle(pane.filterIsValid ? Color.primary : Color.red)
+                .help(pane.filterIsRegex
+                      ? "Regular expression, anchored: .*\\.txt"
+                      : "Shell pattern: *.txt")
+
+            Toggle("RegEx", isOn: $pane.filterIsRegex)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11))
+                .help("Read the filter as a regular expression instead of a shell pattern")
+
+            Toggle("Hide", isOn: $pane.filterHidesOthers)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 11))
+                .help("Leave non-matching items out of the list entirely, "
+                      + "instead of greying them out")
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+    }
 
     private var pathBar: some View {
         HStack(spacing: 6) {

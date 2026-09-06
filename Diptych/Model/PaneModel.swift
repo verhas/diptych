@@ -20,8 +20,22 @@ final class PaneModel {
     private(set) var isLoading = false
     private(set) var errorText: String?
 
+    @ObservationIgnored private var isCorrectingSelection = false
+
     var selection: Set<FileItem.ID> = [] {
         didSet {
+            // A greyed-out row is not selectable. Correcting here catches every
+            // route into the selection -- clicking, arrow keys, Select All.
+            if !isCorrectingSelection, hasFilter, filterIsValid, !filterHidesOthers {
+                let allowed = rows.filter { selection.contains($0.id) && matchesFilter($0) }
+                    .map(\.id)
+                if allowed.count != selection.count {
+                    isCorrectingSelection = true
+                    selection = Set(allowed)
+                    isCorrectingSelection = false
+                    return
+                }
+            }
             // Keep an open Quick Look panel in step with the cursor, so arrowing
             // through a directory previews each file as Finder does.
             guard QuickLookController.shared.isVisible else { return }
@@ -42,6 +56,91 @@ final class PaneModel {
     /// entirely, and selecting them before the new listing arrives would land on
     /// stale indexes.
     var pendingSelection: Set<FileItem.ID> = []
+
+    // MARK: - Filter
+
+    /// A glob by default -- `*.txt`, matched by fnmatch, the same routine the
+    /// shell uses -- or a regular expression when `filterIsRegex` is on, where
+    /// the equivalent is `.*\.txt`. Matching is case-insensitive, because the
+    /// file system is.
+    var filterText = "" { didSet { rebuildFilter() } }
+    var filterIsRegex = false { didSet { rebuildFilter() } }
+    /// Off: non-matching rows are greyed out and cannot be selected.
+    /// On: they are not listed at all.
+    var filterHidesOthers = false
+
+    private(set) var filterIsValid = true
+    @ObservationIgnored private var filterRegex: NSRegularExpression?
+
+    var hasFilter: Bool { !filterText.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func rebuildFilter() {
+        let pattern = filterText.trimmingCharacters(in: .whitespaces)
+        filterRegex = nil
+        filterIsValid = true
+
+        guard !pattern.isEmpty else { return }
+        guard filterIsRegex else { return }
+
+        // Anchored, so a regex filters the way a glob does: `.*\.txt` matches
+        // the whole name rather than finding "txt" anywhere in it.
+        filterRegex = try? NSRegularExpression(pattern: "^(?:\(pattern))$",
+                                               options: [.caseInsensitive])
+        filterIsValid = filterRegex != nil
+    }
+
+    /// `..` always matches: it is navigation, not content.
+    func matchesFilter(_ item: FileItem) -> Bool {
+        guard hasFilter, filterIsValid else { return true }
+        if item.isParent { return true }
+
+        if let regex = filterRegex {
+            let range = NSRange(item.name.startIndex..., in: item.name)
+            return regex.firstMatch(in: item.name, options: [], range: range) != nil
+        }
+
+        let pattern = filterText.trimmingCharacters(in: .whitespaces)
+        return fnmatch(pattern, item.name, FNM_CASEFOLD) == 0
+    }
+
+    // MARK: - History
+
+    @ObservationIgnored private var history: [URL] = []
+    @ObservationIgnored private var historyIndex = -1
+
+    private(set) var canGoBack = false
+    private(set) var canGoForward = false
+
+    func goBack() {
+        guard historyIndex > 0 else { return }
+        historyIndex -= 1
+        navigate(to: history[historyIndex], recordingHistory: false)
+    }
+
+    func goForward() {
+        guard historyIndex + 1 < history.count else { return }
+        historyIndex += 1
+        navigate(to: history[historyIndex], recordingHistory: false)
+    }
+
+    private func record(_ url: URL) {
+        // Moving somewhere new after going back discards the forward trail,
+        // exactly as a browser does.
+        if historyIndex >= 0 && historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+        if history.last != url {
+            history.append(url)
+            if history.count > 200 { history.removeFirst() }
+        }
+        historyIndex = history.count - 1
+        updateHistoryFlags()
+    }
+
+    private func updateHistoryFlags() {
+        canGoBack = historyIndex > 0
+        canGoForward = historyIndex + 1 < history.count
+    }
 
     /// True while the path bar is an open text field. The pane must not
     /// relocate itself underneath a path being typed.
@@ -67,13 +166,18 @@ final class PaneModel {
 
     init(directory: URL) {
         self.directory = directory
+        history = [directory]
+        historyIndex = 0
     }
 
     /// Rows as displayed: sorted by the column the user clicked, but with `..`
     /// and directories always pinned above files. Sorting a mixed list purely by
     /// name is what separates a file *list* from a file *manager*.
     var rows: [FileItem] {
-        let sorted = items.sorted(using: sortOrder)
+        let visible = (hasFilter && filterHidesOthers && filterIsValid)
+            ? items.filter { matchesFilter($0) }
+            : items
+        let sorted = visible.sorted(using: sortOrder)
         return sorted.filter(\.isParent)
             + sorted.filter { !$0.isParent && $0.isEnterable }
             + sorted.filter { !$0.isEnterable }
@@ -95,10 +199,11 @@ final class PaneModel {
 
     // MARK: - Navigation
 
-    func navigate(to url: URL) {
+    func navigate(to url: URL, recordingHistory: Bool = true) {
         directory = url
         selection = []
         renamingID = nil
+        if recordingHistory { record(url) } else { updateHistoryFlags() }
         reload()
         owner?.persist()
     }
@@ -129,6 +234,9 @@ final class PaneModel {
 
     func restore(_ state: PaneState) {
         directory = URL(fileURLWithPath: state.directory)
+        history = [directory]
+        historyIndex = 0
+        updateHistoryFlags()
         sortOrder = [FileComparator(column: FileColumn(rawValue: state.sortField) ?? .name,
                                     order: state.sortAscending ? .forward : .reverse)]
     }
