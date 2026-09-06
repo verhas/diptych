@@ -86,6 +86,7 @@ actor DirectoryLoader {
                 let decoded = Self.decode(security, isDirectory: isDirectory)
                 item.permissions = decoded.permissions
                 item.owner = decoded.owner
+                item.group = decoded.group
             }
 
             items.append(item)
@@ -101,7 +102,7 @@ actor DirectoryLoader {
     /// POSIX mode and owner out of the one prefetched NSFileSecurity, rather
     /// than a separate stat per row.
     private static func decode(_ security: NSFileSecurity,
-                               isDirectory: Bool) -> (permissions: String, owner: String) {
+                               isDirectory: Bool) -> (permissions: String, owner: String, group: String) {
         let cf = security as CFFileSecurity
 
         var permissions = ""
@@ -122,6 +123,12 @@ actor DirectoryLoader {
             owner = String(cString: pw.pointee.pw_name)
         }
 
-        return (permissions, owner)
+        var group = ""
+        var gid: gid_t = 0
+        if CFFileSecurityGetGroup(cf, &gid), let gr = getgrgid(gid) {
+            group = String(cString: gr.pointee.gr_name)
+        }
+
+        return (permissions, owner, group)
     }
 }

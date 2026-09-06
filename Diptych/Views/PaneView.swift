@@ -154,7 +154,7 @@ struct PaneView: View {
         // single concrete comparator type across a dynamic column set.
         Table(pane.rows, selection: $pane.selection, sortOrder: $pane.sortOrder) {
             TableColumnForEach(ConfigStore.shared.configuration.columns) { column in
-                TableColumn(column.title, sortUsing: FileComparator(column: column)) { item in
+                TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
                     CellView(column: column, item: item, pane: pane, model: model,
                              activate: activate)
                 }
@@ -175,16 +175,37 @@ struct PaneView: View {
         }
     }
 
+    /// While permissions are being edited the heading names the field the caret
+    /// sits in, so you can see whether you are changing user, group or other.
+    private func title(for column: FileColumn) -> String {
+        if column == .permissions, let scope = model.permissionScope { return scope }
+        return column.title
+    }
+
     @ViewBuilder
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
         if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
+            Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Refresh") { pane.reload() }
         } else {
             Button("Open") {
                 activate()
                 if let id = ids.first { model.open(id: id, in: pane) }
             }
+            Divider()
+            // A menu with a primary action: clicking "Copy" copies the files,
+            // exactly as Cmd-C does, while the submenu offers the text forms.
+            Menu("Copy") {
+                Button("File Name") { activate(); model.copySelectionNames(fullPath: false) }
+                Button("Full Path") { activate(); model.copySelectionNames(fullPath: true) }
+            } primaryAction: {
+                activate()
+                model.copySelectionToClipboard()
+            }
+            Button("Cut") { activate(); model.cutSelectionToClipboard() }
+            Button("Paste") { activate(); model.pasteIntoActivePane() }
+
             Divider()
             Button("Copy to Other Pane") { activate(); model.copySelection() }
             Button("Move to Other Pane") { activate(); model.moveSelection() }

@@ -51,6 +51,44 @@ actor FileOperations {
         return outcome
     }
 
+    /// Applies one absolute mode to every item. Absolute rather than relative
+    /// because the editor's `+` and `-` produce a complete nine-bit picture --
+    /// which is what makes editing several files at once well defined.
+    func setPermissions(_ mode: mode_t, for urls: [URL]) -> Outcome {
+        let fm = FileManager()
+        var outcome = Outcome()
+        for url in urls {
+            do {
+                try fm.setAttributes([.posixPermissions: NSNumber(value: mode)],
+                                     ofItemAtPath: url.path)
+                outcome.succeeded.append(url)
+            } catch {
+                outcome.failures.append((url, error.localizedDescription))
+            }
+        }
+        return outcome
+    }
+
+    /// Applies an owner and/or a group to every item.
+    func setOwnership(owner: String?, group: String?, for urls: [URL]) -> Outcome {
+        let fm = FileManager()
+        var attributes: [FileAttributeKey: Any] = [:]
+        if let owner { attributes[.ownerAccountName] = owner }
+        if let group { attributes[.groupOwnerAccountName] = group }
+        guard !attributes.isEmpty else { return Outcome() }
+
+        var outcome = Outcome()
+        for url in urls {
+            do {
+                try fm.setAttributes(attributes, ofItemAtPath: url.path)
+                outcome.succeeded.append(url)
+            } catch {
+                outcome.failures.append((url, error.localizedDescription))
+            }
+        }
+        return outcome
+    }
+
     func createDirectory(named name: String, in parent: URL) throws -> URL {
         let fm = FileManager()
         let url = parent.appendingPathComponent(name, isDirectory: true)

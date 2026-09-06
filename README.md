@@ -30,7 +30,8 @@ developer account.
 | --- | --- |
 | `Tab` | switch active pane |
 | `Return` | enter directory / open file |
-| `F2` | rename in place (base name pre-selected, as in Finder) |
+| `F2`, or click the name of an already-selected row | rename in place (base name pre-selected, as in Finder) |
+| `F4`, `F9`, `⌥⌘P`, or click the permissions of an already-selected row | edit permissions in place, for the whole selection |
 | `⇧↩` | while renaming: commit and move to the *next* row -- the one that followed this file before the rename, so you can name a run of files in sequence |
 | `F3` | view (opens in the default app) |
 | `F5` | copy selection to the *other* pane |
@@ -43,6 +44,8 @@ developer account.
 | `⌘.` | show/hide hidden files |
 | `⌘N` | new window (its own two panes, titled by folder) |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
+| `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
+| `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
 | `⌘U` | swap the left and right panes |
 | `⌘⇧G` | go to folder -- turns the path bar into a text field |
 | `↑` `↓` | move the cursor; typing letters jumps to a name (type-select) |
@@ -85,7 +88,12 @@ panes and every directory. Name is always present and always first; everything
 else can be switched off and dragged into any order.
 
 Available columns: Size, Kind, Date Modified, Date Created, Date Added,
-Extension, Permissions, Owner, Tags (the Finder tags).
+Extension, Permissions, Owner, Group, Tags (the Finder tags).
+
+Column widths are remembered too, in `columnWidths`. SwiftUI's own
+`TableColumnCustomization` records widths but -- measured, not assumed -- never
+restores them for columns built with `TableColumnForEach`, so the widths are
+stored as plain numbers and applied to the NSTableColumns underneath.
 
 Settings live in `~/.diptych/config.json`, separate from session state. Only the
 resource keys the enabled columns need are prefetched, so leaving Permissions or
@@ -94,6 +102,71 @@ Tags switched off costs nothing per row.
 Adding a column means adding a case to `FileColumn`: the settings list is built
 from `allCases`, the loader asks each enabled case which `URLResourceKey`s it
 needs, and the table and comparator switch on it.
+
+## Editing permissions
+
+Select one or more items, then `F4` or `F9` (or `⌥⌘P`, or click the permissions
+of an already-selected row). The nine rwx slots become an in-place editor:
+
+| Key | Does |
+| --- | --- |
+| `-` `+` `Space` | clear / set / toggle the bit under the caret, then **advance one bit** -- so a whole group types straight through |
+| `r` `w` `x` | set that bit **in the current group**, wherever the caret sits in it; the caret does not move |
+| `⇧R` `⇧W` `⇧X` | clear that bit in the current group |
+| `⌥R` `⌥W` `⌥X` | toggle that bit in the current group |
+| `←` `→` | move one bit |
+| `⇥` / `⇧⇥` | next / previous group -- the shortcut; the arrows stay bit-by-bit |
+| `⌫` | step back one bit and clear it |
+| `Home` `End` | first / last bit |
+| `↩` / `Esc` | apply / abandon |
+
+Two ways to reach any bit: arrow onto it and use `-`/`+`/Space, or address it by
+letter from anywhere in its group with plain / `⇧` / `⌥`.
+
+The caret's group is tinted and the caret bit highlighted, because the letters
+act on the group while `-`, `+` and Space act on the single bit.
+
+While editing, the column heading reads **user**, **group** or **other**
+depending on where the caret is. The result is an absolute mode applied to every
+selected item -- which is what makes editing several files at once well defined,
+and is why permissions can be edited for a multiple selection where a name
+cannot.
+
+## Copying to the pasteboard
+
+`⌘C` / `⌘X` / `⌘V` put file URLs on the system pasteboard and paste them into the
+active pane, so they interoperate with Finder in both directions. macOS has no
+"cut" state for files, so the URLs go on the pasteboard exactly as a copy would
+and the move intent is remembered against the pasteboard's change count -- if
+anything else writes to the pasteboard, the cut lapses and a paste copies.
+
+Right-click **Copy** does the same as `⌘C`; its submenu copies *text* instead:
+
+- **File Name** -- the selected names
+- **Full Path** -- the selected paths
+
+Either way the items are space separated and quoted only where a shell needs it,
+for pasting straight into a terminal as arguments:
+
+```
+-leading-dash.txt no-extension 'file with spaces.txt' 'dollar$sign.txt' 'quote'\''apostrophe.txt'
+```
+
+One thing quoting cannot fix: a name starting with `-` will be read as an option
+by whatever command you paste it into. Put `--` before the list.
+
+## Changing owner and group
+
+Click the Owner or Group cell of an already-selected row (or use the Files
+menu). A list appears; the choice applies to the whole selection.
+
+For groups, the ones you belong to are listed first, because those are the only
+ones a plain `chgrp` accepts.
+
+Changing an **owner** is different: the kernel refuses it for everyone but root,
+so a direct attempt always fails with EPERM. Diptych tries directly first, and
+when that fails offers to redo it through the system's authentication prompt --
+`chown` run as root, with the paths shell-quoted.
 
 ## Scripts
 

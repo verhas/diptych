@@ -27,7 +27,7 @@ final class KeyRouter {
         case delete = 51, forwardDelete = 117
         case home = 115, end = 119, pageUp = 116, pageDown = 121
         case f1 = 122, f2 = 120, f3 = 99, f4 = 118
-        case f5 = 96, f6 = 97, f7 = 98, f8 = 100
+        case f5 = 96, f6 = 97, f7 = 98, f8 = 100, f9 = 101
     }
 
     /// Weak, so closing a window lets its model go.
@@ -71,6 +71,9 @@ final class KeyRouter {
                    responder is NSText || responder.isKind(of: NSTextView.self) {
                     return false
                 }
+                // The permissions editor is a plain NSView, so it does not match
+                // the text checks above, but it owns the keyboard while open.
+                if window.firstResponder is PermissionEditorView { return false }
 
                 // While the Quick Look panel is key it is the key window, and no
                 // model owns it -- so without this fallback every shortcut,

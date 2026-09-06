@@ -22,7 +22,7 @@ struct FileComparator: SortComparator, Hashable {
             result = Self.compare(lhs.created, rhs.created)
         case .added:
             result = Self.compare(lhs.added, rhs.added)
-        case .name, .kind, .fileExtension, .permissions, .owner, .tags:
+        case .name, .kind, .fileExtension, .permissions, .owner, .group, .tags:
             // localizedStandardCompare is the Finder-ish one: case-insensitive,
             // and "file10" sorts after "file9" rather than before it.
             result = lhs.text(for: column).localizedStandardCompare(rhs.text(for: column))

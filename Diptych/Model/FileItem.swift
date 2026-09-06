@@ -34,6 +34,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     var added: Date = .distantPast
     var kind: String = ""
     var owner: String = ""
+    var group: String = ""
     var permissions: String = ""
     var tags: [String] = []
 
@@ -76,6 +77,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .fileExtension: return (name as NSString).pathExtension
         case .permissions:   return permissions
         case .owner:         return owner
+        case .group:         return group
         case .tags:          return tags.joined(separator: ", ")
         }
     }

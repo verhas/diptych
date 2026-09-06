@@ -42,6 +42,12 @@ final class PaneModel {
     /// selecting it before the new listing arrives would land on the old index.
     var pendingReveal: FileItem.ID?
 
+    /// The row whose permissions cell is being edited, and the nine characters
+    /// being edited. The edit applies to the whole selection, not just this row.
+    var permissionEditAnchor: FileItem.ID?
+    var permissionText = ""
+
+
     private var loadTask: Task<Void, Never>?
 
     /// Live refresh. A kqueue watch on the directory's own descriptor: the

@@ -39,7 +39,10 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 11)
-                    .background(Color(nsColor: .systemRed).opacity(0.94), in: Capsule())
+                    .background(model.toastIsError
+                                ? Color(nsColor: .systemRed).opacity(0.94)
+                                : Color(nsColor: .controlAccentColor).opacity(0.94),
+                                in: Capsule())
                     .shadow(color: .black.opacity(0.3), radius: 10, y: 3)
                     .padding(.bottom, 58)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -196,11 +199,22 @@ struct DialogSheet: View {
                     confirm: "Move to Trash",
                     destructive: true) { model.confirmTrash() }
 
+            case .authorizeOwner:
+                confirmation(
+                    title: "Change the owner as administrator?",
+                    detail: "Only the system administrator can give a file to another "
+                        + "user, so macOS will ask for a password.\n\n"
+                        + "Set the owner of \(model.pendingOwnerCount) item(s) "
+                        + "to \u{201C}\(model.pendingOwnerName)\u{201D}.",
+                    confirm: "Authenticate...",
+                    destructive: false) { model.confirmPrivilegedOwnerChange() }
+
             case .message(let text):
                 confirmation(title: "Operation failed",
                              detail: text,
                              confirm: "OK",
-                             destructive: false) { }
+                             destructive: false,
+                             showsCancel: false) { }
             }
         }
         .padding(20)
@@ -231,7 +245,7 @@ struct DialogSheet: View {
 
     @ViewBuilder
     private func confirmation(title: String, detail: String, confirm: String,
-                              destructive: Bool,
+                              destructive: Bool, showsCancel: Bool = true,
                               action: @escaping () -> Void) -> some View {
         Text(title).font(.headline)
         if !detail.isEmpty {
@@ -245,7 +259,7 @@ struct DialogSheet: View {
         }
         HStack {
             Spacer()
-            if destructive {
+            if showsCancel {
                 Button("Cancel") { model.dialog = nil }
                     .keyboardShortcut(.cancelAction)
             }

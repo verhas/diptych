@@ -61,6 +61,22 @@ struct FileCommands: Commands {
                 .disabled(model == nil)
         }
 
+        CommandGroup(replacing: .pasteboard) {
+            Button("Cut") { model?.cutSelectionToClipboard() }
+                .keyboardShortcut("x")
+            Button("Copy") { model?.copySelectionToClipboard() }
+                .keyboardShortcut("c")
+            Button("Paste") { model?.pasteIntoActivePane() }
+                .keyboardShortcut("v")
+
+            Divider()
+
+            Button("Copy File Names") { model?.copySelectionNames(fullPath: false) }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+            Button("Copy Full Paths") { model?.copySelectionNames(fullPath: true) }
+                .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+        }
+
         CommandMenu("Files") {
             Button("Open") { model?.openSelection() }
                 .keyboardShortcut(.downArrow, modifiers: .command)
@@ -77,6 +93,10 @@ struct FileCommands: Commands {
                 .keyboardShortcut("m", modifiers: [.command, .shift])
             Button("Rename...") { model?.requestRename() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Change Permissions...") { model?.requestPermissionEdit() }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+            Button("Change Owner...") { model?.requestOwnerEdit() }
+            Button("Change Group...") { model?.requestGroupEdit() }
             Button("Move to Trash") { model?.trashNow() }
                 .keyboardShortcut(.delete, modifiers: .command)
 

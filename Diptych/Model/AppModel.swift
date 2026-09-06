@@ -21,12 +21,14 @@ final class AppModel {
     enum Dialog: Identifiable, Equatable {
         case newFolder
         case trash
+        case authorizeOwner
         case message(String)
 
         var id: String {
             switch self {
-            case .newFolder: return "newFolder"
-            case .trash:     return "trash"
+            case .newFolder:      return "newFolder"
+            case .trash:          return "trash"
+            case .authorizeOwner: return "authorizeOwner"
             case .message:   return "message"
             }
         }
@@ -59,7 +61,12 @@ final class AppModel {
 
     /// A brief, self-dismissing message. For things that are worth seeing but
     /// not worth a dialog you have to acknowledge.
+    /// Replaces the Permissions column heading while editing, so the caret's
+    /// position is legible: "user", "group", "other".
+    var permissionScope: String?
+
     var toast: String?
+    private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
     var textInput = ""
@@ -96,6 +103,9 @@ final class AppModel {
     /// then F2 does nothing until you click.
     @ObservationIgnored private weak var renameTable: NSTableView?
     @ObservationIgnored private weak var lastTable: NSTableView?
+    @ObservationIgnored private var pendingClickEdit: Task<Void, Never>?
+    @ObservationIgnored private let picker = PopupMenu()
+    @ObservationIgnored private var pendingOwnerChange: (owner: String, urls: [URL])?
 
     init() {
         slot = Self.nextSlot
@@ -131,7 +141,7 @@ final class AppModel {
         left.reload()
         right.reload()
         KeyRouter.shared.register(self)
-        WidthProbe.run(self)
+        ClickRouter.shared.register(self)
 
         // Write a slot on first launch, so ~/.diptych exists and is editable
         // before the user has changed anything.
@@ -279,7 +289,8 @@ final class AppModel {
         }
     }
 
-    func flash(_ message: String) {
+    func flash(_ message: String, error: Bool = true) {
+        toastIsError = error
         toast = message
         toastTask?.cancel()
         toastTask = Task { @MainActor in
@@ -405,6 +416,278 @@ final class AppModel {
         }
     }
 
+    // MARK: - Clicks
+
+    /// Called by ClickRouter for every click on a pane table, before the table
+    /// has processed it -- so `pane.selection` here is still the selection as it
+    /// was when the button went down. That is what makes "was this row already
+    /// selected?" exact, instead of a guess based on elapsed time.
+    func tableClicked(pane: PaneModel, rowID: FileItem.ID?, column: FileColumn?, clickCount: Int) {
+        pendingClickEdit?.cancel()
+        endPermissionEdit()
+
+        guard clickCount == 1, let rowID, let column else { return }
+
+        let selectionBeforeClick = pane.selection
+
+        switch column {
+        case .name:
+            // Renaming needs exactly one target.
+            guard selectionBeforeClick == [rowID] else { return }
+            scheduleClickEdit { [weak self] in
+                self?.activate(pane)
+                self?.requestRename()
+            }
+
+        case .permissions:
+            // Permissions can be edited for a whole selection, so clicking any
+            // already-selected row starts the edit.
+            guard selectionBeforeClick.contains(rowID) else { return }
+            scheduleClickEdit { [weak self] in
+                self?.activate(pane)
+                self?.requestPermissionEdit(anchor: rowID)
+            }
+
+        case .owner:
+            guard selectionBeforeClick.contains(rowID) else { return }
+            scheduleClickEdit { [weak self] in
+                self?.activate(pane)
+                self?.requestOwnerEdit(anchor: rowID)
+            }
+
+        case .group:
+            guard selectionBeforeClick.contains(rowID) else { return }
+            scheduleClickEdit { [weak self] in
+                self?.activate(pane)
+                self?.requestGroupEdit(anchor: rowID)
+            }
+
+        default:
+            break
+        }
+    }
+
+    /// A click on the path bar, the toolbar, the other pane's chrome...
+    func clickedAwayFromTable() {
+        pendingClickEdit?.cancel()
+        endPermissionEdit()
+    }
+
+    private func scheduleClickEdit(_ action: @escaping @MainActor () -> Void) {
+        pendingClickEdit = Task { @MainActor in
+            // Long enough for a double-click to arrive and cancel this first.
+            try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval + 0.05))
+            guard !Task.isCancelled else { return }
+            action()
+        }
+    }
+
+    private func activate(_ pane: PaneModel) {
+        activeSide = (pane === left) ? .left : .right
+    }
+
+    // MARK: - Clipboard
+
+    func copySelectionToClipboard() {
+        guard !forwardToTextEditor(#selector(NSText.copy(_:))) else { return }
+        let urls = active.selectedItems.map(\.url)
+        guard !urls.isEmpty else { return }
+        Clipboard.copy(urls)
+        flash("Copied \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+    }
+
+    func cutSelectionToClipboard() {
+        guard !forwardToTextEditor(#selector(NSText.cut(_:))) else { return }
+        let urls = active.selectedItems.map(\.url)
+        guard !urls.isEmpty else { return }
+        Clipboard.cut(urls)
+        flash("Cut \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+    }
+
+    func pasteIntoActivePane() {
+        guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
+
+        let urls = Clipboard.fileURLs()
+        guard !urls.isEmpty else { return }
+
+        let destination = active.directory
+        let move = Clipboard.holdsCut
+        // Moving a file into the folder it already sits in is a no-op, and
+        // moveItem would fail on it.
+        let sources = move
+            ? urls.filter { $0.deletingLastPathComponent().path != destination.path }
+            : urls
+        guard !sources.isEmpty else { return }
+
+        let pane = active
+        Task {
+            let outcome = await FileOperations.shared.transfer(sources, to: destination,
+                                                               kind: move ? .move : .copy)
+            pane.reload()
+            inactive.reload()
+            report(outcome, verb: move ? "move" : "copy")
+        }
+    }
+
+    /// Names or paths as shell arguments, space separated, for pasting into a
+    /// terminal as arguments to a command.
+    func copySelectionNames(fullPath: Bool) {
+        let items = active.selectedItems
+        guard !items.isEmpty else { return }
+
+        let values = items.map { fullPath ? $0.url.path : $0.name }
+        Clipboard.copyText(Shell.arguments(values))
+        flash("Copied \(values.count) \(fullPath ? "path" : "name")\(values.count == 1 ? "" : "s")",
+              error: false)
+    }
+
+    /// Menu key equivalents are matched before the responder chain, so Cmd-C
+    /// inside the rename field would land here instead of copying text. Hand it
+    /// back when a text editor has focus.
+    private func forwardToTextEditor(_ selector: Selector) -> Bool {
+        guard let responder = window?.firstResponder,
+              responder is NSText || responder.isKind(of: NSTextView.self) else { return false }
+        NSApp.sendAction(selector, to: nil, from: nil)
+        return true
+    }
+
+    // MARK: - Owner and group
+
+    func requestOwnerEdit(anchor: FileItem.ID? = nil) {
+        guard let target = ownershipTarget(anchor, column: "Owner") else { return }
+        picker.show(sections: [.init(title: "Users", items: AccountLookup.users())],
+                    current: target.owner) { [weak self] name in
+            self?.applyOwnership(owner: name, group: nil)
+        }
+    }
+
+    func requestGroupEdit(anchor: FileItem.ID? = nil) {
+        guard let target = ownershipTarget(anchor, column: "Group") else { return }
+
+        // Your own groups first: they are the only ones a chgrp will accept
+        // without root.
+        let own = AccountLookup.ownGroups()
+        let rest = AccountLookup.groups().filter { !own.contains($0) }
+        picker.show(sections: [.init(title: "Your groups", items: own),
+                               .init(title: "All groups", items: rest)],
+                    current: target.group) { [weak self] name in
+            self?.applyOwnership(owner: nil, group: name)
+        }
+    }
+
+    private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {
+        let items = active.selectedItems
+        guard !items.isEmpty else {
+            dialog = .message("Select one or more items first.")
+            return nil
+        }
+        let target = anchor.flatMap { id in items.first { $0.id == id } } ?? items[0]
+        guard !target.owner.isEmpty else {
+            dialog = .message("Switch on the \(column) column in Settings to edit it.")
+            return nil
+        }
+        return target
+    }
+
+    private func applyOwnership(owner: String?, group: String?) {
+        let pane = active
+        let urls = pane.selectedItems.map(\.url)
+        guard !urls.isEmpty else { return }
+
+        Task {
+            let outcome = await FileOperations.shared.setOwnership(owner: owner, group: group,
+                                                                   for: urls)
+            pane.reload()
+            inactive.reload()
+            guard !outcome.isCompleteSuccess else { return }
+
+            // Changing an owner is refused for everyone but root, so offer the
+            // authenticated route rather than just reporting a failure.
+            if let owner {
+                pendingOwnerChange = (owner, urls)
+                dialog = .authorizeOwner
+            } else {
+                report(outcome, verb: "change the group of")
+            }
+        }
+    }
+
+    func confirmPrivilegedOwnerChange() {
+        guard let pending = pendingOwnerChange else { return }
+        pendingOwnerChange = nil
+
+        if let message = Privileged.chown(owner: pending.owner, urls: pending.urls) {
+            dialog = .message("Could not change the owner.\n\n" + message)
+        }
+        left.reload()
+        right.reload()
+    }
+
+    var pendingOwnerName: String { pendingOwnerChange?.owner ?? "" }
+    var pendingOwnerCount: Int { pendingOwnerChange?.urls.count ?? 0 }
+
+    // MARK: - Permissions
+
+    /// `anchor` is the row whose cell hosts the editor; the edit still applies
+    /// to the whole selection.
+    func requestPermissionEdit(anchor: FileItem.ID? = nil) {
+        let items = active.selectedItems
+        guard !items.isEmpty else {
+            dialog = .message("Select one or more items to change permissions.")
+            return
+        }
+
+        let target = anchor.flatMap { id in items.first { $0.id == id } } ?? items[0]
+        guard target.permissions.count == 10 else {
+            dialog = .message("Switch on the Permissions column in Settings to edit permissions.")
+            return
+        }
+
+        renameTable = currentTable
+        // Drop the leading type character: "drwxr-xr-x" -> "rwxr-xr-x".
+        active.permissionText = String(target.permissions.dropFirst())
+        active.permissionEditAnchor = target.id
+        permissionScope = PermissionEditorView.scope(at: 0)
+    }
+
+    /// Ends an edit in whichever pane has one open, applying it.
+    private func endPermissionEdit() {
+        for pane in [left, right] where pane.permissionEditAnchor != nil {
+            commitPermissionEdit(pane.permissionText, in: pane)
+        }
+    }
+
+    func permissionCursorMoved(to index: Int) {
+        permissionScope = PermissionEditorView.scope(at: index)
+    }
+
+    func cancelPermissionEdit() {
+        for pane in [left, right] { pane.permissionEditAnchor = nil }
+        permissionScope = nil
+        restoreTableFocus()
+    }
+
+    func commitPermissionEdit(_ text: String, in pane: PaneModel? = nil) {
+        let pane = pane ?? active
+        let urls = pane.selectedItems.map(\.url)
+        pane.permissionEditAnchor = nil
+        permissionScope = nil
+        restoreTableFocus()
+
+        guard text.count == 9, !urls.isEmpty else { return }
+
+        var mode: mode_t = 0
+        for (index, character) in text.enumerated() where character != "-" {
+            mode |= mode_t(1) << mode_t(8 - index)
+        }
+
+        Task {
+            let outcome = await FileOperations.shared.setPermissions(mode, for: urls)
+            pane.reload()
+            report(outcome, verb: "change permissions for")
+        }
+    }
+
     private func restoreTableFocus() {
         guard let table = renameTable ?? currentTable else { return }
         window?.makeFirstResponder(table)
@@ -527,6 +810,8 @@ final class AppModel {
         case .tab:            toggleActiveSide()
         case .ret, .enter:    openSelection()
         case .f2:             requestRename()
+        // F4 as well as F9: on many setups F9 is taken by Mission Control.
+        case .f4, .f9:        requestPermissionEdit()
         case .f3:             viewSelection()
         case .f5:             copySelection()
         case .f6:             moveSelection()

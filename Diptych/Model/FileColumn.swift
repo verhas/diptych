@@ -16,6 +16,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
     case fileExtension
     case permissions
     case owner
+    case group
     case tags
 
     var id: String { rawValue }
@@ -31,6 +32,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fileExtension: "Extension"
         case .permissions:   "Permissions"
         case .owner:         "Owner"
+        case .group:         "Group"
         case .tags:          "Tags"
         }
     }
@@ -51,6 +53,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fileExtension: []                       // derived from the name
         case .permissions:   [.fileSecurityKey]
         case .owner:         [.fileSecurityKey]
+        case .group:         [.fileSecurityKey]
         case .tags:          [.tagNamesKey]
         }
     }
@@ -66,6 +69,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .fileExtension: (60, 80, 140)
         case .permissions:   (90, 100, 130)
         case .owner:         (80, 110, 180)
+        case .group:         (80, 110, 180)
         case .tags:          (80, 130, 260)
         }
     }
