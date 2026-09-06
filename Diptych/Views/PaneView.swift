@@ -20,7 +20,6 @@ struct PaneView: View {
     @FocusState.Binding var focusedSide: AppModel.Side?
 
     @State private var pathText = ""
-    @State private var isEditingPath = false
     @FocusState private var pathFieldFocused: Bool
 
     var body: some View {
@@ -52,12 +51,12 @@ struct PaneView: View {
         // Return and Escape ever dismissed it.
         .onChange(of: pane.directory) { _, new in
             pathText = new.path
-            if isEditingPath { endPathEdit(returnFocus: false) }
+            if pane.isEditingPath { endPathEdit(returnFocus: false) }
         }
         // Clicking anywhere else is a cancel. Focus has already moved, so this
         // must not try to move it again.
         .onChange(of: pathFieldFocused) { _, focused in
-            if !focused && isEditingPath { endPathEdit(returnFocus: false) }
+            if !focused && pane.isEditingPath { endPathEdit(returnFocus: false) }
         }
     }
 
@@ -80,7 +79,7 @@ struct PaneView: View {
             // loop, so the table never got focus and the arrow keys typed into
             // the path bar. Showing a button until you ask to edit -- Finder's
             // "Go to Folder" model -- leaves the table as the only focus target.
-            if isEditingPath {
+            if pane.isEditingPath {
                 TextField("Path", text: $pathText)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11, design: .monospaced))
@@ -124,16 +123,23 @@ struct PaneView: View {
     private func beginPathEdit() {
         activate()
         pathText = pane.directory.path
-        isEditingPath = true
+        pane.isEditingPath = true
     }
 
     /// `returnFocus` is false when focus has already gone somewhere else --
     /// pulling it back to this pane's table would steal it from whatever the
     /// user just clicked.
     private func endPathEdit(returnFocus: Bool = true) {
-        guard isEditingPath else { return }
-        isEditingPath = false
+        guard pane.isEditingPath else { return }
+        pane.isEditingPath = false
         pathFieldFocused = false
+
+        // If the folder vanished while the path was being edited, the move was
+        // deferred until now.
+        if !FileManager.default.fileExists(atPath: pane.directory.path) {
+            model.flash("\u{201C}\(pane.directory.lastPathComponent)\u{201D} is no longer there")
+            pane.navigate(to: PaneModel.nearestExistingAncestor(of: pane.directory))
+        }
         if returnFocus {
             // Otherwise focus lands nowhere and the arrow keys stop working
             // after a cancelled path edit.
@@ -143,6 +149,22 @@ struct PaneView: View {
 
     private func commitPath() {
         let expanded = (pathText as NSString).expandingTildeInPath
+
+        // Navigating to a path that is not there used to leave the pane looking
+        // like an empty folder. Refuse instead, and stay in the editor so the
+        // typo can be corrected -- Escape still backs out to where we were.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) else {
+            model.flash("\u{201C}\(pathText)\u{201D} does not exist")
+            pathFieldFocused = true
+            return
+        }
+        guard isDirectory.boolValue else {
+            model.flash("\u{201C}\(pathText)\u{201D} is a file, not a folder")
+            pathFieldFocused = true
+            return
+        }
+
         pane.navigate(to: URL(fileURLWithPath: expanded))
         endPathEdit()
     }
@@ -152,13 +174,33 @@ struct PaneView: View {
         // TableColumnForEach rather than written out. That in turn is why
         // sorting uses one FileComparator for every column: SwiftUI needs a
         // single concrete comparator type across a dynamic column set.
-        Table(pane.rows, selection: $pane.selection, sortOrder: $pane.sortOrder) {
+        Table(of: FileItem.self, selection: $pane.selection, sortOrder: $pane.sortOrder) {
             TableColumnForEach(ConfigStore.shared.configuration.columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
                     CellView(column: column, item: item, pane: pane, model: model,
                              activate: activate)
                 }
                 .width(min: column.width.min, ideal: column.width.ideal, max: column.width.max)
+            }
+        } rows: {
+            ForEach(pane.rows) { item in
+                // Dragging is declared on the row, not on a cell. The table owns
+                // the drag, so it cannot interfere with click selection the way
+                // a gesture inside a cell does. NSItemProvider(contentsOf:)
+                // vends a real file reference, which is what Finder and other
+                // apps expect -- a plain URL would arrive as a link.
+                TableRow(item)
+                    .itemProvider {
+                        guard !item.isParent,
+                              let provider = NSItemProvider(contentsOf: item.url) else { return nil }
+                        // Without a suggested name the promise has none and
+                        // Finder invents one from the content type -- "text.log".
+                        // The extension is appended from that type, so this is
+                        // the stem only; passing the full name yields
+                        // "item-003.log.log".
+                        provider.suggestedName = item.url.deletingPathExtension().lastPathComponent
+                        return provider
+                    }
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
@@ -193,6 +235,7 @@ struct PaneView: View {
                 activate()
                 if let id = ids.first { model.open(id: id, in: pane) }
             }
+            Button("Get Info") { activate(); model.showInfo() }
             Divider()
             // A menu with a primary action: clicking "Copy" copies the files,
             // exactly as Cmd-C does, while the submenu offers the text forms.

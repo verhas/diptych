@@ -22,6 +22,7 @@ final class AppModel {
         case newFolder
         case trash
         case authorizeOwner
+        case conflict
         case message(String)
 
         var id: String {
@@ -29,6 +30,7 @@ final class AppModel {
             case .newFolder:      return "newFolder"
             case .trash:          return "trash"
             case .authorizeOwner: return "authorizeOwner"
+            case .conflict:       return "conflict"
             case .message:   return "message"
             }
         }
@@ -76,6 +78,14 @@ final class AppModel {
     @ObservationIgnored weak var window: NSWindow? {
         didSet {
             guard let window, window !== oldValue else { return }
+            // Your macOS setting "Prefer tabs when opening documents" is what
+            // decides whether a new window becomes a tab, and its default --
+            // In Full Screen Only -- means Cmd-N opens a separate window. A
+            // file manager wants tabs, so ask for them explicitly; dragging a
+            // tab out still gives a separate window.
+            window.tabbingMode = .preferred
+            window.tabbingIdentifier = "dev.verhas.Diptych.pane-window"
+
             restoreFrame(on: window)
             observeFrameChanges(of: window)
             ColumnWidths.startObserving()
@@ -105,6 +115,8 @@ final class AppModel {
     @ObservationIgnored private weak var lastTable: NSTableView?
     @ObservationIgnored private var pendingClickEdit: Task<Void, Never>?
     @ObservationIgnored private let picker = PopupMenu()
+    @ObservationIgnored var openNewWindow: (() -> Void)?
+    @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, urls: [URL])?
 
     init() {
@@ -142,6 +154,17 @@ final class AppModel {
         right.reload()
         KeyRouter.shared.register(self)
         ClickRouter.shared.register(self)
+
+        // An Info window edits attributes, which a directory watch never sees:
+        // kqueue reports entries appearing and vanishing, not a chmod.
+        NotificationCenter.default.addObserver(
+            forName: FileInfoModel.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.left.reload()
+                self?.right.reload()
+            }
+        }
 
         // Write a slot on first launch, so ~/.diptych exists and is editable
         // before the user has changed anything.
@@ -238,6 +261,13 @@ final class AppModel {
         pane.open(item)
     }
 
+    /// Cmd-I. Exactly one item: an Info window describes one file, and picking
+    /// the first of several silently would be a guess.
+    func showInfo() {
+        guard let item = singleSelection("show info for", includingParent: false) else { return }
+        openInfoWindow?(item.url)
+    }
+
     /// Space, as in Finder.
     func toggleQuickLook() {
         QuickLookController.shared.toggle(active.selectedItems.map(\.url), owner: self)
@@ -278,15 +308,8 @@ final class AppModel {
     private func transfer(_ kind: FileOperations.Transfer) {
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
-        let destination = inactive.directory
-        let source = active
-
-        Task {
-            let outcome = await FileOperations.shared.transfer(urls, to: destination, kind: kind)
-            report(outcome, verb: kind == .copy ? "copy" : "move")
-            if kind == .move { source.reload() }
-            inactive.reload()
-        }
+        performTransfer(urls, to: inactive.directory, kind: kind,
+                        into: inactive, from: kind == .move ? active : nil)
     }
 
     func flash(_ message: String, error: Bool = true) {
@@ -330,7 +353,7 @@ final class AppModel {
 
         Task {
             let outcome = await FileOperations.shared.trash(urls)
-            pane.pendingReveal = successor
+            pane.pendingSelection = successor.map { [$0] } ?? []
             pane.reload()
             inactive.reload()   // the other pane may be showing the same folder
             report(outcome, verb: "move to Trash")
@@ -349,7 +372,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.createDirectory(named: name, in: parent)
-                active.pendingReveal = url
+                active.pendingSelection = [url]
                 active.reload()
             } catch {
                 dialog = .message(error.localizedDescription)
@@ -408,7 +431,7 @@ final class AppModel {
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
                 // Renaming the last row leaves no successor; stay on the file.
-                pane.pendingReveal = advance ? (successor ?? url) : url
+                pane.pendingSelection = [advance ? (successor ?? url) : url]
                 pane.reload()
             } catch {
                 dialog = .message(error.localizedDescription)
@@ -422,9 +445,14 @@ final class AppModel {
     /// has processed it -- so `pane.selection` here is still the selection as it
     /// was when the button went down. That is what makes "was this row already
     /// selected?" exact, instead of a guess based on elapsed time.
+    func cancelPendingClickEdit() {
+        pendingClickEdit?.cancel()
+    }
+
     func tableClicked(pane: PaneModel, rowID: FileItem.ID?, column: FileColumn?, clickCount: Int) {
         pendingClickEdit?.cancel()
         endPermissionEdit()
+        endRename(unless: rowID)
 
         guard clickCount == 1, let rowID, let column else { return }
 
@@ -471,6 +499,20 @@ final class AppModel {
     func clickedAwayFromTable() {
         pendingClickEdit?.cancel()
         endPermissionEdit()
+        endRename(unless: nil)
+    }
+
+    /// Commit any rename in progress, unless the click landed on the very row
+    /// being renamed. Without this a row could be left showing an editor that
+    /// no longer had focus and could not be dismissed.
+    private func endRename(unless rowID: FileItem.ID?) {
+        for pane in [left, right] {
+            guard let editing = pane.renamingID, editing != rowID else { continue }
+            let previous = activeSide
+            activeSide = (pane === left) ? .left : .right
+            commitInlineRename()
+            activeSide = previous
+        }
     }
 
     private func scheduleClickEdit(_ action: @escaping @MainActor () -> Void) {
@@ -484,6 +526,143 @@ final class AppModel {
 
     private func activate(_ pane: PaneModel) {
         activeSide = (pane === left) ? .left : .right
+    }
+
+    // MARK: - Name conflicts
+
+    /// What the user chose for one clashing file.
+    enum ConflictChoice {
+        case overwrite
+        case rename(String)
+        case skip
+        /// Skip this one and every later clash in the same operation, so a
+        /// folder that mostly already exists takes one click, not dozens.
+        case skipAll
+        case abort
+    }
+
+    struct Conflict {
+        let sourceName: String
+        let folderName: String
+        /// How many items are still queued behind this one. Abort is only
+        /// offered when stopping actually saves the user something.
+        let remaining: Int
+    }
+
+    private(set) var conflict: Conflict?
+    /// The name in the conflict sheet's text field, pre-filled with the
+    /// automatic suggestion so "Rename" alone does the obvious thing.
+    var conflictName = ""
+    @ObservationIgnored private var conflictContinuation: CheckedContinuation<ConflictChoice, Never>?
+
+    func resolveConflict(_ choice: ConflictChoice) {
+        conflict = nil
+        dialog = nil
+        let continuation = conflictContinuation
+        conflictContinuation = nil
+        continuation?.resume(returning: choice)
+    }
+
+    private func askAboutConflict(source: URL, target: URL, remaining: Int) async -> ConflictChoice {
+        conflictName = FileOperations.uniqueURL(for: target).lastPathComponent
+        conflict = Conflict(sourceName: source.lastPathComponent,
+                            folderName: target.deletingLastPathComponent().lastPathComponent,
+                            remaining: remaining)
+        dialog = .conflict
+
+        return await withCheckedContinuation { continuation in
+            conflictContinuation = continuation
+        }
+    }
+
+    /// The one path every copy and move goes through -- F5/F6, paste, and drops
+    /// alike -- so a name clash is handled the same way whichever started it.
+    private func performTransfer(_ urls: [URL], to destination: URL,
+                                 kind: FileOperations.Transfer,
+                                 into destinationPane: PaneModel,
+                                 from sourcePane: PaneModel?) {
+        guard !urls.isEmpty else { return }
+
+        Task { @MainActor in
+            var outcome = FileOperations.Outcome()
+            var aborted = false
+            var skipEveryClash = false
+
+            for (index, source) in urls.enumerated() {
+                var target = destination.appendingPathComponent(source.lastPathComponent)
+                var overwrite = false
+
+                if FileOperations.exists(target) {
+                    if skipEveryClash { continue }
+
+                    switch await askAboutConflict(source: source, target: target,
+                                                  remaining: urls.count - index - 1) {
+                    case .overwrite:
+                        overwrite = true
+                    case .rename(let name):
+                        target = destination.appendingPathComponent(name)
+                        overwrite = false
+                    case .skip:
+                        continue
+                    case .skipAll:
+                        skipEveryClash = true
+                        continue
+                    case .abort:
+                        aborted = true
+                    }
+                }
+                if aborted { break }
+
+                if let message = await FileOperations.shared.transferOne(source, to: target,
+                                                                         kind: kind,
+                                                                         overwrite: overwrite) {
+                    outcome.failures.append((source, message))
+                } else {
+                    outcome.succeeded.append(target)
+                }
+            }
+
+            sourcePane?.reload()
+            // Leave the moved or copied files selected where they landed.
+            destinationPane.pendingSelection = Set(outcome.succeeded)
+            destinationPane.reload()
+
+            if outcome.isCompleteSuccess {
+                let verb = kind == .move ? "Moved" : "Copied"
+                if !outcome.succeeded.isEmpty {
+                    flash("\(verb) \(outcome.succeeded.count) item"
+                          + (outcome.succeeded.count == 1 ? "" : "s"), error: false)
+                }
+            } else {
+                report(outcome, verb: kind == .move ? "move" : "copy")
+            }
+        }
+    }
+
+    // MARK: - Tabs
+
+    /// Opens a sibling window and joins it to this window's tab group.
+    ///
+    /// Setting `tabbingMode = .preferred` is not enough on its own: macOS
+    /// decides tab membership when a window is ordered in, which is before our
+    /// model ever sees it -- measured, two windows and `tabbedWindows == 0`.
+    /// Adding it to the group afterwards is explicit and always works, whatever
+    /// the "Prefer tabs when opening documents" setting says.
+    func newTab() {
+        guard let window, let openNewWindow else { return }
+
+        let before = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openNewWindow()
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let created = NSApp.windows.first(where: {
+                !before.contains(ObjectIdentifier($0)) && $0.isVisible
+            }) else { return }
+
+            window.addTabbedWindow(created, ordered: .above)
+            created.makeKeyAndOrderFront(nil)
+        }
     }
 
     // MARK: - Clipboard
@@ -519,14 +698,10 @@ final class AppModel {
             : urls
         guard !sources.isEmpty else { return }
 
-        let pane = active
-        Task {
-            let outcome = await FileOperations.shared.transfer(sources, to: destination,
-                                                               kind: move ? .move : .copy)
-            pane.reload()
-            inactive.reload()
-            report(outcome, verb: move ? "move" : "copy")
-        }
+        // The source may be this window's other pane, another window, or
+        // Finder; refreshing the other pane covers the case we can see.
+        performTransfer(sources, to: destination, kind: move ? .move : .copy,
+                        into: active, from: inactive)
     }
 
     /// Names or paths as shell arguments, space separated, for pasting into a
@@ -541,6 +716,14 @@ final class AppModel {
               error: false)
     }
 
+    /// Cmd-A. Without a menu item bound to it, the shortcut matches nothing and
+    /// even a focused text field never sees it -- which is why Select All had
+    /// stopped working in the path box once the Edit menu was replaced.
+    func selectAll() {
+        guard !forwardToTextEditor(#selector(NSText.selectAll(_:))) else { return }
+        active.selection = Set(active.rows.filter { !$0.isParent }.map(\.id))
+    }
+
     /// Menu key equivalents are matched before the responder chain, so Cmd-C
     /// inside the rename field would land here instead of copying text. Hand it
     /// back when a text editor has focus.
@@ -549,6 +732,88 @@ final class AppModel {
               responder is NSText || responder.isKind(of: NSTextView.self) else { return false }
         NSApp.sendAction(selector, to: nil, from: nil)
         return true
+    }
+
+    // MARK: - Drag and drop
+
+    /// SwiftUI's URL importer hands over only the first item of a multi-item
+    /// drag -- measured, not assumed. The drag pasteboard has them all.
+    func dragPasteboardURLs() -> [URL] {
+        NSPasteboard(name: .drag)
+            .readObjects(forClasses: [NSURL.self],
+                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    /// Whether a drop happening right now would move rather than copy. The drag
+    /// badge is drawn from this, so it has to use exactly the same rule the
+    /// drop itself does.
+    func dropWouldMove() -> Bool {
+        let pane = paneUnderPointer() ?? active
+        return shouldMove(dragPasteboardURLs(), to: pane.directory)
+    }
+
+    @discardableResult
+    func performPasteboardDrop() -> Bool {
+        let urls = dragPasteboardURLs()
+        guard !urls.isEmpty else { return false }
+        drop(urls, into: paneUnderPointer() ?? active)
+        return true
+    }
+
+    private func shouldMove(_ urls: [URL], to destination: URL) -> Bool {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.option) { return false }   // Option forces a copy
+        if modifiers.contains(.command) { return true }   // Command forces a move
+        // Finder's rule: within a volume a drag moves, across volumes it copies.
+        return onSameVolume(urls, as: destination)
+    }
+
+    private func paneUnderPointer() -> PaneModel? {
+        guard let window else { return nil }
+        let tables = TableFinder.tables(in: window)
+        guard tables.count > 1 else { return active }
+
+        let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        for (index, table) in tables.enumerated() {
+            if table.convert(table.bounds, to: nil).contains(point) {
+                return index == 0 ? left : right
+            }
+        }
+        // Dropped on a pane's chrome rather than its list: fall back to which
+        // side of the divider the pointer is on.
+        let divider = tables[1].convert(tables[1].bounds, to: nil).minX
+        return point.x < divider ? left : right
+    }
+
+    /// Files dropped onto a pane, from the other pane, from Finder, from another
+    /// Diptych window, or from any app that vends file URLs.
+    func drop(_ urls: [URL], into pane: PaneModel) {
+        let destination = pane.directory
+        // Dropping something back into the folder it already lives in.
+        let sources = urls.filter { $0.deletingLastPathComponent().path != destination.path }
+        guard !sources.isEmpty else {
+            // Say so rather than appearing to ignore the drop entirely.
+            flash("Already in \u{201C}\(destination.lastPathComponent)\u{201D}")
+            return
+        }
+
+        activate(pane)
+
+        let move = shouldMove(sources, to: destination)
+
+        performTransfer(sources, to: destination, kind: move ? .move : .copy,
+                        into: pane, from: pane === left ? right : left)
+    }
+
+    private func onSameVolume(_ urls: [URL], as destination: URL) -> Bool {
+        guard let target = try? destination.resourceValues(forKeys: [.volumeIdentifierKey])
+            .volumeIdentifier else { return false }
+
+        return urls.allSatisfy { url in
+            guard let identifier = try? url.resourceValues(forKeys: [.volumeIdentifierKey])
+                .volumeIdentifier else { return false }
+            return identifier.isEqual(target)
+        }
     }
 
     // MARK: - Owner and group
@@ -707,6 +972,11 @@ final class AppModel {
     }
 
     /// Exchange the two panes wholesale, with everything they contain.
+    func refreshPanes() {
+        left.reload()
+        right.reload()
+    }
+
     func swapPanes() {
         swap(&left, &right)
         persist()
@@ -723,8 +993,25 @@ final class AppModel {
     private func report(_ outcome: FileOperations.Outcome, verb: String) {
         guard !outcome.isCompleteSuccess else { return }
         let lines = outcome.failures.prefix(10).map { "\($0.url.lastPathComponent): \($0.message)" }
-        dialog = .message("Could not \(verb) \(outcome.failures.count) item(s).\n\n"
-            + lines.joined(separator: "\n"))
+        var text = "Could not \(verb) \(outcome.failures.count) item(s).\n\n"
+            + lines.joined(separator: "\n")
+
+        if let hint = Self.accessControlHint(for: outcome.failures.map(\.url)) {
+            text += hint
+        }
+        dialog = .message(text)
+    }
+
+    /// "Permission denied" on a file whose bits look fine is almost always an
+    /// ACL, and the reason is rarely obvious, so say it.
+    static func accessControlHint(for urls: [URL]) -> String? {
+        guard urls.contains(where: { AccessControl.text(of: $0.path) != nil }) else { return nil }
+        return "\n\nOne of these items has an access control list. An ACL entry "
+            + "overrides the permission bits, and entries are matched top to bottom "
+            + "with the first match winning -- so a \u{201C}deny\u{201D} above an "
+            + "\u{201C}allow\u{201D} wins, even for the owner. Renaming needs "
+            + "\u{201C}delete\u{201D}, because it removes the old name. "
+            + "The Info window\u{2019}s Access tab shows and edits the list."
     }
 
     // MARK: - Type-ahead

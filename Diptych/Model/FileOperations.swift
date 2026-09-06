@@ -16,23 +16,47 @@ actor FileOperations {
         var isCompleteSuccess: Bool { failures.isEmpty }
     }
 
-    func transfer(_ urls: [URL], to destination: URL, kind: Transfer) -> Outcome {
+    /// Moves or copies one item to an exact target, which the caller has
+    /// already resolved against any name clash.
+    func transferOne(_ source: URL, to target: URL, kind: Transfer,
+                     overwrite: Bool) -> String? {
         let fm = FileManager()
-        var outcome = Outcome()
-
-        for url in urls {
-            do {
-                let target = Self.nonClashingURL(for: destination.appendingPathComponent(url.lastPathComponent), fm: fm)
-                switch kind {
-                case .copy: try fm.copyItem(at: url, to: target)
-                case .move: try fm.moveItem(at: url, to: target)
-                }
-                outcome.succeeded.append(target)
-            } catch {
-                outcome.failures.append((url, error.localizedDescription))
+        do {
+            if overwrite, fm.fileExists(atPath: target.path) {
+                try fm.removeItem(at: target)
             }
+            switch kind {
+            case .copy: try fm.copyItem(at: source, to: target)
+            case .move: try fm.moveItem(at: source, to: target)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
         }
-        return outcome
+    }
+
+    nonisolated static func exists(_ url: URL) -> Bool {
+        FileManager().fileExists(atPath: url.path)
+    }
+
+    /// "report.pdf" -> "report-1.pdf", then "-2" and so on.
+    ///
+    /// A dash rather than a space, and starting at 1 rather than 2: a space in
+    /// a generated name is a nuisance everywhere it is later typed.
+    nonisolated static func uniqueURL(for url: URL) -> URL {
+        let fm = FileManager()
+        guard fm.fileExists(atPath: url.path) else { return url }
+
+        let ext = url.pathExtension
+        let stem = url.deletingPathExtension().lastPathComponent
+        let directory = url.deletingLastPathComponent()
+
+        for suffix in 1...9999 {
+            var candidate = directory.appendingPathComponent("\(stem)-\(suffix)")
+            if !ext.isEmpty { candidate.appendPathExtension(ext) }
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return url
     }
 
     /// Delete means *trash*, always. `removeItem` is unrecoverable and has no
@@ -116,20 +140,4 @@ actor FileOperations {
         return target
     }
 
-    /// "report.pdf" -> "report 2.pdf" when the destination is taken, the way
-    /// Finder does it, instead of silently overwriting the user's data.
-    private static func nonClashingURL(for url: URL, fm: FileManager) -> URL {
-        guard fm.fileExists(atPath: url.path) else { return url }
-
-        let ext = url.pathExtension
-        let stem = url.deletingPathExtension().lastPathComponent
-        let dir = url.deletingLastPathComponent()
-
-        for n in 2...9999 {
-            var candidate = dir.appendingPathComponent("\(stem) \(n)")
-            if !ext.isEmpty { candidate.appendPathExtension(ext) }
-            if !fm.fileExists(atPath: candidate.path) { return candidate }
-        }
-        return url
-    }
 }

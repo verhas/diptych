@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
 
@@ -15,6 +16,11 @@ struct ContentView: View {
     /// not be allowed to drive `activeSide`, or a session saved with the right
     /// pane active always reopens on the left.
     @State private var focusFollowsUser = false
+    @State private var isDropTarget = false
+
+    /// SwiftUI's own window opener, handed to the model so New Tab can create a
+    /// sibling window without going through the menu bar by title.
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +31,24 @@ struct ContentView: View {
             // the right pane was undone ~10ms later and focus snapped back left.
             // Initial focus is set once in .task below instead.
             panes
+                // One drop destination for both panes, not one each. SwiftUI
+                // gives every .dropDestination a platform view the size of the
+                // whole window, so two of them overlap and whichever is on top
+                // swallows every drop -- which silently sent drops meant for the
+                // right pane to the left one.
+                // A DropDelegate rather than .dropDestination, because only a
+                // delegate can say whether the drop is a move or a copy --
+                // .dropDestination always advertises copy, so an intra-volume
+                // drag that actually moves showed a green plus.
+                .onDrop(of: [.fileURL],
+                        delegate: PaneDropDelegate(model: model, isTargeted: $isDropTarget))
+                .overlay {
+                    if isDropTarget {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .allowsHitTesting(false)
+                    }
+                }
             Divider()
             FunctionBar(model: model)
         }
@@ -50,6 +74,8 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.22), value: model.toast)
         .task {
+            model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
+            model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.start()
             // Read the restored side *now*: SwiftUI's own focus assignment
             // lands during the sleep below, and would otherwise have already
@@ -154,6 +180,15 @@ struct ContentView: View {
 
         ToolbarItem {
             Button {
+                model.refreshPanes()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .help("Re-read both panes")
+        }
+
+        ToolbarItem {
+            Button {
                 model.swapPanes()
             } label: {
                 Label("Swap Panes", systemImage: "arrow.left.arrow.right")
@@ -169,6 +204,31 @@ struct ContentView: View {
             .toggleStyle(.button)
             .help(model.showHidden ? "Hide hidden files" : "Show hidden files")
         }
+    }
+}
+
+/// Routes drops for both panes.
+struct PaneDropDelegate: DropDelegate {
+
+    let model: AppModel
+    @Binding var isTargeted: Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = true }
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        MainActor.assumeIsolated {
+            DropProposal(operation: model.dropWouldMove() ? .move : .copy)
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        return MainActor.assumeIsolated { model.performPasteboardDrop() }
     }
 }
 
@@ -209,6 +269,9 @@ struct DialogSheet: View {
                     confirm: "Authenticate...",
                     destructive: false) { model.confirmPrivilegedOwnerChange() }
 
+            case .conflict:
+                conflictPrompt
+
             case .message(let text):
                 confirmation(title: "Operation failed",
                              detail: text,
@@ -218,7 +281,43 @@ struct DialogSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 470)
+    }
+
+    /// One sheet covering every clash choice. The text field starts at the
+    /// automatic suggestion, so "Rename" without touching it does the
+    /// `name-1.ext` thing, and editing it renames to anything you like.
+    @ViewBuilder
+    private var conflictPrompt: some View {
+        if let conflict = model.conflict {
+            Text("\u{201C}\(conflict.sourceName)\u{201D} already exists in \u{201C}\(conflict.folderName)\u{201D}")
+                .font(.headline)
+            Text("Choose what to do with this item.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            TextField("New name", text: $model.conflictName)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { model.resolveConflict(.rename(model.conflictName)) }
+
+            HStack {
+                if conflict.remaining > 0 {
+                    Button("Abort") { model.resolveConflict(.abort) }
+                        .help("Stop and leave the remaining \(conflict.remaining) item(s) alone")
+                }
+                Spacer()
+                if conflict.remaining > 0 {
+                    Button("Skip All") { model.resolveConflict(.skipAll) }
+                        .help("Skip this and every other item that already exists")
+                }
+                Button("Skip") { model.resolveConflict(.skip) }
+                    .keyboardShortcut(.cancelAction)
+                Button("Overwrite", role: .destructive) { model.resolveConflict(.overwrite) }
+                Button("Rename") { model.resolveConflict(.rename(model.conflictName)) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(model.conflictName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
     }
 
     @ViewBuilder
@@ -282,6 +381,7 @@ struct FunctionBar: View {
         HStack(spacing: 6) {
             key("F2", "Rename")   { model.requestRename() }
             key("F3", "View")     { model.viewSelection() }
+            key("F4", "Access")   { model.requestPermissionEdit() }
             key("F5", "Copy")     { model.copySelection() }
             key("F6", "Move")     { model.moveSelection() }
             key("F7", "Folder")   { model.requestNewFolder() }

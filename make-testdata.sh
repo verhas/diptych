@@ -124,6 +124,27 @@ ln -s /nowhere/at/all links/broken-link            # -> nothing
 mkdir -p "packages/Sample.rtfd"
 printf '{\\rtf1\\ansi Hello from a bundle.}' > "packages/Sample.rtfd/TXT.rtf"
 
+# ------------------------------------------------- access control lists + xattrs
+mkdir -p acl
+printf 'This file carries an access control list.\n' > acl/with-acl.txt
+printf 'This folder carries an access control list.\n' > acl/readme.txt
+chmod +a "$(whoami) allow read,write,delete" acl/with-acl.txt
+
+# A deliberately locked file, named so it is obvious. An ACL "deny" beats the
+# permission bits, and entries are matched top to bottom with the first match
+# winning -- so a deny above an allow wins even for the owner. "delete" covers
+# renaming too, because a rename removes the old directory entry.
+printf 'An ACL denies delete on this file, so it cannot be renamed or removed.\n' \
+    > acl/locked-by-acl.txt
+chmod +a "$(whoami) allow read,write" acl/locked-by-acl.txt
+chmod +a "everyone deny delete" acl/locked-by-acl.txt
+mkdir -p acl/protected
+chmod +a "$(whoami) allow list,search,add_file,delete_child" acl/protected
+
+# Extended attributes, for the Attributes tab.
+xattr -w com.example.note "an editable text attribute" acl/with-acl.txt
+xattr -w com.example.reviewer "peter" acl/with-acl.txt
+
 # ------------------------------------------------------------- an empty folder
 mkdir -p empty-folder
 
@@ -139,6 +160,9 @@ head -c 1        /dev/zero > sizes/1-byte.bin
 head -c 1024     /dev/zero > sizes/1-kb.bin
 head -c 1048576  /dev/urandom > sizes/1-mb.bin
 head -c 10485760 /dev/urandom > sizes/10-mb.bin
+
+echo "==> ACLs:"
+/bin/ls -le acl/with-acl.txt | sed 's/^/    /'
 
 echo "==> Done."
 find "$ROOT" -mindepth 1 -maxdepth 1 | sort | sed 's|.*/|    |'

@@ -37,10 +37,15 @@ final class PaneModel {
     var renamingID: FileItem.ID?
     var renameText = ""
 
-    /// A row to select and scroll to once the next load finishes. Set before
-    /// `reload()`: after a rename the file may sort somewhere else entirely, and
-    /// selecting it before the new listing arrives would land on the old index.
-    var pendingReveal: FileItem.ID?
+    /// Rows to select and scroll to once the next load finishes. Set before
+    /// `reload()`: after a rename or a move the files may sort somewhere else
+    /// entirely, and selecting them before the new listing arrives would land on
+    /// stale indexes.
+    var pendingSelection: Set<FileItem.ID> = []
+
+    /// True while the path bar is an open text field. The pane must not
+    /// relocate itself underneath a path being typed.
+    var isEditingPath = false
 
     /// The row whose permissions cell is being edited, and the nine characters
     /// being edited. The edit applies to the whole selection, not just this row.
@@ -96,6 +101,22 @@ final class PaneModel {
         renamingID = nil
         reload()
         owner?.persist()
+    }
+
+    /// The closest folder above `url` that still exists -- much less jarring
+    /// than jumping to the home directory from somewhere deep.
+    static func nearestExistingAncestor(of url: URL) -> URL {
+        let fm = FileManager.default
+        var candidate = url.deletingLastPathComponent()
+
+        while candidate.pathComponents.count > 1 {
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                return candidate
+            }
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return fm.homeDirectoryForCurrentUser
     }
 
     // MARK: - Persistence
@@ -225,10 +246,12 @@ final class PaneModel {
         items = loaded
         isLoading = false
 
-        if let reveal = pendingReveal {
-            pendingReveal = nil
-            if loaded.contains(where: { $0.id == reveal }) {
-                selection = [reveal]
+        if !pendingSelection.isEmpty {
+            let wanted = pendingSelection
+            pendingSelection = []
+            let present = wanted.filter { id in loaded.contains { $0.id == id } }
+            if !present.isEmpty {
+                selection = present
                 owner?.scrollSelectionIntoView()
                 return
             }
@@ -238,6 +261,23 @@ final class PaneModel {
 
     private func fail(_ error: Error, for target: URL) {
         guard target == directory else { return }
+
+        // The directory itself is gone -- deleted from under us, or renamed.
+        if !FileManager.default.fileExists(atPath: target.path) {
+            // ...but not while a path is being typed. Yanking the pane
+            // elsewhere mid-edit throws away what the user was doing; this is
+            // settled when they finish or press Escape.
+            guard !isEditingPath else {
+                items = []
+                isLoading = false
+                errorText = "This folder is no longer there"
+                return
+            }
+            owner?.flash("\u{201C}\(target.lastPathComponent)\u{201D} is no longer there")
+            navigate(to: Self.nearestExistingAncestor(of: target))
+            return
+        }
+
         items = directory.pathComponents.count > 1 ? [FileItem.parent(of: directory)] : []
         isLoading = false
         errorText = error.localizedDescription

@@ -6,10 +6,13 @@ import SwiftUI
 @main
 struct DiptychApp: App {
 
+    static let windowGroupID = "diptych.window"
+    static let infoWindowID = "diptych.info"
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: DiptychApp.windowGroupID) {
             // No model here on purpose. `@State` on an App is created once for
             // the process, so a model declared at this level is shared by every
             // window and tab. ContentView owns one model per window instead.
@@ -17,6 +20,13 @@ struct DiptychApp: App {
         }
         .defaultSize(width: 1100, height: 680)
         .commands { FileCommands() }
+
+        // One info window per file, keyed by URL, so Cmd-I on a second file
+        // opens a second window rather than replacing the first.
+        WindowGroup(id: DiptychApp.infoWindowID, for: URL.self) { $url in
+            if let url { InfoView(url: url) }
+        }
+        .defaultSize(width: 560, height: 540)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
@@ -51,23 +61,42 @@ struct FileCommands: Commands {
     /// is what disables the menu items.
     @FocusedValue(\.appModel) private var model: AppModel?
 
+    /// Run the pane command when a pane is focused, otherwise let AppKit send
+    /// the standard action to whatever text view has focus.
+    private func dispatch(_ command: (() -> Void)?, _ fallback: Selector) {
+        if let command {
+            command()
+        } else {
+            NSApp.sendAction(fallback, to: nil, from: nil)
+        }
+    }
+
     var body: some Commands {
         // `after:` rather than `replacing:` -- SwiftUI puts its own "New Window"
         // (Cmd-N) in the .newItem group for a WindowGroup scene, and each window
         // it opens gets a fresh AppModel. Replacing the group would delete it.
         CommandGroup(after: .newItem) {
+            Button("New Tab") { model?.newTab() }
+                .keyboardShortcut("t")
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil)
         }
 
+        // Every one of these falls back to the standard responder action when
+        // no pane has focus. Menu key equivalents are matched before the
+        // responder chain, so without the fallback Cmd-V in the Info window
+        // would hit a nil model and simply be swallowed.
         CommandGroup(replacing: .pasteboard) {
-            Button("Cut") { model?.cutSelectionToClipboard() }
+            Button("Cut") { dispatch(model?.cutSelectionToClipboard, #selector(NSText.cut(_:))) }
                 .keyboardShortcut("x")
-            Button("Copy") { model?.copySelectionToClipboard() }
+            Button("Copy") { dispatch(model?.copySelectionToClipboard, #selector(NSText.copy(_:))) }
                 .keyboardShortcut("c")
-            Button("Paste") { model?.pasteIntoActivePane() }
+            Button("Paste") { dispatch(model?.pasteIntoActivePane, #selector(NSText.paste(_:))) }
                 .keyboardShortcut("v")
+
+            Button("Select All") { dispatch(model?.selectAll, #selector(NSText.selectAll(_:))) }
+                .keyboardShortcut("a")
 
             Divider()
 
@@ -91,6 +120,8 @@ struct FileCommands: Commands {
                 .keyboardShortcut("c", modifiers: [.command, .shift])
             Button("Move to Other Pane") { model?.moveSelection() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+            Button("Get Info") { model?.showInfo() }
+                .keyboardShortcut("i")
             Button("Rename...") { model?.requestRename() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             Button("Change Permissions...") { model?.requestPermissionEdit() }
@@ -108,7 +139,11 @@ struct FileCommands: Commands {
                 .keyboardShortcut("t", modifiers: [.command, .option])
         }
 
-        CommandMenu("View") {
+        // Placed *into* the system View menu rather than declared as a second
+        // menu of the same name. A CommandMenu("View") does not merge with the
+        // built-in one -- it sits next to it, and macOS then has nowhere to put
+        // Show Tab Bar and the other window-tab commands.
+        CommandGroup(after: .sidebar) {
             Button(model?.isSinglePane == true ? "Show Both Panes" : "Show One Pane") {
                 model?.isSinglePane.toggle()
             }

@@ -33,7 +33,15 @@ final class ClickRouter {
     private func install() {
         guard monitor == nil else { return }
 
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self] event in
+            // A drag begins with a mouse-down on a row that is usually already
+            // selected -- which is exactly the gesture that starts a rename.
+            // Dragging must cancel that, or the row is left in an editor that
+            // nothing can dismiss.
+            if event.type == .leftMouseDragged {
+                MainActor.assumeIsolated { self?.cancelPendingEdits() }
+                return event
+            }
             // Only Sendable values cross the boundary; NSEvent itself cannot.
             let location = event.locationInWindow
             let number = event.windowNumber
@@ -44,6 +52,10 @@ final class ClickRouter {
             }
             return event   // never consumed
         }
+    }
+
+    private func cancelPendingEdits() {
+        for model in models.compactMap(\.model) { model.cancelPendingClickEdit() }
     }
 
     private func dispatch(windowNumber: Int, location: NSPoint, clickCount: Int) {

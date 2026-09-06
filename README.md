@@ -35,19 +35,22 @@ developer account.
 | `⇧↩` | while renaming: commit and move to the *next* row -- the one that followed this file before the rename, so you can name a run of files in sequence |
 | `F3` | view (opens in the default app) |
 | `F5` | copy selection to the *other* pane |
-| `F6` | move selection to the other pane |
+| `F6` | move selection to the other pane (the moved files stay selected there) |
 | `F7` | new folder |
+| `F4` | edit permissions (also on the function bar) |
 | `F8`, `⌫`, `⌦` | move to Trash, with confirmation; the cursor lands on the row that followed the deletion |
 | `⌘⌫`, `⌘⌦` | move to Trash immediately, no confirmation |
 | `⌘=` | show the active pane's folder in the other pane |
 | `⌘2` | one pane / two panes |
 | `⌘.` | show/hide hidden files |
-| `⌘N` | new window (its own two panes, titled by folder) |
+| `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
+| `⌘I` | Info window for the selected file (exactly one) |
+| `⌘A` | select all -- in the path box it selects the text, otherwise every row |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
 | `⌘U` | swap the left and right panes |
-| `⌘⇧G` | go to folder -- turns the path bar into a text field |
+| `⌘⇧G` | go to folder -- a path that is not a folder is refused and the editor stays open; Escape returns to where you were |
 | `↑` `↓` | move the cursor; typing letters jumps to a name (type-select) |
 | `Home` `End` | first / last row |
 | `PgUp` `PgDn` | one screenful |
@@ -132,6 +135,50 @@ selected item -- which is what makes editing several files at once well defined,
 and is why permissions can be edited for a multiple selection where a name
 cannot.
 
+## Drag and drop
+
+Drag rows between the panes, out to Finder or any app that takes files, and
+between separate Diptych windows -- all the same mechanism, since what leaves
+the pane is a real file reference rather than a URL string.
+
+The drop rule follows Finder: within one volume a drag **moves**, across volumes
+it **copies**. Hold `⌥` to force a copy, `⌘` to force a move. Dropping items back
+into the folder they already live in does nothing.
+
+SwiftUI's URL importer hands over only the *first* item of a multi-item drag, so
+the dropped files are read from the drag pasteboard directly instead. The drop is
+handled by a `DropDelegate` rather than `.dropDestination`, because only a
+delegate can advertise *move* -- `.dropDestination` always shows the copy badge,
+even when the drop moves.
+
+The whole pane area is one drop destination, and the target pane is worked out
+from where the pointer is. SwiftUI gives every `.dropDestination` a platform view
+the size of the entire window, so one per pane overlaps and whichever sits on top
+swallows every drop.
+
+Dragging is declared on the table *row*, never on a cell. A drag gesture inside
+a cell competes with the table's own click handling, which is the same mistake
+that broke row selection three times over.
+
+## Name clashes
+
+A copy or move onto an existing name asks, rather than quietly inventing a new
+one. The sheet offers **Overwrite**, **Rename**, **Skip**, **Skip All** and
+**Abort**. The last two appear only when items remain behind this one -- with
+nothing queued, Skip All is Skip and Abort is Skip.
+
+**Skip All** passes over every remaining item that already exists, so copying a
+folder into one that mostly matches takes a single click instead of one per
+clash. The rest still copy.
+
+Rename and "rename to something I type" are one control: the text field starts at
+the automatic suggestion, so pressing Rename untouched gives `notes-1.txt`, and
+editing it renames to anything. Generated names count from 1 and join with a
+dash, never a space.
+
+Every copy and move goes through this one path -- F5/F6, paste, and drops alike.
+Whatever lands is left selected in the destination pane.
+
 ## Copying to the pasteboard
 
 `⌘C` / `⌘X` / `⌘V` put file URLs on the system pasteboard and paste them into the
@@ -155,6 +202,38 @@ for pasting straight into a terminal as arguments:
 One thing quoting cannot fix: a name starting with `-` will be read as an option
 by whatever command you paste it into. Put `--` before the list.
 
+## The Info window
+
+`⌘I` opens a window describing one file, keyed by URL so a second file opens a
+second window. Five tabs, each applying on its own -- there is no global Save,
+because the operations behind them are separate syscalls that fail
+independently and a half-applied Save is worse than none.
+
+| Tab | Holds |
+| --- | --- |
+| General | location (read-only), name (rename in place), kind, size, and the created / modified dates, which are editable. "Added" and "Accessed" are shown but not settable -- the first belongs to the folder's index, the second to the kernel |
+| Ownership | owner and group pickers, and the nine permission bits as checkboxes with the octal mode |
+| Tags | the seven colours Finder gives a dot, plus free-form tags |
+| Attributes | every extended attribute -- what `xattr` shows. Text values are editable, binary ones (plists, bookmarks) are shown as hex and can only be removed, since saving them as text would corrupt them |
+| Access | the access control list as text -- the same form `ls -le` prints and `acl_from_text` accepts. Empty it to remove the list |
+
+An ACL entry overrides the permission bits, and entries match top to bottom with
+the first match winning -- so a `deny` above an `allow` wins even for the owner.
+Renaming needs `delete`, because it removes the old name. When an operation
+fails on an item that has an ACL, the error says so rather than leaving you to
+wonder why `rwx` was not enough.
+
+Tags are written straight to `com.apple.metadata:_kMDItemUserTags` as Finder
+stores them (`"Red\n6"`), because `URLResourceValues.tagNames` has a setter only
+on macOS 26 while the getter works everywhere.
+
+Every change reloads all five tabs, since they overlap: adding a tag rewrites an
+extended attribute, and removing that attribute clears the tags. Each change also
+posts a notification the panes listen for -- a directory watch reports entries
+appearing and vanishing, never a chmod, so without it the pane kept showing the
+old owner or mode until you navigated away and back. The toolbar has a Refresh
+button too.
+
 ## Changing owner and group
 
 Click the Owner or Group cell of an already-selected row (or use the Files
@@ -173,7 +252,7 @@ when that fails offers to redo it through the system's authentication prompt --
 | Script | Does |
 | --- | --- |
 | `./build.sh` | build / run / clean -- see above |
-| `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, and files from 1 byte to 10 MB |
+| `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete |
 | `swift make-icon.swift` | redraws the app icon into `Diptych/Assets.xcassets` |
 
 ## Layout
@@ -220,7 +299,8 @@ cannot ship on the Mac App Store. Grant it Full Disk Access under
 - **Quick Look on F3** via `QLPreviewPanel`, instead of opening the default app.
 - **Drag and drop** between panes and with Finder: `.draggable` /
   `.dropDestination` with `UTType.fileURL`.
-- **Per-pane tabs.** A macOS window tab is a whole window, so a tab here is a
+- **Per-pane tabs.** `⌘T` gives macOS window tabs -- a tab is a whole two-pane
+  session. A macOS window tab is a whole window, so a tab here is a
   whole two-pane session. Tabs *inside* a pane -- what file managers usually
   mean -- would be an array of directories per `PaneModel` plus a `TabView`.
 - **Type-ahead find**, bookmarks/favourites, remembering pane directories across
