@@ -1,0 +1,127 @@
+import Foundation
+import SwiftUI
+
+/// A column a pane can show.
+///
+/// Adding a case here is the whole job of adding a column: the settings list is
+/// built from `allCases`, the loader asks each enabled column which resource
+/// keys it needs, and the table and the comparator switch on it.
+enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
+    case name
+    case size
+    case kind
+    case modified
+    case created
+    case added
+    case fileExtension
+    case permissions
+    case owner
+    case tags
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .name:          "Name"
+        case .size:          "Size"
+        case .kind:          "Kind"
+        case .modified:      "Date Modified"
+        case .created:       "Date Created"
+        case .added:         "Date Added"
+        case .fileExtension: "Extension"
+        case .permissions:   "Permissions"
+        case .owner:         "Owner"
+        case .tags:          "Tags"
+        }
+    }
+
+    /// The name column identifies the row; it cannot be turned off or moved.
+    var isRemovable: Bool { self != .name }
+
+    /// Only the keys the enabled columns actually need are prefetched, so
+    /// switching on Permissions costs a little and leaving it off costs nothing.
+    var resourceKeys: [URLResourceKey] {
+        switch self {
+        case .name:          [.nameKey, .localizedNameKey]
+        case .size:          [.fileSizeKey]
+        case .kind:          [.localizedTypeDescriptionKey]
+        case .modified:      [.contentModificationDateKey]
+        case .created:       [.creationDateKey]
+        case .added:         [.addedToDirectoryDateKey]
+        case .fileExtension: []                       // derived from the name
+        case .permissions:   [.fileSecurityKey]
+        case .owner:         [.fileSecurityKey]
+        case .tags:          [.tagNamesKey]
+        }
+    }
+
+    var width: (min: CGFloat, ideal: CGFloat, max: CGFloat) {
+        switch self {
+        case .name:          (160, 300, 10_000)
+        case .size:          (70, 90, 140)
+        case .kind:          (90, 140, 260)
+        case .modified,
+             .created,
+             .added:         (120, 150, 220)
+        case .fileExtension: (60, 80, 140)
+        case .permissions:   (90, 100, 130)
+        case .owner:         (80, 110, 180)
+        case .tags:          (80, 130, 260)
+        }
+    }
+
+    /// Numeric and date columns read better right-aligned.
+    var isTrailingAligned: Bool { self == .size }
+}
+
+/// Global, cross-pane configuration.
+struct Configuration: Codable, Equatable {
+
+    /// Every column, in display order -- including the ones switched off, so
+    /// toggling a column back on returns it to where it was rather than to the
+    /// end.
+    var columnOrder: [FileColumn] = FileColumn.allCases
+    var enabledColumns: Set<FileColumn> = [.name, .size, .modified]
+
+    /// Column widths in points, keyed by column. Measured and applied through
+    /// AppKit: SwiftUI's own `TableColumnCustomization` records widths but --
+    /// verified by experiment -- never restores them for a table whose columns
+    /// come from `TableColumnForEach`.
+    var columnWidths: [String: Double] = [:]
+
+    /// The columns a pane actually draws.
+    var columns: [FileColumn] {
+        let ordered = columnOrder.filter { $0 != .name && enabledColumns.contains($0) }
+        return [.name] + ordered
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case columnOrder, enabledColumns, columnWidths
+    }
+
+    init() {}
+
+    /// Every key optional. The synthesized decoder throws when a key is
+    /// missing, which would quietly discard a whole hand-edited config the
+    /// first time a new setting is added.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        columnOrder = (try? container.decode([FileColumn].self, forKey: .columnOrder))
+            ?? FileColumn.allCases
+        enabledColumns = (try? container.decode(Set<FileColumn>.self, forKey: .enabledColumns))
+            ?? [.name, .size, .modified]
+        columnWidths = (try? container.decode([String: Double].self, forKey: .columnWidths))
+            ?? [:]
+    }
+
+    /// Repairs anything a hand-edited file or a newer build might have left
+    /// inconsistent: unknown cases dropped, new cases appended, name pinned.
+    mutating func normalise() {
+        var order = columnOrder.filter { $0 != .name }
+        for column in FileColumn.allCases where column != .name && !order.contains(column) {
+            order.append(column)
+        }
+        columnOrder = [.name] + order
+        enabledColumns.insert(.name)
+    }
+}

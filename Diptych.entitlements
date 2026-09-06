@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- A file manager needs to browse the whole disk, which the App Sandbox
+	     exists to prevent. Sandboxed, you could only see folders the user had
+	     explicitly picked in an NSOpenPanel (persisted as security-scoped
+	     bookmarks). Unsandboxed is the right trade for a personal tool; it
+	     rules out the Mac App Store but nothing else. Grant the built app
+	     Full Disk Access in System Settings > Privacy & Security to stop the
+	     per-folder consent prompts. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>
