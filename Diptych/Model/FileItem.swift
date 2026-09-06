@@ -64,6 +64,12 @@ struct FileItem: Identifiable, Hashable, Sendable {
         return f
     }()
 
+    /// The first tag that carries a colour, which is what tints the row.
+    /// Finder shows every tag as a dot; a whole-row tint can only show one.
+    var tagColourName: String? {
+        tags.first { FinderTag.coloured.contains($0) }
+    }
+
     /// What a given column shows for this row.
     func text(for column: FileColumn) -> String {
         if isParent { return column == .name ? ".." : "" }

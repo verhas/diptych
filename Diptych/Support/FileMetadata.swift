@@ -128,21 +128,55 @@ enum FinderTag {
         }
     }
 
+    static let finderInfoName = "com.apple.FinderInfo"
+
     static func set(_ names: [String], on url: URL) -> String? {
         let path = url.path
+        var failure: String?
 
-        guard !names.isEmpty else {
+        if names.isEmpty {
             let message = ExtendedAttributes.remove(name: xattrName, from: path)
             // Removing an attribute that is not there is not a failure.
-            return errno == ENOATTR ? nil : message
+            if errno != ENOATTR { failure = message }
+        } else {
+            let entries = names.map { "\($0)\n\(colourIndex(of: $0))" }
+            guard let data = try? PropertyListSerialization.data(fromPropertyList: entries,
+                                                                 format: .binary,
+                                                                 options: 0) else {
+                return "The tags could not be encoded."
+            }
+            failure = ExtendedAttributes.set(data, name: xattrName, on: path)
         }
 
-        let entries = names.map { "\($0)\n\(colourIndex(of: $0))" }
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: entries,
-                                                             format: .binary,
-                                                             options: 0) else {
-            return "The tags could not be encoded."
+        // Also the pre-10.9 label, which is where some volumes keep the colour
+        // *exclusively* -- a folder on an external disk can carry a grey tag
+        // with no _kMDItemUserTags attribute at all, and rewriting only the
+        // modern attribute leaves that colour untouched.
+        let colour = names.lazy.map(colourIndex(of:)).first { $0 != 0 } ?? 0
+        if let message = setLabel(colour, on: path), failure == nil {
+            failure = message
         }
-        return ExtendedAttributes.set(data, name: xattrName, on: path)
+        return failure
+    }
+
+    /// The Finder flags live at offset 8 of com.apple.FinderInfo as a
+    /// big-endian UInt16; the label is bits 1-3 of it.
+    private static func setLabel(_ colour: Int, on path: String) -> String? {
+        var bytes = [UInt8](ExtendedAttributes.data(of: path, name: finderInfoName)
+                            ?? Data(count: 32))
+        if bytes.count < 32 { bytes.append(contentsOf: [UInt8](repeating: 0, count: 32 - bytes.count)) }
+
+        var flags = UInt16(bytes[8]) << 8 | UInt16(bytes[9])
+        flags = (flags & ~UInt16(0x000E)) | (UInt16(colour) << 1)
+        bytes[8] = UInt8(flags >> 8)
+        bytes[9] = UInt8(flags & 0xFF)
+
+        // All-zero FinderInfo is the same as none; do not leave 32 zero bytes
+        // hanging off every file we touch.
+        if bytes.allSatisfy({ $0 == 0 }) {
+            let message = ExtendedAttributes.remove(name: finderInfoName, from: path)
+            return errno == ENOATTR ? nil : message
+        }
+        return ExtendedAttributes.set(Data(bytes), name: finderInfoName, on: path)
     }
 }

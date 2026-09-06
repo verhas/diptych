@@ -3,6 +3,7 @@ import SwiftUI
 /// One half of the window: path bar, file table, status line.
 struct PaneView: View {
 
+
     /// `@Bindable` unlocks `$pane.selection` -- a two-way binding into an
     /// `@Observable` class.
     @Bindable var pane: PaneModel
@@ -268,6 +269,42 @@ struct PaneView: View {
             guard let id = ids.first else { return }
             model.open(id: id, in: pane)
         }
+        .overlay { unreadableNotice }
+    }
+
+    /// A directory that cannot be read looks exactly like an empty one, which
+    /// is how a Time Machine volume reads without Full Disk Access. Say so.
+    @ViewBuilder
+    private var unreadableNotice: some View {
+        if let error = pane.errorText {
+            VStack(spacing: 10) {
+                Image(systemName: pane.errorIsPermission ? "lock.slash" : "exclamationmark.triangle")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+
+                Text(error)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if pane.errorIsPermission {
+                    Text("macOS protects this location. Time Machine volumes and some "
+                         + "system folders need Full Disk Access.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button("Open Full Disk Access Settings") {
+                        NSWorkspaceOpener.openFullDiskAccessSettings()
+                    }
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 340)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(radius: 12, y: 3)
+            .allowsHitTesting(pane.errorIsPermission)
+        }
     }
 
     /// While permissions are being edited the heading names the field the caret
@@ -275,6 +312,17 @@ struct PaneView: View {
     private func title(for column: FileColumn) -> String {
         if column == .permissions, let scope = model.permissionScope { return scope }
         return column.title
+    }
+
+    /// Right-clicking a row that is not part of the selection should act on
+    /// that row, not on whatever was selected before. SwiftUI hands the menu
+    /// the ids it applies to, so adopt them as the selection first.
+    private func act(_ ids: Set<FileItem.ID>, _ body: @escaping () -> Void) {
+        activate()
+        if !ids.isEmpty, pane.selection != ids {
+            pane.selection = ids
+        }
+        body()
     }
 
     @ViewBuilder
@@ -285,31 +333,36 @@ struct PaneView: View {
             Button("Refresh") { pane.reload() }
         } else {
             Button("Open") {
-                activate()
-                if let id = ids.first { model.open(id: id, in: pane) }
+                act(ids) {
+                    if let id = ids.first { model.open(id: id, in: pane) }
+                }
             }
-            Button("Get Info") { activate(); model.showInfo() }
+            Button("Get Info") { act(ids) { model.showInfo() } }
+
             Divider()
-            // A menu with a primary action: clicking "Copy" copies the files,
-            // exactly as Cmd-C does, while the submenu offers the text forms.
+
             Menu("Copy") {
-                Button("File Name") { activate(); model.copySelectionNames(fullPath: false) }
-                Button("Full Path") { activate(); model.copySelectionNames(fullPath: true) }
+                Button("File Name") { act(ids) { model.copySelectionNames(fullPath: false) } }
+                Button("Full Path") { act(ids) { model.copySelectionNames(fullPath: true) } }
             } primaryAction: {
-                activate()
-                model.copySelectionToClipboard()
+                act(ids) { model.copySelectionToClipboard() }
             }
-            Button("Cut") { activate(); model.cutSelectionToClipboard() }
+            Button("Cut") { act(ids) { model.cutSelectionToClipboard() } }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
 
             Divider()
-            Button("Copy to Other Pane") { activate(); model.copySelection() }
-            Button("Move to Other Pane") { activate(); model.moveSelection() }
-            Button("Rename...")          { activate(); model.requestRename() }
+
+            Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
+            Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
+            Button("Rename...") { act(ids) { model.requestRename() } }
+
             Divider()
-            Button("Reveal in Finder")   { activate(); model.revealSelection() }
+
+            Button("Reveal in Finder") { act(ids) { model.revealSelection() } }
+
             Divider()
-            Button("Move to Trash", role: .destructive) { activate(); model.requestTrash() }
+
+            Button("Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
         }
     }
 

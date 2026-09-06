@@ -11,6 +11,21 @@ struct PaneState: Codable, Equatable {
     var directory: String
     var sortField: String = "name"
     var sortAscending: Bool = true
+
+    init(directory: String, sortField: String = "name", sortAscending: Bool = true) {
+        self.directory = directory
+        self.sortField = sortField
+        self.sortAscending = sortAscending
+    }
+
+    /// Tolerant, like Configuration's: the synthesized decoder throws on a
+    /// missing key, so adding a field would discard the whole saved session.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        directory = (try? container.decode(String.self, forKey: .directory)) ?? ""
+        sortField = (try? container.decode(String.self, forKey: .sortField)) ?? "name"
+        sortAscending = (try? container.decode(Bool.self, forKey: .sortAscending)) ?? true
+    }
 }
 
 /// What one window remembers.
@@ -21,7 +36,31 @@ struct WindowState: Codable, Equatable {
     var right: PaneState
     var activeSide: String = "left"
     var singlePane: Bool = false
+    var sidebarVisible: Bool = false
     var showHidden: Bool = false
+
+    init(frame: String?, left: PaneState, right: PaneState, activeSide: String = "left",
+         singlePane: Bool = false, sidebarVisible: Bool = false, showHidden: Bool = false) {
+        self.frame = frame
+        self.left = left
+        self.right = right
+        self.activeSide = activeSide
+        self.singlePane = singlePane
+        self.sidebarVisible = sidebarVisible
+        self.showHidden = showHidden
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        frame = try? container.decode(String.self, forKey: .frame)
+        left = (try? container.decode(PaneState.self, forKey: .left)) ?? PaneState(directory: home)
+        right = (try? container.decode(PaneState.self, forKey: .right)) ?? PaneState(directory: home)
+        activeSide = (try? container.decode(String.self, forKey: .activeSide)) ?? "left"
+        singlePane = (try? container.decode(Bool.self, forKey: .singlePane)) ?? false
+        sidebarVisible = (try? container.decode(Bool.self, forKey: .sidebarVisible)) ?? false
+        showHidden = (try? container.decode(Bool.self, forKey: .showHidden)) ?? false
+    }
 }
 
 struct DiptychState: Codable, Equatable {

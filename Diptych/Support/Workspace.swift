@@ -16,6 +16,13 @@ enum NSWorkspaceOpener {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
 
+    /// The Full Disk Access list in System Settings.
+    static func openFullDiskAccessSettings() {
+        guard let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Open a Terminal window at this directory.
     static func openTerminal(at directory: URL) {
         let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")

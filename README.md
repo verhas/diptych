@@ -56,7 +56,9 @@ developer account.
 | `Home` `End` | first / last row |
 | `PgUp` `PgDn` | one screenful |
 
-Right-click a row for Open / Copy / Move / Rename / Reveal / Trash. Double-click
+Right-click a row for Open / Copy / Move / Rename / Reveal / Trash; right-clicking
+a row outside the current selection acts on that row, not on what was selected
+before. Double-click
 anywhere in a row opens it. Clicking in a pane makes it the active one, so an
 operation always applies to the pane you just clicked in. Symlinks to
 directories are followed to their target, as in Finder; opening a broken one
@@ -83,6 +85,60 @@ The extension point is `PaneState` in `Model/AppState.swift`. Add a property
 there plus a line in `PaneModel.snapshot` and `restore`, and it is saved,
 reloaded, and carried across a pane swap -- the store, the window code and the
 JSON handling need no changes.
+
+## Unreadable folders
+
+A directory macOS refuses to open looks exactly like an empty one, so a pane
+that cannot read a folder says so over the list instead of showing nothing --
+with a button to Full Disk Access when the refusal was TCC.
+
+Time Machine volumes are the usual case: `contentsOfDirectory` on one throws
+`NSFileReadNoPermissionError` (underlying `EPERM`) unless the app has Full Disk
+Access, even though `stat` succeeds and the volume mounts normally. `ls` fails
+on it too, so this is macOS policy rather than anything the app can work around.
+
+Note that Full Disk Access lets a Time Machine volume be *opened*, but its
+backups still will not appear as folders: they are APFS snapshots, not
+directories. `diskutil apfs listSnapshots` shows them, and only an in-progress
+backup exists as a real directory. Finder synthesises that listing and mounts a
+snapshot when you enter one; Diptych lists what the file system actually holds.
+
+To grant access: System Settings > Privacy & Security > Full Disk Access, then
+add the built app. A debug build lives under `~/Library/Developer/Xcode/DerivedData`,
+so add the binary `./build.sh path` prints.
+
+## Sidebar
+
+`⌃⌘S`, or the toolbar icon, shows a sidebar of **Volumes** and **Favourites**.
+Clicking a row opens it in the active pane.
+
+Drag any **folder** from a pane onto the sidebar to add a favourite -- files are
+refused, since a favourite is somewhere to go. Drag a favourite up or down to
+reorder it. Remove one with its context menu or `⌘⌫`. Volumes cannot be
+reordered; their order belongs to the system. Favourites are global and live in `config.json`;
+whether the sidebar is open is per window, in `state.json`.
+
+Volumes track mounts and unmounts through NSWorkspace notifications -- a disk
+appearing touches no directory a pane watches, so the list has to be told.
+
+There is still only **one** drop destination for the whole window, with the
+sidebar recognised by pointer position. SwiftUI gives every `.dropDestination` a
+window-sized platform view, so a second one would overlap the first and swallow
+its drops.
+
+## Sounds
+
+A short sound after a copy, a move, or a move to Trash, chosen in Settings >
+Sounds from the system set. One **Play sounds** switch turns all of them off;
+"None" silences a single event. Picking a sound plays it, even while sounds are
+off -- choosing one should be audible.
+
+## Tag colours
+
+A file carrying one of the seven colour tags gets that colour behind its whole
+row, not just a dot. With several colour tags the first one wins -- a row has
+one background. Tags are read for every listing, not only when the Tags column
+is switched on, since the colour is part of drawing the row.
 
 ## History and filtering
 
@@ -188,13 +244,23 @@ that broke row selection three times over.
 ## Name clashes
 
 A copy or move onto an existing name asks, rather than quietly inventing a new
-one. The sheet offers **Overwrite**, **Rename**, **Skip**, **Skip All** and
-**Abort**. The last two appear only when items remain behind this one -- with
-nothing queued, Skip All is Skip and Abort is Skip.
+one. Three mutually exclusive choices, as radio options:
 
-**Skip All** passes over every remaining item that already exists, so copying a
-folder into one that mostly matches takes a single click instead of one per
-clash. The rest still copy.
+- **Replace the existing item**
+- **Keep both, naming the new item:** with the name field nested underneath,
+  pre-filled with `name-1.ext`
+- **Skip this item**
+
+plus **Apply to all N remaining items**, which turns any of the three into
+Replace All, Rename All or Skip All. **Abort** stops the whole operation. Both
+appear only when items remain behind the current one.
+
+The field sits *inside* the option it belongs to rather than above a row of
+verbs: a value and a set of verbs side by side imply a relationship that is not
+there, and Overwrite next to a name box reads as "overwrite, using this name".
+
+Under Apply to all, a name you typed applies to the current item only; later
+ones get automatic names, since one name cannot serve several files.
 
 Rename and "rename to something I type" are one control: the text field starts at
 the automatic suggestion, so pressing Rename untouched gives `notes-1.txt`, and
@@ -251,6 +317,11 @@ wonder why `rwx` was not enough.
 Tags are written straight to `com.apple.metadata:_kMDItemUserTags` as Finder
 stores them (`"Red\n6"`), because `URLResourceValues.tagNames` has a setter only
 on macOS 26 while the getter works everywhere.
+
+They are also written to the pre-10.9 label bits in `com.apple.FinderInfo`.
+Some volumes keep a colour *only* there -- a folder on an external disk can show
+grey with no `_kMDItemUserTags` attribute at all -- so rewriting just the modern
+attribute would leave that colour untouched and the tag apparently unremovable.
 
 Every change reloads all five tabs, since they overlap: adding a tag rewrites an
 extended attribute, and removing that attribute clears the tags. Each change also

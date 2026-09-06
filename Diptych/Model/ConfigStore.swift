@@ -49,6 +49,13 @@ final class ConfigStore {
         configuration.normalise()   // keeps Name first whatever the drag did
     }
 
+    /// Reorder favourites by dragging them in the sidebar.
+    func moveFavourites(from source: IndexSet, to destination: Int) {
+        var list = configuration.favourites
+        list.move(fromOffsets: source, toOffset: destination)
+        configuration.favourites = list
+    }
+
     func resetToDefaults() {
         configuration = Configuration()
     }

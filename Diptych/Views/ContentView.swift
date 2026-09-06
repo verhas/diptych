@@ -136,8 +136,19 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var panes: some View {
+        HStack(spacing: 0) {
+            if model.sidebarVisible {
+                SidebarView(model: model)
+                    .frame(width: 190)
+                Divider()
+            }
+            paneSplit
+        }
+    }
+
+    @ViewBuilder
+    private var paneSplit: some View {
         if model.isSinglePane {
             PaneView(pane: model.active,
                      model: model,
@@ -176,6 +187,15 @@ struct ContentView: View {
             .help(model.isSinglePane
                   ? "Show both panes"
                   : "Show only the active pane")
+        }
+
+        ToolbarItem {
+            Button {
+                model.sidebarVisible.toggle()
+            } label: {
+                Label("Sidebar", systemImage: "sidebar.left")
+            }
+            .help(model.sidebarVisible ? "Hide the sidebar" : "Show volumes and favourites")
         }
 
         ToolbarItem {
@@ -284,40 +304,79 @@ struct DialogSheet: View {
         .frame(width: 470)
     }
 
-    /// One sheet covering every clash choice. The text field starts at the
-    /// automatic suggestion, so "Rename" without touching it does the
-    /// `name-1.ext` thing, and editing it renames to anything you like.
+    /// The clash sheet.
+    ///
+    /// Radio options rather than a row of verbs, with the name field nested
+    /// under the option it belongs to. Previously the field sat above a row of
+    /// buttons with Overwrite next to it, which read as "overwrite, using this
+    /// name" -- a value and a set of verbs put side by side imply a
+    /// relationship that is not there.
+    ///
+    /// "Apply to all" as a checkbox rather than an "...All" variant of every
+    /// button: three verbs would otherwise need six buttons.
     @ViewBuilder
     private var conflictPrompt: some View {
         if let conflict = model.conflict {
             Text("\u{201C}\(conflict.sourceName)\u{201D} already exists in \u{201C}\(conflict.folderName)\u{201D}")
                 .font(.headline)
-            Text("Choose what to do with this item.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
 
-            TextField("New name", text: $model.conflictName)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { model.resolveConflict(.rename(model.conflictName)) }
+            VStack(alignment: .leading, spacing: 10) {
+                choice(.overwrite, "Replace the existing item")
+
+                VStack(alignment: .leading, spacing: 6) {
+                    choice(.rename, "Keep both, naming the new item:")
+                    TextField("New name", text: $model.conflictName)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(model.conflictAction != .rename)
+                        .padding(.leading, 26)
+                        .onSubmit { model.resolveConflict() }
+                }
+
+                choice(.skip, "Skip this item")
+            }
+            .padding(.vertical, 2)
+
+            if conflict.remaining > 0 {
+                Toggle("Apply to all \(conflict.remaining) remaining item\(conflict.remaining == 1 ? "" : "s")",
+                       isOn: $model.conflictApplyToAll)
+                    .toggleStyle(.checkbox)
+
+                if model.conflictApplyToAll && model.conflictAction == .rename {
+                    Text("Later items get automatic names -- one name cannot serve several files.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 20)
+                }
+            }
 
             HStack {
                 if conflict.remaining > 0 {
-                    Button("Abort") { model.resolveConflict(.abort) }
-                        .help("Stop and leave the remaining \(conflict.remaining) item(s) alone")
+                    Button("Abort") { model.abortConflict() }
+                        .help("Stop here and leave the remaining items alone")
                 }
                 Spacer()
-                if conflict.remaining > 0 {
-                    Button("Skip All") { model.resolveConflict(.skipAll) }
-                        .help("Skip this and every other item that already exists")
-                }
-                Button("Skip") { model.resolveConflict(.skip) }
-                    .keyboardShortcut(.cancelAction)
-                Button("Overwrite", role: .destructive) { model.resolveConflict(.overwrite) }
-                Button("Rename") { model.resolveConflict(.rename(model.conflictName)) }
+                Button("Continue") { model.resolveConflict() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(model.conflictName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(model.conflictAction == .rename
+                              && model.conflictName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+    }
+
+    private func choice(_ action: AppModel.ConflictAction, _ title: String) -> some View {
+        Button {
+            model.conflictAction = action
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: model.conflictAction == action
+                      ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(model.conflictAction == action ? Color.accentColor : .secondary)
+                Text(title)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

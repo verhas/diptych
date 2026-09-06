@@ -26,6 +26,9 @@ actor DirectoryLoader {
             .nameKey, .localizedNameKey, .isDirectoryKey, .isPackageKey,
             .isSymbolicLinkKey, .isExecutableKey, .fileSizeKey,
             .contentModificationDateKey,
+            // Always, not only when the Tags column is on: a tag colours the
+            // whole row, so it is needed to draw the list at all.
+            .tagNamesKey,
         ]
         // ...plus whatever the enabled columns ask for, and nothing else.
         for column in columns {

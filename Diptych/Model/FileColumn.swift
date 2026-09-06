@@ -93,6 +93,18 @@ struct Configuration: Codable, Equatable {
     /// come from `TableColumnForEach`.
     var columnWidths: [String: Double] = [:]
 
+    /// Sidebar favourites, as paths. Global: a favourite is a favourite in
+    /// every window.
+    var favourites: [String] = []
+
+    /// One switch for all of them, on top of the per-event choices.
+    var soundsEnabled = true
+
+    /// Sounds played after an operation finishes. "None" is silence.
+    var copySound = "Pop"
+    var moveSound = "Tink"
+    var trashSound = "Glass"
+
     /// The columns a pane actually draws.
     var columns: [FileColumn] {
         let ordered = columnOrder.filter { $0 != .name && enabledColumns.contains($0) }
@@ -100,7 +112,8 @@ struct Configuration: Codable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case columnOrder, enabledColumns, columnWidths
+        case columnOrder, enabledColumns, columnWidths, favourites
+        case soundsEnabled, copySound, moveSound, trashSound
     }
 
     init() {}
@@ -116,6 +129,11 @@ struct Configuration: Codable, Equatable {
             ?? [.name, .size, .modified]
         columnWidths = (try? container.decode([String: Double].self, forKey: .columnWidths))
             ?? [:]
+        favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
+        soundsEnabled = (try? container.decode(Bool.self, forKey: .soundsEnabled)) ?? true
+        copySound = (try? container.decode(String.self, forKey: .copySound)) ?? "Pop"
+        moveSound = (try? container.decode(String.self, forKey: .moveSound)) ?? "Tink"
+        trashSound = (try? container.decode(String.self, forKey: .trashSound)) ?? "Glass"
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

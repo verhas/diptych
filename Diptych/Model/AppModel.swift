@@ -47,6 +47,11 @@ final class AppModel {
 
     /// Toolbar state.
     var isSinglePane = false { didSet { persist() } }
+    var sidebarVisible = false { didSet { persist() } }
+
+    /// The sidebar row the keyboard would act on, so Cmd-Delete removes a
+    /// favourite rather than trashing files when the sidebar has the selection.
+    var selectedSidebarEntry: SidebarEntry.ID?
     var showHidden = false {
         didSet {
             left.showHidden = showHidden
@@ -146,6 +151,7 @@ final class AppModel {
             right.restore(saved.right)
             activeSide = (saved.activeSide == "right") ? .right : .left
             isSinglePane = saved.singlePane
+            sidebarVisible = saved.sidebarVisible
             showHidden = saved.showHidden
         }
         restored = true
@@ -181,6 +187,7 @@ final class AppModel {
             right: right.snapshot,
             activeSide: activeSide == .right ? "right" : "left",
             singlePane: isSinglePane,
+            sidebarVisible: sidebarVisible,
             showHidden: showHidden))
     }
 
@@ -371,6 +378,9 @@ final class AppModel {
 
         Task {
             let outcome = await FileOperations.shared.trash(urls)
+            if !outcome.succeeded.isEmpty {
+                Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
+            }
             pane.pendingSelection = successor.map { [$0] } ?? []
             pane.reload()
             inactive.reload()   // the other pane may be showing the same folder
@@ -548,14 +558,17 @@ final class AppModel {
 
     // MARK: - Name conflicts
 
-    /// What the user chose for one clashing file.
-    enum ConflictChoice {
+    /// What to do with one clashing item. Kept separate from "apply this to
+    /// everything else too", which used to be baked into the verb (skipAll) and
+    /// meant a separate button per verb.
+    enum ConflictAction: Equatable {
         case overwrite
-        case rename(String)
+        case rename
         case skip
-        /// Skip this one and every later clash in the same operation, so a
-        /// folder that mostly already exists takes one click, not dozens.
-        case skipAll
+    }
+
+    enum ConflictOutcome {
+        case proceed(ConflictAction, name: String, applyToAll: Bool)
         case abort
     }
 
@@ -568,21 +581,37 @@ final class AppModel {
     }
 
     private(set) var conflict: Conflict?
-    /// The name in the conflict sheet's text field, pre-filled with the
-    /// automatic suggestion so "Rename" alone does the obvious thing.
-    var conflictName = ""
-    @ObservationIgnored private var conflictContinuation: CheckedContinuation<ConflictChoice, Never>?
 
-    func resolveConflict(_ choice: ConflictChoice) {
+    /// Which option is selected, the name typed into the Keep Both field, and
+    /// whether the choice should stand for the rest of the operation.
+    var conflictAction: ConflictAction = .rename
+    var conflictName = ""
+    var conflictApplyToAll = false
+
+    @ObservationIgnored private var conflictContinuation: CheckedContinuation<ConflictOutcome, Never>?
+
+    func resolveConflict() {
+        finishConflict(.proceed(conflictAction,
+                                name: conflictName,
+                                applyToAll: conflictApplyToAll))
+    }
+
+    func abortConflict() {
+        finishConflict(.abort)
+    }
+
+    private func finishConflict(_ outcome: ConflictOutcome) {
         conflict = nil
         dialog = nil
         let continuation = conflictContinuation
         conflictContinuation = nil
-        continuation?.resume(returning: choice)
+        continuation?.resume(returning: outcome)
     }
 
-    private func askAboutConflict(source: URL, target: URL, remaining: Int) async -> ConflictChoice {
+    private func askAboutConflict(source: URL, target: URL, remaining: Int) async -> ConflictOutcome {
+        conflictAction = .rename
         conflictName = FileOperations.uniqueURL(for: target).lastPathComponent
+        conflictApplyToAll = false
         conflict = Conflict(sourceName: source.lastPathComponent,
                             folderName: target.deletingLastPathComponent().lastPathComponent,
                             remaining: remaining)
@@ -604,32 +633,47 @@ final class AppModel {
         Task { @MainActor in
             var outcome = FileOperations.Outcome()
             var aborted = false
-            var skipEveryClash = false
+            /// Set once "apply to all" is ticked; every later clash takes it
+            /// without asking.
+            var standingAction: ConflictAction?
 
             for (index, source) in urls.enumerated() {
                 var target = destination.appendingPathComponent(source.lastPathComponent)
                 var overwrite = false
 
                 if FileOperations.exists(target) {
-                    if skipEveryClash { continue }
+                    var action: ConflictAction
+                    var chosenName: String?
 
-                    switch await askAboutConflict(source: source, target: target,
-                                                  remaining: urls.count - index - 1) {
+                    if let standingAction {
+                        action = standingAction
+                    } else {
+                        switch await askAboutConflict(source: source, target: target,
+                                                      remaining: urls.count - index - 1) {
+                        case .abort:
+                            aborted = true
+                            action = .skip
+                        case .proceed(let chosen, let name, let applyToAll):
+                            action = chosen
+                            chosenName = name
+                            if applyToAll { standingAction = chosen }
+                        }
+                    }
+                    if aborted { break }
+
+                    switch action {
                     case .overwrite:
                         overwrite = true
-                    case .rename(let name):
-                        target = destination.appendingPathComponent(name)
-                        overwrite = false
+                    case .rename:
+                        // A typed name applies to this item only; everything
+                        // after it under "apply to all" gets an automatic one,
+                        // since one name cannot serve several files.
+                        target = chosenName.map { destination.appendingPathComponent($0) }
+                            ?? FileOperations.uniqueURL(for: target)
                     case .skip:
                         continue
-                    case .skipAll:
-                        skipEveryClash = true
-                        continue
-                    case .abort:
-                        aborted = true
                     }
                 }
-                if aborted { break }
 
                 if let message = await FileOperations.shared.transferOne(source, to: target,
                                                                          kind: kind,
@@ -648,6 +692,8 @@ final class AppModel {
             if outcome.isCompleteSuccess {
                 let verb = kind == .move ? "Moved" : "Copied"
                 if !outcome.succeeded.isEmpty {
+                    let configuration = ConfigStore.shared.configuration
+                    Sounds.playIfEnabled(kind == .move ? configuration.moveSound : configuration.copySound)
                     flash("\(verb) \(outcome.succeeded.count) item"
                           + (outcome.succeeded.count == 1 ? "" : "s"), error: false)
                 }
@@ -655,6 +701,59 @@ final class AppModel {
                 report(outcome, verb: kind == .move ? "move" : "copy")
             }
         }
+    }
+
+    // MARK: - Sidebar
+
+    var favourites: [SidebarEntry] {
+        ConfigStore.shared.configuration.favourites.map { path in
+            let url = URL(fileURLWithPath: path)
+            return SidebarEntry(kind: .favourite, url: url,
+                                name: url.lastPathComponent.isEmpty ? path : url.lastPathComponent)
+        }
+    }
+
+    func openSidebarEntry(_ entry: SidebarEntry) {
+        active.navigate(to: entry.url)
+    }
+
+    func addFavourites(_ urls: [URL]) {
+        // A favourite is somewhere to go, so only folders qualify.
+        let folders = urls.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        guard !folders.isEmpty else {
+            flash("Only folders can be favourites")
+            return
+        }
+
+        var list = ConfigStore.shared.configuration.favourites
+        let before = list.count
+        for url in folders where !list.contains(url.path) {
+            list.append(url.path)
+        }
+        guard list.count > before else { return }
+
+        ConfigStore.shared.configuration.favourites = list
+        let added = list.count - before
+        flash("Added \(added) favourite\(added == 1 ? "" : "s")", error: false)
+    }
+
+    func removeFavourite(path: String) {
+        var list = ConfigStore.shared.configuration.favourites
+        list.removeAll { $0 == path }
+        ConfigStore.shared.configuration.favourites = list
+        if selectedSidebarEntry == "f:\(path)" { selectedSidebarEntry = nil }
+    }
+
+    /// True when the pointer is left of the first pane, which is where the
+    /// sidebar is. Used instead of a second drop destination: SwiftUI gives
+    /// each one a window-sized platform view, and two of them overlap.
+    func pointerIsOverSidebar() -> Bool {
+        guard sidebarVisible, let window, let first = TableFinder.tables(in: window).first
+        else { return false }
+        let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        return point.x < first.convert(first.bounds, to: nil).minX
     }
 
     // MARK: - Tabs
@@ -766,6 +865,8 @@ final class AppModel {
     /// badge is drawn from this, so it has to use exactly the same rule the
     /// drop itself does.
     func dropWouldMove() -> Bool {
+        // Dropping on the sidebar adds a favourite; nothing is moved.
+        if pointerIsOverSidebar() { return false }
         let pane = paneUnderPointer() ?? active
         return shouldMove(dragPasteboardURLs(), to: pane.directory)
     }
@@ -774,6 +875,11 @@ final class AppModel {
     func performPasteboardDrop() -> Bool {
         let urls = dragPasteboardURLs()
         guard !urls.isEmpty else { return false }
+
+        if pointerIsOverSidebar() {
+            addFavourites(urls)
+            return true
+        }
         drop(urls, into: paneUnderPointer() ?? active)
         return true
     }
@@ -1104,7 +1210,11 @@ final class AppModel {
         if modifiers.contains(.command) {
             switch key {
             case .delete, .forwardDelete:
-                trashNow()
+                if let selected = selectedSidebarEntry, selected.hasPrefix("f:") {
+                    removeFavourite(path: String(selected.dropFirst(2)))
+                } else {
+                    trashNow()
+                }
                 return true
             default:
                 // Let the system keep its own shortcuts (Cmd-Q, Cmd-W, ...).

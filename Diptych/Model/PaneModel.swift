@@ -19,6 +19,9 @@ final class PaneModel {
     private(set) var items: [FileItem] = []
     private(set) var isLoading = false
     private(set) var errorText: String?
+    /// Set when the failure was TCC refusing access rather than the folder
+    /// being missing or broken -- Time Machine volumes are the common case.
+    private(set) var errorIsPermission = false
 
     @ObservationIgnored private var isCorrectingSelection = false
 
@@ -353,6 +356,7 @@ final class PaneModel {
         guard target == directory else { return }   // a newer navigation won
         items = loaded
         isLoading = false
+        errorIsPermission = false
 
         if !pendingSelection.isEmpty {
             let wanted = pendingSelection
@@ -388,6 +392,12 @@ final class PaneModel {
 
         items = directory.pathComponents.count > 1 ? [FileItem.parent(of: directory)] : []
         isLoading = false
+
+        let nsError = error as NSError
+        let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        errorIsPermission = nsError.code == NSFileReadNoPermissionError
+            || underlying?.code == Int(EPERM)
+            || underlying?.code == Int(EACCES)
         errorText = error.localizedDescription
     }
 }

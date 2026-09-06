@@ -18,6 +18,10 @@ case "$ROOT" in
 esac
 
 echo "==> Rebuilding $ROOT"
+# Strip access control lists first. The fixture deliberately contains a file
+# whose ACL denies delete, and rm cannot remove it while that stands -- which
+# left the tree half-wiped and the script dead on `set -e`.
+[ -d "$ROOT" ] && chmod -R -N "$ROOT" 2>/dev/null
 rm -rf "$ROOT"
 mkdir -p "$ROOT"
 cd "$ROOT"

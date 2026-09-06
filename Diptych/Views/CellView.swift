@@ -13,6 +13,26 @@ struct CellView: View {
     /// Rows the filter excludes are drawn faded, and cannot be selected.
     private var isDimmed: Bool { !pane.matchesFilter(item) }
 
+    /// Tag colour behind the whole row rather than a dot beside the name.
+    /// Table has no per-row background, so each cell paints its own; together
+    /// they read as one band.
+    private var tagTint: Color? {
+        item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
+    }
+
+    static func colour(of tag: String) -> Color {
+        switch tag {
+        case "Red":    .red
+        case "Orange": .orange
+        case "Yellow": .yellow
+        case "Green":  .green
+        case "Blue":   .blue
+        case "Purple": .purple
+        case "Gray":   .gray
+        default:       .clear
+        }
+    }
+
     var body: some View {
         Group {
             switch column {
@@ -22,6 +42,8 @@ struct CellView: View {
             }
         }
         .opacity(isDimmed ? 0.35 : 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(tagTint)
     }
 
     private var plainText: some View {

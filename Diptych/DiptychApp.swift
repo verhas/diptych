@@ -150,6 +150,10 @@ struct FileCommands: Commands {
         // built-in one -- it sits next to it, and macOS then has nowhere to put
         // Show Tab Bar and the other window-tab commands.
         CommandGroup(after: .sidebar) {
+            Button(model?.sidebarVisible == true ? "Hide Sidebar" : "Show Sidebar") {
+                model?.sidebarVisible.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
             Button(model?.isSinglePane == true ? "Show Both Panes" : "Show One Pane") {
                 model?.isSinglePane.toggle()
             }

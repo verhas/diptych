@@ -11,6 +11,8 @@ struct SettingsView: View {
         TabView {
             ColumnSettingsView()
                 .tabItem { Label("Columns", systemImage: "tablecells") }
+            SoundSettingsView()
+                .tabItem { Label("Sounds", systemImage: "speaker.wave.2") }
         }
         .frame(width: 500, height: 470)
     }
@@ -71,5 +73,69 @@ struct ColumnSettingsView: View {
                 .foregroundStyle(.quaternary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+
+struct SoundSettingsView: View {
+
+    @Bindable private var store = ConfigStore.shared
+    private let names = Sounds.available()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle("Play sounds", isOn: $store.configuration.soundsEnabled)
+                .toggleStyle(.checkbox)
+
+            Text("Played when an operation finishes. Choose \u{201C}None\u{201D} to silence "
+                 + "one of them.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Group {
+                picker("Copy", \Configuration.copySound)
+                picker("Move", \Configuration.moveSound)
+                picker("Move to Trash", \Configuration.trashSound)
+            }
+            .disabled(!store.configuration.soundsEnabled)
+
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Reset to Defaults") {
+                    store.configuration.copySound = "Pop"
+                    store.configuration.moveSound = "Tink"
+                    store.configuration.trashSound = "Glass"
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    private func picker(_ title: String,
+                        _ keyPath: WritableKeyPath<Configuration, String>) -> some View {
+        let binding = Binding(
+            get: { store.configuration[keyPath: keyPath] },
+            set: { newValue in
+                store.configuration[keyPath: keyPath] = newValue
+                // Play it as it is chosen, so picking one does not mean
+                // triggering a file operation to hear it.
+                Sounds.play(newValue)
+            })
+
+        return HStack {
+            Picker(title, selection: binding) {
+                ForEach(names, id: \.self) { Text($0).tag($0) }
+            }
+            .frame(maxWidth: 320)
+
+            Button {
+                Sounds.play(store.configuration[keyPath: keyPath])
+            } label: {
+                Image(systemName: "play.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Play")
+        }
     }
 }
