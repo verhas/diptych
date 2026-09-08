@@ -42,7 +42,7 @@ developer account.
 | `⌘⌫`, `⌘⌦` | move to Trash immediately, no confirmation |
 | `⌘=` | show the active pane's folder in the other pane |
 | `⌘2` | one pane / two panes |
-| `⌘.` | show/hide hidden files |
+| `⇧⌘.` | show/hide hidden files (as in Finder; plain `⌘.` is the system's "cancel") |
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
@@ -117,6 +117,12 @@ refused, since a favourite is somewhere to go. Drag a favourite up or down to
 reorder it. Remove one with its context menu or `⌘⌫`. Volumes cannot be
 reordered; their order belongs to the system. Favourites are global and live in `config.json`;
 whether the sidebar is open is per window, in `state.json`.
+
+Ejectable volumes carry an eject button, and an Eject item in their context
+menu. Ejectability is not `volumeIsEjectable`: external APFS disks routinely
+report false for it while being perfectly ejectable, so the test is "neither the
+root file system nor internal". Ejecting takes the whole device, as Finder does,
+and any pane sitting on the volume is moved home first.
 
 Volumes track mounts and unmounts through NSWorkspace notifications -- a disk
 appearing touches no directory a pane watches, so the list has to be told.
@@ -198,6 +204,8 @@ of an already-selected row). The nine rwx slots become an in-place editor:
 | `r` `w` `x` | set that bit **in the current group**, wherever the caret sits in it; the caret does not move |
 | `⇧R` `⇧W` `⇧X` | clear that bit in the current group |
 | `⌥R` `⌥W` `⌥X` | toggle that bit in the current group |
+| `s` | toggle setuid (user group) or setgid (group group) |
+| `t` | toggle sticky (other group) |
 | `←` `→` | move one bit |
 | `⇥` / `⇧⇥` | next / previous group -- the shortcut; the arrows stay bit-by-bit |
 | `⌫` | step back one bit and clear it |
@@ -209,6 +217,14 @@ letter from anywhere in its group with plain / `⇧` / `⌥`.
 
 The caret's group is tinted and the caret bit highlighted, because the letters
 act on the group while `-`, `+` and Space act on the single bit.
+
+**setuid, setgid and sticky have no column of their own.** They share the execute
+column, shown as `s`, `s` and `t` in place of `x` -- or `S`/`T` when the special
+bit is set and execute is not. `/usr/bin/sudo` is `-r-s--x--x` (mode 4511) and
+`/private/tmp` is `drwxrwxrwt` (1777). Diptych renders them the way `ls` does and
+colours them, and the Info window has a checkbox for each. The leading character
+is the file type -- `-`, `d`, `l`, `c`, `b`, `p`, `s` -- not a permission, which
+is why nothing in the editor corresponds to it.
 
 While editing, the column heading reads **user**, **group** or **other**
 depending on where the caret is. The result is an absolute mode applied to every
@@ -240,6 +256,31 @@ swallows every drop.
 Dragging is declared on the table *row*, never on a cell. A drag gesture inside
 a cell competes with the table's own click handling, which is the same mistake
 that broke row selection three times over.
+
+## What a transfer will not do
+
+Copy and move refuse a few things outright, because each of them destroys data
+if allowed through:
+
+- **Onto itself.** Copying into the folder an item already lives in makes a copy
+  beside it, as Finder does; moving there does nothing. Neither raises a clash
+  dialog, whose Replace would delete the target -- which is also the source.
+- **Into its own descendant.** Foundation will recurse a directory into a copy
+  of itself until the path is too long to extend.
+- **A name that is not a name.** Typed names are appended as path components, so
+  `../escaped` would otherwise create or move the item a level up. Rename, New
+  Folder and "keep both" all go through one check that rejects separators and
+  `.`/`..`, and confirms the result is a direct child.
+
+**Replacing is staged.** The new item is copied beside the old one and swapped in
+with `replaceItemAt`, so a failure part-way leaves the existing item intact.
+Removing the destination first -- the obvious implementation -- loses it for good
+when the copy then fails on a full disk or a disconnected volume. A failed copy
+cleans up whatever it created rather than leaving a partial item behind.
+
+**Transfers are serialised.** They share one conflict continuation, so a second
+operation started while a clash dialog is open would otherwise overwrite it,
+stranding the first for ever or answering the wrong one.
 
 ## Name clashes
 
@@ -303,7 +344,7 @@ independently and a half-applied Save is worse than none.
 | Tab | Holds |
 | --- | --- |
 | General | location (read-only), name (rename in place), kind, size, and the created / modified dates, which are editable. "Added" and "Accessed" are shown but not settable -- the first belongs to the folder's index, the second to the kernel |
-| Ownership | owner and group pickers, and the nine permission bits as checkboxes with the octal mode |
+| Ownership | owner and group pickers (for a symlink these are the *target's*, since that is what changing them affects), the setuid/setgid/sticky checkboxes, and the nine permission bits as checkboxes with the octal mode |
 | Tags | the seven colours Finder gives a dot, plus free-form tags |
 | Attributes | every extended attribute -- what `xattr` shows. Text values are editable, binary ones (plists, bookmarks) are shown as hex and can only be removed, since saving them as text would corrupt them |
 | Access | the access control list as text -- the same form `ls -le` prints and `acl_from_text` accepts. Empty it to remove the list |
@@ -343,11 +384,73 @@ so a direct attempt always fails with EPERM. Diptych tries directly first, and
 when that fails offers to redo it through the system's authentication prompt --
 `chown` run as root, with the paths shell-quoted.
 
+## Menu shortcuts and text fields
+
+A menu key equivalent is matched *before* the responder chain, so any shortcut
+that is also a text-editing binding will fire the menu command while you are
+typing. Every such shortcut hands off to the focused editor first:
+
+| Shortcut | In a text field |
+| --- | --- |
+| `⌘X` `⌘C` `⌘V` `⌘A` | cut / copy / paste / select all |
+| `⌘⌫` | delete to the beginning of the line -- *not* move the file to Trash |
+| `⌘↑` `⌘↓` | move to start / end of the text -- *not* navigate |
+
+The permissions grid counts as an editor for this purpose too: it is a plain
+NSView rather than a text view, but a shortcut must not act on the file list
+while it is open.
+
+## Tests
+
+```sh
+./build.sh test
+```
+
+`DiptychTests/` covers the destructive paths, because those are the ones where a
+bug costs someone their files: copying an item onto itself, replacing without a
+fallback, recursing a folder into itself, typed names escaping their folder,
+special permission bits surviving an edit, and navigation history.
+
+The test target is wired into `project.pbxproj` with a synchronized folder
+group, so a new file in `DiptychTests/` joins the suite without touching the
+project.
+
+## Releasing
+
+```sh
+./build.sh dmg        # Release build, packaged as build/Diptych-<version>.dmg
+./build.sh notarize   # submit that image to Apple and staple the ticket
+```
+
+`dmg` builds Release, signs the app with a Developer ID certificate if the
+keychain holds one, stages it next to a symlink to `/Applications`, and writes a
+compressed image. Mount, drag across, eject -- the arrangement users expect.
+
+The version comes from `MARKETING_VERSION` in the Xcode project, which is the
+semantic version (`1.0.0`); `CURRENT_PROJECT_VERSION` is the build number and
+may go up between releases of the same version.
+
+**Signing and notarizing.** Without a Developer ID the image is unsigned and
+macOS refuses to open the app on any machine but this one -- the user has to
+right-click and Open, and is told the developer cannot be verified. To avoid
+that you need the Apple Developer Program, a *Developer ID Application*
+certificate in the keychain, and credentials stored once:
+
+```sh
+xcrun notarytool store-credentials Diptych \
+    --apple-id you@example.com --team-id TEAMID --password <app-specific-password>
+```
+
+Then `./build.sh dmg && ./build.sh notarize`. Stapling matters: it puts the
+ticket inside the image, so the app opens even on a machine that is offline the
+first time it runs.
+
 ## Scripts
 
 | Script | Does |
 | --- | --- |
 | `./build.sh` | build / run / clean -- see above |
+| `./build.sh test` | run the unit tests |
 | `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete |
 | `swift make-icon.swift` | redraws the app icon into `Diptych/Assets.xcassets` |
 

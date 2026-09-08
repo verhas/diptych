@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 
 /// Reads and writes `~/.diptych/config.json`.
@@ -24,6 +25,15 @@ final class ConfigStore {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     private init() {
+        // A debounced save can still be pending when the app quits -- the same
+        // observer StateStore has, which configuration was missing.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { ConfigStore.shared.saveNow() }
+        }
+
         var loaded = (try? Data(contentsOf: Self.url))
             .flatMap { try? JSONDecoder().decode(Configuration.self, from: $0) }
             ?? Configuration()

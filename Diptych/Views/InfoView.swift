@@ -144,9 +144,44 @@ struct InfoView: View {
                 }
 
                 panel("Permissions (\(model.modeText))") {
+                    if model.isSymlink {
+                        Text("This is a symbolic link: these are the linked "
+                             + "item\u{2019}s permissions, and changing them changes it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     permissionRow("User", read: S_IRUSR, write: S_IWUSR, execute: S_IXUSR)
                     permissionRow("Group", read: S_IRGRP, write: S_IWGRP, execute: S_IXGRP)
                     permissionRow("Others", read: S_IROTH, write: S_IWOTH, execute: S_IXOTH)
+
+                    if model.isDirectory {
+                        Text("For a folder, Read lists the names inside it and "
+                             + "Search allows reaching what is in it. Read without "
+                             + "Search lists names you cannot then open.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Divider()
+
+                    LabeledContent("Special") {
+                        HStack(spacing: 14) {
+                            bitToggle("setuid", S_ISUID)
+                                .help("Run as the file\u{2019}s owner rather than as whoever "
+                                      + "started it. This is how /usr/bin/sudo becomes root.")
+                            bitToggle("setgid", S_ISGID)
+                                .help(model.isDirectory
+                                      ? "New items in this folder inherit its group."
+                                      : "Run as the file\u{2019}s group.")
+                            bitToggle("sticky", S_ISVTX)
+                                .help("In a folder, only an item\u{2019}s owner may delete it "
+                                      + "\u{2014} what makes /tmp safe to share.")
+                        }
+                    }
+                    Text("These three share the execute column: they show as "
+                         + "s, s and t in place of x.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .padding(4)
@@ -159,7 +194,10 @@ struct InfoView: View {
             HStack(spacing: 14) {
                 bitToggle("Read", read)
                 bitToggle("Write", write)
-                bitToggle(model.isDirectory ? "List" : "Execute", execute)
+                // For a directory it is Read that lists names; execute permits
+                // traversal. Labelling this one "List" invited exactly the
+                // wrong change.
+                bitToggle(model.isDirectory ? "Search" : "Execute", execute)
             }
         }
     }

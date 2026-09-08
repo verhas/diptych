@@ -12,6 +12,13 @@ struct SidebarView: View {
             Section("Volumes") {
                 ForEach(volumes.volumes) { entry in
                     row(entry)
+                        .contextMenu {
+                            Button("Open") { model.openSidebarEntry(entry) }
+                            if entry.isEjectable {
+                                Divider()
+                                Button("Eject") { model.eject(entry) }
+                            }
+                        }
                 }
             }
 
@@ -56,6 +63,19 @@ struct SidebarView: View {
             Text(entry.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            if entry.isEjectable {
+                Spacer(minLength: 4)
+                Button {
+                    model.eject(entry)
+                } label: {
+                    Image(systemName: "eject.fill")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Eject \(entry.name)")
+            }
         }
         .tag(entry.id)
         .help(entry.url.path)

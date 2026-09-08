@@ -70,7 +70,7 @@ final class PaneModel {
     var filterIsRegex = false { didSet { rebuildFilter() } }
     /// Off: non-matching rows are greyed out and cannot be selected.
     /// On: they are not listed at all.
-    var filterHidesOthers = false
+    var filterHidesOthers = false { didSet { correctSelectionForFilter() } }
 
     private(set) var filterIsValid = true
     @ObservationIgnored private var filterRegex: NSRegularExpression?
@@ -82,6 +82,8 @@ final class PaneModel {
         filterRegex = nil
         filterIsValid = true
 
+        defer { correctSelectionForFilter() }
+
         guard !pattern.isEmpty else { return }
         guard filterIsRegex else { return }
 
@@ -90,6 +92,22 @@ final class PaneModel {
         filterRegex = try? NSRegularExpression(pattern: "^(?:\(pattern))$",
                                                options: [.caseInsensitive])
         filterIsValid = filterRegex != nil
+    }
+
+    /// Drop anything the filter now excludes.
+    ///
+    /// Changing the filter used to leave an already-selected file selected
+    /// while greying it out, and copy, move, chmod and Trash all still acted on
+    /// it -- the opposite of what the greying says.
+    private func correctSelectionForFilter() {
+        guard !isCorrectingSelection, hasFilter, filterIsValid else { return }
+
+        let allowed = rows.filter { selection.contains($0.id) && matchesFilter($0) }.map(\.id)
+        guard allowed.count != selection.count else { return }
+
+        isCorrectingSelection = true
+        selection = Set(allowed)
+        isCorrectingSelection = false
     }
 
     /// `..` always matches: it is navigation, not content.
@@ -152,7 +170,7 @@ final class PaneModel {
     /// The row whose permissions cell is being edited, and the nine characters
     /// being edited. The edit applies to the whole selection, not just this row.
     var permissionEditAnchor: FileItem.ID?
-    var permissionText = ""
+    var permissionMode: mode_t = 0
 
 
     private var loadTask: Task<Void, Never>?
@@ -187,8 +205,13 @@ final class PaneModel {
     }
 
     /// Every selected row, `..` included -- what *navigation* acts on.
+    ///
+    /// Filtered-out rows are excluded here as well as being unselectable, so a
+    /// selection that somehow outlives a filter change still cannot be operated
+    /// on. The guard in `selection` keeps the UI honest; this keeps the file
+    /// operations honest.
     var selectedRows: [FileItem] {
-        rows.filter { selection.contains($0.id) }
+        rows.filter { selection.contains($0.id) && matchesFilter($0) }
     }
 
     /// Selected rows without `..` -- what copy / move / rename / trash act on,
@@ -247,11 +270,15 @@ final class PaneModel {
     func goUp() {
         guard directory.pathComponents.count > 1 else { return }
         let leaving = directory
-        directory = directory.deletingLastPathComponent()
-        reload()
+
+        // Through navigate(), not by assigning `directory`: going up is a
+        // navigation like any other and belongs in the history and in the saved
+        // state. Setting the property directly skipped both.
+        navigate(to: directory.deletingLastPathComponent())
+
         // Land the cursor on the directory we just came out of, which is what
         // every keyboard-driven file manager does.
-        selection = [leaving]
+        pendingSelection = [leaving]
     }
 
     func open(_ item: FileItem) {

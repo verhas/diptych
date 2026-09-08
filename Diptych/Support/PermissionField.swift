@@ -9,7 +9,11 @@ import AppKit
 /// keyDown is far less work than bending NSTextField into that shape.
 final class PermissionEditorView: NSView {
 
-    var characters: [Character] = Array("---------") { didSet { needsDisplay = true } }
+    /// The twelve meaningful bits, not the rendered characters. Working from
+    /// the mode is what lets setuid, setgid and sticky be shown and edited at
+    /// all: they share the execute column rather than having one of their own.
+    var mode: mode_t = 0 { didSet { needsDisplay = true } }
+
     var cursor = 0 {
         didSet {
             guard cursor != oldValue else { return }
@@ -19,7 +23,7 @@ final class PermissionEditorView: NSView {
     }
 
     var onCursorChange: ((Int) -> Void)?
-    var onCommit: ((String) -> Void)?
+    var onCommit: ((mode_t) -> Void)?
     var onCancel: (() -> Void)?
 
     /// Matches the font the non-editing cells use, so an edited row's columns
@@ -32,16 +36,13 @@ final class PermissionEditorView: NSView {
         ("m" as NSString).size(withAttributes: [.font: font]).width
     }
 
+    private var characters: [Character] { Array(FileOperations.rwxString(mode)) }
     private var group: Int { cursor / 3 }
 
-    /// Which letter each slot means: r, w, x.
-    static func letter(at index: Int) -> Character {
-        switch index % 3 {
-        case 0:  "r"
-        case 1:  "w"
-        default: "x"
-        }
-    }
+    /// setuid for the user triple, setgid for the group triple, sticky for other.
+    private static let specialBit: [mode_t] = [0o4000, 0o2000, 0o1000]
+
+    private func bit(at index: Int) -> mode_t { mode_t(1) << mode_t(8 - index) }
 
     static func scope(at index: Int) -> String {
         switch index / 3 {
@@ -61,9 +62,8 @@ final class PermissionEditorView: NSView {
 
         let focused = window?.firstResponder === self
 
-        // The whole group is tinted, because r/w/x act on the group rather than
-        // on the single slot under the caret; the caret itself is what -, + and
-        // space act on.
+        // The whole triple is tinted, because r/w/x act on the triple rather
+        // than on the single slot under the caret.
         if focused {
             let groupRect = NSRect(x: CGFloat(group * 3) * slotWidth, y: 0,
                                    width: slotWidth * 3, height: bounds.height)
@@ -82,6 +82,9 @@ final class PermissionEditorView: NSView {
                 colour = .white
             } else if character == "-" {
                 colour = .tertiaryLabelColor
+            } else if "sStT".contains(character) {
+                // The special bits are worth noticing.
+                colour = .systemOrange
             }
 
             let text = String(character) as NSString
@@ -104,10 +107,7 @@ final class PermissionEditorView: NSView {
         let option = event.modifierFlags.contains(.option)
 
         switch event.keyCode {
-        // Arrows always move one bit. They used to jump a whole group, which
-        // meant the caret could only ever sit on a group's `r` bit -- so `-`
-        // could not clear write or execute at all. Group jumping is a
-        // shortcut, and lives on Tab.
+        // Arrows always move one bit. Group jumping is a shortcut, on Tab.
         case 123: cursor = max(0, cursor - 1); return          // left
         case 124: cursor = min(8, cursor + 1); return          // right
         case 48:                                                // tab
@@ -115,12 +115,11 @@ final class PermissionEditorView: NSView {
             return
         case 115: cursor = 0; return                           // home
         case 119: cursor = 8; return                           // end
-        case 36, 76: onCommit?(String(characters)); return     // return
+        case 36, 76: onCommit?(mode); return                   // return
         case 53:  onCancel?(); return                          // escape
         case 51:                                               // backspace
-            // Steps back and clears, which pairs with `-` and `+` advancing.
             cursor = max(0, cursor - 1)
-            characters[cursor] = "-"
+            mode &= ~bit(at: cursor)
             return
         default:
             break
@@ -130,31 +129,42 @@ final class PermissionEditorView: NSView {
 
         switch typed {
         case "r", "w", "x":
-            // Acts on the matching bit of the *current group*, wherever the
+            // Acts on the matching bit of the *current triple*, wherever the
             // caret sits inside it, and leaves the caret alone: Shift clears,
             // Option toggles, bare sets.
-            let offset: Int = typed == "r" ? 0 : (typed == "w" ? 1 : 2)
-            let index = group * 3 + offset
+            let offset = typed == "r" ? 0 : (typed == "w" ? 1 : 2)
+            let target = bit(at: group * 3 + offset)
             if option {
-                characters[index] = characters[index] == "-" ? typed : "-"
+                mode ^= target
+            } else if shift {
+                mode &= ~target
             } else {
-                characters[index] = shift ? "-" : typed
+                mode |= target
             }
-            needsDisplay = true
 
-        // The caret-scoped edits advance, so a whole mode can be typed straight
-        // through: "-+-" and so on. The group-scoped letters above do not,
-        // because they act on a bit the caret is not sitting on.
+        case "s":
+            // setuid on the user triple, setgid on the group triple. There is
+            // no such bit for "other", where the equivalent is sticky.
+            guard group < 2 else { NSSound.beep(); return }
+            mode ^= Self.specialBit[group]
+
+        case "t":
+            guard group == 2 else { NSSound.beep(); return }
+            mode ^= Self.specialBit[2]
+
+        // The caret-scoped edits advance, so a whole triple can be typed
+        // straight through. The triple-scoped letters above do not, because
+        // they act on a bit the caret is not sitting on.
         case "-":
-            characters[cursor] = "-"
+            mode &= ~bit(at: cursor)
             advance()
 
         case "+":
-            characters[cursor] = Self.letter(at: cursor)
+            mode |= bit(at: cursor)
             advance()
 
         case " ":
-            characters[cursor] = characters[cursor] == "-" ? Self.letter(at: cursor) : "-"
+            mode ^= bit(at: cursor)
             advance()
 
         default:
@@ -171,14 +181,14 @@ final class PermissionEditorView: NSView {
 
 struct PermissionField: NSViewRepresentable {
 
-    let text: String
+    let mode: mode_t
     let onCursor: (Int) -> Void
-    let onCommit: (String) -> Void
+    let onCommit: (mode_t) -> Void
     let onCancel: () -> Void
 
     func makeNSView(context: Context) -> PermissionEditorView {
         let view = PermissionEditorView()
-        view.characters = Array(text)
+        view.mode = mode
         view.onCursorChange = onCursor
         view.onCommit = onCommit
         view.onCancel = onCancel
@@ -194,8 +204,9 @@ struct PermissionField: NSViewRepresentable {
         view.onCursorChange = onCursor
         view.onCommit = onCommit
         view.onCancel = onCancel
-        if String(view.characters) != text {
-            view.characters = Array(text)
+        // Never overwrite bits the user is in the middle of editing.
+        if view.window?.firstResponder !== view {
+            view.mode = mode
         }
     }
 }

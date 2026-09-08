@@ -122,7 +122,7 @@ final class AppModel {
     @ObservationIgnored private let picker = PopupMenu()
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
-    @ObservationIgnored private var pendingOwnerChange: (owner: String, urls: [URL])?
+    @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?, urls: [URL])?
 
     init() {
         slot = Self.nextSlot
@@ -630,18 +630,55 @@ final class AppModel {
                                  from sourcePane: PaneModel?) {
         guard !urls.isEmpty else { return }
 
-        Task { @MainActor in
-            var outcome = FileOperations.Outcome()
-            var aborted = false
-            /// Set once "apply to all" is ticked; every later clash takes it
-            /// without asking.
-            var standingAction: ConflictAction?
+        // Serialised. Every transfer shares one conflict continuation, so a
+        // second operation started while a clash dialog is open would overwrite
+        // it -- stranding the first task for ever, or answering the wrong one.
+        enqueueTransfer { [weak self] in
+            guard let self else { return }
+            await self.runTransfer(urls, to: destination, kind: kind,
+                                   into: destinationPane, from: sourcePane)
+        }
+    }
 
-            for (index, source) in urls.enumerated() {
-                var target = destination.appendingPathComponent(source.lastPathComponent)
-                var overwrite = false
+    @ObservationIgnored private var transferChain: Task<Void, Never>?
 
-                if FileOperations.exists(target) {
+    private func enqueueTransfer(_ work: @escaping @MainActor () async -> Void) {
+        let previous = transferChain
+        transferChain = Task { @MainActor in
+            await previous?.value
+            await work()
+        }
+    }
+
+    private func runTransfer(_ urls: [URL], to destination: URL,
+                             kind: FileOperations.Transfer,
+                             into destinationPane: PaneModel,
+                             from sourcePane: PaneModel?) async {
+        var outcome = FileOperations.Outcome()
+        var aborted = false
+        /// Set once "apply to all" is ticked; every later clash takes it
+        /// without asking.
+        var standingAction: ConflictAction?
+
+        for (index, source) in urls.enumerated() {
+            var target = destination.appendingPathComponent(source.lastPathComponent)
+            var overwrite = false
+
+            // The destination is where the item already is. Copying then means
+            // "make a copy beside it", as Finder does; moving means nothing at
+            // all. Neither should raise a clash dialog whose Replace would
+            // delete the item itself.
+            if FileOperations.samePath(source, target) {
+                guard kind == .copy else { continue }
+                target = FileOperations.uniqueURL(for: target)
+
+            } else if FileOperations.exists(target) {
+                // Loop: a name typed into "keep both" can clash in its own
+                // right, and answering one dialog with a name that is also
+                // taken should ask again rather than fail.
+                var skipItem = false
+
+                while FileOperations.exists(target) {
                     var action: ConflictAction
                     var chosenName: String?
 
@@ -664,42 +701,60 @@ final class AppModel {
                     switch action {
                     case .overwrite:
                         overwrite = true
+
                     case .rename:
                         // A typed name applies to this item only; everything
                         // after it under "apply to all" gets an automatic one,
                         // since one name cannot serve several files.
-                        target = chosenName.map { destination.appendingPathComponent($0) }
-                            ?? FileOperations.uniqueURL(for: target)
+                        if let chosenName {
+                            guard let named = FileOperations.safeChild(named: chosenName,
+                                                                       in: destination) else {
+                                outcome.failures.append(
+                                    (source, "\u{201C}\(chosenName)\u{201D} is not a usable name."))
+                                skipItem = true
+                                break
+                            }
+                            target = named
+                        } else {
+                            target = FileOperations.uniqueURL(for: target)
+                        }
+
                     case .skip:
-                        continue
+                        skipItem = true
                     }
+
+                    if skipItem || overwrite { break }
                 }
 
-                if let message = await FileOperations.shared.transferOne(source, to: target,
-                                                                         kind: kind,
-                                                                         overwrite: overwrite) {
-                    outcome.failures.append((source, message))
-                } else {
-                    outcome.succeeded.append(target)
-                }
+                if aborted { break }
+                if skipItem { continue }
             }
 
-            sourcePane?.reload()
-            // Leave the moved or copied files selected where they landed.
-            destinationPane.pendingSelection = Set(outcome.succeeded)
-            destinationPane.reload()
-
-            if outcome.isCompleteSuccess {
-                let verb = kind == .move ? "Moved" : "Copied"
-                if !outcome.succeeded.isEmpty {
-                    let configuration = ConfigStore.shared.configuration
-                    Sounds.playIfEnabled(kind == .move ? configuration.moveSound : configuration.copySound)
-                    flash("\(verb) \(outcome.succeeded.count) item"
-                          + (outcome.succeeded.count == 1 ? "" : "s"), error: false)
-                }
+            if let message = await FileOperations.shared.transferOne(source, to: target,
+                                                                     kind: kind,
+                                                                     overwrite: overwrite) {
+                outcome.failures.append((source, message))
             } else {
-                report(outcome, verb: kind == .move ? "move" : "copy")
+                outcome.succeeded.append(target)
             }
+        }
+
+        sourcePane?.reload()
+        // Leave the moved or copied files selected where they landed.
+        destinationPane.pendingSelection = Set(outcome.succeeded)
+        destinationPane.reload()
+
+        if outcome.isCompleteSuccess {
+            if !outcome.succeeded.isEmpty {
+                let configuration = ConfigStore.shared.configuration
+                Sounds.playIfEnabled(kind == .move ? configuration.moveSound
+                                                   : configuration.copySound)
+                let verb = kind == .move ? "Moved" : "Copied"
+                flash("\(verb) \(outcome.succeeded.count) item"
+                      + (outcome.succeeded.count == 1 ? "" : "s"), error: false)
+            }
+        } else {
+            report(outcome, verb: kind == .move ? "move" : "copy")
         }
     }
 
@@ -715,6 +770,42 @@ final class AppModel {
 
     func openSidebarEntry(_ entry: SidebarEntry) {
         active.navigate(to: entry.url)
+    }
+
+    /// Ejects the whole device, as Finder's eject does.
+    func eject(_ entry: SidebarEntry) {
+        let name = entry.name
+        let mountPoint = entry.url.path
+
+        FileManager.default.unmountVolume(at: entry.url,
+                                          options: [.allPartitionsAndEjectDisk]) { [weak self] error in
+            // Error is not Sendable; the message is.
+            let message = error?.localizedDescription
+
+            // A Task, not MainActor.assumeIsolated: this callback arrives on
+            // NSFileManager's own unmount queue, and assuming main-actor
+            // isolation there traps. assumeIsolated is only safe for callbacks
+            // that are guaranteed to be delivered on the main thread.
+            Task { @MainActor in
+                guard let self else { return }
+
+                if let message {
+                    self.flash("Could not eject \(name): \(message)")
+                    return
+                }
+
+                // A pane left sitting on the volume would be showing a path
+                // that no longer exists.
+                for pane in [self.left, self.right]
+                where pane.directory.path == mountPoint
+                    || pane.directory.path.hasPrefix(mountPoint + "/") {
+                    pane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+                }
+
+                VolumeList.shared.reload()
+                self.flash("Ejected \(name)", error: false)
+            }
+        }
     }
 
     func addFavourites(_ urls: [URL]) {
@@ -815,6 +906,9 @@ final class AppModel {
             : urls
         guard !sources.isEmpty else { return }
 
+        // A cut is consumed by the paste that acts on it.
+        if move { Clipboard.clearCutIntent() }
+
         // The source may be this window's other pane, another window, or
         // Finder; refreshing the other pane covers the case we can see.
         performTransfer(sources, to: destination, kind: move ? .move : .copy,
@@ -841,14 +935,52 @@ final class AppModel {
         active.selection = Set(active.rows.filter { !$0.isParent }.map(\.id))
     }
 
+    /// Whether something that edits text owns the keyboard right now.
+    ///
+    /// The permissions grid counts: it is a plain NSView rather than a text
+    /// view, but it is an editor, and a menu shortcut must not act on the file
+    /// list while it is open.
+    private var editorHasKeyboardFocus: Bool {
+        guard let responder = window?.firstResponder else { return false }
+        return responder is NSText
+            || responder.isKind(of: NSTextView.self)
+            || responder is PermissionEditorView
+    }
+
     /// Menu key equivalents are matched before the responder chain, so Cmd-C
     /// inside the rename field would land here instead of copying text. Hand it
-    /// back when a text editor has focus.
+    /// back when an editor has focus.
     private func forwardToTextEditor(_ selector: Selector) -> Bool {
-        guard let responder = window?.firstResponder,
-              responder is NSText || responder.isKind(of: NSTextView.self) else { return false }
+        guard editorHasKeyboardFocus else { return false }
         NSApp.sendAction(selector, to: nil, from: nil)
         return true
+    }
+
+    /// Cmd-Delete from the menu bar.
+    ///
+    /// In a text field that combination means "delete to the beginning of the
+    /// line". Because a menu key equivalent is matched before the responder
+    /// chain, the shortcut reached this command and trashed the selected file
+    /// while the user was part-way through typing a new name for it.
+    func trashFromMenu() {
+        guard !forwardToTextEditor(#selector(NSResponder.deleteToBeginningOfLine(_:)))
+        else { return }
+        trashNow()
+    }
+
+    /// Cmd-Down from the menu bar. In text, that is "move to end of document".
+    func openFromMenu() {
+        guard !forwardToTextEditor(#selector(NSResponder.moveToEndOfDocument(_:)))
+        else { return }
+        openSelection()
+    }
+
+    /// Cmd-Up from the menu bar. In text, that is "move to beginning of
+    /// document" -- so while renaming it must move the caret, not the pane.
+    func goUpFromMenu() {
+        guard !forwardToTextEditor(#selector(NSResponder.moveToBeginningOfDocument(_:)))
+        else { return }
+        active.goUp()
     }
 
     // MARK: - Drag and drop
@@ -993,7 +1125,7 @@ final class AppModel {
             // Changing an owner is refused for everyone but root, so offer the
             // authenticated route rather than just reporting a failure.
             if let owner {
-                pendingOwnerChange = (owner, urls)
+                pendingOwnerChange = (owner, group, urls)
                 dialog = .authorizeOwner
             } else {
                 report(outcome, verb: "change the group of")
@@ -1005,7 +1137,14 @@ final class AppModel {
         guard let pending = pendingOwnerChange else { return }
         pendingOwnerChange = nil
 
-        if let message = Privileged.chown(owner: pending.owner, urls: pending.urls) {
+        switch Privileged.chown(owner: pending.owner, group: pending.group, urls: pending.urls) {
+        case .succeeded:
+            flash("Owner changed for \(pending.urls.count) item"
+                  + (pending.urls.count == 1 ? "" : "s"), error: false)
+        case .cancelled:
+            // Cancelling the password prompt used to be reported as success.
+            flash("Cancelled. The owner was not changed.")
+        case .failed(let message):
             dialog = .message("Could not change the owner.\n\n" + message)
         }
         left.reload()
@@ -1033,8 +1172,7 @@ final class AppModel {
         }
 
         renameTable = currentTable
-        // Drop the leading type character: "drwxr-xr-x" -> "rwxr-xr-x".
-        active.permissionText = String(target.permissions.dropFirst())
+        active.permissionMode = target.mode
         active.permissionEditAnchor = target.id
         permissionScope = PermissionEditorView.scope(at: 0)
     }
@@ -1042,7 +1180,7 @@ final class AppModel {
     /// Ends an edit in whichever pane has one open, applying it.
     private func endPermissionEdit() {
         for pane in [left, right] where pane.permissionEditAnchor != nil {
-            commitPermissionEdit(pane.permissionText, in: pane)
+            commitPermissionEdit(pane.permissionMode, in: pane)
         }
     }
 
@@ -1056,22 +1194,21 @@ final class AppModel {
         restoreTableFocus()
     }
 
-    func commitPermissionEdit(_ text: String, in pane: PaneModel? = nil) {
+    func commitPermissionEdit(_ mode: mode_t, in pane: PaneModel? = nil) {
         let pane = pane ?? active
         let urls = pane.selectedItems.map(\.url)
         pane.permissionEditAnchor = nil
         permissionScope = nil
         restoreTableFocus()
 
-        guard text.count == 9, !urls.isEmpty else { return }
-
-        var mode: mode_t = 0
-        for (index, character) in text.enumerated() where character != "-" {
-            mode |= mode_t(1) << mode_t(8 - index)
-        }
+        guard !urls.isEmpty else { return }
 
         Task {
-            let outcome = await FileOperations.shared.setPermissions(mode, for: urls)
+            // All twelve bits: the editor can now express setuid, setgid and
+            // sticky, so it owns them rather than having them preserved behind
+            // its back.
+            let outcome = await FileOperations.shared.setPermissions(mode, mask: 0o7777,
+                                                                     for: urls)
             pane.reload()
             report(outcome, verb: "change permissions for")
         }

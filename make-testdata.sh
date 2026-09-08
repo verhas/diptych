@@ -12,10 +12,13 @@ cd "$(dirname "$0")"
 ROOT="$PWD/test"
 
 # Refuse to run anywhere unexpected -- this script deletes a directory tree.
-case "$ROOT" in
-    */file-manager/test) ;;
-    *) echo "refusing to wipe '$ROOT'" >&2; exit 1 ;;
-esac
+# The test is "am I sitting next to the Xcode project", not "is the folder
+# called file-manager", so renaming the checkout does not disarm the guard or
+# break the script.
+if [ ! -d "$PWD/Diptych.xcodeproj" ]; then
+    echo "refusing to wipe '$ROOT': no Diptych.xcodeproj beside this script" >&2
+    exit 1
+fi
 
 echo "==> Rebuilding $ROOT"
 # Strip access control lists first. The fixture deliberately contains a file

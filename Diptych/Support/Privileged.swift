@@ -9,22 +9,36 @@ import AppKit
 @MainActor
 enum Privileged {
 
-    /// Runs chown after the system's own authentication prompt.
-    /// Returns nil on success, or a message describing the failure.
-    static func chown(owner: String, urls: [URL]) -> String? {
-        guard !urls.isEmpty else { return nil }
+    /// What came of an escalated operation. Cancelling is not success: reporting
+    /// it as such told the user the owner had changed when nothing had.
+    enum Result: Equatable {
+        case succeeded
+        case cancelled
+        case failed(String)
+    }
 
-        let arguments = ([owner] + urls.map(\.path)).map(Shell.quoted).joined(separator: " ")
+    /// Runs chown after the system's own authentication prompt.
+    ///
+    /// `group` is carried through as `owner:group`, because the fallback exists
+    /// precisely when a combined owner-and-group change was refused -- dropping
+    /// the group here would apply half of what was asked for and report all of
+    /// it as done.
+    static func chown(owner: String, group: String?, urls: [URL]) -> Result {
+        guard !urls.isEmpty else { return .succeeded }
+
+        let specification = group.map { "\(owner):\($0)" } ?? owner
+        let arguments = ([specification] + urls.map(\.path))
+            .map(Shell.quoted)
+            .joined(separator: " ")
         let command = "/usr/sbin/chown -- " + arguments
 
         var error: NSDictionary?
         let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
         NSAppleScript(source: script)?.executeAndReturnError(&error)
 
-        guard let error else { return nil }
-        // -128 is the user cancelling the password prompt, which is not a fault.
-        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return nil }
-        return error[NSAppleScript.errorMessage] as? String ?? "Authentication failed."
+        guard let error else { return .succeeded }
+        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return .cancelled }
+        return .failed(error[NSAppleScript.errorMessage] as? String ?? "Authentication failed.")
     }
 
     /// ...and then escaped again to sit inside an AppleScript string literal.

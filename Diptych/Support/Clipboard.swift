@@ -24,6 +24,12 @@ enum Clipboard {
         cutAtChangeCount == NSPasteboard.general.changeCount
     }
 
+    /// A cut is spent once it has been pasted. Leaving it armed made a second
+    /// paste try to move sources that are no longer where the pasteboard says.
+    static func clearCutIntent() {
+        cutAtChangeCount = nil
+    }
+
     /// File URLs on the pasteboard, whether they were put there by Diptych or
     /// by Finder.
     static func fileURLs() -> [URL] {

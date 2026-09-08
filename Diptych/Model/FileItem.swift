@@ -36,6 +36,9 @@ struct FileItem: Identifiable, Hashable, Sendable {
     var owner: String = ""
     var group: String = ""
     var permissions: String = ""
+    /// The numeric mode behind `permissions`, so the editor starts from the
+    /// bits rather than re-parsing the rendered characters.
+    var mode: mode_t = 0
     var tags: [String] = []
 
     /// `Identifiable` requires `id`. A URL is unique within a directory listing,

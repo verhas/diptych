@@ -17,40 +17,59 @@ struct ContentView: View {
     /// pane active always reopens on the left.
     @State private var focusFollowsUser = false
     @State private var isDropTarget = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     /// SwiftUI's own window opener, handed to the model so New Tab can create a
     /// sibling window without going through the menu bar by title.
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 0) {
-            // No .defaultFocus here. It was added to keep first responder off the
-            // path text field, but the real fix for that was making the path a
-            // button. With `.userInitiated` priority it does not merely set the
-            // initial focus -- it re-asserts the value it captured, so clicking
-            // the right pane was undone ~10ms later and focus snapped back left.
-            // Initial focus is set once in .task below instead.
-            panes
-                // One drop destination for both panes, not one each. SwiftUI
-                // gives every .dropDestination a platform view the size of the
-                // whole window, so two of them overlap and whichever is on top
-                // swallows every drop -- which silently sent drops meant for the
-                // right pane to the left one.
-                // A DropDelegate rather than .dropDestination, because only a
-                // delegate can say whether the drop is a move or a copy --
-                // .dropDestination always advertises copy, so an intra-volume
-                // drag that actually moves showed a green plus.
-                .onDrop(of: [.fileURL],
-                        delegate: PaneDropDelegate(model: model, isTargeted: $isDropTarget))
-                .overlay {
-                    if isDropTarget {
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                            .allowsHitTesting(false)
-                    }
-                }
-            Divider()
-            FunctionBar(model: model)
+        // NavigationSplitView rather than an HStack: it is what gives a macOS
+        // sidebar its full height, running to the top of the window under the
+        // title bar rather than starting below the toolbar.
+        //
+        // No .defaultFocus anywhere here. It was once added to keep first
+        // responder off the path text field, but the real fix for that was
+        // making the path a button. With `.userInitiated` priority it does not
+        // merely set the initial focus -- it re-asserts the value it captured,
+        // so clicking the right pane was undone ~10ms later. Initial focus is
+        // set once in .task below instead.
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(model: model)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 300)
+        } detail: {
+            VStack(spacing: 0) {
+                paneSplit
+                Divider()
+                FunctionBar(model: model)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+
+        // One drop destination for the whole window, sidebar included; where it
+        // lands is worked out from the pointer. SwiftUI gives every drop
+        // destination a window-sized platform view, so two would overlap and
+        // whichever sat on top would swallow the other's drops.
+        //
+        // A DropDelegate rather than .dropDestination, because only a delegate
+        // can advertise *move* -- .dropDestination always shows the copy badge.
+        .onDrop(of: [.fileURL],
+                delegate: PaneDropDelegate(model: model, isTargeted: $isDropTarget))
+        .overlay {
+            if isDropTarget {
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+        }
+
+        // The split view owns the sidebar's visibility; the model owns it for
+        // persistence and for the menu item. Kept in step both ways.
+        .onChange(of: model.sidebarVisible) { _, visible in
+            columnVisibility = visible ? .all : .detailOnly
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            model.sidebarVisible = visibility != .detailOnly
         }
         .frame(minWidth: 420, minHeight: 460)
 
@@ -77,6 +96,7 @@ struct ContentView: View {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.start()
+            columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
             // lands during the sleep below, and would otherwise have already
             // overwritten activeSide by the time we read it.
@@ -136,17 +156,6 @@ struct ContentView: View {
         }
     }
 
-    private var panes: some View {
-        HStack(spacing: 0) {
-            if model.sidebarVisible {
-                SidebarView(model: model)
-                    .frame(width: 190)
-                Divider()
-            }
-            paneSplit
-        }
-    }
-
     @ViewBuilder
     private var paneSplit: some View {
         if model.isSinglePane {
@@ -187,15 +196,6 @@ struct ContentView: View {
             .help(model.isSinglePane
                   ? "Show both panes"
                   : "Show only the active pane")
-        }
-
-        ToolbarItem {
-            Button {
-                model.sidebarVisible.toggle()
-            } label: {
-                Label("Sidebar", systemImage: "sidebar.left")
-            }
-            .help(model.sidebarVisible ? "Hide the sidebar" : "Show volumes and favourites")
         }
 
         ToolbarItem {

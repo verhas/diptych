@@ -3,12 +3,13 @@ import AppKit
 import Observation
 
 /// One row in the sidebar.
-struct SidebarEntry: Identifiable, Hashable {
-    enum Kind { case volume, favourite }
+struct SidebarEntry: Identifiable, Hashable, Sendable {
+    enum Kind: Sendable { case volume, favourite }
 
     let kind: Kind
     let url: URL
     let name: String
+    var isEjectable: Bool = false
     var id: String { "\(kind == .volume ? "v" : "f"):\(url.path)" }
 }
 
@@ -35,14 +36,30 @@ final class VolumeList {
     }
 
     func reload() {
-        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsBrowsableKey]
+        let keys: [URLResourceKey] = [
+            .volumeLocalizedNameKey, .volumeIsBrowsableKey, .volumeIsEjectableKey,
+            .volumeIsRemovableKey, .volumeIsRootFileSystemKey, .volumeIsInternalKey,
+        ]
         let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys,
                                                          options: [.skipHiddenVolumes]) ?? []
         volumes = urls.compactMap { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             guard values?.volumeIsBrowsable ?? true else { return nil }
-            let name = values?.volumeLocalizedName ?? url.lastPathComponent
-            return SidebarEntry(kind: .volume, url: url, name: name)
+
+            return SidebarEntry(kind: .volume,
+                                url: url,
+                                name: values?.volumeLocalizedName ?? url.lastPathComponent,
+                                isEjectable: Self.isEjectable(values))
         }
+    }
+
+    /// External disks routinely report `volumeIsEjectable == false` -- both of
+    /// this machine's are Thunderbolt APFS volumes that say so -- while still
+    /// being perfectly ejectable. What actually separates them from the startup
+    /// disk is being neither the root file system nor internal.
+    private static func isEjectable(_ values: URLResourceValues?) -> Bool {
+        guard let values, values.volumeIsRootFileSystem != true else { return false }
+        if values.volumeIsEjectable == true || values.volumeIsRemovable == true { return true }
+        return values.volumeIsInternal == false
     }
 }

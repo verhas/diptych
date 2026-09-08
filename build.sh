@@ -8,6 +8,9 @@
 #   ./build.sh clean     delete build products
 #   ./build.sh path      print the path of the built .app
 #   ./build.sh stop      quit a running instance
+#   ./build.sh test      run the unit tests
+#   ./build.sh dmg       build Release and package it as a mountable .dmg
+#   ./build.sh notarize  submit the .dmg to Apple and staple the ticket
 #
 # Everything Xcode does with Cmd-R, without opening Xcode.
 
@@ -86,6 +89,115 @@ stop_app() {
     fi
 }
 
+# Unit tests. The test bundle is injected into the app, so the app launches and
+# floods stderr with unrelated system logging; only the test lines are shown.
+run_tests() {
+    local log
+    log=$(mktemp -t diptych-test)
+    trap 'rm -f "$log"' RETURN
+
+    info "Testing $SCHEME..."
+
+    if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
+                  -destination "$DESTINATION" test >"$log" 2>&1; then
+        grep -E "^Test Case .*(passed|failed)" "$log" \
+            | sed -E "s/^Test Case '-\[[A-Za-z]+ (.*)\]'/    \1/" \
+            | sed 's/ (.*seconds).*//' || true
+        grep -E "^\s*Executed [0-9]+ test" "$log" | tail -1 | sed 's/^[[:space:]]*/    /'
+        printf '%s==> Tests passed%s\n' "$GREEN" "$OFF"
+    else
+        grep -E "^Test Case .*failed|error:|XCTAssert" "$log" | head -40
+        grep -E "^\s*Executed [0-9]+ test" "$log" | tail -1
+        die "Tests failed"
+    fi
+}
+
+# The first Developer ID Application certificate in the keychain, if any.
+developer_id() {
+    # `|| true`: grep exits non-zero when there is no such certificate, and
+    # under `set -e` that would abort the whole build rather than simply
+    # meaning "no Developer ID here".
+    security find-identity -v -p codesigning 2>/dev/null \
+        | grep "Developer ID Application" \
+        | head -1 \
+        | sed 's/.*"\(.*\)"/\1/' || true
+}
+
+# Submit the image to Apple and staple the resulting ticket, so the app opens
+# without a warning even on a machine that has never seen it.
+#
+# Needs credentials stored once with:
+#   xcrun notarytool store-credentials Diptych \
+#       --apple-id you@example.com --team-id TEAMID --password <app-specific-password>
+notarize_dmg() {
+    local dmg
+    dmg=$(/bin/ls -t "$PWD/build"/Diptych-*.dmg 2>/dev/null | head -1)
+    [ -n "$dmg" ] || die "no disk image in ./build -- run ./build.sh dmg first"
+
+    [ -n "$(developer_id || true)" ] || die "notarizing needs a Developer ID certificate"
+
+    info "Submitting $(basename "$dmg") to Apple (this takes a few minutes)"
+    xcrun notarytool submit "$dmg" --keychain-profile "${NOTARY_PROFILE:-Diptych}" --wait
+
+    info "Stapling the ticket"
+    xcrun stapler staple "$dmg"
+    xcrun stapler validate "$dmg"
+    printf '%s==> Notarized: %s%s\n' "$GREEN" "$dmg" "$OFF"
+}
+
+# Package the Release build as a disk image with an Applications shortcut, the
+# arrangement users expect: mount, drag across, eject.
+make_dmg() {
+    CONFIG=Release
+    build
+
+    local app version staging dmg
+    app=$(app_path)
+    version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+              "$app/Contents/Info.plist")
+    dmg="$PWD/build/Diptych-$version.dmg"
+
+    staging=$(mktemp -d)
+    trap 'rm -rf "$staging"' RETURN
+
+    # Sign the app with a Developer ID when one exists. Without this the image
+    # is just a container for an ad-hoc signed app, and Gatekeeper refuses it.
+    local identity
+    identity=$(developer_id || true)
+    if [ -n "$identity" ]; then
+        info "Signing the app as $identity"
+        codesign --force --deep --options runtime --timestamp \
+                 --sign "$identity" "$app"
+        codesign --verify --deep --strict --verbose=1 "$app" 2>&1 | sed 's/^/    /'
+    fi
+
+    info "Staging $app"
+    cp -R "$app" "$staging/"
+    ln -s /Applications "$staging/Applications"
+
+    mkdir -p "$PWD/build"
+    rm -f "$dmg"
+
+    info "Building $dmg"
+    hdiutil create -volname "Diptych $version" \
+                   -srcfolder "$staging" \
+                   -fs HFS+ -format UDZO -ov -quiet "$dmg"
+
+    # Sign the image itself too, so Gatekeeper has something to check before the
+    # app is ever copied out of it.
+    if [ -n "$identity" ]; then
+        info "Signing the image as $identity"
+        codesign --sign "$identity" --timestamp "$dmg" || true
+    else
+        printf '%s==> No Developer ID found: the image is unsigned.%s\n' "$YELLOW" "$OFF"
+        printf '    Users will see \"Diptych cannot be opened because the developer\n'
+        printf '    cannot be verified\" and must right-click > Open the first time.\n'
+    fi
+
+    printf '%s==> %s%s\n' "$GREEN" "$dmg" "$OFF"
+    du -h "$dmg" | sed 's/^/    /'
+}
+
 case "${1:-build}" in
     build)   build ;;
     release) CONFIG=Release; build ;;
@@ -108,5 +220,8 @@ case "${1:-build}" in
         ;;
     path)  app_path ;;
     stop)  stop_app ;;
-    *)     die "unknown command '$1' (build | run | release | clean | path | stop)" ;;
+    test)     run_tests ;;
+    dmg)      make_dmg ;;
+    notarize) notarize_dmg ;;
+    *)     die "unknown command '$1' (build | run | release | test | clean | path | stop | dmg | notarize)" ;;
 esac

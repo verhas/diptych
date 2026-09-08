@@ -24,6 +24,9 @@ final class FileInfoModel {
     private(set) var kind = ""
     private(set) var byteSize: Int64 = 0
     private(set) var isDirectory = false
+    /// Permissions and ownership are the *target's* for a symlink, because that
+    /// is what changing them affects.
+    private(set) var isSymlink = false
     var created = Date()
     var modified = Date()
     private(set) var added: Date?
@@ -67,6 +70,7 @@ final class FileInfoModel {
             .localizedTypeDescriptionKey, .fileSizeKey, .isDirectoryKey,
             .creationDateKey, .contentModificationDateKey,
             .addedToDirectoryDateKey, .contentAccessDateKey, .tagNamesKey,
+            .isSymbolicLinkKey,
         ]
         // URL caches resource values, so re-reading after a change hands back
         // what was there before -- a tag just written comes back missing, which
@@ -84,7 +88,11 @@ final class FileInfoModel {
         accessed = values?.contentAccessDate
         tags = values?.tagNames ?? []
 
-        let attributes = try? fm.attributesOfItem(atPath: path)
+        isSymlink = values?.isSymbolicLink ?? false
+        // attributesOfItem does not follow a symlink, but setAttributes does.
+        // Read what an edit would write.
+        let attributePath = isSymlink ? url.resolvingSymlinksInPath().path : path
+        let attributes = try? fm.attributesOfItem(atPath: attributePath)
         owner = attributes?[.ownerAccountName] as? String ?? ""
         group = attributes?[.groupOwnerAccountName] as? String ?? ""
         mode = mode_t((attributes?[.posixPermissions] as? NSNumber)?.uint16Value ?? 0)
@@ -159,12 +167,16 @@ final class FileInfoModel {
             }
 
             // Only root may hand a file to another user, so fall back to the
-            // authenticated route rather than just reporting a refusal --
-            // the same thing the pane does.
-            if let message = Privileged.chown(owner: owner, urls: [url]) {
-                report(message, success: "")
-            } else {
+            // authenticated route rather than just reporting a refusal -- the
+            // same thing the pane does. The group goes with it: the fallback
+            // exists because owner *and* group were refused together.
+            switch Privileged.chown(owner: owner, group: group, urls: [url]) {
+            case .succeeded:
                 report(nil, success: "Owner and group updated.")
+            case .cancelled:
+                report("Cancelled. Nothing was changed.", success: "")
+            case .failed(let message):
+                report(message, success: "")
             }
         }
     }
@@ -173,9 +185,10 @@ final class FileInfoModel {
 
     func toggle(_ bit: mode_t) {
         let updated = mode ^ bit
+        let target = isSymlink ? url.resolvingSymlinksInPath().path : url.path
         do {
             try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: updated)],
-                                                  ofItemAtPath: url.path)
+                                                  ofItemAtPath: target)
             mode = updated
             report(nil, success: "Permissions updated.")
         } catch {
@@ -183,7 +196,12 @@ final class FileInfoModel {
         }
     }
 
-    var modeText: String { String(format: "%03o", mode & 0o777) }
+    /// Four digits once a special bit is set, as `chmod` and `stat` print it.
+    var modeText: String {
+        mode & 0o7000 != 0
+            ? String(format: "%04o", mode & 0o7777)
+            : String(format: "%03o", mode & 0o777)
+    }
 
     // MARK: - Tags
 

@@ -85,9 +85,20 @@ actor DirectoryLoader {
             item.added = v?.addedToDirectoryDate ?? .distantPast
             item.kind = v?.localizedTypeDescription ?? ""
             item.tags = v?.tagNames ?? []
-            if let security = v?.fileSecurity {
+            // A symlink carries its own mode (usually 0755) while chmod, and
+            // FileManager.setAttributes with it, follow the link and change the
+            // target. Showing the link's own bits would mean displaying one
+            // thing and editing another, so read through the link.
+            var security = v?.fileSecurity
+            if isSymlink {
+                security = try? url.resolvingSymlinksInPath()
+                    .resourceValues(forKeys: [.fileSecurityKey]).fileSecurity
+            }
+
+            if let security {
                 let decoded = Self.decode(security, isDirectory: isDirectory)
                 item.permissions = decoded.permissions
+                item.mode = decoded.mode
                 item.owner = decoded.owner
                 item.group = decoded.group
             }
@@ -105,19 +116,14 @@ actor DirectoryLoader {
     /// POSIX mode and owner out of the one prefetched NSFileSecurity, rather
     /// than a separate stat per row.
     private static func decode(_ security: NSFileSecurity,
-                               isDirectory: Bool) -> (permissions: String, owner: String, group: String) {
+                               isDirectory: Bool) -> (permissions: String, mode: mode_t,
+                                                      owner: String, group: String) {
         let cf = security as CFFileSecurity
 
         var permissions = ""
         var mode: mode_t = 0
         if CFFileSecurityGetMode(cf, &mode) {
-            permissions.append(isDirectory ? "d" : "-")
-            for shift: mode_t in [6, 3, 0] {
-                let bits = (mode >> shift) & 7
-                permissions.append(bits & 4 != 0 ? "r" : "-")
-                permissions.append(bits & 2 != 0 ? "w" : "-")
-                permissions.append(bits & 1 != 0 ? "x" : "-")
-            }
+            permissions = (isDirectory ? "d" : "-") + FileOperations.rwxString(mode)
         }
 
         var owner = ""
@@ -132,6 +138,6 @@ actor DirectoryLoader {
             group = String(cString: gr.pointee.gr_name)
         }
 
-        return (permissions, owner, group)
+        return (permissions, mode, owner, group)
     }
 }

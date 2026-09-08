@@ -107,16 +107,20 @@ struct FileCommands: Commands {
         }
 
         CommandMenu("Files") {
-            Button("Open") { model?.openSelection() }
-                .keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Open") {
+                dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
+            }
+            .keyboardShortcut(.downArrow, modifiers: .command)
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(model?.active.canGoBack != true)
             Button("Forward") { model?.goForward() }
                 .keyboardShortcut("]")
                 .disabled(model?.active.canGoForward != true)
-            Button("Enclosing Folder") { model?.active.goUp() }
-                .keyboardShortcut(.upArrow, modifiers: .command)
+            Button("Enclosing Folder") {
+                dispatch(model?.goUpFromMenu, #selector(NSResponder.moveToBeginningOfDocument(_:)))
+            }
+            .keyboardShortcut(.upArrow, modifiers: .command)
             Button("Go to Folder...") { model?.requestPathEdit() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
 
@@ -134,8 +138,11 @@ struct FileCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .option])
             Button("Change Owner...") { model?.requestOwnerEdit() }
             Button("Change Group...") { model?.requestGroupEdit() }
-            Button("Move to Trash") { model?.trashNow() }
-                .keyboardShortcut(.delete, modifiers: .command)
+            Button("Move to Trash") {
+                dispatch(model?.trashFromMenu,
+                         #selector(NSResponder.deleteToBeginningOfLine(_:)))
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
 
             Divider()
 
@@ -162,7 +169,9 @@ struct FileCommands: Commands {
             Toggle("Show Hidden Files", isOn: Binding(
                 get: { model?.showHidden ?? false },
                 set: { model?.showHidden = $0 }))
-                .keyboardShortcut(".", modifiers: .command)
+                // Shift-Cmd-. as in Finder. Plain Cmd-. is the system's
+                // "cancel", which this was shadowing while a sheet was open.
+                .keyboardShortcut(".", modifiers: [.command, .shift])
 
             Divider()
 

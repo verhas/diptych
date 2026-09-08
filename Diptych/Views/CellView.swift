@@ -94,7 +94,7 @@ struct CellView: View {
     @ViewBuilder
     private var permissionsCell: some View {
         if pane.permissionEditAnchor == item.id {
-            PermissionField(text: pane.permissionText,
+            PermissionField(mode: pane.permissionMode,
                             onCursor: { model.permissionCursorMoved(to: $0) },
                             onCommit: { model.commitPermissionEdit($0) },
                             onCancel: { model.cancelPermissionEdit() })
