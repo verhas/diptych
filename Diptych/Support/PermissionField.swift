@@ -27,11 +27,9 @@ final class PermissionEditorView: NSView {
     var onCancel: (() -> Void)?
 
     /// Matches the font the non-editing cells use, so an edited row's columns
-    /// of characters line up with the rows above and below it.
-    static let fontSize: CGFloat = 13
-
-    private let font = NSFont.monospacedSystemFont(ofSize: PermissionEditorView.fontSize,
-                                                   weight: .regular)
+    /// of characters line up with the rows above and below it. Both sides read
+    /// `PaneFont`, which is the only way that stays true as the size changes.
+    private var font: NSFont { PaneFont.monospacedAppKit }
     private var slotWidth: CGFloat {
         ("m" as NSString).size(withAttributes: [.font: font]).width
     }

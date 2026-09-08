@@ -145,6 +145,7 @@ final class AppModel {
     @ObservationIgnored private let picker = PopupMenu()
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
+    @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?, urls: [URL])?
 
     init() {
@@ -227,6 +228,7 @@ final class AppModel {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             ColumnWidths.apply(in: window)
+            RowHeights.apply(in: window)
         }
     }
 
@@ -301,6 +303,19 @@ final class AppModel {
     func showInfo() {
         guard let item = singleSelection("show info for", includingParent: false) else { return }
         openInfoWindow?(item.url)
+    }
+
+    /// The hex editor. Never for a directory: a directory's bytes are the file
+    /// system's own bookkeeping, and on APFS opening one for update is not
+    /// something a file manager should offer to do.
+    func showBinaryView() {
+        guard let item = singleSelection("open in the binary view",
+                                         includingParent: false) else { return }
+        guard !item.isDirectory else {
+            flash("\(item.name) is a folder. The binary view opens files.", error: true)
+            return
+        }
+        openBinaryWindow?(item.url)
     }
 
     /// Space, as in Finder.

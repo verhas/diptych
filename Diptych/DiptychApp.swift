@@ -8,6 +8,7 @@ struct DiptychApp: App {
 
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
+    static let binaryWindowID = "diptych.binary"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -27,6 +28,12 @@ struct DiptychApp: App {
             if let url { InfoView(url: url) }
         }
         .defaultSize(width: 560, height: 540)
+
+        // One binary view per file, for the same reason as the info window.
+        WindowGroup(id: DiptychApp.binaryWindowID, for: URL.self) { $url in
+            if let url { BinaryView(url: url) }
+        }
+        .defaultSize(width: 840, height: 560)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
@@ -104,6 +111,30 @@ struct FileCommands: Commands {
                 .keyboardShortcut("c", modifiers: [.command, .option])
             Button("Copy Full Paths") { model?.copySelectionNames(fullPath: true) }
                 .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+        }
+
+        CommandGroup(after: .toolbar) {
+            Button("Bigger Text") { PaneFont.zoom(by: 1) }
+                .keyboardShortcut("+", modifiers: .command)
+                .disabled(ConfigStore.shared.configuration.fontSize
+                          >= Configuration.fontSizes.upperBound)
+            // The menu shows Command-+, which AppKit matches by character and
+            // so only with Shift held. Command-= -- the same physical key
+            // unshifted, and what half of everyone actually presses -- is
+            // caught in KeyRouter, because a menu cannot carry two equivalents
+            // for one command and a second visible item would be nonsense.
+
+            Button("Smaller Text") { PaneFont.zoom(by: -1) }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(ConfigStore.shared.configuration.fontSize
+                          <= Configuration.fontSizes.lowerBound)
+
+            Button("Actual Size") { PaneFont.reset() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(ConfigStore.shared.configuration.fontSize
+                          == Configuration.defaultFontSize)
+
+            Divider()
         }
 
         CommandMenu("Files") {

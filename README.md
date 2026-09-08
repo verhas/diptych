@@ -175,6 +175,11 @@ filters the way a glob does rather than finding a fragment anywhere in the name.
 Matching is case-insensitive, because the file system is. A regex that will not
 compile turns the field red instead of silently matching nothing.
 
+While the field holds anything, a grey **⊗** sits at its right-hand edge and
+clears it in one click, the way a search field does. It appears only when there
+is something to clear -- a button that is always there reads as part of the
+field rather than as something to press.
+
 **Hide** decides what happens to items that do not match:
 
 - off (default) -- they stay listed but greyed out, cannot be selected, and the
@@ -182,6 +187,217 @@ compile turns the field red instead of silently matching nothing.
 - on -- they are not listed at all
 
 `..` always matches; it is navigation, not content.
+
+## Previewing a .DS_Store
+
+Space previews the selected file through Quick Look. `.DS_Store` has no
+generator, so the panel used to show a name and a size for a file that is
+actually full of readable structure -- so Diptych decodes it and previews an
+HTML rendering instead.
+
+**What is in one.** The container is `Bud1`, Apple's generic "buddy allocator"
+block store: four bytes of magic, the string `Bud1`, then a table of block
+addresses where `addr & ~0x1F` is the offset and `addr & 0x1F` is `log2(size)`.
+One named block, `DSDB`, points at a B-tree whose records are sorted by
+filename. Each record is a filename in UTF-16, a four-character key, a
+four-character type, and a value.
+
+The records describe *the entries of the directory the file sits in*, not the
+directory itself: `Iloc` is where an icon sat, `bwsp` an embedded binary plist
+of window settings, `lsvC` the list columns and their widths, `cmmt` a Spotlight
+comment, `lg1S`/`ph1S` sizes, `moDD` a modification date.
+
+The rendering groups records by the item they describe, expands the embedded
+property lists, turns `{{310, 275}, {1727, 1040}}` into `1727 × 1040 at
+(310, 275)`, and **plots the icon positions** -- coordinates are the one part of
+the file that is genuinely a shape, and a picture of how the folder was arranged
+says more than a list of number pairs. Keys it cannot name still show their
+bytes. A file that fails to decode gets a page saying so, rather than falling
+back to the empty panel: "this is not a `Bud1` file at all" is worth being told.
+
+Three things the format does that a first attempt gets wrong, all found by
+running the decoder over the 130 real `.DS_Store` files on this machine:
+
+- **The rightmost child of an internal node trails the last record.** Walk only
+  the children that precede records and you lose everything past the final key
+  -- silently, with a plausible-looking result. `~/github/.DS_Store` declares 80
+  records and the first version of this decoder returned 2, without an error.
+- **`moDD` is little-endian**, an IEEE double of seconds since 2001, while every
+  other number in the file is a big-endian integer.
+- **An unknown value type cannot be skipped**, because a value's length is
+  implied by its type. Once one is missed, the rest of the node is garbage read
+  as records, so the decoder fails instead.
+
+Every read is bounds checked and every limit explicit -- 1 MB of file, 20,000
+records, a cycle guard on the tree walk -- because this is an undocumented binary
+format found in the wild, and a file manager that crashed on a file it merely
+tried to preview would be worse than one that previews nothing. One of the 130
+files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
+it is reported as not being a `.DS_Store`, which is exactly what it is not.
+
+## Bin View
+
+Right-click a file ▸ **Bin View** opens a hex editor in its own window, one per
+file. The entry is absent for folders rather than greyed out -- it would be
+permanently disabled on half the rows of every listing -- and `showBinaryView()`
+refuses a directory again on the way through, because a context menu is not a
+security boundary.
+
+Across the top: a radio group for **8 / 16 / 32 / 48 / 64 bytes per line**, and a
+**Decimal** checkbox that swaps two-character hex for three-character decimal.
+Down the left, the address each line starts at, in hex, widened to fit the file.
+Down the right, the characters -- printable ASCII only, everything else a dot.
+That is not timidity: control characters have no glyph, and the C1 range renders
+as whatever the font feels like, so a raw byte column is how a hex editor
+displays gibberish rather than what it displays.
+
+Arrows move a byte, up and down a line, Page Up and Page Down sixteen lines,
+Home and End the ends. The keyboard goes through `BinaryKeyMonitor`, an AppKit
+key-down monitor, not `onKeyPress` -- which failed three different ways here.
+The plain form never delivered Delete at all; an explicit key set rejected every
+arrow, because macOS stamps `.numericPad` on all four of them and the guard was
+testing for *no* modifiers; and with that fixed the enclosing `ScrollView` took
+the arrows for scrolling before the handler saw them. Keys are matched by
+virtual key code, positional and so layout-independent -- the same conclusion
+`KeyRouter` reached for the panes, for the same reasons. Typing hex digits (or decimal ones) edits the byte under
+the cursor and advances when it is complete -- in decimal, `99` is complete as
+soon as it is typed, because `99x` cannot be a byte, while `25` waits for a third
+digit because `255` can. Delete restores one byte to what the file holds.
+
+**Selecting.** A click picks one byte; press and drag to pull a run out from it,
+across as many rows as you like; Shift-click extends from where the cursor
+already is, which is how a selection longer than the window is made -- click the
+start, scroll, Shift-click the end.
+
+One gesture serves the whole grid, not one per row: a per-row gesture keeps
+reporting positions in the row it began in, so dragging downwards only ever ran
+left and right along that one line. Rows have a pinned height so a pointer
+position is arithmetic rather than hit testing -- a height merely guessed at
+would drift further wrong the further down you dragged.
+
+The cursor is **not** scrolled into view while a drag is in progress. Doing so
+is a feedback loop: centring the cursor's row slides the content out from under
+the pointer, which puts a different row there, which moves the cursor, which
+scrolls again -- the view bolted downwards the instant a drag began. Keyboard
+movement has no such loop, because the pointer is not what decides where the
+cursor goes, so it still scrolls.
+Shift with any movement key extends from the anchor; ⌘A takes the whole file. The selection is always a **run**, never a
+block: a rectangle over a hex dump covers bytes that are not next to each other
+in the file, which is not something any operation could act on. Delete restores
+every changed byte in the selection.
+
+**Insert and remove.** **Remove** (⌘⌫) deletes the selected bytes and pulls
+everything after them down. **Insert** (⌘/) puts as many zero bytes as are
+selected in front of the cursor and pushes the rest up -- selecting four and
+inserting gives four zeros, which is the reading of "insert several" that needs
+no second control.
+
+That changes the file's length, which changes how saving works. While every edit
+is an overwrite the file stays mapped and the changes are a sparse offset-to-byte
+map, so opening a 60 MB file costs nothing and saving seeks to each run. The
+first structural edit materialises the content into an array, and saving then
+writes it whole and truncates to the new length. It is one-way: once the length
+can change there is no sparse patch that describes the result.
+
+Either way the write goes **through the same descriptor** rather than replacing
+the file, so the inode, its permissions and its extended attributes all survive a
+length change -- there is a test that asserts exactly that.
+
+An insert moves every byte after it, so everything keyed by an offset has to move
+too, or it starts describing the wrong bytes: the remembered original values and
+the record of which bytes are new are both shifted with the content. A byte that
+an insert merely pushed along is **not** marked changed -- its value is the one
+the file already had. Inserted bytes are, and reverting one is not meaningful:
+it was never in the file, so Remove is the command for it.
+
+**Finding.** A find box at the top takes **text or hex** -- `Hello`, or `48 65 6c`
+with the spaces optional -- because a hex editor is used for both: looking for a
+string inside a binary, and looking for a byte sequence that has no characters at
+all. ⌘G and ⇧⌘G repeat it forwards and backwards, ⌘F puts the cursor in the box,
+Return searches. Searching then hands the keyboard **back to the grid** --
+Escape and clicking the bytes do too. Keeping focus in the box is what left the
+cursor stuck in it with no obvious way out, and every hex digit typed afterwards
+went into the query instead of into the file. ⌘G is bound twice, on the key
+monitor and on a hidden button, because the monitor stands aside while a text
+field has focus and a button's shortcut is matched before the responder chain. It wraps, it searches **what is shown** rather than what is on
+disk so pending edits are matched, and the whole match is selected. Hex that will
+not parse turns the field red, the same signal the pane filter gives a
+half-typed regular expression.
+
+The scan walks candidate positions modulo their count rather than building a list
+of them -- a list would be sixty million integers for a large file, more memory
+than the file itself -- and clamps rather than wraps when the cursor sits past
+the last position a match could start at, which going backwards means the last
+candidate and not the first.
+
+**Undo** (⌘Z) takes back the last change, insert or removal, a hundred deep --
+distinct from **Revert Bytes** (Delete), which restores whatever is selected to
+what the file holds. The stack holds *operations*, not snapshots: a snapshot of
+the content would be the whole file, while the reversal of an insert is a
+removal. Each reversal is recorded as values and applied against whichever
+representation is current when it runs, because the first structural edit swaps
+representation underneath entries already on the stack -- an entry written in
+terms of the sparse map silently did nothing once the content had been
+materialised. Saving clears the stack: the reversals describe edits against
+content that is now on disk.
+
+**Changed bytes are red**, in both the byte column and the character column, and
+stay red until they are written. Nothing reaches the file until **Save**, which
+asks for confirmation first and says exactly how many bytes it is about to
+overwrite.
+
+Saving writes **only the changed bytes**: the edits are kept sparsely as
+offset-to-value, gathered into contiguous runs, and written through a
+`FileHandle` seeking to each run. Every other byte of the file is untouched, the
+length cannot change, and a 60 MB file costs one seek and one write rather than a
+rewrite. It goes through the same permission ladder as the metadata writes, so a
+read-only file offers to unlock, write and lock again rather than failing
+quietly -- though with no privileged fallback, because patching arbitrary offsets
+as root through `dd` is a worse idea than saying no.
+
+The file is memory-mapped and rows are built lazily, so only the visible lines
+become views. The limit is 64 MB, past which a different kind of tool is wanted:
+at 16 bytes a line, a DVD image would ask SwiftUI for a hundred million rows.
+
+## Font and zoom
+
+Settings ▸ **Appearance** chooses the font the panes are drawn with, and the
+size. `⌘+` and `⌘−` step it, `⌘0` returns to 11 pt. The range is 8–28 pt,
+clamped on the way in as well, since `config.json` is meant to be hand-editable
+and a size of `0` would leave no way back.
+
+Only the **panes** follow it. Settings, the sidebar, dialogs and the function bar
+keep their own sizes -- what is being configured is the file listing, not the
+chrome around it.
+
+`PaneFont` is the single source, because the pieces have to agree: the
+permissions column is drawn by SwiftUI in the listing and by an `NSView` while
+being edited, and a point of disagreement between them stops the characters
+lining up between the edited row and the rows above it. Permissions stay
+monospaced whatever family is chosen -- `rwxr-xr-x` is a grid of nine columns,
+and the in-place editor addresses a slot by position.
+
+**Rows do not follow their content.** SwiftUI's `Table` reports
+`usesAutomaticRowHeights == true` and then keeps every row at exactly 24 points
+whatever is in it -- measured on a settled window with 105 rows and 20-point
+text, where the row view was still 24. So `RowHeights` pushes a computed height
+onto the `NSTableView` underneath, the same move `ColumnWidths` makes for the
+same reason, and by `noteHeightOfRows` rather than `reloadData` because SwiftUI
+owns that table's data source.
+
+Icons grow with the text, and **the icon cache keys on the size**. Without that
+it would serve the images cached at the old size for the rest of the session --
+the same shape of bug as a folder whose custom icon had changed.
+
+`⌘+` deserves a note of its own: it is not a keystroke. The key is `=`, and `+`
+needs Shift, so AppKit matches a menu equivalent of `+` only when Shift is held.
+The menu carries `⌘+`; `⌘=` -- the same physical key, and what half of everyone
+actually presses -- is caught in `KeyRouter`, because a menu cannot hold two
+equivalents for one command and a second visible item would be nonsense.
+
+Column widths are stored in points and are *not* rescaled when the font changes,
+so a bigger font truncates sooner until you drag. Silently rewriting widths you
+set deliberately would be the more surprising behaviour.
 
 ## Settings
 

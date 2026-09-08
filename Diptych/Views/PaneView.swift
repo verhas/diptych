@@ -100,6 +100,27 @@ struct PaneView: View {
                 .help(pane.filterIsRegex
                       ? "Regular expression, anchored: .*\\.txt"
                       : "Shell pattern: *.txt")
+                // Only while there is something to clear, as a search field
+                // does -- a permanently visible button would read as part of
+                // the field's furniture rather than as something to press.
+                .overlay(alignment: .trailing) {
+                    if !pane.filterText.isEmpty {
+                        Button {
+                            activate()
+                            pane.filterText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                // The whole circle is the target, not just the
+                                // glyph: an 11pt hit area is a dart throw.
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 4)
+                        .help("Clear the filter")
+                    }
+                }
 
             Toggle("RegEx", isOn: $pane.filterIsRegex)
                 .toggleStyle(.checkbox)
@@ -338,6 +359,12 @@ struct PaneView: View {
                 }
             }
             Button("Get Info") { act(ids) { model.showInfo() } }
+            // Hidden rather than disabled for a folder: the entry would be
+            // permanently greyed out on half the rows in every listing.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isDirectory, !item.isParent {
+                Button("Bin View") { act(ids) { model.showBinaryView() } }
+            }
 
             Divider()
 

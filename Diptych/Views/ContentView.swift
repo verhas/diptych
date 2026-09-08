@@ -95,6 +95,7 @@ struct ContentView: View {
         .task {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
+            model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.start()
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment

@@ -41,6 +41,11 @@ struct CellView: View {
             default:           plainText
             }
         }
+        // Set once for the whole cell. Setting it per branch is what left the
+        // name at the default size while the other columns grew: the name cell
+        // draws its own Text and never received it. The permissions cell still
+        // overrides with the monospaced variant, which wins by being closer.
+        .font(PaneFont.swiftUI)
         .opacity(isDimmed ? 0.35 : 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(tagTint)
@@ -81,7 +86,7 @@ struct CellView: View {
                 }
                 if item.isExecutable {
                     Image(systemName: "terminal.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: PaneFont.size * 0.8))
                         .foregroundStyle(.orange)
                         .help("Executable")
                 }
@@ -105,7 +110,7 @@ struct CellView: View {
                 .lineLimit(1)
                 // Same font the editor draws with, so the columns of characters
                 // line up between an edited row and its neighbours.
-                .font(.system(size: PermissionEditorView.fontSize, design: .monospaced))
+                .font(PaneFont.monospacedSwiftUI)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

@@ -81,6 +81,9 @@ final class QuickLookController: NSObject {
     ]
 
     private func previewable(_ url: URL) -> URL {
+        if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
+            return rendered
+        }
         if let type = UTType(filenameExtension: url.pathExtension), type.isDeclared,
            Self.renderable.contains(where: { type.conforms(to: $0) }) {
             return url
@@ -90,6 +93,37 @@ final class QuickLookController: NSObject {
         let target = scratch.appendingPathComponent(url.lastPathComponent + ".txt")
         guard (try? text.write(to: target, atomically: true, encoding: .utf8)) != nil else {
             return url
+        }
+        return target
+    }
+
+    /// `.DS_Store` has no Quick Look generator, so the panel shows a name and a
+    /// size for a file that is actually full of readable structure: where every
+    /// icon sat, how the window was arranged, which columns were showing. Decode
+    /// it and preview an HTML rendering instead.
+    ///
+    /// A failure to parse gets a page of its own rather than falling back to the
+    /// empty panel -- "this is not a Bud1 file at all" is worth being told.
+    private func dsStoreReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= DSStore.maximumFileSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+
+        let directory = url.deletingLastPathComponent().path
+        let html: String
+        do {
+            let store = try DSStore(data: data)
+            html = DSStoreReport.html(for: store, name: url.lastPathComponent, path: directory)
+        } catch {
+            html = DSStoreReport.html(failure: error, name: url.lastPathComponent)
+        }
+
+        // Named after the folder it describes: several .DS_Store previews in one
+        // session would otherwise overwrite each other in the scratch directory.
+        let stem = directory.replacingOccurrences(of: "/", with: "_")
+        let target = scratch.appendingPathComponent("DS_Store\(stem).html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
         }
         return target
     }

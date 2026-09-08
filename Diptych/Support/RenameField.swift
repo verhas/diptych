@@ -16,7 +16,7 @@ struct RenameField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField(string: text)
         field.delegate = context.coordinator
-        field.font = .systemFont(ofSize: 11)
+        field.font = PaneFont.appKit
         // A bezel would not fit the row height; a plain background with a focus
         // ring reads as an editor without making the row taller.
         field.isBezeled = false

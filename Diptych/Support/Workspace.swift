@@ -44,6 +44,10 @@ enum IconCache {
     private static var cache: [String: NSImage] = [:]
 
     static func icon(for item: FileItem) -> NSImage {
+        // The size is part of the key. Without it, zooming served the images
+        // cached at the old size for the rest of the session -- the same shape
+        // of bug as a folder whose custom icon changed.
+        let side = PaneFont.iconSize
         let key: String
         if item.isDirectory || item.isPackage {
             key = "path:" + item.url.path
@@ -58,12 +62,13 @@ enum IconCache {
                 : "ext:\(ext):\(item.isExecutable ? "x" : "-")"
         }
 
-        if let hit = cache[key] { return hit }
+        let sized = "\(Int(side)):" + key
+        if let hit = cache[sized] { return hit }
 
 
         let image = NSWorkspace.shared.icon(forFile: item.url.path)
-        image.size = NSSize(width: 16, height: 16)
-        cache[key] = image
+        image.size = NSSize(width: side, height: side)
+        cache[sized] = image
         return image
     }
 
@@ -76,6 +81,8 @@ enum IconCache {
     /// untinting it left it coloured until the next launch.
     static func forget(_ url: URL?) {
         guard let url else { return cache.removeAll() }
-        cache.removeValue(forKey: "path:" + url.path)
+        // The size prefix means one path has an entry per size it was drawn at.
+        let suffix = "path:" + url.path
+        for key in cache.keys where key.hasSuffix(suffix) { cache.removeValue(forKey: key) }
     }
 }

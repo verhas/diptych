@@ -97,6 +97,21 @@ struct Configuration: Codable, Equatable {
     /// every window.
     var favourites: [String] = []
 
+    /// The pane font. An empty name means the system font, which is what most
+    /// people want and what the panes always used.
+    ///
+    /// Only the *panes* follow this. Settings, the sidebar, dialogs and the
+    /// function bar are chrome and stay at their own sizes -- scaling those too
+    /// would be a different feature, and a worse-looking one.
+    var fontName = ""
+    var fontSize = 11.0
+
+    /// The range the zoom commands and the settings stepper both obey. Below
+    /// about 8 the icons stop being recognisable; above about 28 a pane holds
+    /// too few rows to be a file manager.
+    static let fontSizes = 8.0 ... 28.0
+    static let defaultFontSize = 11.0
+
     /// One switch for all of them, on top of the per-event choices.
     var soundsEnabled = true
 
@@ -114,6 +129,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
+        case fontName, fontSize
     }
 
     init() {}
@@ -130,6 +146,11 @@ struct Configuration: Codable, Equatable {
         columnWidths = (try? container.decode([String: Double].self, forKey: .columnWidths))
             ?? [:]
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
+        fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
+        // Clamped on the way in: config.json is hand-editable, and a font size
+        // of 0 or 4000 would render the panes unusable with no way back.
+        let size = (try? container.decode(Double.self, forKey: .fontSize)) ?? Self.defaultFontSize
+        fontSize = min(max(size, Self.fontSizes.lowerBound), Self.fontSizes.upperBound)
         soundsEnabled = (try? container.decode(Bool.self, forKey: .soundsEnabled)) ?? true
         copySound = (try? container.decode(String.self, forKey: .copySound)) ?? "Pop"
         moveSound = (try? container.decode(String.self, forKey: .moveSound)) ?? "Tink"

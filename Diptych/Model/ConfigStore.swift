@@ -18,6 +18,13 @@ final class ConfigStore {
     var configuration: Configuration {
         didSet {
             guard configuration != oldValue else { return }
+            // The panes redraw themselves -- they read the font during body --
+            // but the row height lives on the NSTableView underneath, which no
+            // amount of SwiftUI invalidation reaches.
+            if configuration.fontSize != oldValue.fontSize
+                || configuration.fontName != oldValue.fontName {
+                RowHeights.applyEverywhere()
+            }
             scheduleSave()
         }
     }

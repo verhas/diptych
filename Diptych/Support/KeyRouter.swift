@@ -90,6 +90,16 @@ final class KeyRouter {
                     return model.handle(key: key, modifiers: flags)
                 }
 
+                // Command-= is the unshifted half of "Command-plus". The menu
+                // carries Command-+, which AppKit matches by character and so
+                // only when Shift is held; people press both, and a menu cannot
+                // hold a second, hidden equivalent for the same command.
+                if flags.contains(.command), !flags.contains(.control),
+                   !flags.contains(.option), characters == "=" {
+                    PaneFont.zoom(by: 1)
+                    return true
+                }
+
                 // Anything else printable is type-select. Modifier combinations
                 // are left alone so menu shortcuts still reach the menu bar.
                 guard !flags.contains(.command),
