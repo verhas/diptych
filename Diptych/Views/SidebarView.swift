@@ -46,15 +46,11 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        // Opening on selection rather than on a tap gesture: a gesture inside a
-        // row competes with the list's own click handling, which is the mistake
-        // that broke pane selection three times over.
-        .onChange(of: model.selectedSidebarEntry) { _, id in
-            guard let id,
-                  let entry = (volumes.volumes + model.favourites).first(where: { $0.id == id })
-            else { return }
-            model.openSidebarEntry(entry)
-        }
+        // Opening happens in the selection's setter, not in an onChange and not
+        // in a tap gesture. A gesture inside a row competes with the list's own
+        // click handling -- the mistake that broke pane selection three times
+        // over -- and an onChange only fires when the value differs, which is
+        // exactly what fails when the row you click is the row already showing.
     }
 
     private func row(_ entry: SidebarEntry) -> some View {

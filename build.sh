@@ -166,7 +166,11 @@ make_dmg() {
     identity=$(developer_id || true)
     if [ -n "$identity" ]; then
         info "Signing the app as $identity"
-        codesign --force --deep --options runtime --timestamp \
+        # No --deep: it is deprecated for signing, and there is nothing nested
+        # to sign anyway -- the bundle is one executable with no frameworks or
+        # helpers. --options runtime and --timestamp are both required before
+        # Apple will notarize.
+        codesign --force --options runtime --timestamp \
                  --sign "$identity" "$app"
         codesign --verify --deep --strict --verbose=1 "$app" 2>&1 | sed 's/^/    /'
     fi
@@ -190,8 +194,9 @@ make_dmg() {
         codesign --sign "$identity" --timestamp "$dmg" || true
     else
         printf '%s==> No Developer ID found: the image is unsigned.%s\n' "$YELLOW" "$OFF"
-        printf '    Users will see \"Diptych cannot be opened because the developer\n'
-        printf '    cannot be verified\" and must right-click > Open the first time.\n'
+        printf '    Users will see \"Apple could not verify Diptych is free of malware\"\n'
+        printf '    and must allow it in System Settings > Privacy and Security.\n'
+        printf '    Control-click > Open stopped working as a bypass in macOS 15.\n'
     fi
 
     printf '%s==> %s%s\n' "$GREEN" "$dmg" "$OFF"

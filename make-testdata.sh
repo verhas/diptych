@@ -60,7 +60,30 @@ touch -- "-leading-dash.txt"   # -- so touch does not read it as flags
 touch "trailing.dots..."
 touch "a-very-long-file-name-that-should-be-truncated-somewhere-in-the-column-because-it-just-keeps-going.txt"
 touch "no-extension"
+
+# Read-only, so that metadata writes on a file we may not write stay easy to
+# test: setxattr on this one fails with EACCES, which is what the Info window's
+# unlock-change-restore ladder is there for.
+touch "read-only.txt"
+chmod 444 "read-only.txt"
+chmod 444 "quote'apostrophe.txt"
 cd ..
+
+# ---------------------------------------------------------------- folder icons
+# A tinted folder, as Finder's "Customize Folder" makes one: the colour is the
+# tag, the symbol is JSON in com.apple.icon.folder#S, and kHasCustomIcon in
+# com.apple.FinderInfo is what turns the composed icon on. All three, or the
+# folder stays plain blue.
+mkdir -p "tinted folder"
+printf 'A folder with a custom icon.\n' > "tinted folder/readme.txt"
+xattr -w -x com.apple.icon.folder#S \
+    "$(printf '{"sym":"eyebrow"}' | xxd -p | tr -d '\n')" "tinted folder"
+xattr -w -x com.apple.metadata:_kMDItemUserTags \
+    "$(python3 -c "import plistlib,sys; sys.stdout.write(plistlib.dumps(['Red\n6'],fmt=plistlib.FMT_BINARY).hex())")" \
+    "tinted folder"
+# flags at offset 8: 0x0400 kHasCustomIcon | 0x000C label 6 (red)
+xattr -w -x com.apple.FinderInfo \
+    "$(python3 -c "b=bytearray(32); b[8]=0x04; b[9]=0x0C; print(b.hex())")" "tinted folder"
 
 # ------------------------------------------------------------------ file types
 mkdir -p assets

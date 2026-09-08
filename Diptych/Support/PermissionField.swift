@@ -96,6 +96,20 @@ final class PermissionEditorView: NSView {
         }
     }
 
+    /// The one convention every letter follows: bare sets, Shift clears, Option
+    /// toggles. `s` and `t` used to toggle unconditionally, which made them the
+    /// odd ones out and left pressing keys until the right letter appeared as
+    /// the only way to work out what they did.
+    private func set(_ target: mode_t, shift: Bool, option: Bool) {
+        if option {
+            mode ^= target
+        } else if shift {
+            mode &= ~target
+        } else {
+            mode |= target
+        }
+    }
+
     private func advance() {
         if cursor < 8 { cursor += 1 } else { needsDisplay = true }
     }
@@ -130,27 +144,19 @@ final class PermissionEditorView: NSView {
         switch typed {
         case "r", "w", "x":
             // Acts on the matching bit of the *current triple*, wherever the
-            // caret sits inside it, and leaves the caret alone: Shift clears,
-            // Option toggles, bare sets.
+            // caret sits inside it, and leaves the caret alone.
             let offset = typed == "r" ? 0 : (typed == "w" ? 1 : 2)
-            let target = bit(at: group * 3 + offset)
-            if option {
-                mode ^= target
-            } else if shift {
-                mode &= ~target
-            } else {
-                mode |= target
-            }
+            set(bit(at: group * 3 + offset), shift: shift, option: option)
 
         case "s":
             // setuid on the user triple, setgid on the group triple. There is
             // no such bit for "other", where the equivalent is sticky.
             guard group < 2 else { NSSound.beep(); return }
-            mode ^= Self.specialBit[group]
+            set(Self.specialBit[group], shift: shift, option: option)
 
         case "t":
             guard group == 2 else { NSSound.beep(); return }
-            mode ^= Self.specialBit[2]
+            set(Self.specialBit[2], shift: shift, option: option)
 
         // The caret-scoped edits advance, so a whole triple can be typed
         // straight through. The triple-scoped letters above do not, because

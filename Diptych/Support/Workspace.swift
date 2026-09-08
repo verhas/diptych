@@ -60,9 +60,22 @@ enum IconCache {
 
         if let hit = cache[key] { return hit }
 
+
         let image = NSWorkspace.shared.icon(forFile: item.url.path)
         image.size = NSSize(width: 16, height: 16)
         cache[key] = image
         return image
+    }
+
+    /// Throw away what we remember about one item, or everything when the item
+    /// is unknown.
+    ///
+    /// Directories are cached by path precisely because a folder can carry a
+    /// custom icon -- which means that when the custom icon changes, the cache
+    /// is the one thing still showing the old one. Tinting a folder and then
+    /// untinting it left it coloured until the next launch.
+    static func forget(_ url: URL?) {
+        guard let url else { return cache.removeAll() }
+        cache.removeValue(forKey: "path:" + url.path)
     }
 }

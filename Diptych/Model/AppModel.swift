@@ -49,9 +49,32 @@ final class AppModel {
     var isSinglePane = false { didSet { persist() } }
     var sidebarVisible = false { didSet { persist() } }
 
-    /// The sidebar row the keyboard would act on, so Cmd-Delete removes a
-    /// favourite rather than trashing files when the sidebar has the selection.
-    var selectedSidebarEntry: SidebarEntry.ID?
+    /// Which sidebar row the active pane is standing in, if any.
+    ///
+    /// Derived from the pane rather than stored, for two reasons. The highlight
+    /// then cannot lie about where the pane is. And clicking a row you have
+    /// already clicked works: with stored selection, going into a subfolder left
+    /// the row highlighted, so clicking it again assigned the value it already
+    /// held -- not a change, no navigation, nothing happened.
+    var selectedSidebarEntry: SidebarEntry.ID? {
+        get {
+            let path = active.directory.path
+            // Favourites first: a favourite naming a volume root is the more
+            // specific answer, and it is the row the user put there.
+            if favourites.contains(where: { $0.url.path == path }) { return "f:\(path)" }
+            if VolumeList.shared.volumes.contains(where: { $0.url.path == path }) {
+                return "v:\(path)"
+            }
+            return nil
+        }
+        set {
+            guard let newValue,
+                  let entry = (favourites + VolumeList.shared.volumes)
+                      .first(where: { $0.id == newValue })
+            else { return }
+            openSidebarEntry(entry)
+        }
+    }
     var showHidden = false {
         didSet {
             left.showHidden = showHidden
@@ -165,8 +188,13 @@ final class AppModel {
         // kqueue reports entries appearing and vanishing, not a chmod.
         NotificationCenter.default.addObserver(
             forName: FileInfoModel.didChange, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // Notification is not Sendable; the URL inside it is.
+            let changed = note.object as? URL
             MainActor.assumeIsolated {
+                // A folder's icon is cached by path, so the cache has to be
+                // told: reloading the pane alone redraws the same stale image.
+                IconCache.forget(changed)
                 self?.left.reload()
                 self?.right.reload()
             }
@@ -834,7 +862,6 @@ final class AppModel {
         var list = ConfigStore.shared.configuration.favourites
         list.removeAll { $0 == path }
         ConfigStore.shared.configuration.favourites = list
-        if selectedSidebarEntry == "f:\(path)" { selectedSidebarEntry = nil }
     }
 
     /// True when the pointer is left of the first pane, which is where the
@@ -1347,11 +1374,14 @@ final class AppModel {
         if modifiers.contains(.command) {
             switch key {
             case .delete, .forwardDelete:
-                if let selected = selectedSidebarEntry, selected.hasPrefix("f:") {
-                    removeFavourite(path: String(selected.dropFirst(2)))
-                } else {
-                    trashNow()
-                }
+                // Always the pane, never the sidebar. Cmd-Delete used to remove
+                // the selected favourite whenever one was selected -- which,
+                // since selecting a favourite is how you navigate, was most of
+                // the time. Both outcomes were wrong: a favourite vanished when
+                // files were meant to go, and files survived when they were
+                // meant to go. Removing a favourite is rare and undoable only by
+                // hand, so it lives in the context menu alone.
+                trashNow()
                 return true
             default:
                 // Let the system keep its own shortcuts (Cmd-Q, Cmd-W, ...).

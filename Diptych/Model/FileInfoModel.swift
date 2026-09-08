@@ -46,6 +46,10 @@ final class FileInfoModel {
     var newAttributeName = ""
     var newAttributeValue = ""
 
+    // Folder icon (directories only)
+    private(set) var folderIsCustomised = false
+    var folderSymbol = ""
+
     // Access control
     var aclText = ""
     private(set) var aclOnDisk = ""
@@ -97,9 +101,29 @@ final class FileInfoModel {
         group = attributes?[.groupOwnerAccountName] as? String ?? ""
         mode = mode_t((attributes?[.posixPermissions] as? NSNumber)?.uint16Value ?? 0)
 
+        folderIsCustomised = FolderIcon.isCustomised(path)
+        folderSymbol = FolderIcon.symbol(of: path) ?? ""
+
         self.attributes = ExtendedAttributes.all(of: path)
         aclOnDisk = AccessControl.text(of: path) ?? ""
         aclText = aclOnDisk
+    }
+
+    /// Runs a metadata change through the permission ladder and reports what
+    /// came of it -- including, loudly, a permission left raised.
+    private func perform(_ change: MetadataWrite, success: String) {
+        switch change.perform() {
+        case .succeeded(let warning):
+            report(nil, success: success)
+            if let warning {
+                status = "\(success) \(warning)"
+                statusIsError = true
+            }
+        case .cancelled:
+            report("Cancelled. Nothing was changed.", success: "")
+        case .failed(let message):
+            report("Could not \(change.action): \(message)", success: "")
+        }
     }
 
     private func report(_ message: String?, success: String) {
@@ -223,35 +247,59 @@ final class FileInfoModel {
     }
 
     private func applyTags(_ updated: [String]) {
-        let message = FinderTag.set(updated, on: url)
-        if message == nil { tags = updated }
-        report(message, success: "Tags updated.")
+        let writes: [XattrWrite]
+        do {
+            writes = try FinderTag.writes(for: updated, on: url.path)
+        } catch {
+            report((error as? ExtendedAttributes.Failure)?.message ?? "\(error)", success: "")
+            return
+        }
+        perform(.xattrs(writes, on: url, action: "change the tags"), success: "Tags updated.")
+    }
+
+    // MARK: - Folder icon
+
+    /// The colour comes from the tag; this only decides whether macOS composes
+    /// a tinted icon out of it, and what symbol goes on top.
+    func applyFolderIcon(customised: Bool, symbol: String) {
+        perform(.xattrs(FolderIcon.writes(customised: customised, symbol: symbol, on: url.path),
+                        on: url,
+                        action: customised ? "change the folder icon"
+                                           : "restore the plain folder icon"),
+                success: customised ? "Folder icon updated." : "Folder icon reset.")
     }
 
     // MARK: - Extended attributes
 
     func saveAttribute(named attributeName: String, text: String) {
         guard let data = text.data(using: .utf8) else { return }
-        let message = ExtendedAttributes.set(data, name: attributeName, on: url.path)
-        attributes = ExtendedAttributes.all(of: url.path)
-        report(message, success: "\(attributeName) saved.")
+        write(XattrWrite(name: attributeName, data: data),
+              action: "save the attribute \u{201C}\(attributeName)\u{201D}",
+              success: "\(attributeName) saved.")
     }
 
     func removeAttribute(named attributeName: String) {
-        let message = ExtendedAttributes.remove(name: attributeName, from: url.path)
-        attributes = ExtendedAttributes.all(of: url.path)
-        report(message, success: "\(attributeName) removed.")
+        write(XattrWrite(name: attributeName, data: nil),
+              action: "remove the attribute \u{201C}\(attributeName)\u{201D}",
+              success: "\(attributeName) removed.")
     }
 
     func addAttribute() {
         let trimmed = newAttributeName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let data = newAttributeValue.data(using: .utf8) else { return }
 
-        let message = ExtendedAttributes.set(data, name: trimmed, on: url.path)
         newAttributeName = ""
         newAttributeValue = ""
+        write(XattrWrite(name: trimmed, data: data),
+              action: "add the attribute \u{201C}\(trimmed)\u{201D}",
+              success: "\(trimmed) added.")
+    }
+
+    private func write(_ change: XattrWrite, action: String, success: String) {
+        perform(.xattrs([change], on: url, action: action), success: success)
+        // The list is reloaded whatever happened: after a failure it shows that
+        // nothing changed, which is the point.
         attributes = ExtendedAttributes.all(of: url.path)
-        report(message, success: "\(trimmed) added.")
     }
 
     // MARK: - Access control
@@ -259,11 +307,15 @@ final class FileInfoModel {
     var aclHasChanges: Bool { aclText != aclOnDisk }
 
     func applyACL() {
-        let message = AccessControl.setText(aclText, on: url.path)
+        let wanted = aclText
+        let removing = wanted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        perform(.acl(wanted, on: url,
+                     action: removing ? "remove the access control list"
+                                      : "change the access control list"),
+                success: removing ? "Access control list removed."
+                                  : "Access control list updated.")
         aclOnDisk = AccessControl.text(of: url.path) ?? ""
         aclText = aclOnDisk
-        report(message, success: aclOnDisk.isEmpty ? "Access control list removed."
-                                                   : "Access control list updated.")
     }
 
     func revertACL() {

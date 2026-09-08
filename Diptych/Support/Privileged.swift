@@ -17,6 +17,20 @@ enum Privileged {
         case failed(String)
     }
 
+    /// Runs one command as root after the system's own authentication prompt.
+    ///
+    /// The prompt is itself the confirmation, so callers do not need to ask
+    /// twice -- but they must only reach here for something the user asked for.
+    static func run(_ command: String) -> Result {
+        var error: NSDictionary?
+        let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
+        NSAppleScript(source: script)?.executeAndReturnError(&error)
+
+        guard let error else { return .succeeded }
+        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return .cancelled }
+        return .failed(error[NSAppleScript.errorMessage] as? String ?? "Authentication failed.")
+    }
+
     /// Runs chown after the system's own authentication prompt.
     ///
     /// `group` is carried through as `owner:group`, because the fallback exists
@@ -30,15 +44,7 @@ enum Privileged {
         let arguments = ([specification] + urls.map(\.path))
             .map(Shell.quoted)
             .joined(separator: " ")
-        let command = "/usr/sbin/chown -- " + arguments
-
-        var error: NSDictionary?
-        let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
-        NSAppleScript(source: script)?.executeAndReturnError(&error)
-
-        guard let error else { return .succeeded }
-        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return .cancelled }
-        return .failed(error[NSAppleScript.errorMessage] as? String ?? "Authentication failed.")
+        return run("/usr/sbin/chown -- " + arguments)
     }
 
     /// ...and then escaped again to sit inside an AppleScript string literal.

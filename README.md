@@ -112,9 +112,22 @@ so add the binary `./build.sh path` prints.
 `⌃⌘S`, or the toolbar icon, shows a sidebar of **Volumes** and **Favourites**.
 Clicking a row opens it in the active pane.
 
+The highlighted row is not stored: it is *derived* from where the active pane
+actually is, and opening happens in that selection's setter. Stored selection
+looks equivalent and is not. Click **github**, then go into **diptych**, then
+click **github** again: the row was still highlighted, so the click assigned the
+value already there, which is not a change, so nothing happened. Deriving it
+means the row deselects as soon as you leave the folder, and clicking it is a
+change again.
+
 Drag any **folder** from a pane onto the sidebar to add a favourite -- files are
 refused, since a favourite is somewhere to go. Drag a favourite up or down to
-reorder it. Remove one with its context menu or `⌘⌫`. Volumes cannot be
+reorder it. Remove one with **its context menu**, and only there: `⌘⌫` always
+trashes files in the pane. It used to remove the selected favourite whenever one
+was selected -- which, since selecting a favourite is how you navigate, was most
+of the time -- so a keystroke aimed at a file took a favourite instead, and a
+keystroke aimed at a favourite could take files. Removing a favourite is rare and
+cannot be undone; it does not deserve a shortcut. Volumes cannot be
 reordered; their order belongs to the system. Favourites are global and live in `config.json`;
 whether the sidebar is open is per window, in `state.json`.
 
@@ -201,11 +214,9 @@ of an already-selected row). The nine rwx slots become an in-place editor:
 | Key | Does |
 | --- | --- |
 | `-` `+` `Space` | clear / set / toggle the bit under the caret, then **advance one bit** -- so a whole group types straight through |
-| `r` `w` `x` | set that bit **in the current group**, wherever the caret sits in it; the caret does not move |
-| `⇧R` `⇧W` `⇧X` | clear that bit in the current group |
-| `⌥R` `⌥W` `⌥X` | toggle that bit in the current group |
-| `s` | toggle setuid (user group) or setgid (group group) |
-| `t` | toggle sticky (other group) |
+| `r` `w` `x` `s` `t` | set that bit **in the current group**, wherever the caret sits in it; the caret does not move |
+| `⇧R` `⇧W` `⇧X` `⇧S` `⇧T` | clear that bit in the current group |
+| `⌥R` `⌥W` `⌥X` `⌥S` `⌥T` | toggle that bit in the current group |
 | `←` `→` | move one bit |
 | `⇥` / `⇧⇥` | next / previous group -- the shortcut; the arrows stay bit-by-bit |
 | `⌫` | step back one bit and clear it |
@@ -214,6 +225,12 @@ of an already-selected row). The nine rwx slots become an in-place editor:
 
 Two ways to reach any bit: arrow onto it and use `-`/`+`/Space, or address it by
 letter from anywhere in its group with plain / `⇧` / `⌥`.
+
+`s` is setuid in the user group and setgid in the group group; `t` is sticky, in
+the other group. Each beeps where it has no meaning. They follow the same plain /
+`⇧` / `⌥` convention as `r`, `w` and `x` -- they used to toggle whatever you
+pressed, which made them the only keys in the editor with their own rule and left
+pressing letters until the right one appeared as the only way to find out.
 
 The caret's group is tinted and the caret bit highlighted, because the letters
 act on the group while `-`, `+` and Space act on the single bit.
@@ -364,12 +381,82 @@ Some volumes keep a colour *only* there -- a folder on an external disk can show
 grey with no `_kMDItemUserTags` attribute at all -- so rewriting just the modern
 attribute would leave that colour untouched and the tag apparently unremovable.
 
+### Folder icons
+
+macOS 26 draws folders tinted and carrying a symbol -- what Finder calls
+*Customize Folder*. It takes three separate pieces, and all three have to agree
+or the folder stays plain blue:
+
+| Piece | Where |
+| --- | --- |
+| the **colour** | the Finder tag. There is no colour setting of its own |
+| the **symbol** | an SF Symbol name in `com.apple.icon.folder#S`, as JSON: `{"sym":"eyebrow"}` |
+| the **switch** | `kHasCustomIcon`, bit 10 of the Finder flags in `com.apple.FinderInfo` |
+
+Which is why tagging a folder red does *nothing* to its icon on its own -- the
+tag shows as a dot beside the name and the folder stays blue. Verified by
+measurement: `NSWorkspace.icon(forFile:)` returns byte-identical images for a
+plain folder and a red-tagged one, and a different image the moment the
+custom-icon flag goes on.
+
+The Info window's Tags tab has the control, next to the colours because the
+colour *is* the tag: a switch for the tinted icon and a **searchable grid of
+symbols**, since knowing that the one you want is called `eyebrow` is not a
+reasonable thing to ask. SF Symbols has thousands of names and no API that lists
+them, so `SymbolCatalog` is a hand-picked set of about 160 in nine categories,
+each one checked against the running system at startup -- a name from a later SF
+Symbols release renders as nothing at all rather than failing, and an invisible
+cell in a picker is worse than a missing one. The search field falls through to
+the live symbol lookup, so a name typed in full works even when it is not in the
+catalogue: the list is a convenience, never a limit.
+
+The `#S` on the attribute name is part of the name -- it marks the attribute
+syncable, and macOS ignores the attribute without it.
+
+`IconCache` keys directories **by path**, precisely because a folder can carry a
+custom icon -- which made it the one thing still showing the old icon after a
+change. Untinting a folder left it coloured until the next launch. The cache is
+now told to forget the item whenever an Info window reports a change; reloading
+the pane alone just redraws the same stale image.
+
+`FinderInfo` owns the flag word, because the tag colour (bits 1-3) and the
+custom-icon flag (bit 10) live in the same 16-bit field: writing one by hand
+would clear the other, and there is a test for exactly that.
+
 Every change reloads all five tabs, since they overlap: adding a tag rewrites an
 extended attribute, and removing that attribute clears the tags. Each change also
 posts a notification the panes listen for -- a directory watch reports entries
 appearing and vanishing, never a chmod, so without it the pane kept showing the
 old owner or mode until you navigated away and back. The toolbar has a Refresh
 button too.
+
+### When the file will not have it
+
+`setxattr` on a file you may not write fails with `EACCES`, and for a long time
+Diptych reported that only in the status line: you typed an attribute, pressed
+Add, and nothing appeared. A change that silently does not happen is worse than
+one that fails loudly, so every metadata change -- tags, attributes, access
+control lists -- now goes through one ladder:
+
+1. **It is reported.** A refusal raises an alert naming the change and the
+   reason, never a quiet no-op.
+2. **Diptych offers to unlock the item, apply the change and lock it again.**
+   The app does this itself rather than telling you to go and change the
+   permissions first: the item is unprotected for the microseconds the write
+   takes instead of for as long as you remember to come back, and the app cannot
+   forget to put the permissions back. The restore runs on the failing path too,
+   and if it ever fails the status line says so in as many words.
+3. **Failing that, it offers to authenticate.** Only the owner may `chmod`, so
+   step 2 is not offered for someone else's file. Root needs no permission bits
+   raised at all -- it bypasses the check -- so the escalated path performs the
+   change directly, through `xattr(1)` or `chmod(1)`, in a single command.
+
+That is why every change is described twice in the code: `apply` is the syscall
+we make ourselves, `command` is the equivalent for step 3. Attribute values
+travel as hex so a binary property list survives the shell, and an ACL that
+cannot be translated into `chmod -E` syntax (a principal whose name contains a
+space) offers no escalation rather than risk applying an entry to the wrong
+principal.
 
 ## Changing owner and group
 
@@ -451,7 +538,7 @@ first time it runs.
 | --- | --- |
 | `./build.sh` | build / run / clean -- see above |
 | `./build.sh test` | run the unit tests |
-| `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete |
+| `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete, `awkward names/read-only.txt`, a 444 file for the unlock-change-restore ladder, and `tinted folder/`, which carries all three pieces of a custom folder icon |
 | `swift make-icon.swift` | redraws the app icon into `Diptych/Assets.xcassets` |
 
 ## Layout

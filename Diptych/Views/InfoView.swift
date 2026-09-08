@@ -7,6 +7,8 @@ struct InfoView: View {
     /// Working copies of the text-valued extended attributes, so typing does
     /// not write to disk on every keystroke.
     @State private var attributeDrafts: [String: String] = [:]
+    /// Filters the symbol picker. View state: it is not part of the file.
+    @State private var symbolQuery = ""
 
     init(url: URL) {
         _model = State(initialValue: FileInfoModel(url: url))
@@ -207,6 +209,69 @@ struct InfoView: View {
                                     set: { _ in model.toggle(bit) }))
     }
 
+    /// Folders only, and deliberately inside the Tags tab: the colour of a
+    /// tinted folder *is* the tag, so the two controls belong side by side.
+    private var folderIcon: some View {
+        panel("Folder icon") {
+            Text("macOS tints a folder with its tag colour only when the folder "
+                 + "is marked as having a custom icon. Pick a symbol to draw on top of it.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Toggle("Tint this folder with its tag colour",
+                   isOn: Binding(get: { model.folderIsCustomised },
+                                 set: { model.applyFolderIcon(customised: $0,
+                                                              symbol: model.folderSymbol) }))
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                TextField("Search symbols", text: $symbolQuery)
+                    .textFieldStyle(.plain)
+                if !model.folderSymbol.isEmpty {
+                    Button("No symbol") {
+                        model.applyFolderIcon(customised: true, symbol: "")
+                    }
+                }
+            }
+
+            let matches = SymbolCatalog.matches(symbolQuery)
+            if matches.isEmpty {
+                Text("No symbol of that name.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 34), spacing: 4)], spacing: 4) {
+                    ForEach(matches, id: \.self) { symbol in
+                        Button {
+                            model.applyFolderIcon(customised: true, symbol: symbol)
+                        } label: {
+                            Image(systemName: symbol)
+                                .font(.system(size: 15))
+                                .frame(width: 30, height: 28)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .fill(model.folderSymbol == symbol
+                                              ? Color.accentColor.opacity(0.30)
+                                              : Color.secondary.opacity(0.10))
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .help(symbol)
+                    }
+                }
+                .padding(2)
+            }
+            .frame(height: 132)
+            .disabled(!model.folderIsCustomised)
+            .opacity(model.folderIsCustomised ? 1 : 0.4)
+
+            Text(model.folderSymbol.isEmpty
+                 ? "No symbol -- the folder is tinted only."
+                 : "Symbol: \(model.folderSymbol)")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     // MARK: - Tags
 
     private var tags: some View {
@@ -253,6 +318,8 @@ struct InfoView: View {
                         }
                     }
                 }
+
+                if model.isDirectory { folderIcon }
 
                 panel("Add a tag of your own") {
                     Text("Type a name and press Return, or click Add. "
