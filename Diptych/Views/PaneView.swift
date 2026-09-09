@@ -21,6 +21,9 @@ struct PaneView: View {
     @FocusState.Binding var focusedSide: AppModel.Side?
 
     @State private var pathText = ""
+    /// Whether opening the editor selects the whole path or puts the caret at
+    /// its end. Set by whichever command opened it.
+    @State private var pathSelectsAll = false
     @FocusState private var pathFieldFocused: Bool
 
     var body: some View {
@@ -43,7 +46,7 @@ struct PaneView: View {
         }
         // "Go to Folder" from the menu bar targets the active pane.
         .onChange(of: model.pathEditToken) { _, _ in
-            if isActive { beginPathEdit() }
+            if isActive { beginPathEdit(selectingAll: model.pathEditSelectsAll) }
         }
         .simultaneousGesture(TapGesture().onEnded { activate() })
         .onAppear { pathText = pane.directory.path }
@@ -155,13 +158,14 @@ struct PaneView: View {
             // the path bar. Showing a button until you ask to edit -- Finder's
             // "Go to Folder" model -- leaves the table as the only focus target.
             if pane.isEditingPath {
-                TextField("Path", text: $pathText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11, design: .monospaced))
-                    .focused($pathFieldFocused)
-                    .onSubmit { commitPath() }
-                    .onExitCommand { endPathEdit() }
-                    .onAppear { pathFieldFocused = true }
+                // AppKit, for Tab completion and a coloured suggestion --
+                // neither of which a SwiftUI TextField can express.
+                PathField(text: $pathText,
+                          selectsAll: pathSelectsAll,
+                          base: pane.directory.path,
+                          onCommit: { commitPath() },
+                          onCancel: { endPathEdit() })
+                    .frame(height: 21)
             } else {
                 Button {
                     beginPathEdit()
@@ -195,9 +199,15 @@ struct PaneView: View {
         (pane.directory.path as NSString).abbreviatingWithTildeInPath
     }
 
-    private func beginPathEdit() {
+    private func beginPathEdit(selectingAll: Bool = false) {
         activate()
-        pathText = pane.directory.path
+        pathSelectsAll = selectingAll
+        // With the separator already there, typing a child's name works
+        // straight away and Tab completes inside this directory rather than
+        // re-completing its own name. "/" is the one path that already ends in
+        // one.
+        let path = pane.directory.path
+        pathText = path.hasSuffix("/") ? path : path + "/"
         pane.isEditingPath = true
     }
 
@@ -223,7 +233,10 @@ struct PaneView: View {
     }
 
     private func commitPath() {
-        let expanded = (pathText as NSString).expandingTildeInPath
+        // Resolved against the pane, so a bare name or a "../" means what it
+        // says in a shell: relative to where you are, not to wherever the
+        // process happens to think it is standing.
+        let expanded = PathCompletion.resolve(pathText, base: pane.directory.path)
 
         // Navigating to a path that is not there used to leave the pane looking
         // like an empty folder. Refuse instead, and stay in the editor so the
@@ -291,6 +304,37 @@ struct PaneView: View {
             model.open(id: id, in: pane)
         }
         .overlay { unreadableNotice }
+        // Belt and braces with the cleared rows: while a navigation is in
+        // flight the table takes no clicks at all, so a double-click cannot be
+        // aimed at a listing that is on its way out.
+        //
+        // Applied to the table and *then* overlaid, not the other way round:
+        // `.disabled` reaches everything inside the view it modifies, and an
+        // overlay added first would have had its Cancel button disabled too.
+        .disabled(pane.isNavigating)
+        .overlay { loadingNotice }
+    }
+
+    /// Shown only while moving to a *different* directory. A refresh in place
+    /// keeps its rows and needs no notice.
+    @ViewBuilder
+    private var loadingNotice: some View {
+        if let target = pane.loadingDirectory {
+            VStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Opening \u{201C}\(target.lastPathComponent)\u{201D}\u{2026}")
+                    .font(.system(size: 12))
+                Text("A volume that is spinning up can take several seconds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Cancel") { pane.cancelLoad() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(18)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     /// A directory that cannot be read looks exactly like an empty one, which
@@ -351,6 +395,7 @@ struct PaneView: View {
         if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
+            Button("Paste as Link") { activate(); model.pasteAsLink() }
             Button("Refresh") { pane.reload() }
         } else {
             Button("Open") {
@@ -376,6 +421,7 @@ struct PaneView: View {
             }
             Button("Cut") { act(ids) { model.cutSelectionToClipboard() } }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
+            Button("Paste as Link") { activate(); model.pasteAsLink() }
 
             Divider()
 

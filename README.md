@@ -49,6 +49,7 @@ developer account.
 | `⌘[` `⌘]` | back / forward through the active pane's directory history |
 | `⌘I` | Info window for the selected file (exactly one) |
 | `⌘A` | select all -- in the path box it selects the text, otherwise every row |
+| `⌃⌘V` | paste as a **symbolic link** to what was copied, rather than a copy of it |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
 | `⌘U` | swap the left and right panes |
 | `⌘⇧G` | go to folder -- a path that is not a folder is refused and the editor stays open; Escape returns to where you were |
@@ -106,6 +107,64 @@ snapshot when you enter one; Diptych lists what the file system actually holds.
 To grant access: System Settings > Privacy & Security > Full Disk Access, then
 add the built app. A debug build lives under `~/Library/Developer/Xcode/DerivedData`,
 so add the binary `./build.sh path` prints.
+
+## The path bar
+
+`⌘G`, `⌘⇧G`, or a click on the path turns it into an editor with **shell-style
+completion**. The three differ only in what is selected when it opens:
+
+| | Opens with |
+| --- | --- |
+| `⌘G` — **Go** | the whole path selected, so the first keystroke replaces it |
+| `⌘⇧G` — **Go to Folder**, or a click | the caret after the trailing separator, ready for a child's name |
+
+That is the distinction worth having: going somewhere else entirely, against
+going somewhere below here.
+
+**Anything not starting with `/` or `~` is relative to the pane**, as in a
+shell: `Downloads` is a child of where you are standing, `./Downloads` says the
+same thing explicitly, and `../` is the parent. That is what makes `⌘G` worth
+having -- select all, type a child's name, Return, without going near the End
+key. Tab completes relative text too, and leaves it relative: rewriting `../Doc`
+into an absolute path under the cursor would be its own kind of surprise.
+
+This was also a bug. Relative text used to be resolved against the *process's*
+working directory, which for an app launched from the Finder is `/` -- so typing
+`../` went to the root of the disk instead of to the parent of where you were. Type `~/Dow` and the rest of the name appears ahead of the cursor
+in grey; **Tab** takes it, and takes it again inside the directory it just
+completed. Several matches extend as far as they agree and stop -- `alpha-one`
+and `alpha-two` complete to `alpha-` and wait, exactly as a shell does. Right
+arrow accepts a suggestion, Return takes it and goes. Only directories are
+offered, since a file path is refused on commit anyway, and a hidden entry
+appears only once its dot has been typed.
+
+The text turns **red** while it does not name a directory that exists, so a typo
+shows before Return rather than after it. Judged on the **whole field, suggestion
+included**, because that is what Return commits: colouring only the typed part
+left `~/Dow` red while the field plainly read `~/Downloads/`, and left it red
+after a click moved the cursor, since the text had not changed and nothing
+recoloured it.
+
+The colouring happens once the text has settled rather than on each keystroke.
+The suggestion arrives a runloop turn after the character that prompted it, so
+recolouring immediately would flash red on every letter of a name that completes.
+
+Opening the editor puts the current directory in it **with a trailing separator**
+and the caret at the end -- not selecting everything, which is what AppKit does
+by default. What you almost always want next is to type a child's name, and Tab
+then completes inside this directory rather than re-completing its own name.
+`⌘A` still selects the lot when you do want to replace it.
+
+It is AppKit (`PathField`), because the suggestion is inserted into the field and
+left *selected* -- which is what makes typing straight through it replace it --
+and SwiftUI's `TextField` offers neither a selection range nor a per-range
+colour. The selection is drawn grey on a soft background rather than the usual
+white on blue, so it reads as a suggestion rather than as something chosen.
+
+One thing that has to be got right: a suggestion must not be offered while text
+is being *deleted*. Backspace leaves the cursor at the end just as typing does,
+so without suppressing it every backspace grew the completion straight back and
+the path could not be shortened.
 
 ## Sidebar
 
@@ -398,6 +457,68 @@ equivalents for one command and a second visible item would be nonsense.
 Column widths are stored in points and are *not* rescaled when the font changes,
 so a bigger font truncates sooner until you drag. Silently rewriting widths you
 set deliberately would be the more surprising behaviour.
+
+## Slow volumes
+
+Opening a USB disk that is still spinning up used to lag the whole app. Three
+things were waiting on it, and only one of them had any business doing so.
+
+**`DirectoryLoader` was an actor.** An actor serialises its work, so a listing
+that took four seconds held up every listing behind it -- the other pane, and
+this pane's next directory, both waiting on a disk neither cared about. Listings
+share no state, so the serialisation bought nothing. It is now a plain enum whose
+calls run independently.
+
+**`VolumeList.reload()` ran on the main actor** and stats every mounted volume,
+which is a syscall each and slow on a sleeping disk. Worse, it runs on every
+mount and unmount notification -- exactly when a disk is least ready to answer.
+It now enumerates in the background and publishes the result.
+
+**Sidebar icons were fetched during `body`**, once per row per redraw, and a
+volume root's icon can come off the disk itself. They are cached now.
+
+### While it loads
+
+A slow volume used to leave the pane showing the *previous* directory while
+claiming to be in the new one -- and still accepting clicks. Double-clicking a
+row then opened whatever happened to sit at that row index in the directory that
+was arriving. So navigating to a different directory now:
+
+- **clears the listing at once**, and the selection with it, so there is nothing
+  to click, open, preview or drag out of a listing that no longer describes
+  where the pane says it is;
+- **disables the table** while the load is in flight, which is the same
+  guarantee made twice on purpose;
+- **says what it is waiting for**, with a spinner naming the folder;
+- **can be cancelled**, by the button or by Escape, which goes back to where it
+  came from.
+
+A *refresh in place* does none of this and keeps its rows: a directory watch
+firing must not make the pane blink.
+
+Cancelling also takes the abandoned directory back out of the history -- leaving
+it there would make Back walk past where you actually are, into somewhere you
+never arrived -- and because the sidebar's highlight is derived from the pane's
+directory rather than stored, the volume or favourite deselects itself on the
+way back with no extra bookkeeping.
+
+Escape is handled in `AppModel` rather than left to the Cancel button's own
+shortcut, because `KeyRouter` sees the key first and the button's equivalent
+would never fire.
+
+The listing work goes through `BlockingWork`, which uses a dedicated concurrent
+queue rather than `Task.detached`. That is deliberate: the Swift concurrency pool
+has about as many threads as the machine has cores and expects work to yield
+rather than block, so a few multi-second `contentsOfDirectory` calls parked in it
+can starve everything else -- including whatever the UI is waiting on. A
+dedicated queue grows threads instead.
+
+Cancellation is carried explicitly as a flag, because `Task.isCancelled` means
+nothing on a dispatch queue, and it is polled every 256 entries rather than every
+one -- the check takes a lock, and a directory of a hundred thousand files should
+not pay for it per row. The syscall already in flight cannot be interrupted;
+everything after it is abandoned, which is the difference between a stale listing
+arriving late and a stale listing being computed in full first.
 
 ## Settings
 

@@ -101,6 +101,12 @@ struct FileCommands: Commands {
                 .keyboardShortcut("c")
             Button("Paste") { dispatch(model?.pasteIntoActivePane, #selector(NSText.paste(_:))) }
                 .keyboardShortcut("v")
+            // Control-Command-V. Finder spells "paste something other than a
+            // copy" with a modifier on V (Option-Command-V moves), so V with a
+            // modifier is where anyone would look for it.
+            Button("Paste as Link") { model?.pasteAsLink() }
+                .keyboardShortcut("v", modifiers: [.command, .control])
+                .disabled(model == nil)
 
             Button("Select All") { dispatch(model?.selectAll, #selector(NSText.selectAll(_:))) }
                 .keyboardShortcut("a")
@@ -152,8 +158,16 @@ struct FileCommands: Commands {
                 dispatch(model?.goUpFromMenu, #selector(NSResponder.moveToBeginningOfDocument(_:)))
             }
             .keyboardShortcut(.upArrow, modifiers: .command)
+            // Two ways in, differing only in what is selected. Command-G is
+            // disabled rather than absent when no pane has focus, so its key
+            // equivalent falls through to a binary view's Find Next instead of
+            // being swallowed by a menu item that cannot act.
+            Button("Go") { model?.requestPathEdit(selectingAll: true) }
+                .keyboardShortcut("g")
+                .disabled(model == nil)
             Button("Go to Folder...") { model?.requestPathEdit() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(model == nil)
 
             Divider()
 

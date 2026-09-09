@@ -2,17 +2,34 @@ import Foundation
 
 /// Reads directories off the main thread.
 ///
-/// Swing analogy: an `actor` is roughly a single-threaded executor that owns its
-/// own state. Every `func` on it is implicitly async from the outside, and the
-/// compiler *proves* nobody touches its innards concurrently. Calling
-/// `await DirectoryLoader.shared.load(...)` from `@MainActor` code is the
-/// equivalent of handing work to a SwingWorker -- except the hop is a language
-/// feature rather than a library call, and forgetting it is a compile error.
-actor DirectoryLoader {
+/// Deliberately *not* an actor any more. An actor serialises its work, so one
+/// listing of a USB disk that takes four seconds to spin up held up every other
+/// listing behind it -- the other pane, and this pane's next directory, both
+/// waiting on a disk neither of them cares about. Listings have no shared state
+/// to protect, so there is nothing for the serialisation to buy.
+///
+/// Each call now runs on its own thread and carries a cancellation flag that is
+/// polled as the entries are walked. The syscall already in flight cannot be
+/// interrupted; everything after it can be abandoned.
+enum DirectoryLoader {
 
-    static let shared = DirectoryLoader()
+    static func load(directory: URL, showHidden: Bool,
+                     columns: [FileColumn]) async throws -> [FileItem] {
+        let cancelled = CancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await BlockingWork.run {
+                try list(directory: directory, showHidden: showHidden,
+                         columns: columns, cancelled: cancelled)
+            }
+        } onCancel: {
+            cancelled.cancel()
+        }
+    }
 
-    func load(directory: URL, showHidden: Bool, columns: [FileColumn]) throws -> [FileItem] {
+    /// Exposed for the tests, which is also the only way to check that an
+    /// abandoned listing actually stops.
+    static func list(directory: URL, showHidden: Bool, columns: [FileColumn],
+                     cancelled: CancellationFlag = CancellationFlag()) throws -> [FileItem] {
         // The single most important performance decision in this whole app.
         //
         // Passing `includingPropertiesForKeys:` makes Foundation batch-prefetch
@@ -47,11 +64,18 @@ actor DirectoryLoader {
                                               includingPropertiesForKeys: Array(keys),
                                               options: options)
 
+        try Self.stop(if: cancelled)
+
         let keySet = keys
         var items: [FileItem] = []
         items.reserveCapacity(urls.count + 1)
 
-        for url in urls {
+        for (index, url) in urls.enumerated() {
+            // Polled rather than tested every time: the check is a lock, and a
+            // directory of a hundred thousand entries would pay for it once per
+            // row for no benefit.
+            if index % 256 == 0 { try Self.stop(if: cancelled) }
+
             // `try?` yields an Optional instead of throwing: one unreadable
             // entry (a dangling symlink, a permission hole) must not abort the
             // whole listing.
@@ -106,11 +130,17 @@ actor DirectoryLoader {
             items.append(item)
         }
 
+        try Self.stop(if: cancelled)
+
         // Cheap way to know we are not at "/" without string-comparing paths.
         if directory.pathComponents.count > 1 {
             items.insert(FileItem.parent(of: directory), at: 0)
         }
         return items
+    }
+
+    private static func stop(if cancelled: CancellationFlag) throws {
+        if cancelled.isCancelled { throw CancellationError() }
     }
 
     /// POSIX mode and owner out of the one prefetched NSFileSecurity, rather

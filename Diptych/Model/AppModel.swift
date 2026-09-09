@@ -933,6 +933,32 @@ final class AppModel {
         flash("Cut \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
     }
 
+    /// Symbolic links to whatever was copied, rather than copies of it.
+    ///
+    /// A cut on the clipboard is left alone: linking to something is not moving
+    /// it, so the pending move stays pending and Paste can still perform it.
+    func pasteAsLink() {
+        let urls = Clipboard.fileURLs()
+        guard !urls.isEmpty else {
+            flash("The clipboard holds no files", error: true)
+            return
+        }
+
+        let destination = active.directory
+        Task {
+            let outcome = await FileOperations.shared.createLinks(to: urls, in: destination)
+            active.reload()
+            inactive.reload()
+
+            if outcome.isCompleteSuccess {
+                let count = outcome.succeeded.count
+                flash("Linked \(count) item\(count == 1 ? "" : "s")", error: false)
+            } else {
+                report(outcome, verb: "link")
+            }
+        }
+    }
+
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
 
@@ -1261,9 +1287,18 @@ final class AppModel {
         window?.makeFirstResponder(table)
     }
 
-    func requestPathEdit() {
+    /// Opens the path bar on the active pane.
+    ///
+    /// `selectingAll` is the difference between the two ways in. Going somewhere
+    /// *below* here wants the caret after the separator, ready for a child's
+    /// name; going somewhere else entirely wants the path selected, so the
+    /// first keystroke replaces it.
+    func requestPathEdit(selectingAll: Bool = false) {
+        pathEditSelectsAll = selectingAll
         pathEditToken += 1
     }
+
+    private(set) var pathEditSelectsAll = false
 
     func revealSelection() {
         let urls = active.selectedItems.map(\.url)
@@ -1433,6 +1468,11 @@ final class AppModel {
         case .escape:
             if QuickLookController.shared.isVisible {
                 QuickLookController.shared.close()
+            } else if active.isNavigating {
+                // Escape is what everyone presses at a spinner. The button's
+                // own shortcut never fires, because this router sees the key
+                // first.
+                active.cancelLoad()
             } else {
                 active.selection = []
             }

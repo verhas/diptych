@@ -35,14 +35,33 @@ final class VolumeList {
         }
     }
 
+    /// Enumerating volumes stats every one of them, and a disk that is still
+    /// spinning up answers in seconds rather than microseconds. Doing that on
+    /// the main actor froze the whole window -- and it runs on every mount and
+    /// unmount notification, which is exactly when a disk is least ready to
+    /// answer.
     func reload() {
+        reloadTask?.cancel()
+        reloadTask = Task { [weak self] in
+            let found = await BlockingWork.run { VolumeList.enumerate() }
+            guard !Task.isCancelled else { return }
+            self?.volumes = found
+        }
+    }
+
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+
+    private nonisolated static func enumerate() -> [SidebarEntry] {
         let keys: [URLResourceKey] = [
             .volumeLocalizedNameKey, .volumeIsBrowsableKey, .volumeIsEjectableKey,
             .volumeIsRemovableKey, .volumeIsRootFileSystemKey, .volumeIsInternalKey,
         ]
-        let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys,
-                                                         options: [.skipHiddenVolumes]) ?? []
-        volumes = urls.compactMap { url in
+        // A private instance rather than `.default`, so this is unambiguously
+        // ours to call from another thread.
+        let fm = FileManager()
+        let urls = fm.mountedVolumeURLs(includingResourceValuesForKeys: keys,
+                                        options: [.skipHiddenVolumes]) ?? []
+        return urls.compactMap { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             guard values?.volumeIsBrowsable ?? true else { return nil }
 
@@ -57,7 +76,7 @@ final class VolumeList {
     /// this machine's are Thunderbolt APFS volumes that say so -- while still
     /// being perfectly ejectable. What actually separates them from the startup
     /// disk is being neither the root file system nor internal.
-    private static func isEjectable(_ values: URLResourceValues?) -> Bool {
+    private nonisolated static func isEjectable(_ values: URLResourceValues?) -> Bool {
         guard let values, values.volumeIsRootFileSystem != true else { return false }
         if values.volumeIsEjectable == true || values.volumeIsRemovable == true { return true }
         return values.volumeIsInternal == false

@@ -294,6 +294,32 @@ actor FileOperations {
         }
     }
 
+    /// Symbolic links to each source, in `destination`.
+    ///
+    /// Symbolic and not an alias: a symlink is what every other tool on the
+    /// system understands, and it survives being read by a shell, a build, or
+    /// anything that is not Finder. An alias would follow the original when it
+    /// moves, which is the one thing an alias does better -- and the one thing
+    /// that makes it opaque to everything else.
+    func createLinks(to sources: [URL], in destination: URL) -> Outcome {
+        let fm = FileManager()
+        var outcome = Outcome()
+
+        for source in sources {
+            // A link named after its target, beside a file of that name, would
+            // collide -- so the same "name-2" rule as a copy applies.
+            let wanted = destination.appendingPathComponent(source.lastPathComponent)
+            let target = Self.exists(wanted) ? Self.uniqueURL(for: wanted) : wanted
+            do {
+                try fm.createSymbolicLink(at: target, withDestinationURL: source)
+                outcome.succeeded.append(target)
+            } catch {
+                outcome.failures.append((source, error.localizedDescription))
+            }
+        }
+        return outcome
+    }
+
     func createDirectory(named name: String, in parent: URL) throws -> URL {
         guard let url = Self.safeChild(named: name, in: parent) else {
             throw InvalidName(name: name)

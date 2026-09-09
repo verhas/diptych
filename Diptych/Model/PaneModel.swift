@@ -18,6 +18,20 @@ final class PaneModel {
     private(set) var directory: URL
     private(set) var items: [FileItem] = []
     private(set) var isLoading = false
+    /// Set while a *different* directory is being read, as opposed to the
+    /// current one being refreshed in place.
+    ///
+    /// The two are not the same thing at all. A refresh can leave the rows on
+    /// screen; a navigation must not. Keeping the old listing visible while a
+    /// slow volume spun up meant the pane was showing one directory, saying it
+    /// was in another, and accepting double-clicks against the rows of the
+    /// first -- which then opened whatever happened to sit at that row index in
+    /// the second.
+    private(set) var loadingDirectory: URL?
+    /// Where cancelling goes back to.
+    @ObservationIgnored private var directoryBeforeLoad: URL?
+
+    var isNavigating: Bool { loadingDirectory != nil }
     private(set) var errorText: String?
     /// Set when the failure was TCC refusing access rather than the folder
     /// being missing or broken -- Time Machine volumes are the common case.
@@ -226,12 +240,38 @@ final class PaneModel {
     // MARK: - Navigation
 
     func navigate(to url: URL, recordingHistory: Bool = true) {
+        let previous = directory
         directory = url
         selection = []
         renamingID = nil
         if recordingHistory { record(url) } else { updateHistoryFlags() }
-        reload()
+        reload(navigatingFrom: previous == url ? nil : previous)
         owner?.persist()
+    }
+
+    /// Abandons a navigation and goes back where it came from.
+    ///
+    /// The previous directory is warm -- it was on screen a moment ago -- so
+    /// this is as fast as it looks. Not recorded in history: an abandoned
+    /// journey is not somewhere you have been.
+    func cancelLoad() {
+        guard let back = directoryBeforeLoad, let abandoned = loadingDirectory else { return }
+        loadTask?.cancel()
+        loadingDirectory = nil
+        directoryBeforeLoad = nil
+        isLoading = false
+        errorText = nil
+
+        // Take the abandoned directory back out of the history. It was recorded
+        // when the navigation began, and leaving it there would make Back walk
+        // past where you actually are into somewhere you never arrived.
+        if history.last == abandoned, history.count > 1 {
+            history.removeLast()
+            historyIndex = min(historyIndex, history.count - 1)
+        }
+        owner?.flash("Stopped loading. Back in \u{201C}\(back.lastPathComponent)\u{201D}.",
+                     error: false)
+        navigate(to: back, recordingHistory: false)
     }
 
     /// The closest folder above `url` that still exists -- much less jarring
@@ -352,7 +392,9 @@ final class PaneModel {
         }
     }
 
-    func reload() {
+    func reload() { reload(navigatingFrom: nil) }
+
+    private func reload(navigatingFrom previous: URL?) {
         watchDirectory()
         // Cancel any listing still in flight. Without this, walking quickly
         // through directories lets a slow network volume deliver its rows after
@@ -365,11 +407,21 @@ final class PaneModel {
         isLoading = true
         errorText = nil
 
+        if let previous {
+            // Cleared, not left standing. Nothing can be selected, opened,
+            // previewed or dragged out of a listing that no longer describes
+            // where the pane says it is.
+            directoryBeforeLoad = previous
+            loadingDirectory = target
+            items = []
+            selection = []
+        }
+
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await DirectoryLoader.shared.load(directory: target,
-                                                                   showHidden: hidden,
-                                                                   columns: columns)
+                let loaded = try await DirectoryLoader.load(directory: target,
+                                                           showHidden: hidden,
+                                                           columns: columns)
                 guard !Task.isCancelled else { return }
                 self?.finish(loaded, for: target)
             } catch {
@@ -383,6 +435,8 @@ final class PaneModel {
         guard target == directory else { return }   // a newer navigation won
         items = loaded
         isLoading = false
+        loadingDirectory = nil
+        directoryBeforeLoad = nil
         errorIsPermission = false
 
         if !pendingSelection.isEmpty {
@@ -409,6 +463,7 @@ final class PaneModel {
             guard !isEditingPath else {
                 items = []
                 isLoading = false
+                loadingDirectory = nil
                 errorText = "This folder is no longer there"
                 return
             }
@@ -419,6 +474,8 @@ final class PaneModel {
 
         items = directory.pathComponents.count > 1 ? [FileItem.parent(of: directory)] : []
         isLoading = false
+        loadingDirectory = nil
+        directoryBeforeLoad = nil
 
         let nsError = error as NSError
         let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError

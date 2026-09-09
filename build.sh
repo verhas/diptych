@@ -136,8 +136,41 @@ notarize_dmg() {
 
     [ -n "$(developer_id || true)" ] || die "notarizing needs a Developer ID certificate"
 
+    # A stale image is the easy mistake: `dmg` and `notarize` are separate
+    # commands, and the newest image in ./build may predate the certificate.
+    local mount device
+    mount=$(mktemp -d)
+    # The device is detached by name, not by mount point: detaching by path
+    # fails once the path is gone, and an image left attached makes the next
+    # `hdiutil create` fail with nothing more helpful than "Resource busy".
+    device=$(hdiutil attach -nobrowse -noverify "$dmg" -mountpoint "$mount" \
+             | awk '/^\/dev\/disk/{print $1; exit}')
+    local signed_ok=0 inside
+    inside=$(codesign -dvv "$mount"/*.app 2>&1 || true)
+    case "$inside" in *"Authority=Developer ID Application"*) signed_ok=1 ;; esac
+    [ -n "$device" ] && hdiutil detach "$device" -force -quiet || true
+    rmdir "$mount" 2>/dev/null || true
+    [ "$signed_ok" = 1 ] || die "$(basename "$dmg") holds an app that is not Developer ID signed -- run ./build.sh dmg again"
+
     info "Submitting $(basename "$dmg") to Apple (this takes a few minutes)"
-    xcrun notarytool submit "$dmg" --keychain-profile "${NOTARY_PROFILE:-Diptych}" --wait
+    local output status submission
+    # notarytool exits 0 when the *submission* succeeded, whatever the verdict
+    # was, so the verdict has to be read rather than assumed. Stapling a
+    # rejected submission is what this used to do, and it failed confusingly
+    # several minutes after the real error had already scrolled past.
+    output=$(xcrun notarytool submit "$dmg" \
+                --keychain-profile "${NOTARY_PROFILE:-Diptych}" --wait 2>&1) || true
+    printf '%s\n' "$output" | sed 's/^/    /'
+
+    submission=$(printf '%s\n' "$output" | awk '/^ *id: /{print $2; exit}')
+    status=$(printf '%s\n' "$output" | awk '/^ *status: /{print $2; exit}')
+
+    if [ "$status" != "Accepted" ]; then
+        printf '%s==> Notarization was %s. Apple says:%s\n' "$YELLOW" "${status:-unknown}" "$OFF"
+        [ -n "$submission" ] && xcrun notarytool log "$submission" \
+            --keychain-profile "${NOTARY_PROFILE:-Diptych}" 2>&1 | sed 's/^/    /'
+        die "notarization failed -- nothing was stapled"
+    fi
 
     info "Stapling the ticket"
     xcrun stapler staple "$dmg"
@@ -166,26 +199,96 @@ make_dmg() {
     identity=$(developer_id || true)
     if [ -n "$identity" ]; then
         info "Signing the app as $identity"
+
+        # Xcode injects com.apple.security.get-task-allow -- the "a debugger may
+        # attach to me" entitlement -- into every build it signs, and Apple
+        # refuses to notarize anything carrying it. Re-signing without
+        # --entitlements keeps whatever is already embedded, so an explicit
+        # empty set is the only way to be rid of it.
+        local entitlements
+        entitlements=$(mktemp -t diptych-entitlements)
+        cat > "$entitlements" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict/></plist>
+PLIST
+
         # No --deep: it is deprecated for signing, and there is nothing nested
         # to sign anyway -- the bundle is one executable with no frameworks or
         # helpers. --options runtime and --timestamp are both required before
         # Apple will notarize.
         codesign --force --options runtime --timestamp \
+                 --entitlements "$entitlements" \
                  --sign "$identity" "$app"
+        rm -f "$entitlements"
         codesign --verify --deep --strict --verbose=1 "$app" 2>&1 | sed 's/^/    /'
+
+        # Checked here rather than discovered by Apple twenty minutes later.
+        # Each of these was an error in a rejected submission.
+        #
+        # Matched with `case` rather than piped into `grep -q`: grep exits at
+        # the first match, codesign then dies of SIGPIPE, and `pipefail` reports
+        # the whole pipeline as failed -- so the check rejected a perfectly good
+        # signature. `set -euo pipefail` and `grep -q` do not mix.
+        local description entitlements_now
+        description=$(codesign -dvv "$app" 2>&1)
+        case "$description" in
+            *"Authority=Developer ID Application"*) ;;
+            *) die "the app is not signed with a Developer ID certificate" ;;
+        esac
+        case "$description" in
+            *"Timestamp="*) ;;
+            *) die "the signature has no secure timestamp" ;;
+        esac
+        entitlements_now=$(codesign -d --entitlements - "$app" 2>/dev/null | tr -d '\0')
+        case "$entitlements_now" in
+            *get-task-allow*) die "the app still carries com.apple.security.get-task-allow" ;;
+        esac
     fi
 
     info "Staging $app"
     cp -R "$app" "$staging/"
-    ln -s /Applications "$staging/Applications"
 
     mkdir -p "$PWD/build"
     rm -f "$dmg"
 
     info "Building $dmg"
-    hdiutil create -volname "Diptych $version" \
-                   -srcfolder "$staging" \
-                   -fs HFS+ -format UDZO -ov -quiet "$dmg"
+
+    # Built explicitly rather than with `hdiutil create -srcfolder`, which does
+    # its own create-attach-copy-detach-convert internally and fails as a whole
+    # with nothing but "Resource busy" when any step of that is unhappy --
+    # measured on this machine, where `create -size`, `attach` and `mount` all
+    # worked and only `-srcfolder` did not. Doing the steps here means a failure
+    # names which step failed, and it is what the DMG tools all do for the same
+    # reason.
+    local size_kb blank device attached mountpoint
+    size_kb=$(du -sk "$staging" | awk '{print $1}')
+    # Slack for the filesystem's own structures; an image sized to its contents
+    # exactly has no room to write them.
+    size_kb=$(( size_kb + 20480 ))
+
+    blank="${dmg%.dmg}-rw.dmg"
+    rm -f "$blank"
+    hdiutil create -size "${size_kb}k" -volname "Diptych $version" \
+                   -fs HFS+ -ov "$blank" >/dev/null \
+        || die "could not create the empty image"
+
+    attached=$(hdiutil attach -nobrowse -noverify -readwrite "$blank") \
+        || die "could not attach the image"
+    device=$(printf '%s\n' "$attached" | awk '/^\/dev\/disk/{print $1; exit}')
+    mountpoint=$(printf '%s\n' "$attached" | sed -n 's|.*[[:space:]]\(/Volumes/.*\)$|\1|p' | head -1)
+    [ -n "$mountpoint" ] || die "the image attached but did not mount"
+
+    ditto "$app" "$mountpoint/$(basename "$app")" || {
+        hdiutil detach "$device" -force -quiet || true
+        die "could not copy the app into the image"
+    }
+    ln -s /Applications "$mountpoint/Applications"
+
+    hdiutil detach "$device" -force -quiet || die "could not detach the image"
+    hdiutil convert "$blank" -format UDZO -ov -o "$dmg" >/dev/null \
+        || die "could not compress the image"
+    rm -f "$blank"
 
     # Sign the image itself too, so Gatekeeper has something to check before the
     # app is ever copied out of it.

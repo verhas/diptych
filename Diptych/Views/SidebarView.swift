@@ -77,9 +77,16 @@ struct SidebarView: View {
         .help(entry.url.path)
     }
 
+    /// Cached, because this runs for every row on every redraw and a volume
+    /// root's icon can come off the disk itself -- a sleeping one answers
+    /// slowly, and the sidebar redraws while it is waking.
+    @MainActor private static var icons: [String: NSImage] = [:]
+
     private static func icon(for url: URL) -> NSImage {
+        if let cached = icons[url.path] { return cached }
         let image = NSWorkspace.shared.icon(forFile: url.path)
         image.size = NSSize(width: 16, height: 16)
+        icons[url.path] = image
         return image
     }
 }
