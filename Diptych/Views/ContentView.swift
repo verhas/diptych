@@ -311,6 +311,8 @@ struct ContentView: View {
     @ViewBuilder
     private func button(_ kind: ToolbarButton) -> some View {
         switch kind {
+        // The two that are toggles rather than actions, so they show their
+        // state rather than just their name.
         case .singlePane:
             Button {
                 model.isSinglePane.toggle()
@@ -320,22 +322,6 @@ struct ContentView: View {
             }
             .help(model.isSinglePane ? "Show both panes" : "Show only the active pane")
 
-        case .refresh:
-            Button {
-                model.refreshPanes()
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .help(kind.explanation)
-
-        case .swapPanes:
-            Button {
-                model.swapPanes()
-            } label: {
-                Label("Swap Panes", systemImage: "arrow.left.arrow.right")
-            }
-            .help(kind.explanation)
-
         case .hiddenFiles:
             Toggle(isOn: Bindable(model).showHidden) {
                 Label("Hidden Files", systemImage: model.showHidden ? "eye" : "eye.slash")
@@ -343,23 +329,61 @@ struct ContentView: View {
             .toggleStyle(.button)
             .help(model.showHidden ? "Hide hidden files" : "Show hidden files")
 
-        case .getLatest:
-            Button {
-                model.getLatest()
-            } label: {
-                Label("Get the Latest", systemImage: "arrow.down.circle")
+        default:
+            Button { perform(kind) } label: {
+                Label(kind.title, systemImage: kind.symbol)
             }
             .help(kind.explanation)
-            .disabled(model.gitBusy)
+            .disabled(isDisabled(kind))
+        }
+    }
 
-        case .sendWork:
-            Button {
-                model.requestSendWork()
-            } label: {
-                Label("Send My Work", systemImage: "arrow.up.circle")
-            }
-            .help(kind.explanation)
-            .disabled(model.gitBusy)
+    /// Every button calls the same method the menu bar and the keyboard call.
+    private func perform(_ kind: ToolbarButton) {
+        switch kind {
+        case .singlePane:      model.isSinglePane.toggle()
+        case .hiddenFiles:     model.showHidden.toggle()
+        case .refresh:         model.refreshPanes()
+        case .swapPanes:       model.swapPanes()
+        case .sameFolder:      model.syncPanes()
+        case .back:            model.goBack()
+        case .forward:         model.goForward()
+        case .enclosingFolder: model.active.goUp()
+        case .goToFolder:      model.requestPathEdit(selectingAll: true)
+        case .newFolder:       model.requestNewFolder()
+        case .newFile:         model.requestNewFile()
+        case .view:            model.viewSelection()
+        case .getInfo:         model.showInfo()
+        case .rename:          model.requestRename()
+        case .copyToOther:     model.copySelection()
+        case .moveToOther:     model.moveSelection()
+        case .permissions:     model.requestPermissionEdit()
+        case .trash:           model.requestTrash()
+        case .revealInFinder:  model.revealSelection()
+        case .openTerminal:    model.openTerminal()
+        case .copyPrompt:      model.copyPromptToClipboard()
+        case .biggerText:      PaneFont.zoom(by: 1)
+        case .smallerText:     PaneFont.zoom(by: -1)
+        case .actualSize:      PaneFont.reset()
+        case .sendWork:        model.requestSendWork()
+        case .getLatest:       model.getLatest()
+        }
+    }
+
+    /// Greyed out only where the answer changes moment to moment -- history
+    /// that has run out, a text size already at its limit, a repository
+    /// operation already running. Anything permanently inapplicable is left
+    /// out of the toolbar instead.
+    private func isDisabled(_ kind: ToolbarButton) -> Bool {
+        switch kind {
+        case .back:                     !model.active.canGoBack
+        case .forward:                  !model.active.canGoForward
+        case .enclosingFolder:          model.active.directory.pathComponents.count <= 1
+        case .biggerText:               PaneFont.size >= Configuration.fontSizes.upperBound
+        case .smallerText:              PaneFont.size <= Configuration.fontSizes.lowerBound
+        case .actualSize:               PaneFont.size == Configuration.defaultFontSize
+        case .sendWork, .getLatest:     model.gitBusy
+        default:                        false
         }
     }
 }
@@ -480,6 +504,38 @@ struct DialogSheet: View {
         }
     }
 
+    /// A push that was refused. Almost always because someone else sent
+    /// something first, so the way out is offered rather than described.
+    @ViewBuilder
+    private var gitNotSent: some View {
+        Text(model.gitNotSentReason).font(.headline)
+
+        Text("Nothing was lost \u{2014} your changes are exactly as they were, and still "
+             + "waiting to be sent. Usually this means someone else sent something first, "
+             + "so getting the latest and sending again is the way through.")
+            .font(.subheadline).foregroundStyle(.secondary)
+
+        DisclosureGroup("What Git said") {
+            ScrollView {
+                Text(model.gitLastDetails)
+                    .font(.system(size: 10, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 130)
+        }
+
+        HStack {
+            Button("Copy Details") { model.copyGitDetails() }
+                .help("To send to whoever set up your repository")
+            Spacer()
+            Button("Cancel") { model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Get the Latest") { model.getLatestAfterFailedSend() }
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
     @ViewBuilder
     private var gitConflict: some View {
         Text("Someone else has changed files that you have also changed.")
@@ -528,10 +584,19 @@ struct DialogSheet: View {
             case .gitConflict:
                 gitConflict
 
+            case .gitNotSent:
+                gitNotSent
+
             case .newFolder:
                 prompt(title: "New Folder",
                        detail: "Create a folder in \(model.active.directory.lastPathComponent)",
                        confirm: "Create") { model.confirmNewFolder() }
+
+            case .newFile:
+                prompt(title: "New File",
+                       detail: "Create an empty file in "
+                             + "\(model.active.directory.lastPathComponent)",
+                       confirm: "Create") { model.confirmNewFile() }
 
             case .trash:
                 let items = model.active.selectedItems

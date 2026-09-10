@@ -20,22 +20,26 @@ final class AppModel {
     /// actually works, and which one is undefined.
     enum Dialog: Identifiable, Equatable {
         case newFolder
+        case newFile
         case trash
         case authorizeOwner
         case conflict
         case message(String)
         case sendWork
         case gitConflict
+        case gitNotSent
 
         var id: String {
             switch self {
             case .newFolder:      return "newFolder"
+            case .newFile:        return "newFile"
             case .trash:          return "trash"
             case .authorizeOwner: return "authorizeOwner"
             case .conflict:       return "conflict"
             case .message:   return "message"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
+            case .gitNotSent:     return "gitNotSent"
             }
         }
     }
@@ -451,6 +455,26 @@ final class AppModel {
     func requestNewFolder() {
         textInput = "untitled folder"
         dialog = .newFolder
+    }
+
+    func requestNewFile() {
+        textInput = "untitled.txt"
+        dialog = .newFile
+    }
+
+    func confirmNewFile() {
+        let name = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let parent = active.directory
+        Task {
+            do {
+                let url = try await FileOperations.shared.createFile(named: name, in: parent)
+                active.pendingSelection = [url]
+                active.reload()
+            } catch {
+                dialog = .message(error.localizedDescription)
+            }
+        }
     }
 
     func confirmNewFolder() {
@@ -1072,6 +1096,19 @@ final class AppModel {
     /// this audience is forwarding the failure to whoever set the repository
     /// up, so nothing may be paraphrased away.
     private(set) var gitLastDetails = ""
+    private(set) var gitNotSentReason = ""
+
+    /// Git's own words, for forwarding to whoever set the repository up.
+    func copyGitDetails() {
+        Clipboard.copyText(gitLastDetails)
+        flash("Details copied", error: false)
+    }
+
+    /// Straight from the failed-send dialog into the flow that fixes it.
+    func getLatestAfterFailedSend() {
+        dialog = nil
+        getLatest()
+    }
 
     var gitRepositoryRoot: URL? { active.gitRoot }
 
@@ -1171,8 +1208,13 @@ final class AppModel {
             case .nothingSelected:
                 flash("Nothing was ticked", error: true)
             case .notSent(let reason, let details):
+                // Not a dead end. A rejected push almost always means someone
+                // else went first, and the answer to that is Get the Latest --
+                // so the dialog offers it rather than handing over git's own
+                // paragraph and leaving the user to work out what to do.
+                gitNotSentReason = reason
                 gitLastDetails = details
-                dialog = .message(reason + "\n\n" + details)
+                dialog = .gitNotSent
             case .sentDespiteError(let details):
                 gitLastDetails = details
                 dialog = .message("Your work did reach the shared copy, but the reply was "

@@ -394,6 +394,7 @@ struct PaneView: View {
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
         if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
+            Button("New File") { activate(); model.requestNewFile() }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Paste as Link") { activate(); model.pasteAsLink() }
             Button("Refresh") { pane.reload() }
@@ -435,6 +436,10 @@ struct PaneView: View {
             Button("Cut") { act(ids) { model.cutSelectionToClipboard() } }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Paste as Link") { activate(); model.pasteAsLink() }
+
+            Divider()
+
+            Button("New File") { activate(); model.requestNewFile() }
 
             Divider()
 

@@ -292,6 +292,50 @@ final class GitActionsTests: XCTestCase {
         XCTAssertEqual(paths, ["readme.md"])
     }
 
+    func testAnUntrackedFileThatAlsoArrivedIsListedAsConflicting() async throws {
+        // The reported case: the same new file created in two clones. `git
+        // diff` never sees an untracked file, so it was missing from the list
+        // entirely -- the dialog offered to keep copies of nothing, and the
+        // update then failed on the very file it had not mentioned.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("shared-new.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "new file"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("shared-new.md", "mine\n")
+
+        let result = await GitService.shared.getLatest(inRepository: mine)
+
+        guard case .conflicting(let paths, _) = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(paths, ["shared-new.md"])
+    }
+
+    func testKeepingCopiesWorksWhenTheFileWasUntracked() async throws {
+        // Git refuses to overwrite an untracked file, and there is nothing to
+        // restore it from -- so it has to be removed once the copy is safe.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("shared-new.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "new file"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("shared-new.md", "mine\n")
+        guard case .conflicting(let paths, _) =
+                await GitService.shared.getLatest(inRepository: mine) else {
+            return XCTFail("expected a conflict")
+        }
+
+        let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
+                                                                    inRepository: mine)
+
+        guard case .updated = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(read("shared-new.md"), "theirs\n", "the shared version is in place")
+        XCTAssertEqual(read("shared-new (my version).md"), "mine\n", "and mine is beside it")
+    }
+
     func testKeepingCopiesPreservesMyVersionAndTakesTheShared() async throws {
         try await readyGit()
         let theirs = try colleague()

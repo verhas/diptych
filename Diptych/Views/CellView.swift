@@ -26,7 +26,10 @@ struct CellView: View {
     /// the pane.
     static func gitColour(_ state: GitState) -> Color? {
         switch state {
-        case .untracked:  Color(red: 0.55, green: 0.36, blue: 0.16)   // brown
+        // The system brown, not a hand-mixed one: a fixed dark brown was very
+        // nearly invisible against a dark background, which is where most of
+        // these rows are read.
+        case .untracked:  .brown
         case .added:      .green
         case .changed:    .blue
         case .deleted:    .blue

@@ -222,6 +222,11 @@ extension GitService {
         var mine = await names(["diff", "--name-only", base, "HEAD"])
         mine.formUnion(await names(["diff", "--name-only", "HEAD"]))
         mine.formUnion(await names(["diff", "--name-only", "--cached", "HEAD"]))
+        // Untracked files count. `git diff` never sees them, so a file created
+        // here that also arrived in the shared copy was missing from the list
+        // entirely -- the dialog offered to keep copies of nothing, and the
+        // update then failed on the very file it had not mentioned.
+        mine.formUnion(await names(["ls-files", "--others", "--exclude-standard"]))
         let theirs = await names(["diff", "--name-only", base, "@{u}"])
 
         return mine.intersection(theirs).sorted()
@@ -235,7 +240,12 @@ extension GitService {
     /// touched -- so they cannot be sent by accident and no collaborator ever
     /// sees the rule.
     func keepCopiesAndTakeShared(paths: [String], inRepository root: URL) async -> GetResult {
+        // Which of them Git knows about decides how each is put back: a tracked
+        // file is restored from the repository, an untracked one has to be
+        // removed outright or the fast-forward refuses to overwrite it.
+        let states = await status(forRepository: root)?.states ?? [:]
         var kept: [String] = []
+
         for path in paths {
             let source = root.appendingPathComponent(path)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
@@ -247,6 +257,12 @@ extension GitService {
             do {
                 try FileManager.default.copyItem(at: source, to: target)
                 kept.append(target.lastPathComponent)
+                // Copied, so the original is safe to get out of the way. Git
+                // will not overwrite an untracked file, and there is nothing to
+                // restore it from -- it was never in the repository.
+                if states[path] == .untracked {
+                    try FileManager.default.removeItem(at: source)
+                }
             } catch {
                 return .failed(reason: "A copy of your version could not be made.",
                                details: error.localizedDescription)
@@ -272,7 +288,12 @@ extension GitService {
                 return .failed(reason: "The folder could not be updated.", details: text)
             }
         } else {
-            _ = await command(["checkout", "--"] + paths, in: root)
+            // Only the tracked ones: `checkout --` on a path Git has never seen
+            // fails, and would take the whole restore down with it.
+            let tracked = paths.filter { states[$0] != .untracked }
+            if !tracked.isEmpty {
+                _ = await command(["checkout", "--"] + tracked, in: root)
+            }
             if case .failed(_, let text) = await command(["merge", "--ff-only", "@{u}"], in: root) {
                 return .failed(reason: "The folder could not be updated.", details: text)
             }

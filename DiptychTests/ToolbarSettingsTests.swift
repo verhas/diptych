@@ -15,14 +15,36 @@ final class ToolbarSettingsTests: XCTestCase {
         ConfigStore.shared.configuration.toolbar = original
     }
 
-    func testTheDefaultsAreWhatTheToolbarHeldBefore() {
+    func testTheDefaultsAreASmallSetOfEverythingAvailable() {
+        // Everything is offered; only a few are on. Twenty-six buttons is not
+        // a toolbar, it is a wall.
         ConfigStore.shared.configuration.toolbar = Configuration.defaultToolbar
-        let left = ConfigStore.shared.configuration.toolbarButtons(on: .left)
+        let shown = ToolbarSide.allCases
+            .flatMap { ConfigStore.shared.configuration.toolbarButtons(on: $0) }
 
-        XCTAssertEqual(left, [.singlePane, .refresh, .swapPanes, .hiddenFiles])
+        XCTAssertEqual(ConfigStore.shared.configuration.toolbarSlots.count,
+                       ToolbarButton.allCases.count, "all of them are configurable")
+        XCTAssertLessThan(shown.count, ToolbarButton.allCases.count / 2,
+                          "and most start switched off")
+        XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .left),
+                       [.singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles])
         XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .right),
-                       [.getLatest, .sendWork])
-        XCTAssertTrue(ConfigStore.shared.configuration.toolbarButtons(on: .middle).isEmpty)
+                       [.sendWork, .getLatest])
+    }
+
+    func testEveryButtonHasAnIconAndAnExplanation() {
+        // A toolbar is read at a glance, so a missing or duplicated glyph is a
+        // real defect rather than a cosmetic one.
+        var symbols: Set<String> = []
+        for button in ToolbarButton.allCases {
+            XCTAssertFalse(button.title.isEmpty, "\(button)")
+            XCTAssertFalse(button.explanation.isEmpty, "\(button)")
+            XCTAssertNotNil(NSImage(systemSymbolName: button.symbol,
+                                    accessibilityDescription: nil),
+                            "\(button) has no icon named \(button.symbol)")
+            XCTAssertTrue(symbols.insert(button.symbol).inserted,
+                          "\(button) shares its icon with another button")
+        }
     }
 
     func testAButtonAddedInALaterVersionIsAppendedRatherThanLost() {

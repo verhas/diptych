@@ -500,6 +500,24 @@ actor FileOperations {
         return outcome
     }
 
+    /// An empty file, refusing to overwrite anything.
+    ///
+    /// `withIntermediateDirectories`-style silence is wrong here: a name that
+    /// already exists means the user is about to lose something, and creating
+    /// it anyway would truncate a file they meant to open.
+    func createFile(named name: String, in parent: URL) throws -> URL {
+        guard let url = Self.safeChild(named: name, in: parent) else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        guard !Self.exists(url) else {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError,
+                          userInfo: [NSLocalizedDescriptionKey:
+                                        "\u{201C}\(name)\u{201D} already exists here."])
+        }
+        try Data().write(to: url, options: .withoutOverwriting)
+        return url
+    }
+
     func createDirectory(named name: String, in parent: URL) throws -> URL {
         guard let url = Self.safeChild(named: name, in: parent) else {
             throw InvalidName(name: name)

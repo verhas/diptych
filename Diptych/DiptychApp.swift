@@ -91,6 +91,9 @@ struct FileCommands: Commands {
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil)
+            Button("New File") { model?.requestNewFile() }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(model == nil)
 
             Divider()
 

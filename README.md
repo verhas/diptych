@@ -674,6 +674,19 @@ conflicting set is computed as an intersection through `merge-base`, not as
 "everything that differs": someone fifty changes behind has hundreds of
 differing files and only two of them are theirs.
 
+**Untracked files count as conflicts too.** The same new file created in two
+places is the commonest way for this to happen, and `git diff` never sees an
+untracked file -- so it was missing from the list, the dialog offered to keep
+copies of nothing, and the update then failed on the very file it had not
+mentioned. Untracked collisions are listed now, and their originals are removed
+once the copy is safe, since Git refuses to overwrite an untracked file and
+there is nothing to restore it from.
+
+**A refused send is not a dead end.** It almost always means someone else sent
+something first, so the dialog offers **Get the Latest** -- with Git's own words
+behind a disclosure triangle and a Copy Details button -- rather than handing
+over a paragraph of Git and leaving the reader to work out what to do.
+
 The kept copies go into `.git/info/exclude`, not `.gitignore` -- local only,
 never pushed, no tracked file touched -- so they cannot be sent by accident and
 no collaborator ever sees the rule. When your changes had already been saved as

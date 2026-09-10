@@ -6,10 +6,41 @@ import SwiftUI
 /// files, and now sending and getting -- and six buttons is the point at which
 /// one person's essentials are another's clutter.
 enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
+    // Panes
     case singlePane
     case refresh
     case swapPanes
+    case sameFolder
     case hiddenFiles
+
+    // Going places
+    case back
+    case forward
+    case enclosingFolder
+    case goToFolder
+
+    // Making things
+    case newFolder
+    case newFile
+
+    // Acting on the selection
+    case view
+    case getInfo
+    case rename
+    case copyToOther
+    case moveToOther
+    case permissions
+    case trash
+    case revealInFinder
+    case openTerminal
+    case copyPrompt
+
+    // Text size
+    case biggerText
+    case smallerText
+    case actualSize
+
+    // Version tracking
     case sendWork
     case getLatest
 
@@ -17,24 +48,98 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .singlePane:  "One Pane"
-        case .refresh:     "Refresh"
-        case .swapPanes:   "Swap Panes"
-        case .hiddenFiles: "Hidden Files"
-        case .sendWork:    "Send My Work"
-        case .getLatest:   "Get the Latest"
+        case .singlePane:      "One Pane"
+        case .refresh:         "Refresh"
+        case .swapPanes:       "Swap Panes"
+        case .sameFolder:      "Same Folder in Other Pane"
+        case .hiddenFiles:     "Hidden Files"
+        case .back:            "Back"
+        case .forward:         "Forward"
+        case .enclosingFolder: "Enclosing Folder"
+        case .goToFolder:      "Go to Folder"
+        case .newFolder:       "New Folder"
+        case .newFile:         "New File"
+        case .view:            "View"
+        case .getInfo:         "Get Info"
+        case .rename:          "Rename"
+        case .copyToOther:     "Copy to Other Pane"
+        case .moveToOther:     "Move to Other Pane"
+        case .permissions:     "Change Permissions"
+        case .trash:           "Move to Trash"
+        case .revealInFinder:  "Reveal in Finder"
+        case .openTerminal:    "Open Terminal Here"
+        case .copyPrompt:      "Copy Prompt"
+        case .biggerText:      "Bigger Text"
+        case .smallerText:     "Smaller Text"
+        case .actualSize:      "Actual Size"
+        case .sendWork:        "Send My Work"
+        case .getLatest:       "Get the Latest"
+        }
+    }
+
+    /// The icon. Chosen to match the menu wording rather than the underlying
+    /// operation, since the toolbar is read at a glance and a wrong-but-pretty
+    /// glyph is worse than a plain one.
+    var symbol: String {
+        switch self {
+        case .singlePane:      "rectangle"
+        case .refresh:         "arrow.clockwise"
+        case .swapPanes:       "arrow.left.arrow.right"
+        case .sameFolder:      "equal.square"
+        case .hiddenFiles:     "eye"
+        case .back:            "chevron.left"
+        case .forward:         "chevron.right"
+        case .enclosingFolder: "arrow.up"
+        case .goToFolder:      "magnifyingglass"
+        case .newFolder:       "folder.badge.plus"
+        case .newFile:         "doc.badge.plus"
+        case .view:            "eye.circle"
+        case .getInfo:         "info.circle"
+        case .rename:          "pencil"
+        case .copyToOther:     "doc.on.doc"
+        case .moveToOther:     "arrow.right.doc.on.clipboard"
+        case .permissions:     "lock"
+        case .trash:           "trash"
+        case .revealInFinder:  "finder"
+        case .openTerminal:    "terminal"
+        case .copyPrompt:      "text.bubble"
+        case .biggerText:      "textformat.size.larger"
+        case .smallerText:     "textformat.size.smaller"
+        case .actualSize:      "textformat.size"
+        case .sendWork:        "arrow.up.circle"
+        case .getLatest:       "arrow.down.circle"
         }
     }
 
     /// What it is for, in the same words the menu uses.
     var explanation: String {
         switch self {
-        case .singlePane:  "Show one pane instead of two"
-        case .refresh:     "Re-read both panes"
-        case .swapPanes:   "Swap the left and right panes"
-        case .hiddenFiles: "Show files whose names begin with a dot"
-        case .sendWork:    "Save your changes and send them to the shared copy"
-        case .getLatest:   "Bring in what other people have sent"
+        case .singlePane:      "Show one pane instead of two"
+        case .refresh:         "Re-read both panes"
+        case .swapPanes:       "Swap the left and right panes"
+        case .sameFolder:      "Show this folder in the other pane too"
+        case .hiddenFiles:     "Show files whose names begin with a dot"
+        case .back:            "Back to where you were"
+        case .forward:         "Forward again"
+        case .enclosingFolder: "Up one folder"
+        case .goToFolder:      "Type a path to go to"
+        case .newFolder:       "Create a folder here"
+        case .newFile:         "Create an empty file here"
+        case .view:            "Preview the selected file"
+        case .getInfo:         "Everything about the selected file"
+        case .rename:          "Rename the selected file"
+        case .copyToOther:     "Copy the selection to the other pane"
+        case .moveToOther:     "Move the selection to the other pane"
+        case .permissions:     "Change who may read and write it"
+        case .trash:           "Move the selection to the Trash"
+        case .revealInFinder:  "Show the selection in the Finder"
+        case .openTerminal:    "Open a Terminal window here"
+        case .copyPrompt:      "Copy a description of the selection, to ask an LLM"
+        case .biggerText:      "Larger text in the panes"
+        case .smallerText:     "Smaller text in the panes"
+        case .actualSize:      "Back to the standard text size"
+        case .sendWork:        "Save your changes and send them to the shared copy"
+        case .getLatest:       "Bring in what other people have sent"
         }
     }
 
@@ -42,6 +147,23 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     /// toolbar entirely when the folder is not one -- a permanently greyed
     /// button teaches nothing.
     var needsRepository: Bool { self == .sendWork || self == .getLatest }
+
+    var isOnByDefault: Bool {
+        switch self {
+        case .singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles,
+             .sendWork, .getLatest:
+            true
+        default:
+            false
+        }
+    }
+
+    var defaultSide: ToolbarSide {
+        switch self {
+        case .sendWork, .getLatest: .right
+        default:                    .left
+        }
+    }
 }
 
 /// Where a button sits. Three groups, because that is what a macOS toolbar
@@ -75,14 +197,13 @@ extension Configuration {
     /// The default arrangement: what the toolbar held before it was
     /// configurable, with the two new buttons on the right where the actions
     /// that reach outside the app belong.
-    static let defaultToolbar: [ToolbarSlot] = [
-        ToolbarSlot(button: .singlePane, isShown: true, side: .left),
-        ToolbarSlot(button: .refresh, isShown: true, side: .left),
-        ToolbarSlot(button: .swapPanes, isShown: true, side: .left),
-        ToolbarSlot(button: .hiddenFiles, isShown: true, side: .left),
-        ToolbarSlot(button: .getLatest, isShown: true, side: .right),
-        ToolbarSlot(button: .sendWork, isShown: true, side: .right),
-    ]
+    /// Everything is *available*; only a few are on. A toolbar of twenty-six
+    /// buttons is not a toolbar, it is a wall -- so the default is what was
+    /// there before plus the two version-tracking buttons and Same Folder,
+    /// and the rest are switched on by whoever wants them.
+    static let defaultToolbar: [ToolbarSlot] = ToolbarButton.allCases.map { button in
+        ToolbarSlot(button: button, isShown: button.isOnByDefault, side: button.defaultSide)
+    }
 
     /// The saved arrangement, repaired: a button added in a later version is
     /// appended rather than lost, and one that no longer exists is dropped.
