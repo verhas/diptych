@@ -122,6 +122,17 @@ struct FileCommands: Commands {
 
             Divider()
 
+            // Version tracking. Hidden entirely when the folder is not tracked
+            // or the feature is off, rather than permanently greyed out.
+            if model?.gitRepositoryRoot != nil {
+                Button("Send My Work\u{2026}") { model?.requestSendWork() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                Button("Get the Latest") { model?.getLatest() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+
+                Divider()
+            }
+
             Button("Move to Trash") {
                 dispatch(model?.trashFromMenu,
                          #selector(NSResponder.deleteToBeginningOfLine(_:)))

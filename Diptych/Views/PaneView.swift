@@ -404,6 +404,19 @@ struct PaneView: View {
                 }
             }
             Button("Get Info") { act(ids) { model.showInfo() } }
+
+            // Only for files Git does not know about: for anything else the
+            // two entries would be permanently meaningless.
+            if pane.gitRoot != nil,
+               pane.rows.contains(where: { ids.contains($0.id) && $0.gitState == .untracked }) {
+                Button("Track \(ids.count == 1 ? "This File" : "These Files")") {
+                    act(ids) { model.trackSelection() }
+                }
+                Button("Never Track \(ids.count == 1 ? "This" : "These")") {
+                    act(ids) { model.neverTrackSelection() }
+                }
+            }
+
             // Hidden rather than disabled for a folder: the entry would be
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),

@@ -5,10 +5,11 @@ written. This file exists so the work can be picked up cold: it records the
 decisions **and the reasons**, because most of the reasons are the sort that
 look arbitrary once the argument that produced them is forgotten.
 
-**Slice one is implemented.** `GitTool`, `GitStatus`, `GitService`, the Version
-Tracking settings pane, the name colours, the Git column, and branch with
-ahead/behind in the pane footer. Everything from section 4 onwards -- the three
-verbs, conflicts, Earlier versions, the diff viewer -- is still design only.
+**Slices one and two are implemented.** Detection and settings, cached status,
+colours, the Git column, branch with ahead/behind; and the three verbs --
+Track this file / Never track this, Send my work, Get the latest -- with the
+conflict dialog. Still design only: the setup checklist as a visible panel,
+Earlier versions, and the diff viewer.
 
 ## Who it is for
 

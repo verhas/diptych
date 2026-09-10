@@ -341,9 +341,135 @@ struct DialogSheet: View {
     /// type straight away instead of clicking first.
     @FocusState private var fieldFocused: Bool
 
+    /// A review step, not a confirmation: both lists are editable, so a partial
+    /// send is a normal thing to do rather than something to work around.
+    @ViewBuilder
+    private var sendWork: some View {
+        Text("Send my work").font(.headline)
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if !model.gitChanges.sending.isEmpty {
+                    group(title: "Changes to be sent",
+                          items: model.gitChanges.sending,
+                          selection: $model.gitSending)
+                }
+                if !model.gitChanges.new.isEmpty {
+                    // Loud when non-empty, so it reads as "these are being left
+                    // behind" rather than as a quiet extra.
+                    group(title: "New files not being sent",
+                          items: model.gitChanges.new,
+                          selection: $model.gitIncluding,
+                          tint: .orange,
+                          note: "Tick to include them, now and from now on.")
+                }
+            }
+        }
+        .frame(maxHeight: 260)
+
+        Text("Describe what you changed:").font(.subheadline)
+        TextField("", text: $model.gitSendMessage, axis: .vertical)
+            .lineLimit(2 ... 4)
+            .focused($fieldFocused)
+            .onAppear { fieldFocused = true }
+
+        HStack {
+            Spacer()
+            Button("Cancel") { model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Send") { model.sendWork() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.gitSendMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .isEmpty
+                          || (model.gitSending.isEmpty && model.gitIncluding.isEmpty))
+        }
+    }
+
+    private func group(title: String, items: [GitService.Change],
+                       selection: Binding<Set<String>>,
+                       tint: Color = .primary,
+                       note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                // Tri-state: ticked, empty, or dashed for a mixed selection.
+                Toggle(isOn: Binding(
+                    get: { selection.wrappedValue.count == items.count && !items.isEmpty },
+                    set: { on in
+                        selection.wrappedValue = on ? Set(items.map(\.path)) : []
+                    })) { Text(title).font(.subheadline).bold().foregroundStyle(tint) }
+                    .toggleStyle(.checkbox)
+                Spacer()
+            }
+            if let note {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(items) { item in
+                Toggle(isOn: Binding(
+                    get: { selection.wrappedValue.contains(item.path) },
+                    set: { on in
+                        if on { selection.wrappedValue.insert(item.path) }
+                        else { selection.wrappedValue.remove(item.path) }
+                    })) {
+                    HStack(spacing: 6) {
+                        Text(item.path).lineLimit(1).truncationMode(.middle)
+                        Text("(\(item.describes))").foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 11))
+                }
+                .toggleStyle(.checkbox)
+                .padding(.leading, 16)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var gitConflict: some View {
+        Text("Someone else has changed files that you have also changed.")
+            .font(.headline)
+
+        Text("These files are different in both places:")
+            .font(.subheadline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(model.gitConflictPaths, id: \.self) { path in
+                    Text(path).font(.system(size: 11, design: .monospaced))
+                }
+            }
+        }
+        .frame(maxHeight: 120)
+
+        Text("Diptych can save your version of each one beside it \u{2014} for example "
+             + "\u{201C}chapter3 (my version).md\u{201D} \u{2014} and then bring the folder "
+             + "up to date with the shared version. Both versions will be on disk, side by "
+             + "side.")
+            .font(.subheadline).foregroundStyle(.secondary)
+
+        if model.gitConflictHasOwnVersions {
+            Text("Some of your changes had already been saved as versions. Those are kept, "
+                 + "but will no longer be part of the shared history \u{2014} whoever set up "
+                 + "your repository can bring them back if you need them.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
+        HStack {
+            Spacer()
+            Button("I will merge this myself") { model.dialog = nil }
+            Button("Cancel") { model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Save my copies and update") { model.keepMyCopiesAndUpdate() }
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             switch dialog {
+            case .sendWork:
+                sendWork
+
+            case .gitConflict:
+                gitConflict
+
             case .newFolder:
                 prompt(title: "New Folder",
                        detail: "Create a folder in \(model.active.directory.lastPathComponent)",

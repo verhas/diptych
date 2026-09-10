@@ -24,6 +24,8 @@ final class AppModel {
         case authorizeOwner
         case conflict
         case message(String)
+        case sendWork
+        case gitConflict
 
         var id: String {
             switch self {
@@ -32,6 +34,8 @@ final class AppModel {
             case .authorizeOwner: return "authorizeOwner"
             case .conflict:       return "conflict"
             case .message:   return "message"
+            case .sendWork:       return "sendWork"
+            case .gitConflict:    return "gitConflict"
             }
         }
     }
@@ -1033,6 +1037,171 @@ final class AppModel {
     /// go into a network call goes into what the text contains instead --
     /// metadata only, paths abbreviated, provenance attributes withheld, and
     /// names fenced as data rather than instructions. See `PromptBuilder`.
+    // MARK: - Version tracking
+
+    /// Everything the send and conflict sheets are looking at, so the views
+    /// stay declarative and the work stays here.
+    var gitChanges = GitService.Changes()
+    var gitSendMessage = ""
+    var gitSending: Set<String> = []
+    var gitIncluding: Set<String> = []
+    var gitConflictPaths: [String] = []
+    var gitConflictHasOwnVersions = false
+    var gitBusy = false
+    /// Git's own words, kept for the Copy Details button. The recovery path for
+    /// this audience is forwarding the failure to whoever set the repository
+    /// up, so nothing may be paraphrased away.
+    private(set) var gitLastDetails = ""
+
+    var gitRepositoryRoot: URL? { active.gitRoot }
+
+    func trackSelection() {
+        guard let root = active.gitRoot else { return }
+        let paths = relativeSelection(under: root)
+        guard !paths.isEmpty else { return }
+        Task {
+            let outcome = await GitService.shared.track(paths, inRepository: root)
+            finishGit(outcome, success: "\(paths.count) now tracked", root: root)
+        }
+    }
+
+    func neverTrackSelection() {
+        guard let root = active.gitRoot else { return }
+        let paths = relativeSelection(under: root)
+        guard !paths.isEmpty else { return }
+        Task {
+            let outcome = await GitService.shared.neverTrack(paths, inRepository: root)
+            finishGit(outcome, success: "\(paths.count) will never be sent", root: root)
+        }
+    }
+
+    private func relativeSelection(under root: URL) -> [String] {
+        active.selectedItems
+            .filter { !$0.isParent }
+            .compactMap { GitStatus.relativePath(of: $0.url, under: root) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func finishGit(_ outcome: GitTool.Outcome, success: String, root: URL) {
+        GitService.shared.invalidate(root)
+        active.reload()
+        switch outcome {
+        case .ok:
+            flash(success, error: false)
+        case .failed(_, let text), .couldNotRun(let text):
+            gitLastDetails = text
+            flash("That did not work. Settings has a Copy Details button.", error: true)
+        case .timedOut:
+            flash("Git took too long and was stopped.", error: true)
+        }
+    }
+
+    /// Opens the review sheet. Nothing is committed or sent until it is
+    /// accepted -- and then both happen together.
+    func requestSendWork() {
+        guard let root = active.gitRoot else {
+            flash("This folder is not tracked", error: true)
+            return
+        }
+        Task {
+            gitBusy = true
+            gitChanges = await GitService.shared.changes(inRepository: root)
+            gitBusy = false
+            guard !gitChanges.isEmpty else {
+                flash("Nothing has changed here", error: false)
+                return
+            }
+            // Everything already known to Git starts ticked; new files do not.
+            // The recovery from forgetting one is a click; the recovery from
+            // sending a private draft to everyone is a phone call.
+            gitSending = Set(gitChanges.sending.map(\.path))
+            gitIncluding = []
+            gitSendMessage = ""
+            dialog = .sendWork
+        }
+    }
+
+    func sendWork() {
+        guard let root = active.gitRoot else { return }
+        let paths = gitChanges.sending.map(\.path).filter { gitSending.contains($0) }
+        let new = gitChanges.new.map(\.path).filter { gitIncluding.contains($0) }
+        let message = gitSendMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        dialog = nil
+
+        Task {
+            gitBusy = true
+            let result = await GitService.shared.send(paths: paths, newPaths: new,
+                                                     message: message, inRepository: root)
+            gitBusy = false
+            active.reload()
+
+            switch result {
+            case .sent(let count):
+                flash("Sent \(count) file\(count == 1 ? "" : "s")", error: false)
+            case .nothingSelected:
+                flash("Nothing was ticked", error: true)
+            case .notSent(let reason, let details):
+                gitLastDetails = details
+                dialog = .message(reason + "\n\n" + details)
+            case .sentDespiteError(let details):
+                gitLastDetails = details
+                dialog = .message("Your work did reach the shared copy, but the reply was "
+                                  + "lost on the way back, so this is worth checking."
+                                  + "\n\n" + details)
+            }
+        }
+    }
+
+    func getLatest() {
+        guard let root = active.gitRoot else {
+            flash("This folder is not tracked", error: true)
+            return
+        }
+        Task {
+            gitBusy = true
+            let result = await GitService.shared.getLatest(inRepository: root)
+            gitBusy = false
+            active.reload()
+
+            switch result {
+            case .upToDate:
+                flash("Already up to date", error: false)
+            case .updated(let count):
+                flash("Updated \(count) change\(count == 1 ? "" : "s")", error: false)
+            case .conflicting(let paths, let hasOwn):
+                gitConflictPaths = paths
+                gitConflictHasOwnVersions = hasOwn
+                dialog = .gitConflict
+            case .failed(let reason, let details):
+                gitLastDetails = details
+                dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))
+            }
+        }
+    }
+
+    func keepMyCopiesAndUpdate() {
+        guard let root = active.gitRoot else { return }
+        let paths = gitConflictPaths
+        dialog = nil
+        Task {
+            gitBusy = true
+            let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
+                                                                        inRepository: root)
+            gitBusy = false
+            active.reload()
+            switch result {
+            case .updated(let count):
+                flash("Updated. \(count) cop\(count == 1 ? "y" : "ies") of your version kept.",
+                      error: false)
+            case .failed(let reason, let details):
+                gitLastDetails = details
+                dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))
+            default:
+                break
+            }
+        }
+    }
+
     func copyPromptToClipboard() {
         let items = active.selectedItems.filter { !$0.isParent }
         guard !items.isEmpty else {

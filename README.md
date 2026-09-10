@@ -642,6 +642,44 @@ Git is run with `GIT_TERMINAL_PROMPT=0` so it can never block waiting for input,
 and `GIT_OPTIONAL_LOCKS=0` so a read-only status cannot fight a `git` running in
 a terminal.
 
+### Sending and getting
+
+Two commands in the File menu, shown only when the folder is actually tracked:
+**Send My Work** (⇧⌘S) and **Get the Latest** (⇧⌘D). Right-clicking a file Git
+does not know about offers **Track This File** and **Never Track This**.
+
+**Send is one action.** Commit and push happen together, because "saved here but
+not shared" is a state with no place in the user's model and is exactly where
+people believe they have shared when they have not. The dialog is a review step
+rather than a confirmation: both lists have checkboxes and a tri-state
+select-all, so sending only some of your changes is a normal thing to do.
+
+New files start **unticked**. The recovery from forgetting one is a click; the
+recovery from sending a private draft or a large export to everyone is a phone
+call to whoever set the repository up.
+
+**If the push fails, the commit is undone** -- the files are exactly as they
+were and the button still means what it said. That is history rewriting, which
+is otherwise excluded, and it is safe for one reason only: the commit provably
+never left this Mac. Which is why the failure path *fetches first* and checks
+whether the commit arrived after all. A connection that dies after the server
+accepted would otherwise have its commit deleted from under everyone who can
+already see it.
+
+**Get the Latest never runs a plain `pull`**, which can start a merge and leave
+a half-merged tree. It fetches and fast-forwards; when it cannot, it says which
+files both sides changed and offers to keep a copy of yours -- `chapter3 (my
+version).md`, beside the original -- before taking the shared version. The
+conflicting set is computed as an intersection through `merge-base`, not as
+"everything that differs": someone fifty changes behind has hundreds of
+differing files and only two of them are theirs.
+
+The kept copies go into `.git/info/exclude`, not `.gitignore` -- local only,
+never pushed, no tracked file touched -- so they cannot be sent by accident and
+no collaborator ever sees the rule. When your changes had already been saved as
+versions, a bookmark is left pointing at them first, so nothing becomes
+unreachable.
+
 ## Settings
 
 **Settings...** (`⌘,`) opens a tabbed configuration window. The first tab
