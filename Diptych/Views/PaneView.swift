@@ -449,11 +449,35 @@ struct PaneView: View {
                 Text(summary)
             }
             Spacer()
+            gitSummary
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+    }
+
+    /// Branch, and how far this folder is from the shared copy. Phrased as
+    /// what it means rather than as "ahead 2, behind 3", and nudging towards
+    /// getting the latest first -- most conflicts never happen if you do.
+    @ViewBuilder
+    private var gitSummary: some View {
+        if let branch = pane.gitBranch {
+            HStack(spacing: 6) {
+                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                Text(branch)
+                if pane.gitBehind > 0 {
+                    Text("\u{2022} \(pane.gitBehind) change\(pane.gitBehind == 1 ? "" : "s") "
+                         + "you don't have")
+                        .foregroundStyle(.orange)
+                }
+                if pane.gitAhead > 0 {
+                    Text("\u{2022} \(pane.gitAhead) not sent")
+                        .foregroundStyle(.blue)
+                }
+            }
+            .lineLimit(1)
+        }
     }
 
     private var summary: String {

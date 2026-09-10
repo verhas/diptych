@@ -20,6 +20,20 @@ struct CellView: View {
         item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
     }
 
+    /// One question, five answers: what happens to this file when I send my
+    /// work? An ignored file and an unchanged file get the same answer --
+    /// nothing -- so they look the same, and a build folder does not paint half
+    /// the pane.
+    static func gitColour(_ state: GitState) -> Color? {
+        switch state {
+        case .untracked:  Color(red: 0.55, green: 0.36, blue: 0.16)   // brown
+        case .added:      .green
+        case .changed:    .blue
+        case .conflicted: .red
+        case .clean:      nil
+        }
+    }
+
     static func colour(of tag: String) -> Color {
         switch tag {
         case "Red":    .red
@@ -78,6 +92,10 @@ struct CellView: View {
                 Text(item.name)
                     .fontWeight(item.isEnterable ? .semibold : .regular)
                     .lineLimit(1)
+                    // On the text, not the row: the row background is already
+                    // the Finder tag band.
+                    .foregroundStyle(Self.gitColour(item.gitState) ?? .primary)
+                    .help(item.gitState.explanation ?? "")
 
                 if item.isSymlink {
                     Image(systemName: "arrowshape.turn.up.right")

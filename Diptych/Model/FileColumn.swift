@@ -18,11 +18,13 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
     case owner
     case group
     case tags
+    case git
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
+        case .git:           "Git"
         case .name:          "Name"
         case .size:          "Size"
         case .kind:          "Kind"
@@ -55,6 +57,9 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .owner:         [.fileSecurityKey]
         case .group:         [.fileSecurityKey]
         case .tags:          [.tagNamesKey]
+        // Git state does not come from the file system at all -- it is filled
+        // in after the listing, from one status call per repository.
+        case .git:           []
         }
     }
 
@@ -71,6 +76,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .owner:         (80, 110, 180)
         case .group:         (80, 110, 180)
         case .tags:          (80, 130, 260)
+        case .git:           (70, 90, 160)
         }
     }
 
@@ -112,6 +118,14 @@ struct Configuration: Codable, Equatable {
     static let fontSizes = 8.0 ... 28.0
     static let defaultFontSize = 11.0
 
+    /// Version tracking. Off by default: it runs a program Diptych did not
+    /// install and cannot vouch for, so switching it on is a decision the user
+    /// makes rather than one made for them.
+    var gitEnabled = false
+    /// An explicit path, when the found one is not the wanted one. Empty means
+    /// "look in the usual places".
+    var gitPath = ""
+
     /// Directories above files, rather than everything in one sequence.
     ///
     /// On by default because that is what every file manager does and what the
@@ -136,7 +150,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize, foldersFirst
+        case fontName, fontSize, foldersFirst, gitEnabled, gitPath
     }
 
     init() {}
@@ -154,6 +168,8 @@ struct Configuration: Codable, Equatable {
             ?? [:]
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
+        gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
+        gitPath = (try? container.decode(String.self, forKey: .gitPath)) ?? ""
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
         // Clamped on the way in: config.json is hand-editable, and a font size
         // of 0 or 4000 would render the panes unusable with no way back.

@@ -28,6 +28,13 @@ final class PaneModel {
     /// first -- which then opened whatever happened to sit at that row index in
     /// the second.
     private(set) var loadingDirectory: URL?
+    /// Where this directory's repository is, and how far it is from the shared
+    /// copy. nil when the folder is not in a repository, or Git is off.
+    private(set) var gitRoot: URL?
+    private(set) var gitBranch: String?
+    private(set) var gitAhead = 0
+    private(set) var gitBehind = 0
+    @ObservationIgnored private var gitTask: Task<Void, Never>?
     /// Where cancelling goes back to.
     @ObservationIgnored private var directoryBeforeLoad: URL?
 
@@ -412,6 +419,9 @@ final class PaneModel {
 
     private func reload(navigatingFrom previous: URL?) {
         watchDirectory()
+        // The cached status describes a repository that has just changed
+        // underneath us, so it is dropped rather than redrawn from memory.
+        if let root = gitRoot { GitService.shared.invalidate(root) }
         // Cancel any listing still in flight. Without this, walking quickly
         // through directories lets a slow network volume deliver its rows after
         // you have already moved on, and the pane shows the wrong folder.
@@ -447,9 +457,45 @@ final class PaneModel {
         }
     }
 
+    /// Git state arrives *after* the rows are on screen, never before them.
+    /// A status call is tens of milliseconds on a small repository and can be
+    /// seconds on a large or networked one; the listing must not wait for it.
+    private func decorateWithGit(for target: URL) {
+        gitTask?.cancel()
+        guard GitService.shared.isEnabled else {
+            gitRoot = nil
+            gitBranch = nil
+            gitAhead = 0
+            gitBehind = 0
+            return
+        }
+
+        gitTask = Task { [weak self] in
+            guard let answer = await GitService.shared.status(for: target) else {
+                guard let self, target == self.directory else { return }
+                self.gitRoot = nil
+                self.gitBranch = nil
+                self.gitAhead = 0
+                self.gitBehind = 0
+                return
+            }
+            guard !Task.isCancelled, let self, target == self.directory else { return }
+
+            self.gitRoot = answer.root
+            self.gitBranch = answer.status.branch
+            self.gitAhead = answer.status.ahead
+            self.gitBehind = answer.status.behind
+            for index in self.items.indices where !self.items[index].isParent {
+                self.items[index].gitState = answer.status.state(for: self.items[index].url,
+                                                                 root: answer.root)
+            }
+        }
+    }
+
     private func finish(_ loaded: [FileItem], for target: URL) {
         guard target == directory else { return }   // a newer navigation won
         items = loaded
+        decorateWithGit(for: target)
         isLoading = false
         loadingDirectory = nil
         directoryBeforeLoad = nil

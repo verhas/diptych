@@ -44,6 +44,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// Empty for everything else. Read by the loader, because a `readlink` per
     /// symlink is cheap and doing it during a redraw is not.
     var linkTarget: String = ""
+    /// Filled in after the listing, once the repository has been asked.
+    var gitState: GitState = .clean
 
     /// `Identifiable` requires `id`. A URL is unique within a directory listing,
     /// so we get identity for free instead of inventing a synthetic key.
@@ -92,6 +94,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .owner:         return owner
         case .group:         return group
         case .tags:          return tags.joined(separator: ", ")
+        case .git:           return gitState.title
         }
     }
 

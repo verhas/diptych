@@ -5,7 +5,10 @@ written. This file exists so the work can be picked up cold: it records the
 decisions **and the reasons**, because most of the reasons are the sort that
 look arbitrary once the argument that produced them is forgotten.
 
-Nothing described here is implemented yet.
+**Slice one is implemented.** `GitTool`, `GitStatus`, `GitService`, the Version
+Tracking settings pane, the name colours, the Git column, and branch with
+ahead/behind in the pane footer. Everything from section 4 onwards -- the three
+verbs, conflicts, Earlier versions, the diff viewer -- is still design only.
 
 ## Who it is for
 
@@ -371,7 +374,7 @@ legitimate checks.
 
 ## 9. Order of work
 
-**Slice one** — useful on its own even if nothing follows:
+**Slice one — done.**
 
 1. `GitRepository`: detection, one repo-wide cached `status`, invalidation,
    deadline, per-repo serialisation

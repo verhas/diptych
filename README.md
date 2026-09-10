@@ -593,6 +593,55 @@ Open stays in File even though Enclosing Folder is in Go, which looks odd
 written down and is exactly what Finder does; following it beats inventing a
 third arrangement for people to learn.
 
+## Version tracking
+
+Off by default, in Settings ▸ Version Tracking. Diptych runs the `git` already
+on the Mac -- it bundles nothing and links nothing -- because a subprocess
+inherits the user's config, SSH agent, credential helper and hooks, which is why
+a repository someone else set up works at all. The full argument, the
+measurements behind it and the design of what is still to come are in
+`git-integration.md`.
+
+Names are coloured to answer one question: **what happens to this file when I
+send my work?**
+
+| | |
+| --- | --- |
+| brown | new -- will *not* be sent unless you track it |
+| green | new and tracked -- will be sent |
+| blue | tracked and changed -- will be sent |
+| red | conflicts with the shared version |
+| *no colour* | nothing to send: unchanged, **or ignored** |
+
+Ignored files being drawn normally falls out of that rule rather than being an
+oversight: an ignored file and an unchanged file give the same answer. It also
+stops a `build` folder painting half the pane. A folder takes the strongest
+state inside it, so one holding changes never looks clean.
+
+One `git status --porcelain=v2 -z --branch` per **repository**, cached, gives
+every file's state plus the branch and how far it is from the shared copy.
+Measured here: 46 ms on a 350-file repository, 67 ms on 1723 files, of which
+23 ms is process spawn -- which is why it is one big call rather than several
+cheap ones, and cached per repository rather than per directory. It runs through
+`BlockingWork` with a deadline, and **decorates the rows after they are drawn**:
+no listing ever waits for Git.
+
+The settings pane says which program was found, what it reports itself to be,
+and who signed it -- then says plainly that none of that is proof:
+
+> Diptych cannot check that this really is Git. It confirms the file is named
+> "git" and that it answers the way Git does, but a harmful program could do
+> both of those things. Whatever this program is, it will be able to read,
+> change and delete files in your folders, and send them over the internet.
+
+Discovery uses an explicit list of locations, never `$PATH` -- an app launched
+from the Finder has a minimal one, so the answer would depend on how Diptych was
+started. `/usr/bin/git` is only tried once `xcode-select -p` shows a developer
+directory exists, since otherwise it raises the Command Line Tools installer.
+Git is run with `GIT_TERMINAL_PROMPT=0` so it can never block waiting for input,
+and `GIT_OPTIONAL_LOCKS=0` so a read-only status cannot fight a `git` running in
+a terminal.
+
 ## Settings
 
 **Settings...** (`⌘,`) opens a tabbed configuration window. The first tab
