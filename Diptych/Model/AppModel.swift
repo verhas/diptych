@@ -1105,9 +1105,15 @@ final class AppModel {
     }
 
     /// Straight from the failed-send dialog into the flow that fixes it.
+    ///
+    /// And straight *through* it: having chosen to get the latest knowing the
+    /// send was refused, being asked again about the clash is a second
+    /// confirmation for a decision already made. Keeping copies never loses
+    /// anything, so it happens, and the user is told what was set aside
+    /// afterwards rather than asked beforehand.
     func getLatestAfterFailedSend() {
         dialog = nil
-        getLatest()
+        getLatest(keepingCopiesWithoutAsking: true)
     }
 
     var gitRepositoryRoot: URL? { active.gitRoot }
@@ -1224,7 +1230,7 @@ final class AppModel {
         }
     }
 
-    func getLatest() {
+    func getLatest(keepingCopiesWithoutAsking: Bool = false) {
         guard let root = active.gitRoot else {
             flash("This folder is not tracked", error: true)
             return
@@ -1241,14 +1247,37 @@ final class AppModel {
             case .updated(let count):
                 flash("Updated \(count) change\(count == 1 ? "" : "s")", error: false)
             case .conflicting(let paths, let hasOwn):
+                guard !keepingCopiesWithoutAsking else {
+                    gitConflictPaths = paths
+                    keepMyCopiesAndUpdate()
+                    return
+                }
                 gitConflictPaths = paths
                 gitConflictHasOwnVersions = hasOwn
                 dialog = .gitConflict
+
+            case .keptCopies(let names):
+                reportKeptCopies(names)
             case .failed(let reason, let details):
                 gitLastDetails = details
                 dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))
             }
         }
+    }
+
+    /// Told, not asked. The files have been renamed, and they are excluded from
+    /// Git, so nothing in the pane would otherwise point them out.
+    private func reportKeptCopies(_ names: [String]) {
+        guard !names.isEmpty else {
+            flash("Updated", error: false)
+            return
+        }
+        dialog = .message("Updated to the shared version.\n\nYour own version of "
+                          + "\(names.count == 1 ? "this file was" : "these files were") "
+                          + "kept beside the original:\n\n"
+                          + names.map { "\u{2022} " + $0 }.joined(separator: "\n")
+                          + "\n\nThey are not sent to anyone. Delete them once you have "
+                          + "taken what you need.")
     }
 
     func keepMyCopiesAndUpdate() {
@@ -1262,9 +1291,10 @@ final class AppModel {
             endGit()
             active.reload()
             switch result {
+            case .keptCopies(let names):
+                reportKeptCopies(names)
             case .updated(let count):
-                flash("Updated. \(count) cop\(count == 1 ? "y" : "ies") of your version kept.",
-                      error: false)
+                flash("Updated \(count) change\(count == 1 ? "" : "s")", error: false)
             case .failed(let reason, let details):
                 gitLastDetails = details
                 dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))

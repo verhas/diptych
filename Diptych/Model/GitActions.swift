@@ -195,6 +195,8 @@ extension GitService {
         /// Both sides changed the same files. `paths` is computed exactly, not
         /// approximated as "everything that differs".
         case conflicting(paths: [String], hasOwnVersions: Bool)
+        /// Updated, having set these copies of the user's versions aside.
+        case keptCopies(names: [String])
         case failed(reason: String, details: String)
     }
 
@@ -265,10 +267,20 @@ extension GitService {
     /// touched -- so they cannot be sent by accident and no collaborator ever
     /// sees the rule.
     func keepCopiesAndTakeShared(paths: [String], inRepository root: URL) async -> GetResult {
-        // Which of them Git knows about decides how each is put back: a tracked
-        // file is restored from the repository, an untracked one has to be
-        // removed outright or the fast-forward refuses to overwrite it.
-        let states = await status(forRepository: root)?.states ?? [:]
+        // What decides how each file is put back is whether it exists in the
+        // current commit -- not whether Git has heard of it.
+        //
+        // "Untracked" was the wrong test. A file staged but never committed is
+        // *tracked* and still absent from HEAD, so restoring it with
+        // `checkout --` brought it back from the index and left it exactly
+        // where it was, and the fast-forward refused again. That is what
+        // happens to a file the user tracked by hand before a send that failed.
+        var inHead: Set<String> = []
+        for path in paths {
+            if case .ok = await command(["cat-file", "-e", "HEAD:\(path)"], in: root) {
+                inHead.insert(path)
+            }
+        }
         var kept: [String] = []
 
         for path in paths {
@@ -283,9 +295,10 @@ extension GitService {
                 try FileManager.default.copyItem(at: source, to: target)
                 kept.append(target.lastPathComponent)
                 // Copied, so the original is safe to get out of the way. Git
-                // will not overwrite an untracked file, and there is nothing to
-                // restore it from -- it was never in the repository.
-                if states[path] == .untracked {
+                // will not overwrite a file it has no committed version of,
+                // and there is nothing to restore it from either.
+                if !inHead.contains(path) {
+                    _ = await command(["reset", "--", path], in: root)   // unstage
                     try FileManager.default.removeItem(at: source)
                 }
             } catch {
@@ -313,18 +326,18 @@ extension GitService {
                 return .failed(reason: "The folder could not be updated.", details: text)
             }
         } else {
-            // Only the tracked ones: `checkout --` on a path Git has never seen
-            // fails, and would take the whole restore down with it.
-            let tracked = paths.filter { states[$0] != .untracked }
-            if !tracked.isEmpty {
-                _ = await command(["checkout", "--"] + tracked, in: root)
+            // Only the ones with a committed version to come back to. The
+            // rest have been removed above.
+            let restorable = paths.filter { inHead.contains($0) }
+            if !restorable.isEmpty {
+                _ = await command(["checkout", "--"] + restorable, in: root)
             }
             if case .failed(_, let text) = await command(["merge", "--ff-only", "@{u}"], in: root) {
                 return .failed(reason: "The folder could not be updated.", details: text)
             }
         }
         invalidate(root)
-        return .updated(count: kept.count)
+        return .keptCopies(names: kept)
     }
 
     private func excludeLocally(pattern: String, inRepository root: URL) {

@@ -379,9 +379,70 @@ final class GitActionsTests: XCTestCase {
         let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
                                                                     inRepository: mine)
 
-        guard case .updated = result else { return XCTFail("\(result)") }
+        guard case .keptCopies = result else { return XCTFail("\(result)") }
         XCTAssertEqual(read("shared-new.md"), "theirs\n", "the shared version is in place")
         XCTAssertEqual(read("shared-new (my version).md"), "mine\n", "and mine is beside it")
+    }
+
+    func testKeepingCopiesWorksForAFileStagedButNeverCommitted() async throws {
+        // The case that broke: a file tracked by hand before a send that
+        // failed is *tracked* and still absent from HEAD, so restoring it with
+        // `checkout --` brought it back from the index and left it in place.
+        // "Is it in HEAD" is the question, not "does Git know about it".
+        try await readyGit()
+        let theirs = try colleague()
+        try write("both.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "new file"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("both.md", "mine\n")
+        _ = await GitService.shared.track(["both.md"], inRepository: mine)
+        GitService.shared.invalidate(mine)
+        // Staged as added, and not in HEAD -- exactly the state that failed.
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.first { $0.path == "both.md" }?.state, .added)
+
+        guard case .conflicting(let paths, _) =
+                await GitService.shared.getLatest(inRepository: mine) else {
+            return XCTFail("expected a conflict")
+        }
+        let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
+                                                                    inRepository: mine)
+
+        guard case .keptCopies(let names) = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(read("both.md"), "theirs\n", "the shared version actually landed")
+        XCTAssertEqual(read("both (my version).md"), "mine\n")
+        XCTAssertEqual(names, ["both (my version).md"], "and it says what it set aside")
+    }
+
+    func testAKeptCopyIsInvisibleToGitForEver() async throws {
+        // What happens to a "(my version)" file left lying about: nothing. It
+        // is excluded locally, so it is never offered for sending and never
+        // clashes with anything.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+        try write("readme.md", "mine\n")
+
+        guard case .conflicting(let paths, _) =
+                await GitService.shared.getLatest(inRepository: mine) else {
+            return XCTFail("expected a conflict")
+        }
+        _ = await GitService.shared.keepCopiesAndTakeShared(paths: paths, inRepository: mine)
+        GitService.shared.invalidate(mine)
+
+        let after = await GitService.shared.changes(inRepository: mine)
+        XCTAssertTrue(after.isEmpty, "a kept copy is not a pending change")
+
+        // And a later update is not blocked by it either.
+        try write("readme.md", "theirs again\n", in: theirs)
+        try run(["commit", "-am", "more"], in: theirs)
+        try run(["push"], in: theirs)
+        let again = await GitService.shared.getLatest(inRepository: mine)
+        guard case .updated = again else { return XCTFail("\(again)") }
     }
 
     func testKeepingCopiesPreservesMyVersionAndTakesTheShared() async throws {
@@ -399,7 +460,7 @@ final class GitActionsTests: XCTestCase {
         let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
                                                                     inRepository: mine)
 
-        guard case .updated = result else { return XCTFail("\(result)") }
+        guard case .keptCopies = result else { return XCTFail("\(result)") }
         XCTAssertEqual(read("readme.md"), "theirs\n", "the folder matches the shared copy")
         XCTAssertEqual(read("readme (my version).md"), "mine\n", "and nothing of mine is lost")
     }

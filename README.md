@@ -687,10 +687,29 @@ mentioned. Untracked collisions are listed now, and their originals are removed
 once the copy is safe, since Git refuses to overwrite an untracked file and
 there is nothing to restore it from.
 
+**What decides how a clashing file is put back is whether it exists in the
+current commit** -- not whether Git has heard of it. A file tracked by hand
+before a send that failed is *tracked* and still absent from the last commit, so
+restoring it with `checkout --` brought it back from the index and left it
+exactly where it was, and the update refused all over again.
+
+**A kept copy is invisible to Git for ever.** `chapter3 (my version).md` matches
+the pattern written into `.git/info/exclude`, so it is never offered for
+sending, never clashes with anything, and never blocks a later update. It has no
+colour in the pane for the same reason every ignored file has none: nothing will
+happen to it. Delete it once you have taken what you need.
+
 **A refused send is not a dead end.** It almost always means someone else sent
 something first, so the dialog offers **Get the Latest** -- with Git's own words
 behind a disclosure triangle and a Copy Details button -- rather than handing
 over a paragraph of Git and leaving the reader to work out what to do.
+
+Choosing it goes *straight through* the clash rather than stopping to ask about
+it. Having said "get the latest" in the full knowledge that the send was
+refused, being asked again is a second confirmation for a decision already
+made; and keeping copies never loses anything. What was set aside is reported
+afterwards, by name -- being excluded from Git, the copies are otherwise
+unremarkable in the pane.
 
 The kept copies go into `.git/info/exclude`, not `.gitignore` -- local only,
 never pushed, no tracked file touched -- so they cannot be sent by accident and
