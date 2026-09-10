@@ -626,6 +626,13 @@ struct DialogSheet: View {
                              confirm: "OK",
                              destructive: false,
                              showsCancel: false) { }
+
+            case .notice(let title, let text):
+                confirmation(title: title,
+                             detail: text,
+                             confirm: "OK",
+                             destructive: false,
+                             showsCancel: false) { }
             }
         }
         .padding(20)

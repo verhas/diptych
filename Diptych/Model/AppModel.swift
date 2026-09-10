@@ -25,6 +25,11 @@ final class AppModel {
         case authorizeOwner
         case conflict
         case message(String)
+        /// Something worth reading that is *not* a failure. `message` is drawn
+        /// under the heading "Operation failed", which is right for the errors
+        /// it was written for and was quietly wrong the moment it was reused to
+        /// report success.
+        case notice(title: String, text: String)
         case sendWork
         case gitConflict
         case gitNotSent
@@ -37,6 +42,7 @@ final class AppModel {
             case .authorizeOwner: return "authorizeOwner"
             case .conflict:       return "conflict"
             case .message:   return "message"
+            case .notice:    return "notice"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -312,7 +318,9 @@ final class AppModel {
 
     func open(id: FileItem.ID, in pane: PaneModel) {
         guard pane.selection.count <= 1 else {
-            dialog = .message("\(pane.selection.count) items are selected. Select a single item to open.")
+            dialog = .notice(title: "More than one item is selected",
+                         text: "\(pane.selection.count) items are selected. Select a single "
+                             + "item to open.")
             return
         }
         guard let item = pane.rows.first(where: { $0.id == id }) else { return }
@@ -1223,9 +1231,10 @@ final class AppModel {
                 dialog = .gitNotSent
             case .sentDespiteError(let details):
                 gitLastDetails = details
-                dialog = .message("Your work did reach the shared copy, but the reply was "
-                                  + "lost on the way back, so this is worth checking."
-                                  + "\n\n" + details)
+                dialog = .notice(title: "Sent, but the reply was lost",
+                                 text: "Your work did reach the shared copy. The answer went "
+                                     + "missing on the way back, so it is worth checking."
+                                     + "\n\n" + details)
             }
         }
     }
@@ -1272,12 +1281,13 @@ final class AppModel {
             flash("Updated", error: false)
             return
         }
-        dialog = .message("Updated to the shared version.\n\nYour own version of "
-                          + "\(names.count == 1 ? "this file was" : "these files were") "
-                          + "kept beside the original:\n\n"
-                          + names.map { "\u{2022} " + $0 }.joined(separator: "\n")
-                          + "\n\nThey are not sent to anyone. Delete them once you have "
-                          + "taken what you need.")
+        dialog = .notice(title: "Updated",
+                         text: "This folder now matches the shared version.\n\nYour own "
+                             + "version of \(names.count == 1 ? "this file was" : "these files were") "
+                             + "kept beside the original:\n\n"
+                             + names.map { "\u{2022} " + $0 }.joined(separator: "\n")
+                             + "\n\nThey are not sent to anyone. Delete them once you have "
+                             + "taken what you need.")
     }
 
     func keepMyCopiesAndUpdate() {
@@ -1576,12 +1586,14 @@ final class AppModel {
     private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {
         let items = active.selectedItems
         guard !items.isEmpty else {
-            dialog = .message("Select one or more items first.")
+            dialog = .notice(title: "Nothing is selected",
+                         text: "Select one or more items first.")
             return nil
         }
         let target = anchor.flatMap { id in items.first { $0.id == id } } ?? items[0]
         guard !target.owner.isEmpty else {
-            dialog = .message("Switch on the \(column) column in Settings to edit it.")
+            dialog = .notice(title: "That column is switched off",
+                         text: "Switch on the \(column) column in Settings to edit it.")
             return nil
         }
         return target
@@ -1638,13 +1650,16 @@ final class AppModel {
     func requestPermissionEdit(anchor: FileItem.ID? = nil) {
         let items = active.selectedItems
         guard !items.isEmpty else {
-            dialog = .message("Select one or more items to change permissions.")
+            dialog = .notice(title: "Nothing is selected",
+                         text: "Select one or more items to change permissions.")
             return
         }
 
         let target = anchor.flatMap { id in items.first { $0.id == id } } ?? items[0]
         guard target.permissions.count == 10 else {
-            dialog = .message("Switch on the Permissions column in Settings to edit permissions.")
+            dialog = .notice(title: "That column is switched off",
+                         text: "Switch on the Permissions column in Settings to edit "
+                             + "permissions.")
             return
         }
 
