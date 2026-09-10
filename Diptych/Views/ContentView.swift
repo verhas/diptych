@@ -531,9 +531,10 @@ struct DialogSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 110)
-            Text("Getting the latest will keep your version of each of them beside the "
-                 + "original, then bring this folder up to date. Nothing is lost, and you "
-                 + "can send again afterwards.")
+            Text("Your version of each of them will be kept beside the original, this "
+                 + "folder brought up to date, and the rest of your changes sent. Nothing "
+                 + "is lost \u{2014} and a contested file blocks the update whether or not "
+                 + "you ticked it.")
                 .font(.caption).foregroundStyle(.secondary)
         }
 
@@ -553,16 +554,13 @@ struct DialogSheet: View {
             Spacer()
             Button("Cancel") { model.dialog = nil }
                 .keyboardShortcut(.cancelAction)
-            if model.gitNotSentConflicts.isEmpty {
-                Button("Get the Latest and Send Again") { model.getLatestAndSendAgain() }
-                    .keyboardShortcut(.defaultAction)
-            } else {
-                // Not "and send again": once your version has been set aside
-                // the situation has genuinely changed, and sending on from
-                // there is a decision rather than a repetition.
-                Button("Get the Latest") { model.getLatestAfterFailedSend() }
-                    .keyboardShortcut(.defaultAction)
-            }
+            // One press either way. A contested file has to be dealt with
+            // before anything can be sent, so making that a separate errand
+            // only means the user presses two buttons to say one thing.
+            Button(model.gitNotSentConflicts.isEmpty
+                   ? "Get the Latest and Send Again"
+                   : "Keep My Copies, Update and Send") { model.getLatestAndSendAgain() }
+                .keyboardShortcut(.defaultAction)
         }
     }
 

@@ -77,6 +77,14 @@ final class GitActionsTests: XCTestCase {
         try? String(contentsOf: (repo ?? mine).appendingPathComponent(name), encoding: .utf8)
     }
 
+    /// A third clone, for checking what actually reached the shared copy after
+    /// the colleague has already been used.
+    private func colleague2() throws -> URL {
+        let other = root.appendingPathComponent("checking-\(UUID().uuidString.prefix(6))")
+        try run(["clone", shared.path, other.path], in: root)
+        return other
+    }
+
     /// A second clone, standing in for the colleague.
     private func colleague() throws -> URL {
         let theirs = root.appendingPathComponent("theirs")
@@ -327,6 +335,48 @@ final class GitActionsTests: XCTestCase {
         XCTAssertTrue(reason.contains("not sent"), "says what happened: \(reason)")
         XCTAssertFalse(reason.contains("saved on this Mac"),
                        "and not what the user already knows")
+    }
+
+    func testAnUncontestedFileCanBeSentOnceTheContestedOneIsSetAside() async throws {
+        // The reported case: two files changed here, one of them also changed
+        // by someone else. Deselecting the contested one does not let the other
+        // through -- a push is refused for being behind, and the update itself
+        // is blocked by the contested file whether or not it was ticked. So the
+        // clash has to be dealt with before anything can go.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        // Both changed here; only readme.md is contested.
+        try write("readme.md", "mine\n")
+        try write("second.md", "mine too\n")
+
+        // Sending only the uncontested one is still refused.
+        let refused = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                   message: "just the second",
+                                                   inRepository: mine)
+        guard case .notSent(_, _, let conflicts) = refused else { return XCTFail("\(refused)") }
+        XCTAssertEqual(conflicts, ["readme.md"],
+                       "the clash is reported even though it was not ticked")
+
+        // Setting the contested one aside unblocks the rest.
+        _ = await GitService.shared.keepCopiesAndTakeShared(paths: conflicts,
+                                                            inRepository: mine)
+        let sent = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                message: "just the second", inRepository: mine)
+
+        guard case .sent = sent else { return XCTFail("\(sent)") }
+        let checking = try colleague2()
+        XCTAssertEqual(read("second.md", in: checking), "mine too\n", "the uncontested one went")
+        XCTAssertEqual(read("readme.md"), "theirs\n", "the contested one took the shared version")
+        XCTAssertEqual(read("readme (my version).md"), "mine\n", "with mine kept beside it")
     }
 
     func testAFailedPushLeavesTheFileStillChanged() async throws {

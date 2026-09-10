@@ -1135,20 +1135,54 @@ final class AppModel {
     /// to repeat themselves.
     func getLatestAndSendAgain() {
         dialog = nil
-        let paths = gitChanges.sending.map(\.path).filter { gitSending.contains($0) }
-        let new = gitChanges.new.map(\.path).filter { gitIncluding.contains($0) }
+        // A contested file blocks the update whether or not it was ticked, so
+        // dealing with it is part of the same press. Deselecting it in the send
+        // dialog said "do not send this"; it did not, and could not, say "leave
+        // this folder out of date".
+        let clashing = gitNotSentConflicts
         let message = gitSendMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        // What is left to send afterwards. A contested file now matches the
+        // shared version -- the user's own is beside it -- so sending it would
+        // mean sending back what just arrived.
+        let paths = gitChanges.sending.map(\.path)
+            .filter { gitSending.contains($0) && !clashing.contains($0) }
+        let new = gitChanges.new.map(\.path)
+            .filter { gitIncluding.contains($0) && !clashing.contains($0) }
         guard let root = active.gitRoot else { return }
 
         Task {
-            beginGit("Getting the latest\u{2026}")
-            let update = await GitService.shared.getLatest(inRepository: root)
-            guard case .updated = update else {
+            var kept: [String] = []
+
+            if clashing.isEmpty {
+                beginGit("Getting the latest\u{2026}")
+                let update = await GitService.shared.getLatest(inRepository: root)
+                guard case .updated = update else {
+                    endGit()
+                    active.reload()
+                    // Anything other than a clean update needs the ordinary
+                    // path, which knows how to explain itself.
+                    handleGetResult(update, root: root, keepingCopiesWithoutAsking: false)
+                    return
+                }
+            } else {
+                beginGit("Keeping your copies and updating\u{2026}")
+                let update = await GitService.shared.keepCopiesAndTakeShared(paths: clashing,
+                                                                            inRepository: root)
+                guard case .keptCopies(let names) = update else {
+                    endGit()
+                    active.reload()
+                    handleGetResult(update, root: root, keepingCopiesWithoutAsking: false)
+                    return
+                }
+                kept = names
+            }
+
+            guard !paths.isEmpty || !new.isEmpty else {
                 endGit()
                 active.reload()
-                // Anything other than a clean update needs the ordinary path,
-                // which knows how to explain itself.
-                handleGetResult(update, root: root, keepingCopiesWithoutAsking: false)
+                // Everything that was ticked turned out to be contested, so
+                // there is nothing left to send -- but plenty to report.
+                reportKeptCopies(kept)
                 return
             }
 
@@ -1157,7 +1191,7 @@ final class AppModel {
                                                      message: message, inRepository: root)
             endGit()
             active.reload()
-            handleSendResult(result)
+            handleSendResult(result, alsoKept: kept)
         }
     }
 
@@ -1257,9 +1291,23 @@ final class AppModel {
         }
     }
 
-    private func handleSendResult(_ result: GitService.SendResult) {
+    private func handleSendResult(_ result: GitService.SendResult,
+                                  alsoKept kept: [String] = []) {
             switch result {
             case .sent(let count):
+                guard kept.isEmpty else {
+                    // Both things happened, and the renamed copies are the half
+                    // nothing else would point out.
+                    dialog = .notice(title: "Sent",
+                                     text: "\(count) file\(count == 1 ? " was" : "s were") "
+                                         + "sent.\n\nYour own version of "
+                                         + "\(kept.count == 1 ? "this file was" : "these files were") "
+                                         + "kept beside the original:\n\n"
+                                         + kept.map { "\u{2022} " + $0 }.joined(separator: "\n")
+                                         + "\n\nThey are not sent to anyone. Delete them once "
+                                         + "you have taken what you need.")
+                    return
+                }
                 flash("Sent \(count) file\(count == 1 ? "" : "s")", error: false)
             case .nothingSelected:
                 flash("Nothing was ticked", error: true)

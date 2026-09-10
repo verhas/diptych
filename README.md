@@ -705,10 +705,13 @@ When nobody has touched the same files -- the common one -- the button is **Get
 the Latest and Send Again** and does the whole job in one press: a send is
 refused whenever the shared copy has moved on, whichever files were ticked, so
 deselecting one cannot help and asking someone to send again by hand is asking
-them to repeat themselves. When files *are* contested they are listed by name,
-and the button is only **Get the Latest**, because once your version has been
-set aside the situation has genuinely changed and sending on from there is a
-decision rather than a repetition.
+them to repeat themselves. When files *are* contested they are listed by name, and the button becomes
+**Keep My Copies, Update and Send** -- one press for all three, because a
+contested file blocks the update whether or not it was ticked. Deselecting it in
+the send dialog says "do not send this"; it cannot say "leave this folder out of
+date". The contested files are dropped from what gets sent afterwards, since
+they now hold the shared version and sending them would mean sending back what
+just arrived.
 
 The wording says what happened rather than what the reader already knows.
 "Your work is saved on this Mac" is not news to the person who saved it; that it
