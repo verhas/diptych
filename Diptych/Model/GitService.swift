@@ -47,15 +47,22 @@ final class GitService {
     /// Resolved once at startup, and again whenever the setting or the path
     /// changes. Without the startup call the first window drew with no colours
     /// and only picked them up if the user happened to open Settings.
-    func locateIfNeeded() {
+    func locateIfNeeded() async {
         guard ConfigStore.shared.configuration.gitEnabled else { return }
         guard tool == nil, toolError == nil else { return }
-        locate()
+        await locate()
     }
 
-    func locate() {
+    /// Asynchronous because finding Git means running up to three programs --
+    /// `xcode-select`, `git --version`, `codesign` -- and doing that on the
+    /// main actor during launch delayed the first window by however long they
+    /// took. It also hung the test host long enough that the runner gave up
+    /// before it could connect.
+    func locate() async {
         let override = ConfigStore.shared.configuration.gitPath
-        let found = GitTool.locate(override: override.isEmpty ? nil : override)
+        let found = await BlockingWork.run {
+            GitTool.locate(override: override.isEmpty ? nil : override)
+        }
         tool = found
         toolError = found == nil
             ? (override.isEmpty

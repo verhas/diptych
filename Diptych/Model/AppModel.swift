@@ -216,7 +216,7 @@ final class AppModel {
                 self?.right.reload()
             }
         }
-        GitService.shared.locateIfNeeded()
+        Task { await GitService.shared.locateIfNeeded() }
 
         // Write a slot on first launch, so ~/.diptych exists and is editable
         // before the user has changed anything.
@@ -1060,13 +1060,30 @@ final class AppModel {
     var gitIncluding: Set<String> = []
     var gitConflictPaths: [String] = []
     var gitConflictHasOwnVersions = false
+    /// What is happening, while it is happening. Empty means nothing is.
+    ///
+    /// A push crosses a network and can take a long time or fail, and the panes
+    /// carried on looking ordinary and editable throughout -- so a folder was
+    /// being rewritten underneath someone who had no reason to think anything
+    /// was going on.
     var gitBusy = false
+    private(set) var gitBusyMessage = ""
     /// Git's own words, kept for the Copy Details button. The recovery path for
     /// this audience is forwarding the failure to whoever set the repository
     /// up, so nothing may be paraphrased away.
     private(set) var gitLastDetails = ""
 
     var gitRepositoryRoot: URL? { active.gitRoot }
+
+    private func beginGit(_ message: String) {
+        gitBusyMessage = message
+        gitBusy = true
+    }
+
+    private func endGit() {
+        gitBusy = false
+        gitBusyMessage = ""
+    }
 
     func trackSelection() {
         guard let root = active.gitRoot else { return }
@@ -1117,9 +1134,9 @@ final class AppModel {
             return
         }
         Task {
-            gitBusy = true
+            beginGit("Looking at what has changed\u{2026}")
             gitChanges = await GitService.shared.changes(inRepository: root)
-            gitBusy = false
+            endGit()
             guard !gitChanges.isEmpty else {
                 flash("Nothing has changed here", error: false)
                 return
@@ -1142,10 +1159,10 @@ final class AppModel {
         dialog = nil
 
         Task {
-            gitBusy = true
+            beginGit("Sending your work\u{2026}")
             let result = await GitService.shared.send(paths: paths, newPaths: new,
                                                      message: message, inRepository: root)
-            gitBusy = false
+            endGit()
             active.reload()
 
             switch result {
@@ -1171,9 +1188,9 @@ final class AppModel {
             return
         }
         Task {
-            gitBusy = true
+            beginGit("Getting the latest\u{2026}")
             let result = await GitService.shared.getLatest(inRepository: root)
-            gitBusy = false
+            endGit()
             active.reload()
 
             switch result {
@@ -1197,10 +1214,10 @@ final class AppModel {
         let paths = gitConflictPaths
         dialog = nil
         Task {
-            gitBusy = true
+            beginGit("Keeping your copies and updating\u{2026}")
             let result = await GitService.shared.keepCopiesAndTakeShared(paths: paths,
                                                                         inRepository: root)
-            gitBusy = false
+            endGit()
             active.reload()
             switch result {
             case .updated(let count):

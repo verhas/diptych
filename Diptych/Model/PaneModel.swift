@@ -366,6 +366,14 @@ final class PaneModel {
 
     /// Watch `directory`, replacing any previous watch. Cheap to call often --
     /// it is a no-op when the path has not changed.
+    /// Sets up the kqueue watch on the pane's directory.
+    ///
+    /// The `open` happens **off the main actor**. It looks like a cheap call and
+    /// is not: opening a directory on a disk that has spun down blocks until the
+    /// disk answers, and this runs during launch, before any window exists. A
+    /// session that had been left pointing at a sleeping USB volume therefore
+    /// started an app that never drew anything -- and, under the test harness,
+    /// a host that never connected.
     private func watchDirectory() {
         let path = directory.path
         guard path != watchedPath else { return }
@@ -374,9 +382,19 @@ final class PaneModel {
         watcher = nil
         watchedPath = nil
 
-        let fd = Darwin.open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
+        Task { [weak self] in
+            let fd = await BlockingWork.run { Darwin.open(path, O_EVTONLY) }
+            guard fd >= 0 else { return }
+            // The pane may have moved on while the disk was waking up.
+            guard let self, self.directory.path == path else {
+                Darwin.close(fd)
+                return
+            }
+            self.installWatch(fd: fd, path: path)
+        }
+    }
 
+    private func installWatch(fd: Int32, path: String) {
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .delete, .rename, .revoke],
@@ -389,6 +407,7 @@ final class PaneModel {
         // else races the source and can shut down an unrelated file.
         source.setCancelHandler { Darwin.close(fd) }
 
+        watcher?.cancel()
         watcher = source
         watchedPath = path
         source.resume()

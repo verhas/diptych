@@ -66,6 +66,23 @@ final class ConfigStore {
         configuration.normalise()   // keeps Name first whatever the drag did
     }
 
+    /// Drag a toolbar button up or down. Order within a side follows this one
+    /// list, so moving a button and changing which side it is on are separate
+    /// decisions rather than one tangled control.
+    func moveToolbar(from source: IndexSet, to destination: Int) {
+        var slots = configuration.toolbarSlots
+        slots.move(fromOffsets: source, toOffset: destination)
+        configuration.toolbar = slots
+    }
+
+    func setToolbar(_ button: ToolbarButton, shown: Bool? = nil, side: ToolbarSide? = nil) {
+        var slots = configuration.toolbarSlots
+        guard let index = slots.firstIndex(where: { $0.button == button }) else { return }
+        if let shown { slots[index].isShown = shown }
+        if let side { slots[index].side = side }
+        configuration.toolbar = slots
+    }
+
     /// Reorder favourites by dragging them in the sidebar.
     func moveFavourites(from source: IndexSet, to destination: Int) {
         var list = configuration.favourites

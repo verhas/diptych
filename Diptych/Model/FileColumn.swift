@@ -118,6 +118,9 @@ struct Configuration: Codable, Equatable {
     static let fontSizes = 8.0 ... 28.0
     static let defaultFontSize = 11.0
 
+    /// Which buttons the toolbar shows, in which order, and on which side.
+    var toolbar: [ToolbarSlot] = Configuration.defaultToolbar
+
     /// Version tracking. Off by default: it runs a program Diptych did not
     /// install and cannot vouch for, so switching it on is a decision the user
     /// makes rather than one made for them.
@@ -150,7 +153,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize, foldersFirst, gitEnabled, gitPath
+        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, toolbar
     }
 
     init() {}
@@ -168,6 +171,8 @@ struct Configuration: Codable, Equatable {
             ?? [:]
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
+        toolbar = (try? container.decode([ToolbarSlot].self, forKey: .toolbar))
+            ?? Configuration.defaultToolbar
         gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
         gitPath = (try? container.decode(String.self, forKey: .gitPath)) ?? ""
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

@@ -21,6 +21,7 @@ extension GitService {
             case .untracked:  "new"
             case .added:      "new, tracked"
             case .changed:    "changed"
+            case .deleted:    "removed"
             case .conflicted: "conflict"
             case .clean:      ""
             }
@@ -42,7 +43,7 @@ extension GitService {
         for (path, state) in status.states.sorted(by: { $0.key < $1.key }) {
             switch state {
             case .untracked:            changes.new.append(Change(path: path, state: state))
-            case .added, .changed,
+            case .added, .changed, .deleted,
                  .conflicted:           changes.sending.append(Change(path: path, state: state))
             case .clean:                break
             }

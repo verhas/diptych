@@ -12,6 +12,8 @@ struct SettingsView: View {
         TabView {
             ColumnSettingsView()
                 .tabItem { Label("Columns", systemImage: "tablecells") }
+            ToolbarSettingsView()
+                .tabItem { Label("Toolbar", systemImage: "slider.horizontal.3") }
             AppearanceSettingsView()
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
             GitSettingsView()
@@ -178,6 +180,74 @@ struct AppearanceSettingsView: View {
     }
 }
 
+/// Which buttons the toolbar shows, in what order, and on which side.
+///
+/// The same shape as the Columns pane -- one draggable list with a checkbox per
+/// row -- because it is the same kind of decision, and a second arrangement to
+/// learn would be a worse answer than a familiar one.
+struct ToolbarSettingsView: View {
+
+    @Bindable private var store = ConfigStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Drag to change the order. A button appears in the group you choose, "
+                 + "in the order it has here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            List {
+                ForEach(store.configuration.toolbarSlots) { slot in
+                    row(slot)
+                }
+                .onMove { source, destination in
+                    store.moveToolbar(from: source, to: destination)
+                }
+            }
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
+            .frame(maxHeight: .infinity)
+
+            Text("Send My Work and Get the Latest appear only in a folder that is tracked, "
+                 + "and only while version tracking is switched on.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Reset to Defaults") {
+                    store.configuration.toolbar = Configuration.defaultToolbar
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    private func row(_ slot: ToolbarSlot) -> some View {
+        HStack {
+            Toggle(isOn: Binding(get: { slot.isShown },
+                                 set: { store.setToolbar(slot.button, shown: $0) })) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(slot.button.title)
+                    Text(slot.button.explanation)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+
+            Spacer()
+
+            Picker("", selection: Binding(get: { slot.side },
+                                          set: { store.setToolbar(slot.button, side: $0) })) {
+                ForEach(ToolbarSide.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 190)
+            .disabled(!slot.isShown)
+        }
+    }
+}
+
 /// Version tracking, off by default.
 ///
 /// The disclosure is the point of this pane. Diptych runs a program it did not
@@ -210,7 +280,7 @@ struct GitSettingsView: View {
                 if !store.configuration.gitPath.isEmpty {
                     Button("Use the one found automatically") {
                         store.configuration.gitPath = ""
-                        git.locate()
+                        Task { await git.locate() }
                     }
                 }
                 Spacer()
@@ -231,10 +301,12 @@ struct GitSettingsView: View {
             }
         }
         .padding(20)
-        .onAppear { git.locateIfNeeded() }
+        .task { await git.locateIfNeeded() }
         // Both directions: switching it off has to take the colours away, not
         // merely stop refreshing them.
-        .onChange(of: store.configuration.gitEnabled) { _, _ in git.locate() }
+        .onChange(of: store.configuration.gitEnabled) { _, _ in
+            Task { await git.locate() }
+        }
     }
 
     @ViewBuilder
@@ -310,7 +382,7 @@ struct GitSettingsView: View {
             return
         }
         store.configuration.gitPath = url.path
-        git.locate()
+        Task { await git.locate() }
     }
 
     private func copyDetails() {

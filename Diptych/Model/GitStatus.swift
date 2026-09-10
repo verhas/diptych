@@ -12,8 +12,15 @@ enum GitState: Sendable, Equatable {
     case untracked
     /// New and tracked: it will be sent.
     case added
-    /// Tracked and changed -- including deleted: it will be sent.
+    /// Tracked and changed: it will be sent.
     case changed
+    /// Tracked and no longer here: the removal will be sent.
+    ///
+    /// Its own case only because of what it is *called*. A removed file is
+    /// never drawn in a pane -- it is gone -- so the colour never matters, but
+    /// the send dialog lists it, and "changed" would read as a mistake next to
+    /// a file the user knows they deleted.
+    case deleted
     /// Changed here and on the shared side.
     case conflicted
     /// Nothing to send.
@@ -28,6 +35,7 @@ extension GitState {
         case .untracked:  "not tracked"
         case .added:      "new"
         case .changed:    "changed"
+        case .deleted:    "removed"
         case .conflicted: "conflict"
         case .clean:      ""
         }
@@ -40,6 +48,7 @@ extension GitState {
         case .untracked:  "New. This will not be sent unless you track it."
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
+        case .deleted:    "Removed. The removal will be sent."
         case .conflicted: "Changed here and in the shared copy."
         case .clean:      nil
         }
@@ -78,6 +87,7 @@ struct GitStatus: Sendable {
             switch $0 {
             case .conflicted: 4
             case .changed:    3
+            case .deleted:    3
             case .added:      2
             case .untracked:  1
             case .clean:      0
@@ -171,6 +181,8 @@ struct GitStatus: Sendable {
     /// clean will be sent as a change.
     private static func state(fromXY xy: Substring) -> GitState {
         let staged = xy.first ?? "."
+        let worktree = xy.count > 1 ? xy[xy.index(after: xy.startIndex)] : "."
+        if staged == "D" || worktree == "D" { return .deleted }
         return staged == "A" ? .added : .changed
     }
 }

@@ -29,6 +29,7 @@ struct CellView: View {
         case .untracked:  Color(red: 0.55, green: 0.36, blue: 0.16)   // brown
         case .added:      .green
         case .changed:    .blue
+        case .deleted:    .blue
         case .conflicted: .red
         case .clean:      nil
         }

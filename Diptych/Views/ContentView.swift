@@ -44,6 +44,11 @@ struct ContentView: View {
                 FunctionBar(model: model)
             }
             .overlay(alignment: .bottomTrailing) { transferOverlay }
+            // The panes cannot be worked in while the repository is being
+            // rewritten under them, and the reason is on screen rather than
+            // left to be guessed at.
+            .disabled(model.gitBusy)
+            .overlay { gitOverlay }
             .animation(.easeInOut(duration: 0.15), value: model.transferProgress == nil)
             // Attached here rather than beside the .sheet above: one
             // presentation modifier per view is the rule this file already
@@ -175,6 +180,23 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var gitOverlay: some View {
+        if model.gitBusy {
+            VStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(model.gitBusyMessage).font(.system(size: 12))
+                // Push crosses a network. Saying so beforehand is better than
+                // leaving someone to wonder whether it has hung.
+                Text("This can take a while over a slow connection.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(18)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(radius: 12, y: 4)
+        }
+    }
+
     private var partialTransferTitle: String {
         let moved = model.partialTransfer?.kind == .move
         return "Keep what was already \(moved ? "moved" : "copied")?"
@@ -263,45 +285,81 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem {
+        // Three groups, because that is what a macOS toolbar offers. Each is
+        // drawn only if the user put something in it: an empty ToolbarItemGroup
+        // still reserves space in the centre.
+        let configuration = ConfigStore.shared.configuration
+
+        ToolbarItemGroup(placement: .navigation) {
+            ForEach(shown(configuration.toolbarButtons(on: .left)), id: \.self, content: button)
+        }
+        ToolbarItemGroup(placement: .principal) {
+            ForEach(shown(configuration.toolbarButtons(on: .middle)), id: \.self, content: button)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            ForEach(shown(configuration.toolbarButtons(on: .right)), id: \.self, content: button)
+        }
+    }
+
+    /// Buttons that mean nothing here are left out rather than greyed out: a
+    /// permanently disabled button in a folder that is not tracked teaches
+    /// nobody anything.
+    private func shown(_ buttons: [ToolbarButton]) -> [ToolbarButton] {
+        buttons.filter { !$0.needsRepository || model.gitRepositoryRoot != nil }
+    }
+
+    @ViewBuilder
+    private func button(_ kind: ToolbarButton) -> some View {
+        switch kind {
+        case .singlePane:
             Button {
                 model.isSinglePane.toggle()
             } label: {
                 Label(model.isSinglePane ? "Show Both Panes" : "Show One Pane",
-                      systemImage: model.isSinglePane
-                          ? "rectangle.split.2x1"
-                          : "rectangle")
+                      systemImage: model.isSinglePane ? "rectangle.split.2x1" : "rectangle")
             }
-            .help(model.isSinglePane
-                  ? "Show both panes"
-                  : "Show only the active pane")
-        }
+            .help(model.isSinglePane ? "Show both panes" : "Show only the active pane")
 
-        ToolbarItem {
+        case .refresh:
             Button {
                 model.refreshPanes()
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .help("Re-read both panes")
-        }
+            .help(kind.explanation)
 
-        ToolbarItem {
+        case .swapPanes:
             Button {
                 model.swapPanes()
             } label: {
                 Label("Swap Panes", systemImage: "arrow.left.arrow.right")
             }
-            .help("Swap the left and right panes")
-        }
+            .help(kind.explanation)
 
-        ToolbarItem {
+        case .hiddenFiles:
             Toggle(isOn: Bindable(model).showHidden) {
-                Label("Hidden Files",
-                      systemImage: model.showHidden ? "eye" : "eye.slash")
+                Label("Hidden Files", systemImage: model.showHidden ? "eye" : "eye.slash")
             }
             .toggleStyle(.button)
             .help(model.showHidden ? "Hide hidden files" : "Show hidden files")
+
+        case .getLatest:
+            Button {
+                model.getLatest()
+            } label: {
+                Label("Get the Latest", systemImage: "arrow.down.circle")
+            }
+            .help(kind.explanation)
+            .disabled(model.gitBusy)
+
+        case .sendWork:
+            Button {
+                model.requestSendWork()
+            } label: {
+                Label("Send My Work", systemImage: "arrow.up.circle")
+            }
+            .help(kind.explanation)
+            .disabled(model.gitBusy)
         }
     }
 }

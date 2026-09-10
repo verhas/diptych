@@ -33,8 +33,14 @@ final class GitActionsTests: XCTestCase {
         try run(["commit", "-m", "start"], in: mine)
         try run(["push", "-u", "origin", "main"], in: mine)
 
-        GitService.shared.locate()
         GitService.shared.forgetEverything()
+    }
+
+    /// Resolving Git is asynchronous now, so every test that uses it waits
+    /// rather than racing a Task that has not run yet.
+    private func readyGit() async throws {
+        await GitService.shared.locate()
+        try XCTSkipIf(GitService.shared.tool == nil, "git could not be resolved")
     }
 
     override func tearDownWithError() throws {
@@ -81,14 +87,14 @@ final class GitActionsTests: XCTestCase {
 
     // MARK: - Availability
 
-    func testLocateIfNeededDoesNothingWhileTheSettingIsOff() {
+    func testLocateIfNeededDoesNothingWhileTheSettingIsOff() async {
         // The panes ask at startup; with the feature off that must stay free.
         let original = ConfigStore.shared.configuration.gitEnabled
         defer { ConfigStore.shared.configuration.gitEnabled = original }
 
         ConfigStore.shared.configuration.gitEnabled = false
         GitService.shared.forgetEverything()
-        GitService.shared.locateIfNeeded()
+        await GitService.shared.locateIfNeeded()
 
         XCTAssertFalse(GitService.shared.isEnabled)
     }
@@ -102,7 +108,7 @@ final class GitActionsTests: XCTestCase {
 
         let heard = expectation(forNotification: GitService.availabilityChanged,
                                 object: nil, notificationCenter: .default)
-        GitService.shared.locate()
+        Task { await GitService.shared.locate() }
         await fulfillment(of: [heard], timeout: 5)
         XCTAssertTrue(GitService.shared.isEnabled)
     }
@@ -110,6 +116,7 @@ final class GitActionsTests: XCTestCase {
     // MARK: - What the dialog lists
 
     func testChangesAreSplitIntoSendingAndNew() async throws {
+        try await readyGit()
         try write("readme.md", "changed\n")
         try write("scratch.txt", "new\n")
         GitService.shared.invalidate(mine)
@@ -121,7 +128,8 @@ final class GitActionsTests: XCTestCase {
                        "a file git does not know about is offered separately, unticked")
     }
 
-    func testADeletionIsAChangeToBeSent() async throws {
+    func testADeletionIsListedAsRemovedRatherThanChanged() async throws {
+        try await readyGit()
         try fm.removeItem(at: mine.appendingPathComponent("readme.md"))
         GitService.shared.invalidate(mine)
 
@@ -129,11 +137,26 @@ final class GitActionsTests: XCTestCase {
 
         XCTAssertEqual(changes.sending.map(\.path), ["readme.md"],
                        "removing a file is something to send, not an error")
+        XCTAssertEqual(changes.sending.first?.describes, "removed",
+                       "\"changed\" reads as a mistake next to a file you deleted on purpose")
+    }
+
+    func testARemovalIsActuallySent() async throws {
+        try await readyGit()
+        try fm.removeItem(at: mine.appendingPathComponent("readme.md"))
+
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "removed it", inRepository: mine)
+
+        guard case .sent = result else { return XCTFail("\(result)") }
+        let theirs = try colleague()
+        XCTAssertNil(read("readme.md", in: theirs), "the removal reached the shared copy")
     }
 
     // MARK: - Sending
 
     func testSendingCommitsAndPushes() async throws {
+        try await readyGit()
         try write("readme.md", "changed\n")
 
         let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
@@ -147,6 +170,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testOnlyTheChosenFilesAreSent() async throws {
+        try await readyGit()
         try write("readme.md", "changed\n")
         try write("other.md", "also changed\n")
         try run(["add", "-A"], in: mine)
@@ -165,6 +189,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testAnUntickedNewFileIsNotSent() async throws {
+        try await readyGit()
         try write("draft.md", "private\n")
 
         _ = await GitService.shared.send(paths: [], newPaths: [], message: "nothing",
@@ -176,6 +201,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testATickedNewFileIsTrackedAndSent() async throws {
+        try await readyGit()
         try write("chapter4.md", "new work\n")
 
         let result = await GitService.shared.send(paths: [], newPaths: ["chapter4.md"],
@@ -189,6 +215,7 @@ final class GitActionsTests: XCTestCase {
     // MARK: - When the push fails
 
     func testAFailedPushUndoesTheCommit() async throws {
+        try await readyGit()
         // Someone else pushes first, so ours is refused. The whole action must
         // fail: no commit left behind, no hidden "saved but not shared" state.
         let theirs = try colleague()
@@ -210,6 +237,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testAFailedPushLeavesTheFileStillChanged() async throws {
+        try await readyGit()
         let theirs = try colleague()
         try write("readme.md", "from my colleague\n", in: theirs)
         try run(["commit", "-am", "theirs"], in: theirs)
@@ -228,6 +256,7 @@ final class GitActionsTests: XCTestCase {
     // MARK: - Getting the latest
 
     func testGettingTheLatestFastForwards() async throws {
+        try await readyGit()
         let theirs = try colleague()
         try write("readme.md", "from my colleague\n", in: theirs)
         try run(["commit", "-am", "theirs"], in: theirs)
@@ -240,11 +269,13 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testUpToDateSaysSo() async throws {
+        try await readyGit()
         let result = await GitService.shared.getLatest(inRepository: mine)
         guard case .upToDate = result else { return XCTFail("\(result)") }
     }
 
     func testTheConflictingSetIsOnlyWhatBothSidesTouched() async throws {
+        try await readyGit()
         // The colleague changes two files; I changed one of them. Only the
         // overlap is my problem -- "everything that differs" would list both.
         let theirs = try colleague()
@@ -262,6 +293,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testKeepingCopiesPreservesMyVersionAndTakesTheShared() async throws {
+        try await readyGit()
         let theirs = try colleague()
         try write("readme.md", "theirs\n", in: theirs)
         try run(["commit", "-am", "theirs"], in: theirs)
@@ -281,6 +313,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testTheKeptCopyIsNotOfferedForSending() async throws {
+        try await readyGit()
         // It goes in .git/info/exclude -- local only, never pushed, and no
         // tracked file touched -- so it cannot be sent by accident.
         let theirs = try colleague()
@@ -306,6 +339,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testDivergedHistoryKeepsTheDroppedVersionsOnABookmark() async throws {
+        try await readyGit()
         // My changes were already saved as versions, so taking the shared copy
         // means dropping commits. They must stay reachable.
         let theirs = try colleague()
@@ -335,6 +369,7 @@ final class GitActionsTests: XCTestCase {
     // MARK: - Tracking
 
     func testNeverTrackWritesGitignoreAndHidesTheFile() async throws {
+        try await readyGit()
         try write("notes.tmp", "scratch\n")
 
         _ = await GitService.shared.neverTrack(["notes.tmp"], inRepository: mine)
@@ -346,6 +381,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     func testTrackingMakesAFileNewAndTracked() async throws {
+        try await readyGit()
         try write("chapter4.md", "new\n")
 
         _ = await GitService.shared.track(["chapter4.md"], inRepository: mine)

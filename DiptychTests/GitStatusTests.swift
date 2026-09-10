@@ -53,6 +53,26 @@ final class GitStatusTests: XCTestCase {
                        "staged as new is the one that means new-and-tracked")
     }
 
+    func testADeletionIsItsOwnState() {
+        // Not "changed": a file the user knows they deleted, listed in the send
+        // dialog as changed, reads as a mistake.
+        let status = GitStatus.parse(output([
+            "1 .D N... 100644 100644 000000 abc def gone.md",
+            "1 D. N... 100644 000000 000000 abc def staged-gone.md",
+        ]))
+
+        XCTAssertEqual(status.states["gone.md"], .deleted)
+        XCTAssertEqual(status.states["staged-gone.md"], .deleted,
+                       "whether the removal is staged or not, it is still a removal")
+    }
+
+    func testADeletionRanksWithAChangeForAFolder() {
+        var status = GitStatus()
+        status.states["chapter/one.md"] = .deleted
+        XCTAssertEqual(status.state(for: URL(fileURLWithPath: "/repo/chapter"),
+                                    root: URL(fileURLWithPath: "/repo")), .deleted)
+    }
+
     func testAConflictIsReadFromTheUnmergedRecord() {
         let status = GitStatus.parse(output([
             "u UU N... 100644 100644 100644 100644 aaa bbb ccc chapter3.md",

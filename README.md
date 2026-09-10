@@ -1,4 +1,4 @@
-# Diptych
+#  Diptych
 
 A two-pane (Norton Commander style) file manager for macOS, in Swift + SwiftUI.
 
@@ -679,6 +679,24 @@ never pushed, no tracked file touched -- so they cannot be sent by accident and
 no collaborator ever sees the rule. When your changes had already been saved as
 versions, a bookmark is left pointing at them first, so nothing becomes
 unreachable.
+
+## The toolbar
+
+Six buttons is the point at which one person's essentials are another's clutter,
+so Settings ▸ Toolbar decides which appear, in what order, and on which of the
+three sides a macOS toolbar offers -- left, middle, right. Same shape as the
+Columns pane, one draggable list with a checkbox per row, because it is the same
+kind of decision and a second arrangement to learn would be a worse answer than
+a familiar one.
+
+**Send My Work** and **Get the Latest** appear only in a folder that is actually
+tracked. Left out rather than greyed out: a permanently disabled button teaches
+nobody anything.
+
+A saved arrangement is repaired when it is read, so a button added in a later
+version is appended rather than lost -- otherwise a config written by an older
+build would silently hide whatever came next, which reads as the feature not
+existing.
 
 ## Settings
 
