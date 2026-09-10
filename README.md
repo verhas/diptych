@@ -699,6 +699,21 @@ sending, never clashes with anything, and never blocks a later update. It has no
 colour in the pane for the same reason every ignored file has none: nothing will
 happen to it. Delete it once you have taken what you need.
 
+**A refused send says which files are contested, and offers the right way out
+for each case.** Two quite different situations wear the same error from Git.
+When nobody has touched the same files -- the common one -- the button is **Get
+the Latest and Send Again** and does the whole job in one press: a send is
+refused whenever the shared copy has moved on, whichever files were ticked, so
+deselecting one cannot help and asking someone to send again by hand is asking
+them to repeat themselves. When files *are* contested they are listed by name,
+and the button is only **Get the Latest**, because once your version has been
+set aside the situation has genuinely changed and sending on from there is a
+decision rather than a repetition.
+
+The wording says what happened rather than what the reader already knows.
+"Your work is saved on this Mac" is not news to the person who saved it; that it
+did not reach anyone else is the whole message.
+
 **A refused send is not a dead end.** It almost always means someone else sent
 something first, so the dialog offers **Get the Latest** -- with Git's own words
 behind a disclosure triangle and a Copy Details button -- rather than handing

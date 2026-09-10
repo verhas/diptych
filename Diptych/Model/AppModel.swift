@@ -1105,6 +1105,10 @@ final class AppModel {
     /// up, so nothing may be paraphrased away.
     private(set) var gitLastDetails = ""
     private(set) var gitNotSentReason = ""
+    /// Files both sides changed. Empty when the shared copy has merely moved
+    /// on, which needs no decision from anybody -- so the dialog can offer to
+    /// do the whole thing rather than to start a conversation.
+    private(set) var gitNotSentConflicts: [String] = []
 
     /// Git's own words, for forwarding to whoever set the repository up.
     func copyGitDetails() {
@@ -1122,6 +1126,39 @@ final class AppModel {
     func getLatestAfterFailedSend() {
         dialog = nil
         getLatest(keepingCopiesWithoutAsking: true)
+    }
+
+    /// The whole job in one press, for the common case: nobody contests any of
+    /// these files, the shared copy has simply moved on. A push is refused
+    /// whenever that is true, whatever was ticked -- so deselecting a file
+    /// cannot help, and asking the user to send again by hand is asking them
+    /// to repeat themselves.
+    func getLatestAndSendAgain() {
+        dialog = nil
+        let paths = gitChanges.sending.map(\.path).filter { gitSending.contains($0) }
+        let new = gitChanges.new.map(\.path).filter { gitIncluding.contains($0) }
+        let message = gitSendMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let root = active.gitRoot else { return }
+
+        Task {
+            beginGit("Getting the latest\u{2026}")
+            let update = await GitService.shared.getLatest(inRepository: root)
+            guard case .updated = update else {
+                endGit()
+                active.reload()
+                // Anything other than a clean update needs the ordinary path,
+                // which knows how to explain itself.
+                handleGetResult(update, root: root, keepingCopiesWithoutAsking: false)
+                return
+            }
+
+            gitBusyMessage = "Sending your work\u{2026}"
+            let result = await GitService.shared.send(paths: paths, newPaths: new,
+                                                     message: message, inRepository: root)
+            endGit()
+            active.reload()
+            handleSendResult(result)
+        }
     }
 
     var gitRepositoryRoot: URL? { active.gitRoot }
@@ -1216,17 +1253,23 @@ final class AppModel {
             endGit()
             active.reload()
 
+            handleSendResult(result)
+        }
+    }
+
+    private func handleSendResult(_ result: GitService.SendResult) {
             switch result {
             case .sent(let count):
                 flash("Sent \(count) file\(count == 1 ? "" : "s")", error: false)
             case .nothingSelected:
                 flash("Nothing was ticked", error: true)
-            case .notSent(let reason, let details):
+            case .notSent(let reason, let details, let conflicts):
                 // Not a dead end. A rejected push almost always means someone
                 // else went first, and the answer to that is Get the Latest --
                 // so the dialog offers it rather than handing over git's own
                 // paragraph and leaving the user to work out what to do.
                 gitNotSentReason = reason
+                gitNotSentConflicts = conflicts
                 gitLastDetails = details
                 dialog = .gitNotSent
             case .sentDespiteError(let details):
@@ -1235,7 +1278,6 @@ final class AppModel {
                                  text: "Your work did reach the shared copy. The answer went "
                                      + "missing on the way back, so it is worth checking."
                                      + "\n\n" + details)
-            }
         }
     }
 
@@ -1249,28 +1291,31 @@ final class AppModel {
             let result = await GitService.shared.getLatest(inRepository: root)
             endGit()
             active.reload()
+            handleGetResult(result, root: root,
+                            keepingCopiesWithoutAsking: keepingCopiesWithoutAsking)
+        }
+    }
 
-            switch result {
-            case .upToDate:
-                flash("Already up to date", error: false)
-            case .updated(let count):
-                flash("Updated \(count) change\(count == 1 ? "" : "s")", error: false)
-            case .conflicting(let paths, let hasOwn):
-                guard !keepingCopiesWithoutAsking else {
-                    gitConflictPaths = paths
-                    keepMyCopiesAndUpdate()
-                    return
-                }
-                gitConflictPaths = paths
-                gitConflictHasOwnVersions = hasOwn
-                dialog = .gitConflict
-
-            case .keptCopies(let names):
-                reportKeptCopies(names)
-            case .failed(let reason, let details):
-                gitLastDetails = details
-                dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))
+    private func handleGetResult(_ result: GitService.GetResult, root: URL,
+                                 keepingCopiesWithoutAsking: Bool) {
+        switch result {
+        case .upToDate:
+            flash("Already up to date", error: false)
+        case .updated(let count):
+            flash("Updated \(count) change\(count == 1 ? "" : "s")", error: false)
+        case .conflicting(let paths, let hasOwn):
+            gitConflictPaths = paths
+            guard !keepingCopiesWithoutAsking else {
+                keepMyCopiesAndUpdate()
+                return
             }
+            gitConflictHasOwnVersions = hasOwn
+            dialog = .gitConflict
+        case .keptCopies(let names):
+            reportKeptCopies(names)
+        case .failed(let reason, let details):
+            gitLastDetails = details
+            dialog = .message(reason + (details.isEmpty ? "" : "\n\n" + details))
         }
     }
 

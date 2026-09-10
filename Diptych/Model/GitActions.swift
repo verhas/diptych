@@ -83,7 +83,11 @@ extension GitService {
         case nothingSelected
         /// Committed and pushed by someone else first, or offline. The commit
         /// has been undone; the files are exactly as they were.
-        case notSent(reason: String, details: String)
+        ///
+        /// `conflicts` is what the two sides have both changed -- empty when
+        /// the shared copy has merely moved on, which is the common case and
+        /// the one that needs no decision from anybody.
+        case notSent(reason: String, details: String, conflicts: [String])
         /// The push failed but the commit did reach the shared copy after all,
         /// so it was left in place. Undoing it would delete something other
         /// people can already see.
@@ -107,7 +111,7 @@ extension GitService {
 
         guard case .ok(let headText) = await command(["rev-parse", "HEAD"], in: root) else {
             return .notSent(reason: "This folder has no saved versions yet.",
-                            details: "git rev-parse HEAD failed")
+                            details: "git rev-parse HEAD failed", conflicts: [])
         }
         let previousHead = headText.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -124,17 +128,20 @@ extension GitService {
         // New files have to be tracked before a commit can name them.
         if !newPaths.isEmpty {
             if case .failed(_, let text) = await track(newPaths, inRepository: root) {
-                return .notSent(reason: "Those files could not be included.", details: text)
+                return .notSent(reason: "Those files could not be included.",
+                                details: text, conflicts: [])
             }
         }
         // Staging modifications too, so a deletion is recorded as one.
         if case .failed(_, let text) = await command(["add", "--"] + all, in: root) {
-            return .notSent(reason: "Your changes could not be prepared.", details: text)
+            return .notSent(reason: "Your changes could not be prepared.",
+                            details: text, conflicts: [])
         }
 
         let commit = await command(["commit", "-m", message, "--"] + all, in: root)
         if case .failed(_, let text) = commit {
-            return .notSent(reason: "Your work could not be saved.", details: text)
+            return .notSent(reason: "Your work could not be saved.",
+                            details: text, conflicts: [])
         }
 
         // Ticking a new file in the dialog means "include it, now and from now
@@ -176,6 +183,7 @@ extension GitService {
         _ = await command(["reset", "--mixed", previousHead], in: root)
         // Put back what was tracked before the send, which the reset has just
         // swept away along with everything else.
+        let clashing = await conflictingPaths(inRepository: root)
         let surviving = keepTracked.filter {
             FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
         }
@@ -183,8 +191,14 @@ extension GitService {
             _ = await command(["add", "--"] + surviving, in: root)
         }
         invalidate(root)
-        return .notSent(reason: "Your work is saved on this Mac, but not shared yet.",
-                        details: details)
+        // Says what happened, not what the user already knows. That their work
+        // is still on their own Mac is not news; that it did not reach anyone
+        // else is the whole point of the message.
+        return .notSent(reason: clashing.isEmpty
+                            ? "Your changes were not sent."
+                            : "Your changes were not sent \u{2014} someone else has changed "
+                              + "some of the same files.",
+                        details: details, conflicts: clashing)
     }
 
     // MARK: - Getting the latest

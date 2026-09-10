@@ -504,16 +504,38 @@ struct DialogSheet: View {
         }
     }
 
-    /// A push that was refused. Almost always because someone else sent
-    /// something first, so the way out is offered rather than described.
+    /// A push that was refused. Two quite different situations wear the same
+    /// error from Git, so they are told apart here rather than left to the
+    /// reader: either somebody simply sent something first, or the two of you
+    /// changed the same files.
     @ViewBuilder
     private var gitNotSent: some View {
         Text(model.gitNotSentReason).font(.headline)
 
-        Text("Nothing was lost \u{2014} your changes are exactly as they were, and still "
-             + "waiting to be sent. Usually this means someone else sent something first, "
-             + "so getting the latest and sending again is the way through.")
-            .font(.subheadline).foregroundStyle(.secondary)
+        if model.gitNotSentConflicts.isEmpty {
+            Text("Someone else sent something first. Your changes are still here, exactly "
+                 + "as they were.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Text("Getting the latest and sending again will do it \u{2014} a send is refused "
+                 + "whenever the shared copy has moved on, whichever files you picked.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("Someone else has changed these as well:")
+                .font(.subheadline).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(model.gitNotSentConflicts, id: \.self) { path in
+                        Text(path).font(.system(size: 11, design: .monospaced))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 110)
+            Text("Getting the latest will keep your version of each of them beside the "
+                 + "original, then bring this folder up to date. Nothing is lost, and you "
+                 + "can send again afterwards.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
 
         DisclosureGroup("What Git said") {
             ScrollView {
@@ -522,7 +544,7 @@ struct DialogSheet: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 130)
+            .frame(maxHeight: 120)
         }
 
         HStack {
@@ -531,8 +553,16 @@ struct DialogSheet: View {
             Spacer()
             Button("Cancel") { model.dialog = nil }
                 .keyboardShortcut(.cancelAction)
-            Button("Get the Latest") { model.getLatestAfterFailedSend() }
-                .keyboardShortcut(.defaultAction)
+            if model.gitNotSentConflicts.isEmpty {
+                Button("Get the Latest and Send Again") { model.getLatestAndSendAgain() }
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                // Not "and send again": once your version has been set aside
+                // the situation has genuinely changed, and sending on from
+                // there is a decision rather than a repetition.
+                Button("Get the Latest") { model.getLatestAfterFailedSend() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
     }
 

@@ -284,6 +284,51 @@ final class GitActionsTests: XCTestCase {
         XCTAssertEqual(changes.sending.first { $0.path == "ticked.md" }?.state, .added)
     }
 
+    func testARefusalWithNoClashSaysThereIsNone() async throws {
+        // The commonest case, and the one that needs no decision: the shared
+        // copy moved on, but nobody touched the same files. A push is refused
+        // for that alone, whichever files were ticked -- which is why
+        // deselecting one cannot help.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("theirs-only.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "unrelated"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("mine-only.md", "mine\n")
+
+        let result = await GitService.shared.send(paths: [], newPaths: ["mine-only.md"],
+                                                  message: "mine", inRepository: mine)
+
+        guard case .notSent(_, _, let conflicts) = result else { return XCTFail("\(result)") }
+        XCTAssertTrue(conflicts.isEmpty,
+                      "nothing is contested, so there is nothing to decide about")
+    }
+
+    func testARefusalWithAClashNamesTheFiles() async throws {
+        // The message has to say *which*, or "someone changed some of the same
+        // files" is a riddle.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "mine", inRepository: mine)
+
+        guard case .notSent(let reason, _, let conflicts) = result else {
+            return XCTFail("\(result)")
+        }
+        XCTAssertEqual(conflicts, ["readme.md"])
+        XCTAssertTrue(reason.contains("not sent"), "says what happened: \(reason)")
+        XCTAssertFalse(reason.contains("saved on this Mac"),
+                       "and not what the user already knows")
+    }
+
     func testAFailedPushLeavesTheFileStillChanged() async throws {
         try await readyGit()
         let theirs = try colleague()
