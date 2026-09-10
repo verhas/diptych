@@ -111,6 +111,16 @@ extension GitService {
         }
         let previousHead = headText.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        // What was already tracked before any of this began. Tracking a file is
+        // a separate decision the user made earlier, and undoing the send must
+        // not undo it -- `reset --mixed` unstages everything indiscriminately,
+        // so a file marked green by hand went brown again when the push failed.
+        var alreadyTracked: [String] = []
+        if case .ok(let staged) = await command(["diff", "--name-only", "--cached", "HEAD"],
+                                                in: root) {
+            alreadyTracked = staged.split(separator: "\n").map(String.init)
+        }
+
         // New files have to be tracked before a commit can name them.
         if !newPaths.isEmpty {
             if case .failed(_, let text) = await track(newPaths, inRepository: root) {
@@ -127,20 +137,27 @@ extension GitService {
             return .notSent(reason: "Your work could not be saved.", details: text)
         }
 
+        // Ticking a new file in the dialog means "include it, now and from now
+        // on", so those stay tracked too: the send is undone, the decisions
+        // that led to it are not.
+        let keepTracked = alreadyTracked + newPaths
+
         switch await command(["push"], in: root, timeout: 120) {
         case .ok:
             invalidate(root)
             return .sent(count: all.count)
 
         case .timedOut:
-            return await afterFailedPush(previousHead: previousHead, root: root,
+            return await afterFailedPush(previousHead: previousHead, keepTracked: keepTracked,
+                                         root: root,
                                          details: "The push took too long and was stopped.")
 
         case .failed(_, let text), .couldNotRun(let text):
             // A connection that dies *after* the server accepted means the
             // outcome is unknown. Undoing then would delete a commit other
             // people can already see, so ask before assuming.
-            return await afterFailedPush(previousHead: previousHead, root: root, details: text)
+            return await afterFailedPush(previousHead: previousHead, keepTracked: keepTracked,
+                                         root: root, details: text)
         }
     }
 
@@ -148,7 +165,7 @@ extension GitService {
     /// reach the shared copy. A push that failed after the server accepted it
     /// would otherwise have its commit deleted from under everyone who can
     /// already see it.
-    private func afterFailedPush(previousHead: String, root: URL,
+    private func afterFailedPush(previousHead: String, keepTracked: [String], root: URL,
                                  details: String) async -> SendResult {
         _ = await command(["fetch"], in: root, timeout: 120)
         if case .ok = await command(["merge-base", "--is-ancestor", "HEAD", "@{u}"], in: root) {
@@ -157,6 +174,14 @@ extension GitService {
         }
 
         _ = await command(["reset", "--mixed", previousHead], in: root)
+        // Put back what was tracked before the send, which the reset has just
+        // swept away along with everything else.
+        let surviving = keepTracked.filter {
+            FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
+        }
+        if !surviving.isEmpty {
+            _ = await command(["add", "--"] + surviving, in: root)
+        }
         invalidate(root)
         return .notSent(reason: "Your work is saved on this Mac, but not shared yet.",
                         details: details)

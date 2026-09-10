@@ -659,7 +659,12 @@ recovery from sending a private draft or a large export to everyone is a phone
 call to whoever set the repository up.
 
 **If the push fails, the commit is undone** -- the files are exactly as they
-were and the button still means what it said. That is history rewriting, which
+were and the button still means what it said. *Undone*, not reverted further:
+`reset --mixed` unstages everything indiscriminately, so a file the user had
+tracked by hand beforehand went brown again when the push failed, as though
+that decision had been part of the send. Tracking is a separate, earlier choice
+and is put back afterwards -- as is a new file ticked in the dialog, since
+ticking means "include it, now and from now on". That is history rewriting, which
 is otherwise excluded, and it is safe for one reason only: the commit provably
 never left this Mac. Which is why the failure path *fetches first* and checks
 whether the commit arrived after all. A connection that dies after the server

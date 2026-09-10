@@ -236,6 +236,54 @@ final class GitActionsTests: XCTestCase {
                        "and the file is exactly as it was left")
     }
 
+    func testAFailedPushKeepsAFileThatWasAlreadyTracked() async throws {
+        // Tracking a file is a decision made *before* pressing Send. Undoing
+        // the send must not undo it -- `reset --mixed` unstages everything, so
+        // a file marked green by hand went brown again when the push failed.
+        try await readyGit()
+        try write("chapter4.md", "mine\n")
+        _ = await GitService.shared.track(["chapter4.md"], inRepository: mine)
+        GitService.shared.invalidate(mine)
+        var changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.first { $0.path == "chapter4.md" }?.state, .added)
+
+        // Someone else pushes first, so ours is refused.
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        let result = await GitService.shared.send(paths: ["chapter4.md"], newPaths: [],
+                                                  message: "mine", inRepository: mine)
+
+        guard case .notSent = result else { return XCTFail("\(result)") }
+        GitService.shared.invalidate(mine)
+        changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.first { $0.path == "chapter4.md" }?.state, .added,
+                       "still tracked, still green")
+        XCTAssertFalse(changes.new.contains { $0.path == "chapter4.md" },
+                       "and not offered as though it had never been tracked")
+    }
+
+    func testAFailedPushKeepsAFileTickedInTheDialog() async throws {
+        // Ticking means "include it, now and from now on", so the tracking
+        // survives even though the send did not.
+        try await readyGit()
+        try write("ticked.md", "mine\n")
+
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        _ = await GitService.shared.send(paths: [], newPaths: ["ticked.md"],
+                                         message: "mine", inRepository: mine)
+        GitService.shared.invalidate(mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.first { $0.path == "ticked.md" }?.state, .added)
+    }
+
     func testAFailedPushLeavesTheFileStillChanged() async throws {
         try await readyGit()
         let theirs = try colleague()
