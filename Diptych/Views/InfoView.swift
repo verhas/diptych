@@ -100,6 +100,8 @@ struct InfoView: View {
                     field("Size", model.sizeText)
                 }
 
+                if model.isSymlink { linkPanel }
+
                 panel("Dates") {
                     DatePicker("Created", selection: $model.created)
                     DatePicker("Modified", selection: $model.modified)
@@ -269,6 +271,47 @@ struct InfoView: View {
                  ? "No symbol -- the folder is tinted only."
                  : "Symbol: \(model.folderSymbol)")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Symbolic links only. The target is text, and editing it is the only way
+    /// to repoint a link short of deleting and recreating it by hand.
+    private var linkPanel: some View {
+        panel("Symbolic link") {
+            Text("Where the link points. A relative target is kept relative -- "
+                 + "rewriting it as an absolute path would change what the link means "
+                 + "if the folder moves.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            HStack(alignment: .top) {
+                Text("Target").frame(width: 90, alignment: .trailing)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    TextEditor(text: $model.linkTarget)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 46)
+                        .border(.quaternary)
+                    // Follows the text as it is typed, not the link on disk.
+                    let note = model.linkTargetNote
+                    HStack(spacing: 6) {
+                        Image(systemName: note.ok
+                              ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(note.ok ? .green : .orange)
+                        // A broken link is legal and sometimes deliberate, so
+                        // this reports rather than refuses.
+                        Text(note.text)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Revert") { model.revertLinkTarget() }
+                    .disabled(!model.linkTargetHasChanges)
+                Button("Apply Target") { model.applyLinkTarget() }
+                    .disabled(!model.linkTargetHasChanges)
+            }
         }
     }
 

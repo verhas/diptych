@@ -105,6 +105,9 @@ enum DirectoryLoader {
                 byteSize: Int64(v?.fileSize ?? 0),
                 modified: v?.contentModificationDate ?? .distantPast)
 
+            if isSymlink {
+                item.linkTarget = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
+            }
             item.created = v?.creationDate ?? .distantPast
             item.added = v?.addedToDirectoryDate ?? .distantPast
             item.kind = v?.localizedTypeDescription ?? ""

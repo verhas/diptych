@@ -82,7 +82,11 @@ struct CellView: View {
                 if item.isSymlink {
                     Image(systemName: "arrowshape.turn.up.right")
                         .foregroundStyle(.secondary)
-                        .help("Symbolic link")
+                        // The arrow already says it is a link; what is missing
+                        // is where it goes.
+                        .help(item.linkTarget.isEmpty
+                              ? "Symbolic link"
+                              : "Symbolic link to \(item.linkTarget)")
                 }
                 if item.isExecutable {
                     Image(systemName: "terminal.fill")

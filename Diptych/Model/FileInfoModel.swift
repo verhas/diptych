@@ -27,6 +27,46 @@ final class FileInfoModel {
     /// Permissions and ownership are the *target's* for a symlink, because that
     /// is what changing them affects.
     private(set) var isSymlink = false
+    /// Where the link points, exactly as stored -- relative if that is how it
+    /// was written, because rewriting a relative link as an absolute one would
+    /// change what it means when the folder moves.
+    var linkTarget = ""
+    private(set) var linkTargetOnDisk = ""
+    /// Whether what is *typed* points at something, checked against the text
+    /// rather than against the link on disk.
+    ///
+    /// Computed, not stored: stored, it described the target the link had when
+    /// the window opened, so it never moved while you edited and still claimed
+    /// a freshly pasted, perfectly good path did not exist.
+    var linkTargetExists: Bool {
+        guard isSymlink else { return false }
+        let resolved = resolvedLinkTarget
+        return !resolved.isEmpty && FileManager.default.fileExists(atPath: resolved)
+    }
+
+    /// The typed target as an absolute path: `~` expanded, and anything
+    /// relative resolved against the folder the link sits in -- which is what
+    /// the kernel does when it follows the link.
+    var resolvedLinkTarget: String {
+        let wanted = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return "" }
+        if wanted.hasPrefix("~") { return (wanted as NSString).expandingTildeInPath }
+        if (wanted as NSString).isAbsolutePath { return wanted }
+        return (url.deletingLastPathComponent().path as NSString)
+            .appendingPathComponent(wanted)
+    }
+
+    /// What to say under the field, and whether it is good news.
+    var linkTargetNote: (ok: Bool, text: String) {
+        let wanted = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        if wanted.isEmpty { return (false, "A link needs a target.") }
+        guard linkTargetExists else { return (false, "There is nothing at that path.") }
+        var isDirectory: ObjCBool = false
+        _ = FileManager.default.fileExists(atPath: resolvedLinkTarget, isDirectory: &isDirectory)
+        // Worth saying which: a link to a folder and a link to a file behave
+        // differently everywhere in this app.
+        return (true, isDirectory.boolValue ? "Points to a folder." : "Points to a file.")
+    }
     var created = Date()
     var modified = Date()
     private(set) var added: Date?
@@ -93,6 +133,9 @@ final class FileInfoModel {
         tags = values?.tagNames ?? []
 
         isSymlink = values?.isSymbolicLink ?? false
+        linkTargetOnDisk = isSymlink
+            ? ((try? fm.destinationOfSymbolicLink(atPath: path)) ?? "") : ""
+        linkTarget = linkTargetOnDisk
         // attributesOfItem does not follow a symlink, but setAttributes does.
         // Read what an edit would write.
         let attributePath = isSymlink ? url.resolvingSymlinksInPath().path : path
@@ -166,6 +209,44 @@ final class FileInfoModel {
                 report(error.localizedDescription, success: "")
             }
         }
+    }
+
+    /// An empty target is not a change worth offering: `applyLinkTarget` refuses
+    /// it, so an enabled Apply button would promise something it will not do.
+    var linkTargetHasChanges: Bool {
+        let wanted = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isSymlink && !wanted.isEmpty && wanted != linkTargetOnDisk
+    }
+
+    /// Repoints the link.
+    ///
+    /// A symlink's target cannot be edited in place -- there is no syscall for
+    /// it -- so the link is removed and made again. Which means the old one is
+    /// gone for a moment: if creating the replacement fails, the original is
+    /// put back rather than left as a hole where a link used to be.
+    func applyLinkTarget() {
+        let wanted = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isSymlink, !wanted.isEmpty, wanted != linkTargetOnDisk else { return }
+
+        let fm = FileManager.default
+        let previous = linkTargetOnDisk
+        do {
+            try fm.removeItem(at: url)
+        } catch {
+            return report("The old link could not be removed: \(error.localizedDescription)",
+                          success: "")
+        }
+        do {
+            try fm.createSymbolicLink(atPath: url.path, withDestinationPath: wanted)
+            report(nil, success: "Link now points to \(wanted).")
+        } catch {
+            try? fm.createSymbolicLink(atPath: url.path, withDestinationPath: previous)
+            report("The link could not be repointed: \(error.localizedDescription)", success: "")
+        }
+    }
+
+    func revertLinkTarget() {
+        linkTarget = linkTargetOnDisk
     }
 
     func applyDates() {

@@ -676,14 +676,78 @@ final class AppModel {
         // Serialised. Every transfer shares one conflict continuation, so a
         // second operation started while a clash dialog is open would overwrite
         // it -- stranding the first task for ever, or answering the wrong one.
+        //
+        // Serialised, however, is not the same as ignored: asking for a second
+        // transfer while one is running used to look exactly like nothing
+        // happening, until it began minutes later of its own accord.
+        if transferProgress != nil || queuedTransfers > 0 {
+            queuedTransfers += 1
+            let verb = kind == .move ? "Move" : "Copy"
+            flash("\(verb) of \(urls.count) item\(urls.count == 1 ? "" : "s") queued",
+                  error: false)
+        }
+
         enqueueTransfer { [weak self] in
             guard let self else { return }
+            if self.queuedTransfers > 0 { self.queuedTransfers -= 1 }
             await self.runTransfer(urls, to: destination, kind: kind,
                                    into: destinationPane, from: sourcePane)
         }
     }
 
     @ObservationIgnored private var transferChain: Task<Void, Never>?
+
+    /// The sheet, while there is one. nil means nothing is being shown.
+    var transferProgress: TransferProgress?
+    /// Transfers asked for while another was running.
+    private(set) var queuedTransfers = 0
+    @ObservationIgnored private var transferMonitor: TransferMonitor?
+    /// What had already arrived when the user pressed Cancel.
+    @ObservationIgnored private var cancelledTargets: [URL] = []
+
+    func cancelTransfer() {
+        transferProgress?.markCancelling()
+        transferMonitor?.cancel()
+    }
+
+    /// After a cancelled transfer: keep what arrived, or clear it away.
+    private func askAboutPartialTransfer(kind: FileOperations.Transfer,
+                                         landed: [URL], into pane: PaneModel) {
+        guard !landed.isEmpty else {
+            flash("Cancelled. Nothing was \(kind == .move ? "moved" : "copied").", error: false)
+            return
+        }
+        partialTransfer = PartialTransfer(kind: kind, targets: landed, pane: pane)
+    }
+
+    struct PartialTransfer: Identifiable {
+        let kind: FileOperations.Transfer
+        let targets: [URL]
+        let pane: PaneModel
+        var id: String { targets.first?.path ?? "" }
+    }
+
+    var partialTransfer: PartialTransfer?
+
+    func keepPartialTransfer() {
+        let count = partialTransfer?.targets.count ?? 0
+        partialTransfer = nil
+        flash("Cancelled. \(count) item\(count == 1 ? "" : "s") kept.", error: false)
+    }
+
+    func discardPartialTransfer() {
+        guard let partial = partialTransfer else { return }
+        partialTransfer = nil
+        Task {
+            let outcome = await FileOperations.shared.deleteOutright(partial.targets)
+            partial.pane.reload()
+            if outcome.isCompleteSuccess {
+                flash("Cancelled. What had arrived was removed.", error: false)
+            } else {
+                report(outcome, verb: "remove")
+            }
+        }
+    }
 
     private func enqueueTransfer(_ work: @escaping @MainActor () async -> Void) {
         let previous = transferChain
@@ -699,6 +763,32 @@ final class AppModel {
                              from sourcePane: PaneModel?) async {
         var outcome = FileOperations.Outcome()
         var aborted = false
+
+        // Measured before anything is copied, off the main actor: on a large
+        // tree the walk is not free, and a bar without a total is just a
+        // spinner.
+        let monitor = TransferMonitor()
+        let totalBytes = await BlockingWork.run { FileOperations.totalBytes(of: urls) }
+        let progress = TransferProgress(verb: kind == .move ? "Moving" : "Copying",
+                                        itemCount: urls.count, bytesTotal: totalBytes)
+        monitor.onProgress = { [weak progress] bytes, item in
+            Task { @MainActor in progress?.update(bytes: bytes, item: item) }
+        }
+        transferMonitor = monitor
+
+        // Shown only if the transfer outlives the delay. Most are over long
+        // before it, and a sheet that flashes up and vanishes is worse than
+        // none at all.
+        let reveal = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: TransferProgress.showAfter)
+            guard !Task.isCancelled else { return }
+            self?.transferProgress = progress
+        }
+        defer {
+            reveal.cancel()
+            transferProgress = nil
+            transferMonitor = nil
+        }
         /// Set once "apply to all" is ticked; every later clash takes it
         /// without asking.
         var standingAction: ConflictAction?
@@ -773,19 +863,39 @@ final class AppModel {
                 if skipItem { continue }
             }
 
+            progress.update(bytes: monitor.completedBytes, item: source.lastPathComponent)
+
             if let message = await FileOperations.shared.transferOne(source, to: target,
                                                                      kind: kind,
-                                                                     overwrite: overwrite) {
+                                                                     overwrite: overwrite,
+                                                                     monitor: monitor) {
+                // Cancellation is not a failure to report item by item; the
+                // user knows what they did.
+                if monitor.isCancelled { cancelledTargets = outcome.succeeded; break }
                 outcome.failures.append((source, message))
             } else {
                 outcome.succeeded.append(target)
+                progress.finishedItem()
             }
+            if monitor.isCancelled { cancelledTargets = outcome.succeeded; break }
         }
 
-        sourcePane?.reload()
-        // Leave the moved or copied files selected where they landed.
+        // Awaited, not fired and forgotten. The next transfer in the chain
+        // starts the moment this function returns, and an un-awaited reload
+        // queued behind it only landed when *that* one finished -- so a moved
+        // item sat visibly in the source pane until an unrelated copy was done.
         destinationPane.pendingSelection = Set(outcome.succeeded)
-        destinationPane.reload()
+        await sourcePane?.reloadAndWait()
+        await destinationPane.reloadAndWait()
+
+        if monitor.isCancelled {
+            // What has already landed is real. Whether to keep it is a
+            // judgement -- a half-copied folder may be worth keeping or may be
+            // clutter -- so it is asked rather than decided.
+            askAboutPartialTransfer(kind: kind, landed: cancelledTargets,
+                                    into: destinationPane)
+            return
+        }
 
         if outcome.isCompleteSuccess {
             if !outcome.succeeded.isEmpty {
@@ -916,6 +1026,34 @@ final class AppModel {
     }
 
     // MARK: - Clipboard
+
+    /// Builds a question about the selection and puts it on the clipboard.
+    ///
+    /// Nothing is sent anywhere: this writes text. The care that would normally
+    /// go into a network call goes into what the text contains instead --
+    /// metadata only, paths abbreviated, provenance attributes withheld, and
+    /// names fenced as data rather than instructions. See `PromptBuilder`.
+    func copyPromptToClipboard() {
+        let items = active.selectedItems.filter { !$0.isParent }
+        guard !items.isEmpty else {
+            flash("Select something to ask about", error: true)
+            return
+        }
+
+        let prompt = PromptBuilder.prompt(for: items, in: active.directory)
+        Clipboard.copyText(prompt.text)
+
+        // A name that needed escaping is worth saying out loud. It is either a
+        // curiosity or an attempt at one, and the difference is not ours to
+        // judge -- but it should not go past silently.
+        guard prompt.warnings.isEmpty else {
+            flash("Prompt copied, but a name contained \(prompt.warnings.first!). "
+                  + "It has been escaped.", error: true)
+            return
+        }
+        flash("Prompt about \(items.count) item\(items.count == 1 ? "" : "s") copied "
+              + "\u{2014} nothing was sent", error: false)
+    }
 
     func copySelectionToClipboard() {
         guard !forwardToTextEditor(#selector(NSText.copy(_:))) else { return }
@@ -1444,6 +1582,7 @@ final class AppModel {
         switch key {
         case .tab:            toggleActiveSide()
         case .ret, .enter:    openSelection()
+        case .f1:             copyPromptToClipboard()
         case .f2:             requestRename()
         // F4 as well as F9: on many setups F9 is taken by Mission Control.
         case .f4, .f9:        requestPermissionEdit()

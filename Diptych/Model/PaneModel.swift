@@ -213,6 +213,12 @@ final class PaneModel {
             ? items.filter { matchesFilter($0) }
             : items
         let sorted = visible.sorted(using: sortOrder)
+
+        // `..` stays on top either way: it is navigation, not content, and a
+        // row that moved around by size or date would be a trap.
+        guard ConfigStore.shared.configuration.foldersFirst else {
+            return sorted.filter(\.isParent) + sorted.filter { !$0.isParent }
+        }
         return sorted.filter(\.isParent)
             + sorted.filter { !$0.isParent && $0.isEnterable }
             + sorted.filter { !$0.isEnterable }
@@ -393,6 +399,16 @@ final class PaneModel {
     }
 
     func reload() { reload(navigatingFrom: nil) }
+
+    /// Reload, and wait for the rows to actually be there.
+    ///
+    /// A transfer chain runs one operation after another; without waiting, the
+    /// listing that shows a moved item finally gone was queued behind the next
+    /// transfer and only landed when *that* finished.
+    func reloadAndWait() async {
+        reload()
+        await loadTask?.value
+    }
 
     private func reload(navigatingFrom previous: URL?) {
         watchDirectory()

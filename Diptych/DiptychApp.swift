@@ -82,12 +82,58 @@ struct FileCommands: Commands {
         // `after:` rather than `replacing:` -- SwiftUI puts its own "New Window"
         // (Cmd-N) in the .newItem group for a WindowGroup scene, and each window
         // it opens gets a fresh AppModel. Replacing the group would delete it.
+        // "File" and "Files" side by side was a coin toss every time. Split
+        // the way Finder splits: what you do *to* an item belongs in File, and
+        // where you go belongs in Go.
         CommandGroup(after: .newItem) {
             Button("New Tab") { model?.newTab() }
                 .keyboardShortcut("t")
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil)
+
+            Divider()
+
+            // Finder keeps Open in File, next to the things done to an item,
+            // even though Enclosing Folder sits in Go. Following that rather
+            // than inventing a third arrangement.
+            Button("Open") {
+                dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
+            }
+            .keyboardShortcut(.downArrow, modifiers: .command)
+            Button("Get Info") { model?.showInfo() }
+                .keyboardShortcut("i")
+            Button("Rename...") { model?.requestRename() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Copy to Other Pane") { model?.copySelection() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            Button("Move to Other Pane") { model?.moveSelection() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Change Permissions...") { model?.requestPermissionEdit() }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+            Button("Change Owner...") { model?.requestOwnerEdit() }
+            Button("Change Group...") { model?.requestGroupEdit() }
+
+            Divider()
+
+            Button("Move to Trash") {
+                dispatch(model?.trashFromMenu,
+                         #selector(NSResponder.deleteToBeginningOfLine(_:)))
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+
+            Divider()
+
+            Button("Reveal in Finder") { model?.revealSelection() }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+            Button("Open Terminal Here") { model?.openTerminal() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
         }
 
         // Every one of these falls back to the standard responder action when
@@ -143,11 +189,7 @@ struct FileCommands: Commands {
             Divider()
         }
 
-        CommandMenu("Files") {
-            Button("Open") {
-                dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
-            }
-            .keyboardShortcut(.downArrow, modifiers: .command)
+        CommandMenu("Go") {
             Button("Back") { model?.goBack() }
                 .keyboardShortcut("[")
                 .disabled(model?.active.canGoBack != true)
@@ -158,6 +200,9 @@ struct FileCommands: Commands {
                 dispatch(model?.goUpFromMenu, #selector(NSResponder.moveToBeginningOfDocument(_:)))
             }
             .keyboardShortcut(.upArrow, modifiers: .command)
+
+            Divider()
+
             // Two ways in, differing only in what is selected. Command-G is
             // disabled rather than absent when no pane has focus, so its key
             // equivalent falls through to a binary view's Find Next instead of
@@ -168,33 +213,6 @@ struct FileCommands: Commands {
             Button("Go to Folder...") { model?.requestPathEdit() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
                 .disabled(model == nil)
-
-            Divider()
-
-            Button("Copy to Other Pane") { model?.copySelection() }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-            Button("Move to Other Pane") { model?.moveSelection() }
-                .keyboardShortcut("m", modifiers: [.command, .shift])
-            Button("Get Info") { model?.showInfo() }
-                .keyboardShortcut("i")
-            Button("Rename...") { model?.requestRename() }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
-            Button("Change Permissions...") { model?.requestPermissionEdit() }
-                .keyboardShortcut("p", modifiers: [.command, .option])
-            Button("Change Owner...") { model?.requestOwnerEdit() }
-            Button("Change Group...") { model?.requestGroupEdit() }
-            Button("Move to Trash") {
-                dispatch(model?.trashFromMenu,
-                         #selector(NSResponder.deleteToBeginningOfLine(_:)))
-            }
-            .keyboardShortcut(.delete, modifiers: .command)
-
-            Divider()
-
-            Button("Reveal in Finder") { model?.revealSelection() }
-                .keyboardShortcut("r", modifiers: [.command, .option])
-            Button("Open Terminal Here") { model?.openTerminal() }
-                .keyboardShortcut("t", modifiers: [.command, .option])
         }
 
         // Placed *into* the system View menu rather than declared as a second

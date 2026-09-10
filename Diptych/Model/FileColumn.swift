@@ -112,6 +112,13 @@ struct Configuration: Codable, Equatable {
     static let fontSizes = 8.0 ... 28.0
     static let defaultFontSize = 11.0
 
+    /// Directories above files, rather than everything in one sequence.
+    ///
+    /// On by default because that is what every file manager does and what the
+    /// keyboard expects -- but it is a preference, not a law, and sorting by
+    /// size or date is more useful when the two kinds are not separated.
+    var foldersFirst = true
+
     /// One switch for all of them, on top of the per-event choices.
     var soundsEnabled = true
 
@@ -129,7 +136,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize
+        case fontName, fontSize, foldersFirst
     }
 
     init() {}
@@ -146,6 +153,7 @@ struct Configuration: Codable, Equatable {
         columnWidths = (try? container.decode([String: Double].self, forKey: .columnWidths))
             ?? [:]
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
+        foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
         // Clamped on the way in: config.json is hand-editable, and a font size
         // of 0 or 4000 would render the panes unusable with no way back.

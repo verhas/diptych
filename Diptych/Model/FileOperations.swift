@@ -16,11 +16,178 @@ actor FileOperations {
         var isCompleteSuccess: Bool { failures.isEmpty }
     }
 
+    /// How much there is to copy, so a bar can mean something.
+    ///
+    /// A metadata walk, which is fast next to the copy it is measuring -- but
+    /// not free on a huge tree, so it runs off the main actor with the rest.
+    nonisolated static func totalBytes(of urls: [URL]) -> Int64 {
+        let fm = FileManager()
+        var total: Int64 = 0
+
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+            guard values?.isDirectory == true else {
+                total += Int64(values?.fileSize ?? 0)
+                continue
+            }
+            guard let walker = fm.enumerator(at: url,
+                                             includingPropertiesForKeys: [.fileSizeKey],
+                                             options: [.skipsPackageDescendants]) else { continue }
+            for case let child as URL in walker {
+                total += Int64((try? child.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+            }
+        }
+        return total
+    }
+
+    /// Copies with progress, and stops when told to.
+    ///
+    /// `copyfile(3)` rather than `FileManager.copyItem`, for one reason:
+    /// Foundation's copy is a black box that returns when it is done. A four
+    /// gigabyte file to a USB disk is minutes inside that box with no way to
+    /// report progress and no way to stop. `copyfile` calls back as it goes and
+    /// takes COPYFILE_QUIT for an answer -- while still copying metadata,
+    /// extended attributes and ACLs, which a hand-rolled read/write loop would
+    /// silently drop.
+    ///
+    /// Returns nil on success, a message on failure, and `cancelled` when the
+    /// monitor asked it to stop.
+    nonisolated static func copyWithProgress(_ source: URL, to target: URL,
+                                             monitor: TransferMonitor) -> TransferResult {
+        let alreadyCopied = monitor.completedBytes
+        // The callback is a C function pointer, so everything it needs travels
+        // through the context pointer rather than being captured.
+        final class Context {
+            let monitor: TransferMonitor
+            let base: Int64
+            /// Bytes from files already finished within *this* item, since
+            /// copyfile reports COPIED per file rather than per tree.
+            var finished: Int64 = 0
+            var current: Int64 = 0
+            init(monitor: TransferMonitor, base: Int64) {
+                self.monitor = monitor
+                self.base = base
+            }
+        }
+
+        let context = Context(monitor: monitor, base: alreadyCopied)
+        let boxed = Unmanaged.passRetained(context).toOpaque()
+        defer { Unmanaged<Context>.fromOpaque(boxed).release() }
+
+        let callback: copyfile_callback_t = { what, stage, state, _, destination, ctx in
+            guard let ctx else { return COPYFILE_CONTINUE }
+            let context = Unmanaged<Context>.fromOpaque(ctx).takeUnretainedValue()
+
+            if context.monitor.isCancelled { return COPYFILE_QUIT }
+
+            // Errors must stop it. Returning COPYFILE_CONTINUE from an error
+            // stage tells copyfile to carry on regardless, and the whole call
+            // then reports success -- so a refused overwrite, a permission
+            // hole part-way through a tree, or a full disk would all have been
+            // swallowed and announced as a completed copy.
+            if stage == COPYFILE_ERR || what == COPYFILE_RECURSE_ERROR {
+                return COPYFILE_QUIT
+            }
+
+            if what == COPYFILE_COPY_DATA {
+                var copied: off_t = 0
+                if let state {
+                    copyfile_state_get(state, UInt32(COPYFILE_STATE_COPIED), &copied)
+                }
+                context.current = Int64(copied)
+                if stage == COPYFILE_FINISH {
+                    context.finished += context.current
+                    context.current = 0
+                }
+                let name = destination.map { String(cString: $0) } ?? ""
+                context.monitor.report(bytes: context.base + context.finished + context.current,
+                                       item: (name as NSString).lastPathComponent)
+            }
+            // A file finished inside a directory copy: its bytes are already in
+            // `finished`, but the name is worth showing.
+            if what == COPYFILE_RECURSE_FILE, stage == COPYFILE_FINISH {
+                let name = destination.map { String(cString: $0) } ?? ""
+                context.monitor.report(bytes: context.base + context.finished,
+                                       item: (name as NSString).lastPathComponent)
+            }
+            return COPYFILE_CONTINUE
+        }
+
+        guard let state = copyfile_state_alloc() else { return .failed("Out of memory.") }
+        defer { copyfile_state_free(state) }
+
+        copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB),
+                           unsafeBitCast(callback, to: UnsafeRawPointer.self))
+        copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), boxed)
+
+        // COPYFILE_ALL is data plus metadata, xattrs and ACLs; NOFOLLOW copies a
+        // symlink as a symlink rather than as what it points at; EXCL refuses to
+        // overwrite, because deciding that is the caller's business.
+        let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_RECURSIVE
+                                     | COPYFILE_NOFOLLOW | COPYFILE_EXCL)
+        let result = copyfile(source.path, target.path, state, flags)
+        monitor.flush()
+
+        if result == 0 {
+            let moved = context.finished + context.current
+            monitor.addCompleted(moved)
+            return .done(bytes: moved)
+        }
+        if monitor.isCancelled { return .cancelled }
+        return .failed(String(cString: strerror(errno)))
+    }
+
+    enum TransferResult {
+        case done(bytes: Int64)
+        case cancelled
+        case failed(String)
+    }
+
+    /// Whether a move would be a rename -- instant -- or a copy across volumes.
+    nonisolated static func sameVolume(_ a: URL, _ b: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.volumeIdentifierKey]
+        guard let one = try? a.resourceValues(forKeys: keys).volumeIdentifier,
+              let two = try? b.deletingLastPathComponent()
+                  .resourceValues(forKeys: keys).volumeIdentifier else { return false }
+        return one.isEqual(two)
+    }
+
     /// Moves or copies one item to an exact target, which the caller has
     /// already resolved against any name clash.
     func transferOne(_ source: URL, to target: URL, kind: Transfer,
-                     overwrite: Bool) -> String? {
+                     overwrite: Bool, monitor: TransferMonitor? = nil) -> String? {
         let fm = FileManager()
+
+        /// A copy that reports progress when there is somewhere to report it,
+        /// and Foundation's otherwise -- which keeps every existing caller, and
+        /// every test, on exactly the path it had before.
+        func put(_ from: URL, _ to: URL) throws {
+            guard let monitor else {
+                switch kind {
+                case .copy: try fm.copyItem(at: from, to: to)
+                case .move: try fm.moveItem(at: from, to: to)
+                }
+                return
+            }
+            // A move within one volume is a rename: instant, nothing to report,
+            // and nothing to cancel.
+            if kind == .move, Self.sameVolume(from, to) {
+                try fm.moveItem(at: from, to: to)
+                return
+            }
+            switch Self.copyWithProgress(from, to: to, monitor: monitor) {
+            case .done:
+                // A move across volumes is a copy and then a delete. The delete
+                // only happens once the copy is known to have worked.
+                if kind == .move { try fm.removeItem(at: from) }
+            case .cancelled:
+                try? fm.removeItem(at: to)
+                throw CancellationError()
+            case .failed(let message):
+                throw NSError(domain: NSPOSIXErrorDomain, code: 0,
+                              userInfo: [NSLocalizedDescriptionKey: message])
+            }
+        }
 
         // Onto itself. The overwrite path would delete the target -- which is
         // also the source -- and then copy something that no longer exists.
@@ -38,10 +205,7 @@ actor FileOperations {
 
         guard overwrite, targetExisted else {
             do {
-                switch kind {
-                case .copy: try fm.copyItem(at: source, to: target)
-                case .move: try fm.moveItem(at: source, to: target)
-                }
+                try put(source, target)
                 return nil
             } catch {
                 // copyItem can create part of the destination before throwing.
@@ -59,10 +223,7 @@ actor FileOperations {
             .appendingPathComponent(".diptych-staging-\(UUID().uuidString)")
 
         do {
-            switch kind {
-            case .copy: try fm.copyItem(at: source, to: staging)
-            case .move: try fm.moveItem(at: source, to: staging)
-            }
+            try put(source, staging)
         } catch {
             try? fm.removeItem(at: staging)
             return error.localizedDescription
@@ -315,6 +476,25 @@ actor FileOperations {
                 outcome.succeeded.append(target)
             } catch {
                 outcome.failures.append((source, error.localizedDescription))
+            }
+        }
+        return outcome
+    }
+
+    /// Removes outright, without the Trash.
+    ///
+    /// Only for cleaning up what a cancelled transfer had already written:
+    /// those files were made seconds ago by an operation the user stopped, and
+    /// putting them in the Trash would make the user delete them twice.
+    func deleteOutright(_ urls: [URL]) -> Outcome {
+        let fm = FileManager()
+        var outcome = Outcome()
+        for url in urls {
+            do {
+                try fm.removeItem(at: url)
+                outcome.succeeded.append(url)
+            } catch {
+                outcome.failures.append((url, error.localizedDescription))
             }
         }
         return outcome

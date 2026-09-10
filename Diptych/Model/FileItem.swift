@@ -40,6 +40,10 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// bits rather than re-parsing the rendered characters.
     var mode: mode_t = 0
     var tags: [String] = []
+    /// Where a symbolic link points, exactly as stored -- which may be relative.
+    /// Empty for everything else. Read by the loader, because a `readlink` per
+    /// symlink is cheap and doing it during a redraw is not.
+    var linkTarget: String = ""
 
     /// `Identifiable` requires `id`. A URL is unique within a directory listing,
     /// so we get identity for free instead of inventing a synthetic key.

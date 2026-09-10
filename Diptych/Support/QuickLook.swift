@@ -84,6 +84,10 @@ final class QuickLookController: NSObject {
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
         }
+        if Self.markdownExtensions.contains(url.pathExtension.lowercased()),
+           let rendered = markdownReport(for: url) {
+            return rendered
+        }
         if let type = UTType(filenameExtension: url.pathExtension), type.isDeclared,
            Self.renderable.contains(where: { type.conforms(to: $0) }) {
             return url
@@ -122,6 +126,33 @@ final class QuickLookController: NSObject {
         // session would otherwise overwrite each other in the scratch directory.
         let stem = directory.replacingOccurrences(of: "/", with: "_")
         let target = scratch.appendingPathComponent("DS_Store\(stem).html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    private static let markdownExtensions: Set<String> = ["md", "markdown"]
+
+    /// Markdown is typed `net.daringfireball.markdown`, which conforms to
+    /// public.plain-text and has no generator of its own -- so Quick Look shows
+    /// the source. Render it instead.
+    private func markdownReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= MarkdownReport.maximumSize,
+              let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+
+        // The document's own directory, so that a relative image path in a
+        // README resolves against the README rather than against the temporary
+        // file this preview is written to.
+        let html = MarkdownReport.html(for: text, name: url.lastPathComponent,
+                                       baseURL: url.deletingLastPathComponent())
+
+        // Named after the full path: two READMEs previewed in one session would
+        // otherwise overwrite each other in the scratch directory.
+        let stem = url.path.replacingOccurrences(of: "/", with: "_")
+        let target = scratch.appendingPathComponent("md\(stem).html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
             return nil
         }

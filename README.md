@@ -418,6 +418,34 @@ The file is memory-mapped and rows are built lazily, so only the visible lines
 become views. The limit is 64 MB, past which a different kind of tool is wanted:
 at 16 bytes a line, a DVD image would ask SwiftUI for a hundred million rows.
 
+## Previewing Markdown
+
+`.md` is typed `net.daringfireball.markdown`, which conforms to
+`public.plain-text` and has no Quick Look generator of its own -- so Space showed
+the source. It is rendered instead, through the same hook as `.DS_Store`: HTML
+into the scratch directory, handed to Quick Look.
+
+**Nothing is vendored and nothing is hand-parsed.** `AttributedString(markdown:)`
+is Foundation's own CommonMark parser with the GitHub extensions, and it already
+identifies headings, nested lists, block quotes, fenced code blocks *with their
+language*, tables with per-column alignment, links, and inline bold, italic,
+code and strikethrough.
+
+What is left is shape. The parser returns a **flat** run of text carrying
+`presentationIntent` attributes and HTML is a tree, so the work is turning one
+into the other: compare each run's intents with the previous run's, close the
+tags that ended, open the ones that began. Blocks are matched by the parser's own
+`identity`, not by kind -- otherwise two adjacent list items of the same kind
+look like one, and a nested list never closes.
+
+Two things worth knowing. Inside a fence everything is escaped, so a README
+documenting HTML shows that HTML rather than running it. And relative image
+paths resolve against **the document**, not against the temporary file the
+preview is written to, or every image in every README would break.
+
+The one gap: Foundation does not parse task lists, so `- [ ] todo` renders as a
+list item whose text begins `[ ]`.
+
 ## Font and zoom
 
 Settings ▸ **Appearance** chooses the font the panes are drawn with, and the
@@ -520,6 +548,51 @@ not pay for it per row. The syscall already in flight cannot be interrupted;
 everything after it is abandoned, which is the difference between a stale listing
 arriving late and a stale listing being computed in full first.
 
+## Sorting and links
+
+Settings ▸ Appearance ▸ **List folders before files** decides whether
+directories are lifted above files or everything is sorted in one sequence by
+whatever the column header says. On by default, because that is what every file
+manager does -- but it is a preference, not a law, and sorting by size or date is
+more useful when the two kinds are not separated. `..` stays on top either way:
+it is navigation, not content, and a row that wandered off by date would be a
+trap.
+
+A **symbolic link** shows an arrow beside its name, and hovering it now says
+where the link points. The target is read once by the loader -- a `readlink` per
+symlink is cheap, and doing it during a redraw is not.
+
+The Info window's General tab has the target as an editable field for links,
+with a note that follows **what is typed**, updating as you type rather than
+describing the link on disk -- it was computed once when the window opened, so it
+never moved while editing and still reported a freshly pasted, perfectly good
+path as missing. A relative target is resolved against **the link's own folder**,
+which is what the kernel does when it follows one, and `~` is expanded. The note
+also says whether the target is a file or a folder, since the two behave
+differently everywhere else in the app. A broken link is legal and
+sometimes deliberate, so that is reported rather than refused, and a relative
+target stays relative: rewriting it as an absolute path would change what the
+link means once the folder moves.
+
+There is no syscall to repoint a symlink, so applying a new target removes the
+link and makes it again. If creating the replacement fails the original is put
+back, rather than leaving a hole where a link used to be.
+
+## The menu bar
+
+**File**, **Edit**, **Go**, **Window**, **Help** -- Finder's arrangement, and for
+the same reason. There used to be a `Files` menu alongside `File`, which was a
+coin toss every time: the two names say nothing about which holds what.
+
+The split is Finder's: what you do *to* an item is in **File** -- Open, Get Info,
+Rename, Copy and Move to Other Pane, the ownership and permission commands, Move
+to Trash, Reveal in Finder, Open Terminal Here. Where you *go* is in **Go** --
+Back, Forward, Enclosing Folder, and the two ways into the path bar.
+
+Open stays in File even though Enclosing Folder is in Go, which looks odd
+written down and is exactly what Finder does; following it beats inventing a
+third arrangement for people to learn.
+
 ## Settings
 
 **Settings...** (`⌘,`) opens a tabbed configuration window. The first tab
@@ -585,6 +658,143 @@ depending on where the caret is. The result is an absolute mode applied to every
 selected item -- which is what makes editing several files at once well defined,
 and is why permissions can be edited for a multiple selection where a name
 cannot.
+
+## F1 — a prompt about the selection
+
+`F1`, or the leftmost key on the bar, describes the selected items and puts that
+description **on the clipboard**.
+
+The wording lives in **`~/.diptych/prompts/prompt1.tmpl`**, written out the first
+time it is needed and read from there ever after, so it is yours to edit. The
+placeholders are `{{count}}`, `{{itemWord}}`, `{{pronoun}}`, `{{isAre}}`,
+`{{parent}}`, `{{parentNote}}`, `{{metadata}}` and `{{warning}}`; an unknown one
+is left in the text rather than silently emptied, so a typo looks like a typo.
+Substitution is a single pass, so a file named `{{metadata}}` cannot reach back
+into the template. A missing or empty file falls back to the built-in text --
+F1 should still work when a template is half-edited.
+
+The metadata block is delimited by the **words** `BEGIN FILE METADATA` and
+`END FILE METADATA`, not by backticks. A fence cannot be described in prose that
+is itself inside a fenced document: writing "everything between the ``` fences"
+*opens* one, and every later fence then flips between opening and closing -- so
+the block meant to contain the names stopped containing them. Sentinel words have
+no such property and survive being pasted into an editor, a terminal or a chat
+box unchanged.
+
+Owner, group and permissions are read from disk when the pane has not loaded them
+-- they arrive only when their columns are switched on, and a prompt should not
+lose them for want of a column nobody enabled. A leading dot is called out as
+`hidden: yes`, since that is the whole of what hidden means here and it is easy
+to miss in a name. It sends nothing, opens no connection, and has
+no idea what an LLM is. The whole feature is a formatter; what you do with the
+text afterwards is yours.
+
+Which is exactly why the care goes into the text rather than into any network
+code. The clipboard is the entire exposure, and it is a shared surface: every
+app running as you can read it, clipboard managers archive it, and with Handoff
+switched on macOS syncs it to your other devices. "Nothing is sent" is true of
+Diptych and is *not* the same as "this stays on this machine."
+
+So the prompt contains:
+
+- **no file contents, ever.** Only metadata the pane already shows. A keystroke
+  that quietly copied the first kilobyte of the selection would be an
+  exfiltration primitive wearing a helpful face.
+- **no provenance attributes.** `kMDItemWhereFroms` holds the URL a file was
+  downloaded from and `com.apple.quarantine` holds who downloaded it and when.
+  Both are ordinary extended attributes and both are browsing history. Attribute
+  *names* are listed, since they describe the file; their values are not -- and
+  the prompt says how many were withheld, so an edited list does not read as a
+  complete one.
+- **abbreviated paths.** A full path carries the account name, and often a
+  client's or an employer's in a project folder. Anything under the home folder
+  is written with a leading `~`, which keeps the shape and leaves you out of it.
+
+And one that runs the other way. A file can be called anything, and a downloaded
+one was named by someone else: `Ignore previous instructions and ....txt` is a
+perfectly legal filename. Since this text is written to be pasted into a model,
+every name sits inside a fenced block and the prompt states that the block is
+data rather than instruction. That is not a guarantee -- no such wording is --
+but omitting it would hand an attacker the instruction channel for nothing.
+
+**Names are sanitised before they go in.** Wording alone does not survive a name
+that is not what it looks like, and a file name is attacker-controlled text about
+to be pasted into a model *and* drawn in a terminal:
+
+| In a name | What it does |
+| --- | --- |
+| a newline | ends the `- name:` line, so the rest poses as metadata of its own -- an injection into *this* format, before any model is involved |
+| `\r`, `\b`, `\a` | overwrite what is already drawn, so a terminal shows something other than what is there |
+| ANSI escapes | move the cursor, recolour, and in some terminals reach the clipboard |
+| U+202E and friends | the Trojan Source trick: reverses displayed order without changing a byte -- `invoice⁧fdp.exe` reads as `invoice.pdf` |
+| U+200B, U+E0000-E007F | zero-width and tag characters, which render as *nothing* and are the usual way instructions are smuggled past a human reader into a model |
+| ``` ``` ``` | closes the data block, escaping the fence that was the defence |
+
+Each becomes a visible, inert `\u{XXXX}`. Backslashes are escaped first, so a
+file literally named `\u{202E}` cannot be confused with one that was escaped.
+Tags and symlink targets get the same treatment -- a tag was typed by whoever had
+the file and a target written by whoever made the link, and neither is more
+trustworthy than a name.
+
+When anything is escaped, **both** parties are told: the status line says which
+kind was found, and the prompt itself carries a note, because whoever reads the
+model's answer needs to know the names were not as they appeared.
+
+## Copying, with progress
+
+A copy to a slow disk used to be invisible: a sound at the end and nothing in
+between. Now, if it outlives **one second**, a panel appears in the corner of the
+window with the file being copied, a bar, bytes done of bytes total, a rough
+estimate once there is enough to extrapolate from, and a **Cancel** button. Under
+a second nothing appears at all -- a panel that flashes up and vanishes is worse
+than none.
+
+**The copy is `copyfile(3)`, not `FileManager.copyItem`.** Foundation's copy is a
+black box that returns when it is done: four gigabytes to a USB disk is minutes
+inside it with no way to report progress and no way to stop. `copyfile` calls
+back as it goes and takes `COPYFILE_QUIT` for an answer -- while still carrying
+metadata, extended attributes and ACLs, which a hand-rolled read/write loop would
+silently drop. Progress is therefore **per byte**, not per file, which is the
+only granularity that helps when the transfer is one large file.
+
+A subtlety that cost a real bug: returning `COPYFILE_CONTINUE` from an *error*
+stage tells copyfile to carry on, and the whole call then reports success. A
+refused overwrite, a permission hole part-way through a tree, or a full disk
+would all have been swallowed and announced as a completed copy. The callback
+quits on error, and there is a test for it.
+
+Progress updates are throttled to ten a second on the copying thread. Reporting
+every callback would hop to the main actor thousands of times for one large file
+and cost more than the copying.
+
+**A move within one volume is a rename** -- instant, nothing to report and
+nothing to cancel -- so it skips all of this. Across volumes a move is a copy
+followed by a delete, and the delete only happens once the copy is known to have
+worked.
+
+**Cancelling asks what to do with what already arrived.** Whole items that
+finished are real files; a half-copied one is removed by the copy itself.
+Whether to keep the finished ones is a judgement -- a partly copied folder may be
+worth keeping or may be clutter -- so it is asked rather than decided. Removing
+them deletes them outright rather than via the Trash: they were made moments ago
+by an operation you stopped, and putting them in the Trash would mean deleting
+them twice.
+
+**Transfers run one at a time**, because they share the clash dialog's
+continuation -- a second one started while that dialog is open would strand the
+first for ever. Serialised is not the same as ignored, though: asking for
+another transfer while one runs now says so at once, and the panel carries an
+"N more waiting" line. Before that it looked exactly like nothing happening,
+until the second operation began minutes later of its own accord.
+
+The panes are reloaded **and awaited** at the end of each transfer, not fired and
+forgotten. The next transfer in the chain starts the moment the previous one
+returns, and an un-awaited reload was queued behind it -- so a moved item sat
+visibly in the source pane until an unrelated copy had finished.
+
+The panel is an **overlay**, not a sheet. Only one presentation modifier per view
+is reliable here, a clash dialog has to be able to appear *during* a transfer,
+and an overlay leaves the panes visible while you watch.
 
 ## Drag and drop
 
@@ -842,6 +1052,8 @@ project.
 ## Releasing
 
 ```sh
+./build.sh version    # print the version and build number
+./build.sh version 1.0.1   # set it
 ./build.sh dmg        # Release build, packaged as build/Diptych-<version>.dmg
 ./build.sh notarize   # submit that image to Apple and staple the ticket
 ```
@@ -864,6 +1076,14 @@ certificate in the keychain, and credentials stored once:
 xcrun notarytool store-credentials Diptych \
     --apple-id you@example.com --team-id TEAMID --password <app-specific-password>
 ```
+
+The version lives in `Diptych.xcodeproj/project.pbxproj` as `MARKETING_VERSION`,
+**twice** -- once per build configuration -- and there is no `Info.plist` to
+edit: `GENERATE_INFOPLIST_FILE` is on, so Xcode synthesises one at build time.
+`./build.sh version 1.0.1` writes both copies, so Debug and Release cannot drift
+apart, and increments `CURRENT_PROJECT_VERSION` alongside -- that is the build
+number, and Apple rejects a second upload that reuses one. The DMG filename and
+the volume name follow from the built bundle, so nothing else needs editing.
 
 Then `./build.sh dmg && ./build.sh notarize`. Stapling matters: it puts the
 ticket inside the image, so the app opens even on a machine that is offline the

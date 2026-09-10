@@ -100,6 +100,16 @@ struct AppearanceSettingsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+            Toggle("List folders before files", isOn: $store.configuration.foldersFirst)
+                .toggleStyle(.checkbox)
+            Text("Off, everything is in one sequence in whatever order the column "
+                 + "header says \u{2014} which is what you want when sorting by size or "
+                 + "date. \u{201C}..\u{201D} stays on top either way.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
             HStack {
                 Picker("Font", selection: $store.configuration.fontName) {
                     Text("System").tag("")

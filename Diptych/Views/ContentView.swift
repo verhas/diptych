@@ -43,6 +43,24 @@ struct ContentView: View {
                 Divider()
                 FunctionBar(model: model)
             }
+            .overlay(alignment: .bottomTrailing) { transferOverlay }
+            .animation(.easeInOut(duration: 0.15), value: model.transferProgress == nil)
+            // Attached here rather than beside the .sheet above: one
+            // presentation modifier per view is the rule this file already
+            // learned the hard way.
+            .confirmationDialog(partialTransferTitle,
+                                isPresented: Binding(get: { model.partialTransfer != nil },
+                                                     set: { if !$0 { model.partialTransfer = nil } }),
+                                titleVisibility: .visible) {
+                Button("Keep") { model.keepPartialTransfer() }
+                Button("Remove", role: .destructive) { model.discardPartialTransfer() }
+                Button("Cancel", role: .cancel) { model.keepPartialTransfer() }
+            } message: {
+                let count = model.partialTransfer?.targets.count ?? 0
+                Text("\(count) item\(count == 1 ? "" : "s") had already arrived when you "
+                     + "stopped. Removing them deletes them outright -- they are not put in "
+                     + "the Trash, having been made moments ago.")
+            }
         }
         .navigationSplitViewStyle(.balanced)
 
@@ -154,6 +172,66 @@ struct ContentView: View {
         // of them takes effect, which is why the rename field came up empty.
         .sheet(item: $model.dialog) { dialog in
             DialogSheet(model: model, dialog: dialog)
+        }
+    }
+
+    private var partialTransferTitle: String {
+        let moved = model.partialTransfer?.kind == .move
+        return "Keep what was already \(moved ? "moved" : "copied")?"
+    }
+
+    /// Progress is an **overlay**, not a second sheet. Only one presentation
+    /// modifier on a view is reliable -- the comment above `.sheet` is there
+    /// because stacking them once made the rename field come up empty -- and a
+    /// clash dialog has to be able to appear *during* a transfer, which a
+    /// second sheet on the same view would prevent. An overlay also leaves the
+    /// panes visible, which is what you want while watching a copy.
+    @ViewBuilder
+    private var transferOverlay: some View {
+        if let progress = model.transferProgress {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(progress.verb) \(progress.itemCount) item"
+                     + (progress.itemCount == 1 ? "" : "s"))
+                    .font(.system(size: 12, weight: .medium))
+
+                if let fraction = progress.fraction {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView()
+                }
+
+                Text(progress.currentItem.isEmpty ? " " : progress.currentItem)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+
+                // Transfers run one at a time, so anything asked for meanwhile
+                // is waiting rather than lost. Saying so is the difference
+                // between "queued" and "ignored".
+                if model.queuedTransfers > 0 {
+                    Text("\(model.queuedTransfers) more waiting")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Text(progress.detail)
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    if let remaining = progress.remaining {
+                        Text("\u{2022} \(remaining)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(progress.isCancelling ? "Stopping\u{2026}" : "Cancel") {
+                        model.cancelTransfer()
+                    }
+                    .disabled(progress.isCancelling)
+                }
+            }
+            .padding(14)
+            .frame(width: 380)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(radius: 12, y: 4)
+            .padding(20)
+            .transition(.opacity)
         }
     }
 
@@ -439,6 +517,7 @@ struct FunctionBar: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            key("F1", "Prompt")   { model.copyPromptToClipboard() }
             key("F2", "Rename")   { model.requestRename() }
             key("F3", "View")     { model.viewSelection() }
             key("F4", "Access")   { model.requestPermissionEdit() }

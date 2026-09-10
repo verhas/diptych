@@ -11,6 +11,7 @@
 #   ./build.sh test      run the unit tests
 #   ./build.sh dmg       build Release and package it as a mountable .dmg
 #   ./build.sh notarize  submit the .dmg to Apple and staple the ticket
+#   ./build.sh version [x.y.z]   show, or set, the version
 #
 # Everything Xcode does with Cmd-R, without opening Xcode.
 
@@ -129,6 +130,57 @@ developer_id() {
 # Needs credentials stored once with:
 #   xcrun notarytool store-credentials Diptych \
 #       --apple-id you@example.com --team-id TEAMID --password <app-specific-password>
+# The version lives in the project file, twice -- once per build configuration --
+# and there is no Info.plist to edit: GENERATE_INFOPLIST_FILE is on, so Xcode
+# synthesises one from these settings at build time.
+#
+# Setting it by hand is the kind of thing that is easy to half-do. Change only
+# the Release copy and a debug build reports a different version from the one
+# you shipped; forget CURRENT_PROJECT_VERSION and Apple rejects the second
+# upload of a version as a duplicate, because that number is what distinguishes
+# two builds of the same release.
+show_or_set_version() {
+    local wanted="${1:-}"
+    local current build_number
+    # sed rather than awk fields: the lines are tab-indented, so which field
+    # holds the value depends on how the separator treats leading whitespace --
+    # and getting that wrong reads an empty string, which then silently sets the
+    # build number to 1 instead of incrementing it.
+    current=$(sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' "$PROJECT/project.pbxproj" | head -1)
+    build_number=$(sed -n 's/.*CURRENT_PROJECT_VERSION = \(.*\);/\1/p' \
+                   "$PROJECT/project.pbxproj" | head -1)
+    [ -n "$current" ] || die "no MARKETING_VERSION in $PROJECT/project.pbxproj"
+    case "$build_number" in
+        ''|*[!0-9]*) die "CURRENT_PROJECT_VERSION is '$build_number', which is not a number" ;;
+    esac
+
+    if [ -z "$wanted" ]; then
+        printf '%s (build %s)\n' "$current" "$build_number"
+        return
+    fi
+
+    # Semantic versioning, since that is what the README promises and what the
+    # DMG filename becomes.
+    case "$wanted" in
+        [0-9]*.[0-9]*.[0-9]*) ;;
+        *) die "version must look like 1.2.3, not '$wanted'" ;;
+    esac
+
+    local count
+    count=$(grep -c "MARKETING_VERSION = " "$PROJECT/project.pbxproj" || true)
+    [ "$count" -ge 2 ] || die "expected a MARKETING_VERSION per configuration, found $count"
+
+    # Every occurrence, so the configurations cannot drift apart.
+    sed -i '' "s/MARKETING_VERSION = .*;/MARKETING_VERSION = $wanted;/g" \
+        "$PROJECT/project.pbxproj"
+    sed -i '' "s/CURRENT_PROJECT_VERSION = .*;/CURRENT_PROJECT_VERSION = $(( build_number + 1 ));/g" \
+        "$PROJECT/project.pbxproj"
+
+    printf '%s==> %s (build %s) -- was %s (build %s)%s\n' \
+        "$GREEN" "$wanted" "$(( build_number + 1 ))" "$current" "$build_number" "$OFF"
+    printf '    %s\n' "The next ./build.sh dmg writes build/Diptych-$wanted.dmg"
+}
+
 notarize_dmg() {
     local dmg
     dmg=$(/bin/ls -t "$PWD/build"/Diptych-*.dmg 2>/dev/null | head -1)
@@ -331,5 +383,6 @@ case "${1:-build}" in
     test)     run_tests ;;
     dmg)      make_dmg ;;
     notarize) notarize_dmg ;;
-    *)     die "unknown command '$1' (build | run | release | test | clean | path | stop | dmg | notarize)" ;;
+    version)  show_or_set_version "${2:-}" ;;
+    *)     die "unknown command '$1' (build | run | release | test | clean | path | stop | dmg | notarize | version)" ;;
 esac
