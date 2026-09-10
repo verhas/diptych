@@ -13,6 +13,11 @@ final class GitService {
 
     static let shared = GitService()
 
+    /// Posted when the Git program, or whether it is used at all, has changed.
+    /// Panes listen, because a pane that was drawn before Git was available has
+    /// no colours and nothing else would ever tell it to look again.
+    static let availabilityChanged = Notification.Name("dev.verhas.Diptych.gitAvailability")
+
     /// A status that takes longer than this is a repository Diptych should not
     /// be holding up a pane for. No colours is an acceptable outcome; a stalled
     /// listing is not.
@@ -39,6 +44,15 @@ final class GitService {
     /// Re-resolved at launch and whenever the settings change, so a Git that
     /// has been moved or uninstalled turns the feature off with an explanation
     /// rather than failing at every call.
+    /// Resolved once at startup, and again whenever the setting or the path
+    /// changes. Without the startup call the first window drew with no colours
+    /// and only picked them up if the user happened to open Settings.
+    func locateIfNeeded() {
+        guard ConfigStore.shared.configuration.gitEnabled else { return }
+        guard tool == nil, toolError == nil else { return }
+        locate()
+    }
+
     func locate() {
         let override = ConfigStore.shared.configuration.gitPath
         let found = GitTool.locate(override: override.isEmpty ? nil : override)
@@ -49,6 +63,7 @@ final class GitService {
                : "There is no usable Git program at \(override).")
             : nil
         forgetEverything()
+        NotificationCenter.default.post(name: Self.availabilityChanged, object: nil)
     }
 
     func forgetEverything() {

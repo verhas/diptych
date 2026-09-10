@@ -125,7 +125,7 @@ developer_id() {
 }
 
 # Submit the image to Apple and staple the resulting ticket, so the app opens
-# without a warning even on a machine that has never seen it.
+# without a werning even on a machine that has never seen it.
 #
 # Needs credentials stored once with:
 #   xcrun notarytool store-credentials Diptych \

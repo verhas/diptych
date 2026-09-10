@@ -205,6 +205,19 @@ final class AppModel {
             }
         }
 
+        // Whether Git is available decides whether the panes have colours, and
+        // a pane drawn before it was resolved has none. Nothing else would
+        // tell it to look again.
+        NotificationCenter.default.addObserver(
+            forName: GitService.availabilityChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.left.reload()
+                self?.right.reload()
+            }
+        }
+        GitService.shared.locateIfNeeded()
+
         // Write a slot on first launch, so ~/.diptych exists and is editable
         // before the user has changed anything.
         persist()

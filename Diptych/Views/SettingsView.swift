@@ -231,8 +231,10 @@ struct GitSettingsView: View {
             }
         }
         .padding(20)
-        .onAppear { if git.tool == nil { git.locate() } }
-        .onChange(of: store.configuration.gitEnabled) { _, on in if on { git.locate() } }
+        .onAppear { git.locateIfNeeded() }
+        // Both directions: switching it off has to take the colours away, not
+        // merely stop refreshing them.
+        .onChange(of: store.configuration.gitEnabled) { _, _ in git.locate() }
     }
 
     @ViewBuilder

@@ -24,7 +24,7 @@ Developers already have better tools. Diptych is not competing with them, and
 should not grow features that only make sense to someone who knows what an
 index is.
 
-## Vocabulary
+## Vocabulary  
 
 Used consistently in every string. Git's own words are avoided, including in
 menu items, because they are either jargon (`add`, `stage`, `HEAD`) or actively

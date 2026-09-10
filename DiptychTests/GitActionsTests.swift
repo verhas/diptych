@@ -79,6 +79,34 @@ final class GitActionsTests: XCTestCase {
         return theirs
     }
 
+    // MARK: - Availability
+
+    func testLocateIfNeededDoesNothingWhileTheSettingIsOff() {
+        // The panes ask at startup; with the feature off that must stay free.
+        let original = ConfigStore.shared.configuration.gitEnabled
+        defer { ConfigStore.shared.configuration.gitEnabled = original }
+
+        ConfigStore.shared.configuration.gitEnabled = false
+        GitService.shared.forgetEverything()
+        GitService.shared.locateIfNeeded()
+
+        XCTAssertFalse(GitService.shared.isEnabled)
+    }
+
+    func testResolvingGitAnnouncesItself() async throws {
+        // A pane drawn before Git was resolved has no colours, and nothing else
+        // would ever tell it to look again -- which is why locate() posts.
+        let original = ConfigStore.shared.configuration.gitEnabled
+        defer { ConfigStore.shared.configuration.gitEnabled = original }
+        ConfigStore.shared.configuration.gitEnabled = true
+
+        let heard = expectation(forNotification: GitService.availabilityChanged,
+                                object: nil, notificationCenter: .default)
+        GitService.shared.locate()
+        await fulfillment(of: [heard], timeout: 5)
+        XCTAssertTrue(GitService.shared.isEnabled)
+    }
+
     // MARK: - What the dialog lists
 
     func testChangesAreSplitIntoSendingAndNew() async throws {
