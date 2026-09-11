@@ -376,7 +376,15 @@ final class AppModel {
             flash("That is the same file on both sides", error: true)
             return
         }
-        openDiffWindow?(DiffPair(left: pair.left, right: pair.right))
+        let asked = DiffPair(left: pair.left, right: pair.right)
+        // Two windows on one file is a way to lose work with no warning: each
+        // saves the whole file from its own copy, so whichever is saved second
+        // quietly wins.
+        if let clash = DiffWindows.shared.alreadyOpen(asked) {
+            flash("\(clash.lastPathComponent) is already open in a comparison", error: true)
+            return
+        }
+        openDiffWindow?(asked)
     }
 
     private func pairToCompare() -> (left: URL, right: URL, hasFolder: Bool)? {

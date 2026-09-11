@@ -1,7 +1,8 @@
 import SwiftUI
+import AppKit
 
 /// Two files side by side, which is the shape this whole application is named
-/// after. Read only for now.
+/// after. At most one of them editable.
 ///
 /// One scroll view holding rows of two columns, rather than two scroll views
 /// kept in step: the columns cannot drift apart if they are the same row, and
@@ -9,38 +10,54 @@ import SwiftUI
 /// synchronised by hand is the version of this that never quite works.
 struct DiffView: View {
 
-    let pair: DiffPair
-
-    @State private var diff: TextDiff?
-    @State private var failure: String?
+    @State private var document: DiffDocument
     @State private var atChange = 0
-    @State private var onlyChanges = false
+    @State private var notice: String?
+    @State private var guard_ = CloseGuard()
+    @State private var window: NSWindow?
+
+    private var pair: DiffPair { document.pair }
+    private var diff: TextDiff { document.diff }
+
+    init(pair: DiffPair) {
+        _document = State(initialValue: DiffDocument(pair: pair))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             content
+            if let notice {
+                Divider()
+                HStack {
+                    Text(notice).font(.subheadline).foregroundStyle(.orange)
+                    Spacer()
+                    Button("OK") { self.notice = nil }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
         }
-        .task(id: pair) { await load() }
-    }
-
-    // MARK: - Loading
-
-    private func load() async {
-        diff = nil
-        failure = nil
-        let pair = pair
-        let outcome: Result<TextDiff, Error> = await BlockingWork.run {
-            do { return .success(try TextDiff.compare(pair.left, pair.right)) }
-            catch { return .failure(error) }
+        .task { await document.load() }
+        // SwiftUI cannot refuse a window close and this window needs to:
+        // closing with unsaved edits must ask rather than discard.
+        .background(WindowAccessor { found in
+            guard let found else { return }
+            // Held, rather than looked up later: `NSApp.keyWindow` is whichever
+            // window happens to be in front, which is not necessarily this one.
+            if window !== found { window = found }
+            guard found.delegate !== guard_ else { return }
+            guard_.shouldClose = { closeIsAllowed() }
+            found.delegate = guard_
+        })
+        .onChange(of: document.isDirty) { _, dirty in
+            // The dot in the close button, and the only unsaved-changes cue
+            // macOS gives a window that is not an NSDocument.
+            window?.isDocumentEdited = dirty
         }
-        switch outcome {
-        case .success(let result):
-            diff = result
-        case .failure(let error):
-            failure = (error as? TextDiff.Failure)?.message ?? error.localizedDescription
-        }
+        .onAppear { DiffWindows.shared.claim(pair) }
+        .onDisappear { DiffWindows.shared.release(pair) }
     }
 
     // MARK: - Chrome
@@ -48,29 +65,36 @@ struct DiffView: View {
     private var header: some View {
         VStack(spacing: 6) {
             HStack(spacing: 0) {
-                name(pair.left, folder: pair.folders?.left)
-                name(pair.right, folder: pair.folders?.right)
+                side(.left)
+                side(.right)
             }
-            if let diff {
-                HStack(spacing: 12) {
-                    Text(summary(diff))
-                        .font(.subheadline)
-                        .foregroundStyle(diff.isIdentical ? .secondary : .primary)
-                    Spacer()
-                    if !diff.isIdentical {
-                        Toggle("Only what differs", isOn: $onlyChanges)
-                            .toggleStyle(.checkbox)
-                        Button { step(-1, in: diff) } label: { Image(systemName: "chevron.up") }
-                            .help("Previous difference")
-                            .keyboardShortcut(.upArrow, modifiers: .command)
-                        Button { step(1, in: diff) } label: { Image(systemName: "chevron.down") }
-                            .help("Next difference")
-                            .keyboardShortcut(.downArrow, modifiers: .command)
-                        Text("\(min(atChange + 1, diff.changeStarts.count)) of "
-                             + "\(diff.changeStarts.count)")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+            HStack(spacing: 12) {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(diff.isIdentical ? .secondary : .primary)
+                Spacer()
+                Toggle("Ignore spacing", isOn: $document.ignoreWhitespace)
+                    .toggleStyle(.checkbox)
+                if document.editable != nil {
+                    Button("Undo") { document.undo() }
+                        .disabled(!document.canUndo)
+                        .keyboardShortcut("z", modifiers: .command)
+                    Button("Redo") { document.redo() }
+                        .disabled(!document.canRedo)
+                        .keyboardShortcut("z", modifiers: [.command, .shift])
+                    Button("Save") { saveNow() }
+                        .disabled(!document.isDirty)
+                        .keyboardShortcut("s", modifiers: .command)
+                }
+                if !diff.isIdentical {
+                    Button { step(-1) } label: { Image(systemName: "chevron.up") }
+                        .help("Previous difference")
+                    Button { step(1) } label: { Image(systemName: "chevron.down") }
+                        .help("Next difference")
+                    Text("\(min(atChange + 1, diff.changeStarts.count)) of "
+                         + "\(diff.changeStarts.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
         }
@@ -78,73 +102,85 @@ struct DiffView: View {
         .padding(.vertical, 8)
     }
 
-    private func name(_ url: URL, folder: String?) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(url.lastPathComponent)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            // Shown only when the two files are in different folders, which is
-            // the case where the names alone leave the reader guessing which
-            // side is which. Truncated at the *front*, because the end of a
-            // path is the part that distinguishes it.
-            if let folder {
-                Text(folder)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+    /// One file's name, its folder when that is what tells the two apart, and
+    /// its padlock.
+    private func side(_ which: DiffDocument.Side) -> some View {
+        let url = which == .left ? pair.left : pair.right
+        let folders = pair.folders
+        return HStack(spacing: 6) {
+            Button {
+                unlock(which)
+            } label: {
+                Image(systemName: document.editable == which ? "lock.open" : "lock")
             }
+            .buttonStyle(.borderless)
+            .help(document.editable == which
+                  ? "\(url.lastPathComponent) can be edited"
+                  : "Edit \(url.lastPathComponent)")
+            .disabled(document.choiceIsMade && document.editable != which)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(url.lastPathComponent)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                // Shown only when the two files are in different folders, which
+                // is the case where the names alone leave the reader guessing
+                // which side is which. Truncated at the *front*, because the
+                // end of a path is the part that distinguishes it.
+                if let folder = which == .left ? folders?.left : folders?.right {
+                    Text(folder)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            .help(url.path)
+            Spacer(minLength: 0)
         }
-        .help(url.path)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func summary(_ diff: TextDiff) -> String {
+    private var summary: String {
+        if let failure = document.failure { return failure }
         guard !diff.isIdentical else { return "These two files are the same." }
         let count = diff.changeStarts.count
         return "\(count) difference\(count == 1 ? "" : "s")"
+            + (document.isDirty ? "  \u{2022}  not saved yet" : "")
     }
 
     // MARK: - The comparison
 
     @ViewBuilder
     private var content: some View {
-        if let failure {
+        if let failure = document.failure {
             message(failure)
-        } else if let diff {
-            if diff.isIdentical {
-                message("Every line matches, including the blank ones.")
-            } else {
-                ScrollViewReader { scroller in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(shown(diff)) { row in
-                                line(row).id(row.id)
-                            }
+        } else if document.left == nil {
+            message("Reading\u{2026}")
+        } else if diff.isIdentical && !document.isDirty {
+            message("Every line matches, including the blank ones.")
+        } else {
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(diff.rows) { row in
+                            line(row).id(row.id)
                         }
                     }
-                    .onChange(of: atChange) { _, index in
-                        guard diff.changeStarts.indices.contains(index) else { return }
-                        withAnimation { scroller.scrollTo(diff.changeStarts[index], anchor: .center) }
-                    }
+                }
+                .onChange(of: atChange) { _, index in
+                    guard diff.changeStarts.indices.contains(index) else { return }
+                    withAnimation { scroller.scrollTo(diff.changeStarts[index], anchor: .center) }
                 }
             }
-        } else {
-            message("Reading\u{2026}")
         }
-    }
-
-    /// Hiding the matching lines is the difference between reading a diff and
-    /// hunting through a document for the three lines that moved.
-    private func shown(_ diff: TextDiff) -> [TextDiff.Row] {
-        onlyChanges ? diff.rows.filter { $0.kind.isChange } : diff.rows
     }
 
     private func message(_ text: String) -> some View {
         VStack {
             Spacer()
-            Text(text).foregroundStyle(.secondary)
+            Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -152,14 +188,91 @@ struct DiffView: View {
 
     private func line(_ row: TextDiff.Row) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            half(number: row.leftNumber, text: row.left, spans: row.leftSpans,
-                 marker: row.kind == .same ? " " : (row.left == nil ? " " : "\u{2212}"),
-                 tint: row.left == nil ? nil : (row.kind == .same ? nil : Color.red))
-            Divider()
-            half(number: row.rightNumber, text: row.right, spans: row.rightSpans,
-                 marker: row.kind == .same ? " " : (row.right == nil ? " " : "+"),
-                 tint: row.right == nil ? nil : (row.kind == .same ? nil : Color.green))
+            half(row, side: .left)
+            // The button lives between the columns and points into the side
+            // that can take it, so there is never a question which way the
+            // text is about to move.
+            takeButton(row)
+            half(row, side: .right)
         }
+    }
+
+    @ViewBuilder
+    private func takeButton(_ row: TextDiff.Row) -> some View {
+        if let editable = document.editable, row.kind.isChange,
+           diff.changeStarts.contains(row.id) {
+            Button {
+                document.takeDifference(atRow: row.id)
+            } label: {
+                Image(systemName: editable == .left ? "arrow.left" : "arrow.right")
+                    .font(.system(size: 9))
+            }
+            .buttonStyle(.borderless)
+            .frame(width: 18)
+            .help("Make this difference the same as the other side")
+        } else {
+            Divider().frame(width: 18)
+        }
+    }
+
+    private func half(_ row: TextDiff.Row, side: DiffDocument.Side) -> some View {
+        let text = side == .left ? row.left : row.right
+        let number = side == .left ? row.leftNumber : row.rightNumber
+        let spans = side == .left ? row.leftSpans : row.rightSpans
+        let tint: Color? = text == nil ? nil
+            : (row.kind == .same ? nil : (side == .left ? .red : .green))
+        let index = number.map { $0 - 1 }
+        let isEditable = document.editable == side && index != nil
+
+        return HStack(alignment: .top, spacing: 6) {
+            Text(number.map(String.init) ?? "")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .frame(width: 40, alignment: .trailing)
+            // Stacked with the diff colour rather than competing with it: the
+            // background says how this line differs from the other file, the
+            // bar says you changed it.
+            Rectangle()
+                .fill(document.isEdited(side, line: index) ? Color.accentColor : .clear)
+                .frame(width: 3)
+            // A marker as well as a colour, so the two sides are still telling
+            // the reader apart when the colours are not.
+            Text(row.kind == .same ? " " : (text == nil ? " " : (side == .left ? "\u{2212}" : "+")))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 10)
+
+            if isEditable, let index {
+                // The field owns its text while it is being typed into and the
+                // document owns it the rest of the time, which is why the
+                // binding is constant: a two-way binding here would push every
+                // keystroke into the document and recompute the alignment
+                // under the caret. No tap gesture either -- one placed over a
+                // text field swallows the click that would put the caret where
+                // the user pointed.
+                DiffLineField(text: .constant(text ?? ""),
+                              onFinish: { document.setLine(index, to: $0) },
+                              onSplit: { value, offset in
+                                  document.setLine(index, to: value)
+                                  document.splitLine(index, at: offset)
+                              },
+                              onJoin: { document.joinWithPrevious(index) })
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                body(of: text ?? "", spans: spans, tint: tint)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 12, design: .monospaced))
+        .padding(.vertical, 1)
+        .padding(.trailing, 6)
+        // Light enough to read through in either theme. A missing line is
+        // shaded too, so the gap reads as part of the comparison rather than
+        // as the end of the file.
+        .background(tint?.opacity(0.16) ?? (text == nil ? Color.secondary.opacity(0.06) : .clear))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The line, with the words that actually changed picked out when the two
@@ -183,36 +296,60 @@ struct DiffView: View {
         return Text(built)
     }
 
-    private func half(number: Int?, text: String?, spans: [TextDiff.Span],
-                      marker: String, tint: Color?) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(number.map(String.init) ?? "")
-                .foregroundStyle(.tertiary)
-                .frame(width: 44, alignment: .trailing)
-            // A marker as well as a colour, so the two sides are still telling
-            // the reader apart when the colours are not.
-            Text(marker)
-                .foregroundStyle(.secondary)
-                .frame(width: 10)
-            body(of: text ?? "", spans: spans, tint: tint)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 0)
-        }
-        .font(.system(size: 12, design: .monospaced))
-        .padding(.vertical, 1)
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Light enough to read through in either theme. A missing line is
-        // shaded too, so the gap reads as part of the comparison rather than
-        // as the end of the file.
-        .background(tint?.opacity(0.16) ?? (text == nil ? Color.secondary.opacity(0.06) : .clear))
+    // MARK: - Editing
+
+    private func unlock(_ side: DiffDocument.Side) {
+        if let refusal = document.unlock(side) { notice = refusal.message }
     }
 
-    private func step(_ by: Int, in diff: TextDiff) {
+    private func step(_ by: Int) {
         guard !diff.changeStarts.isEmpty else { return }
         // Wrapping, because the alternative is a button that stops working and
         // does not say why.
         atChange = (atChange + by + diff.changeStarts.count) % diff.changeStarts.count
+    }
+
+    // MARK: - Saving and closing
+
+    private func saveNow() {
+        switch document.save() {
+        case .saved, .nothingToDo:
+            notice = nil
+        case .changedUnderneath(let name):
+            notice = "\u{201C}\(name)\u{201D} was changed by something else since this window "
+                   + "opened. Saving now would throw that away. Close this window and compare "
+                   + "the files again."
+        case .failed(let reason):
+            notice = reason
+        }
+    }
+
+    /// Asked by AppKit before the window closes.
+    ///
+    /// An `NSAlert` run modally, rather than a SwiftUI dialog: the answer is
+    /// needed *now*, as a return value, and this view has already spent its one
+    /// reliable presentation.
+    private func closeIsAllowed() -> Bool {
+        guard document.isDirty, let side = document.editable else { return true }
+        let name = (side == .left ? pair.left : pair.right).lastPathComponent
+
+        let alert = NSAlert()
+        alert.messageText = "Save the changes to \u{201C}\(name)\u{201D}?"
+        alert.informativeText = "If you close without saving, what you typed is lost."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Don't Save")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            saveNow()
+            // A save that could not go through must not take the window with
+            // it, or the refusal is announced to nobody.
+            return !document.isDirty
+        case .alertSecondButtonReturn:
+            return false
+        default:
+            return true
+        }
     }
 }
