@@ -170,7 +170,7 @@ final class GitActionsTests: XCTestCase {
         let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
                                                   message: "an edit", inRepository: mine)
 
-        guard case .sent(let count) = result else { return XCTFail("\(result)") }
+        guard case .sent(let count, _) = result else { return XCTFail("\(result)") }
         XCTAssertEqual(count, 1)
         // Really on the shared copy, not just committed here.
         let theirs = try colleague()
@@ -255,10 +255,11 @@ final class GitActionsTests: XCTestCase {
         var changes = await GitService.shared.changes(inRepository: mine)
         XCTAssertEqual(changes.sending.first { $0.path == "chapter4.md" }?.state, .added)
 
-        // Someone else pushes first, so ours is refused.
+        // Someone else adds the same file first, so ours cannot go.
         let theirs = try colleague()
-        try write("readme.md", "theirs\n", in: theirs)
-        try run(["commit", "-am", "theirs"], in: theirs)
+        try write("chapter4.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "theirs"], in: theirs)
         try run(["push"], in: theirs)
 
         let result = await GitService.shared.send(paths: ["chapter4.md"], newPaths: [],
@@ -280,8 +281,9 @@ final class GitActionsTests: XCTestCase {
         try write("ticked.md", "mine\n")
 
         let theirs = try colleague()
-        try write("readme.md", "theirs\n", in: theirs)
-        try run(["commit", "-am", "theirs"], in: theirs)
+        try write("ticked.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "theirs"], in: theirs)
         try run(["push"], in: theirs)
 
         _ = await GitService.shared.send(paths: [], newPaths: ["ticked.md"],
@@ -292,11 +294,11 @@ final class GitActionsTests: XCTestCase {
         XCTAssertEqual(changes.sending.first { $0.path == "ticked.md" }?.state, .added)
     }
 
-    func testARefusalWithNoClashSaysThereIsNone() async throws {
-        // The commonest case, and the one that needs no decision: the shared
-        // copy moved on, but nobody touched the same files. A push is refused
-        // for that alone, whichever files were ticked -- which is why
-        // deselecting one cannot help.
+    func testAnUnrelatedChangeBySomeoneElseDoesNotStopASend() async throws {
+        // The commonest case, and the one that needs no decision at all: the
+        // shared copy moved on, but nobody touched the same files. Git refuses
+        // the push for being behind; that is Diptych's problem to solve, not
+        // something to hand to the user as a question.
         try await readyGit()
         let theirs = try colleague()
         try write("theirs-only.md", "theirs\n", in: theirs)
@@ -309,9 +311,11 @@ final class GitActionsTests: XCTestCase {
         let result = await GitService.shared.send(paths: [], newPaths: ["mine-only.md"],
                                                   message: "mine", inRepository: mine)
 
-        guard case .notSent(_, _, let conflicts) = result else { return XCTFail("\(result)") }
-        XCTAssertTrue(conflicts.isEmpty,
-                      "nothing is contested, so there is nothing to decide about")
+        guard case .sent(_, let kept) = result else { return XCTFail("\(result)") }
+        XCTAssertTrue(kept.isEmpty, "nothing clashed, so nothing was set aside")
+        let checking = try colleague2()
+        XCTAssertEqual(read("mine-only.md", in: checking), "mine\n")
+        XCTAssertEqual(read("theirs-only.md"), "theirs\n", "and theirs arrived here")
     }
 
     func testARefusalWithAClashNamesTheFiles() async throws {
@@ -337,12 +341,11 @@ final class GitActionsTests: XCTestCase {
                        "and not what the user already knows")
     }
 
-    func testAnUncontestedFileCanBeSentOnceTheContestedOneIsSetAside() async throws {
-        // The reported case: two files changed here, one of them also changed
-        // by someone else. Deselecting the contested one does not let the other
-        // through -- a push is refused for being behind, and the update itself
-        // is blocked by the contested file whether or not it was ticked. So the
-        // clash has to be dealt with before anything can go.
+    func testAnUncontestedFileIsSentWhileTheContestedOneWaits() async throws {
+        // The reported case, and the one Diptych got wrong for a long time:
+        // two files changed here, one of them also changed by someone else.
+        // Leaving the contested one unticked must send the other -- any other
+        // Git client manages it, and so it is a legitimate commit and push.
         try await readyGit()
         try write("second.md", "first version\n")
         try run(["add", "-A"], in: mine)
@@ -358,25 +361,131 @@ final class GitActionsTests: XCTestCase {
         try write("readme.md", "mine\n")
         try write("second.md", "mine too\n")
 
-        // Sending only the uncontested one is still refused.
-        let refused = await GitService.shared.send(paths: ["second.md"], newPaths: [],
-                                                   message: "just the second",
-                                                   inRepository: mine)
-        guard case .notSent(_, _, let conflicts) = refused else { return XCTFail("\(refused)") }
-        XCTAssertEqual(conflicts, ["readme.md"],
-                       "the clash is reported even though it was not ticked")
-
-        // Setting the contested one aside unblocks the rest.
-        _ = await GitService.shared.keepCopiesAndTakeShared(paths: conflicts,
-                                                            inRepository: mine)
         let sent = await GitService.shared.send(paths: ["second.md"], newPaths: [],
                                                 message: "just the second", inRepository: mine)
 
-        guard case .sent = sent else { return XCTFail("\(sent)") }
+        guard case .sent(let count, let kept) = sent else { return XCTFail("\(sent)") }
+        XCTAssertEqual(count, 1)
         let checking = try colleague2()
-        XCTAssertEqual(read("second.md", in: checking), "mine too\n", "the uncontested one went")
-        XCTAssertEqual(read("readme.md"), "theirs\n", "the contested one took the shared version")
-        XCTAssertEqual(read("readme (my version).md"), "mine\n", "with mine kept beside it")
+        XCTAssertEqual(read("second.md", in: checking), "mine too\n", "the unticked one went")
+        XCTAssertEqual(read("readme.md", in: checking), "theirs\n",
+                       "and the contested one was left entirely alone")
+
+        // Their readme arrived; mine survives, one way or the other.
+        if kept.isEmpty {
+            XCTAssertEqual(read("readme.md"), "mine\n", "still mine, still waiting to be sent")
+        } else {
+            XCTAssertEqual(read("readme (my version).md"), "mine\n")
+        }
+        XCTAssertFalse(read("readme.md")?.contains("<<<<<<<") ?? false,
+                       "no conflict markers, ever")
+    }
+
+    func testAClashOnTheWayBackIsKeptAsACopyRatherThanMarkers() async throws {
+        // Catching up puts the unsent changes aside and brings them back. When
+        // that genuinely clashes Git writes <<<<<<< into the file, which is
+        // unreadable to the people this is for -- so the two versions are
+        // separated into two files instead.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+        try write("second.md", "mine too\n")
+
+        let sent = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                message: "just the second", inRepository: mine)
+        guard case .sent(_, let kept) = sent else { return XCTFail("\(sent)") }
+
+        XCTAssertEqual(kept, ["readme (my version).md"], "named so the user can find it")
+        XCTAssertEqual(read("readme (my version).md"), "mine\n")
+        XCTAssertEqual(read("readme.md"), "theirs\n")
+        XCTAssertEqual(try run(["stash", "list"], in: mine), "", "and nothing left half-done")
+        let status = try run(["status", "--porcelain"], in: mine)
+        XCTAssertFalse(status.contains("UU"), "no unresolved state: \(status)")
+    }
+
+    func testAKeptCopyFromCatchingUpIsInvisibleToGit() async throws {
+        // Otherwise the copy itself turns up as something new to send, and the
+        // user is asked about a file Diptych made for them.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+        try write("second.md", "mine too\n")
+        _ = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                         message: "just the second", inRepository: mine)
+
+        GitService.shared.invalidate(mine)
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertFalse(changes.new.contains { $0.path.contains("my version") },
+                       "not offered for sending")
+    }
+
+    func testAnUntrackedFileThatAlsoArrivesDoesNotBlockTheSend() async throws {
+        // Git refuses to start when an arriving file would overwrite something
+        // untracked here. That is a stop the user never asked for, so the file
+        // is moved aside by name and the send carries on.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("notes.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("notes.md", "mine, never tracked\n")   // untracked, same name
+        try write("second.md", "mine too\n")
+
+        let sent = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                message: "just the second", inRepository: mine)
+
+        guard case .sent(_, let kept) = sent else { return XCTFail("\(sent)") }
+        XCTAssertEqual(kept, ["notes (my version).md"])
+        XCTAssertEqual(read("notes (my version).md"), "mine, never tracked\n")
+        XCTAssertEqual(read("notes.md"), "theirs\n", "theirs arrived under the real name")
+    }
+
+    func testAbandoningTheCatchUpPutsMovedFilesBack() async throws {
+        // If the send cannot go through after all, a file moved out of the way
+        // to make room must not stay renamed: nothing arrived, so nothing
+        // should look different.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try write("notes.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")                 // contested *and* ticked
+        try write("notes.md", "mine, never tracked\n")   // untracked, also arriving
+
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "mine", inRepository: mine)
+
+        guard case .notSent = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(read("notes.md"), "mine, never tracked\n", "back under its own name")
+        XCTAssertNil(read("notes (my version).md"), "and no leftover copy")
     }
 
     func testAFailedPushLeavesTheFileStillChanged() async throws {

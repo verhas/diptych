@@ -240,8 +240,48 @@ Describe what you changed:
 * A partial send leaves the unticked files blue. That is correct and
   self-explanatory: the colour keeps telling the truth.
 
-**Send is atomic.** Record HEAD, commit, push. If the push fails, reset back to
-the recorded HEAD — the files are untouched, the pane still shows them as
+**A refused push is Diptych's problem, not the user's.** Git refuses a push
+whenever the shared copy has moved on at all -- even when nobody went near the
+files being sent. Handing that back as a question ("someone else has changed
+something, what do you want to do?") is wrong: there is nothing to decide.
+
+So on refusal, Diptych catches up and sends again by itself: `fetch`, then
+
+```
+git -c rebase.autoStash=true rebase @{u}
+```
+
+then push. The commit holds only the ticked files, so replaying it on top of
+what arrived is exactly right -- and safe, because the commit provably never
+left this Mac. `rebase.autoStash` puts the *unticked* working changes aside for
+the duration and restores them afterwards.
+
+This is what makes a partial send work, and it is what other Git clients (an
+IDE's "commit selected files") have always done. Two files changed here, one of
+them also changed by a colleague: leaving the contested one unticked sends the
+other. It is a legitimate commit and push, and refusing it was a Diptych
+limitation, never a Git one.
+
+Two things can go wrong, and both are handled without ever showing a `<<<<<<<`
+marker to the user:
+
+* **The restore clashes.** The unticked change and the arriving change touch
+  the same lines. Git leaves markers in the file and keeps `stash@{0}`. Diptych
+  takes the user's version out with `git show stash@{0}:<path>` into
+  `<name> (my version).<ext>`, restores the shared version with
+  `git checkout HEAD -- <path>`, and drops the stash. Same treatment, same
+  naming, as everywhere else.
+* **An untracked file here has the same name as one arriving.** Autostash does
+  not cover untracked files, and the rebase would refuse to start. Those files
+  are moved aside by name first -- and moved *back* if the attempt is abandoned,
+  so a send that changed nothing leaves nothing renamed.
+
+Only when a file that *was* ticked is genuinely contested does the rebase
+conflict. Then `rebase --abort`, undo the commit, and ask -- because now there
+really is a decision to make.
+
+**Undoing is atomic.** Record HEAD, commit, push. If the send cannot go through,
+reset back to the recorded HEAD — the files are untouched, the pane still shows them as
 changed, and the button still says *Send my work*. Nothing is left half-done and
 there is no hidden "committed but unsent" state.
 
