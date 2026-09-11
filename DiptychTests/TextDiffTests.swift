@@ -161,4 +161,112 @@ final class TextDiffTests: XCTestCase {
         XCTAssertEqual(diff.rows.map(\.kind), [.same, .same, .same, .changed, .added])
         XCTAssertEqual(diff.changeStarts, [3], "the two touching changes read as one")
     }
+
+    // MARK: - Within one line
+
+    func testOnlyTheWordThatChangedIsMarked() {
+        // The point of the whole thing: in a long line, seeing *what* changed
+        // rather than that something did.
+        let marked = TextDiff.spans(left: "The quick brown fox jumps over the lazy dog",
+                                    right: "The quick brown cat jumps over the lazy dog")
+
+        XCTAssertEqual(marked?.left.filter(\.changed).map(\.text), ["fox"])
+        XCTAssertEqual(marked?.right.filter(\.changed).map(\.text), ["cat"])
+    }
+
+    func testTheWholeLineIsStillThereAfterMarking() {
+        // Spans are the line cut up, so losing a character here would lose it
+        // on screen.
+        let line = "one, two; three  four"
+        let marked = TextDiff.spans(left: line, right: "one, two; THREE  four")
+
+        XCTAssertEqual(marked?.left.map(\.text).joined(), line)
+    }
+
+    func testNeighbouringChangedWordsBecomeOneBlock() {
+        // Otherwise a changed phrase is drawn as a row of separate patches.
+        let marked = TextDiff.spans(left: "keep the old words here",
+                                    right: "keep the new better words here")
+
+        let changed = marked?.right.filter(\.changed).map(\.text) ?? []
+        XCTAssertEqual(changed.count, 1, "one block, not three: \(changed)")
+    }
+
+    func testTwoQuiteDifferentLinesAreNotMarkedAtAll() {
+        // Marking a rewritten line entirely is the same as not marking it, with
+        // extra noise on top.
+        //
+        // This one caught a real mistake: similarity was counted over every
+        // token, and two sentences with nothing whatever in common still share
+        // all their spaces -- which made these two look 43% alike.
+        XCTAssertNil(TextDiff.spans(left: "the quick brown fox",
+                                    right: "entirely unrelated content indeed"))
+        XCTAssertNil(TextDiff.spans(left: "a b c d e f g h",
+                                    right: "q w e r t y u i"),
+                     "shared spaces are not shared meaning")
+    }
+
+    func testAVeryLongLineIsLeftAlone() {
+        let long = String(repeating: "word ", count: 1000)
+
+        XCTAssertNil(TextDiff.spans(left: long, right: long + "tail"))
+    }
+
+    func testPunctuationIsItsOwnToken() {
+        // So changing a comma marks the comma, not the words either side of it.
+        XCTAssertEqual(TextDiff.tokens(of: "one,two"), ["one", ",", "two"])
+        XCTAssertEqual(TextDiff.tokens(of: "a  b"), ["a", "  ", "b"])
+    }
+
+    func testARewrittenLineCarriesItsMarkingIntoTheRow() {
+        let diff = TextDiff(left: ["title", "the value is 41", "end"],
+                            right: ["title", "the value is 42", "end"])
+
+        XCTAssertEqual(diff.rows[1].kind, .changed)
+        XCTAssertEqual(diff.rows[1].leftSpans.filter(\.changed).map(\.text), ["41"])
+        XCTAssertEqual(diff.rows[1].rightSpans.filter(\.changed).map(\.text), ["42"])
+    }
+
+    func testAnAddedLineHasNothingToMark() {
+        let diff = TextDiff(left: ["one"], right: ["one", "two"])
+
+        XCTAssertTrue(diff.rows[1].rightSpans.isEmpty, "nothing to compare it against")
+    }
+
+    // MARK: - Which file is which
+
+    func testFilesInOneFolderNeedNoFolderShown() {
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/notes/a.md"),
+                            right: URL(fileURLWithPath: "/work/notes/b.md"))
+
+        XCTAssertNil(pair.folders, "the names already tell them apart")
+    }
+
+    func testTheSameNameInTwoFoldersShowsWhatDiffers() {
+        // Reported: two files of the same name looked identical in the header,
+        // and the whole window was ambiguous.
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/project/p1/notes.md"),
+                            right: URL(fileURLWithPath: "/work/project/p2/notes.md"))
+
+        let folders = pair.folders
+        XCTAssertEqual(folders?.left, "\u{2026}/p1")
+        XCTAssertEqual(folders?.right, "\u{2026}/p2")
+    }
+
+    func testFoldersWithNothingInCommonAreShownWhole() {
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/notes.md"),
+                            right: URL(fileURLWithPath: "/tmp/notes.md"))
+
+        XCTAssertEqual(pair.folders?.left, "/work")
+        XCTAssertEqual(pair.folders?.right, "/tmp")
+    }
+
+    func testOneFolderInsideTheOtherIsShownWhole() {
+        // Trimming what they share would leave one side with nothing at all.
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/notes.md"),
+                            right: URL(fileURLWithPath: "/work/old/notes.md"))
+
+        XCTAssertEqual(pair.folders?.left, "/work")
+        XCTAssertEqual(pair.folders?.right, "/work/old")
+    }
 }

@@ -22,6 +22,12 @@ struct TextDiff: Sendable {
         var isChange: Bool { self != .same }
     }
 
+    /// A stretch of one line, and whether it is part of what changed.
+    struct Span: Sendable, Equatable {
+        var text: String
+        var changed: Bool
+    }
+
     /// One line of the comparison. Either side may be empty, which is how a
     /// line that exists in one file and not the other keeps the two columns
     /// aligned all the way down.
@@ -32,6 +38,10 @@ struct TextDiff: Sendable {
         var right: String?
         var leftNumber: Int?
         var rightNumber: Int?
+        /// Set only on a rewritten line whose two versions still resemble each
+        /// other. Empty means "colour the whole line and leave it at that".
+        var leftSpans: [Span] = []
+        var rightSpans: [Span] = []
     }
 
     var rows: [Row] = []
@@ -90,8 +100,13 @@ struct TextDiff: Sendable {
                 // A removal and an insertion at the same place is one line
                 // rewritten. Shown as a pair rather than as a deletion followed
                 // by an addition, which is what it looks like to a reader.
-                row = Row(id: rows.count, kind: .changed, left: gone, right: arrived,
-                          leftNumber: leftIndex + 1, rightNumber: rightIndex + 1)
+                var pair = Row(id: rows.count, kind: .changed, left: gone, right: arrived,
+                               leftNumber: leftIndex + 1, rightNumber: rightIndex + 1)
+                if let marked = Self.spans(left: gone, right: arrived) {
+                    pair.leftSpans = marked.left
+                    pair.rightSpans = marked.right
+                }
+                row = pair
                 leftIndex += 1
                 rightIndex += 1
 
@@ -124,6 +139,106 @@ struct TextDiff: Sendable {
             wasChange = row.kind.isChange
             rows.append(row)
         }
+    }
+
+    // MARK: - Within one line
+
+    /// Split for comparing, not for spelling: a run of letters or digits is one
+    /// token, a run of spaces is one token, and everything else stands alone.
+    ///
+    /// Word by word rather than letter by letter, because a letter-level diff
+    /// of ordinary prose produces confetti -- half the letters of a rewritten
+    /// word marked and half not, which is harder to read than no marking.
+    static func tokens(of line: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var currentKind: Int?
+
+        for character in line {
+            let kind: Int
+            if character.isWhitespace { kind = 0 }
+            else if character.isLetter || character.isNumber { kind = 1 }
+            else { kind = 2 }
+
+            // Punctuation never joins its neighbours, so "one,two" is three
+            // tokens and changing the comma marks only the comma.
+            if kind == currentKind, kind != 2 {
+                current.append(character)
+            } else {
+                if !current.isEmpty { tokens.append(current) }
+                current = String(character)
+                currentKind = kind
+            }
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
+    }
+
+    /// Below this the two lines have little in common, and marking the few
+    /// words they share is less use than colouring the whole line.
+    static let similarEnough = 0.4
+
+    /// Longer than this and the token diff is not worth the wait for a line
+    /// nobody can read across anyway.
+    static let markingLineLimit = 2000
+
+    private static func isBlank(_ token: String) -> Bool {
+        token.allSatisfy(\.isWhitespace)
+    }
+
+    /// Which parts of two versions of one line actually differ.
+    ///
+    /// Nil when the answer would be "all of it" -- a rewritten line marked
+    /// entirely is the same as a line not marked at all, with extra noise.
+    static func spans(left: String, right: String) -> (left: [Span], right: [Span])? {
+        guard left.count <= markingLineLimit, right.count <= markingLineLimit else { return nil }
+        let leftTokens = tokens(of: left)
+        let rightTokens = tokens(of: right)
+        guard !leftTokens.isEmpty, !rightTokens.isEmpty else { return nil }
+
+        let difference = rightTokens.difference(from: leftTokens)
+
+        var removed = Set<Int>()
+        var inserted = Set<Int>()
+        var changedWords = 0
+        for change in difference {
+            switch change {
+            case .remove(let offset, let token, _):
+                removed.insert(offset)
+                if !isBlank(token) { changedWords += 1 }
+            case .insert(let offset, let token, _):
+                inserted.insert(offset)
+                if !isBlank(token) { changedWords += 1 }
+            }
+        }
+
+        // Counted on words, not on everything. Two sentences with nothing
+        // whatever in common still share all their spaces, and counting those
+        // as agreement made "the quick brown fox" look 43% similar to
+        // "entirely unrelated content indeed".
+        let words = leftTokens.count { !isBlank($0) } + rightTokens.count { !isBlank($0) }
+        guard words > 0 else { return nil }
+        let shared = Double(words - changedWords) / Double(words)
+        guard shared >= similarEnough else { return nil }
+        guard !removed.isEmpty || !inserted.isEmpty else { return nil }
+
+        return (join(leftTokens, marking: removed), join(rightTokens, marking: inserted))
+    }
+
+    /// Neighbouring tokens of the same kind become one span, so a changed
+    /// phrase is drawn as one block rather than as a row of separate patches.
+    private static func join(_ tokens: [String], marking: Set<Int>) -> [Span] {
+        var spans: [Span] = []
+        for (index, token) in tokens.enumerated() {
+            let changed = marking.contains(index)
+            if var last = spans.last, last.changed == changed {
+                last.text += token
+                spans[spans.count - 1] = last
+            } else {
+                spans.append(Span(text: token, changed: changed))
+            }
+        }
+        return spans
     }
 
     // MARK: - Reading files
@@ -174,4 +289,40 @@ struct TextDiff: Sendable {
 struct DiffPair: Hashable, Codable, Sendable {
     var left: URL
     var right: URL
+
+    /// Where each file lives, when that is the only thing telling them apart.
+    ///
+    /// Two files of the same name in different folders looked identical in the
+    /// header, which made the whole window ambiguous -- the reader could not
+    /// tell which side was which. What is shown is the part of the two paths
+    /// that differs, so it is short *and* guaranteed to contain the answer;
+    /// truncating a long path in the middle could hide the very component that
+    /// distinguishes them.
+    ///
+    /// Nil when both files are in one folder: there the names tell them apart.
+    var folders: (left: String, right: String)? {
+        let leftFolder = left.deletingLastPathComponent()
+        let rightFolder = right.deletingLastPathComponent()
+        guard FileOperations.canonicalPath(leftFolder)
+                != FileOperations.canonicalPath(rightFolder) else { return nil }
+
+        let leftParts = leftFolder.pathComponents
+        let rightParts = rightFolder.pathComponents
+        var common = 0
+        while common < leftParts.count, common < rightParts.count,
+              leftParts[common] == rightParts[common] { common += 1 }
+
+        // One inside the other leaves nothing on a side, so both are shown
+        // whole rather than one being shown as nothing.
+        guard common > 1, common < leftParts.count, common < rightParts.count else {
+            return (leftFolder.path.abbreviatingWithTildeInPath,
+                    rightFolder.path.abbreviatingWithTildeInPath)
+        }
+        return ("\u{2026}/" + leftParts[common...].joined(separator: "/"),
+                "\u{2026}/" + rightParts[common...].joined(separator: "/"))
+    }
+}
+
+private extension String {
+    var abbreviatingWithTildeInPath: String { (self as NSString).abbreviatingWithTildeInPath }
 }

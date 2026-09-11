@@ -639,7 +639,15 @@ Not oversights:
   columns that stay level, pairing a removal and an insertion in the same place
   into one rewritten line rather than two events, and counting a run of changed
   lines as one difference because that is what a reader means by "next".
-  Comparing folders is not built.
+  Within a rewritten line the words that actually changed are marked, so a
+  long line says *what* changed rather than only that something did -- word by
+  word, since a letter-level diff of prose produces confetti. A line rewritten
+  beyond recognition is not marked at all: marking all of it says the same as
+  marking none of it, with noise on top. Similarity is counted on words alone,
+  because two sentences with nothing in common still share all their spaces.
+  Where the two files have the same name in different folders, the header shows
+  the part of the paths that differs. Comparing a file with itself is refused
+  rather than answered. Comparing folders is not built.
 * merge conflict *resolution*. Detect the state, refuse further operations,
   explain.
 * local-only checkpointing. There is no way to save without publishing; for

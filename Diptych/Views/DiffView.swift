@@ -48,8 +48,8 @@ struct DiffView: View {
     private var header: some View {
         VStack(spacing: 6) {
             HStack(spacing: 0) {
-                name(pair.left)
-                name(pair.right)
+                name(pair.left, folder: pair.folders?.left)
+                name(pair.right, folder: pair.folders?.right)
             }
             if let diff {
                 HStack(spacing: 12) {
@@ -78,13 +78,26 @@ struct DiffView: View {
         .padding(.vertical, 8)
     }
 
-    private func name(_ url: URL) -> some View {
-        Text(url.lastPathComponent)
-            .font(.headline)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .help(url.path)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func name(_ url: URL, folder: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(url.lastPathComponent)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            // Shown only when the two files are in different folders, which is
+            // the case where the names alone leave the reader guessing which
+            // side is which. Truncated at the *front*, because the end of a
+            // path is the part that distinguishes it.
+            if let folder {
+                Text(folder)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+        }
+        .help(url.path)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func summary(_ diff: TextDiff) -> String {
@@ -139,17 +152,39 @@ struct DiffView: View {
 
     private func line(_ row: TextDiff.Row) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            half(number: row.leftNumber, text: row.left,
+            half(number: row.leftNumber, text: row.left, spans: row.leftSpans,
                  marker: row.kind == .same ? " " : (row.left == nil ? " " : "\u{2212}"),
                  tint: row.left == nil ? nil : (row.kind == .same ? nil : Color.red))
             Divider()
-            half(number: row.rightNumber, text: row.right,
+            half(number: row.rightNumber, text: row.right, spans: row.rightSpans,
                  marker: row.kind == .same ? " " : (row.right == nil ? " " : "+"),
                  tint: row.right == nil ? nil : (row.kind == .same ? nil : Color.green))
         }
     }
 
-    private func half(number: Int?, text: String?, marker: String, tint: Color?) -> some View {
+    /// The line, with the words that actually changed picked out when the two
+    /// versions still resemble each other.
+    ///
+    /// One `Text` holding an `AttributedString` rather than several joined
+    /// together: only the single string wraps as one paragraph, and a line
+    /// broken into separate views would wrap at every span boundary.
+    private func body(of text: String, spans: [TextDiff.Span], tint: Color?) -> Text {
+        guard !spans.isEmpty, let tint else { return Text(text) }
+        var built = AttributedString()
+        for span in spans {
+            var piece = AttributedString(span.text)
+            if span.changed {
+                // Stronger than the line's own wash, so it reads as "this part"
+                // against "this line".
+                piece.backgroundColor = tint.opacity(0.45)
+            }
+            built += piece
+        }
+        return Text(built)
+    }
+
+    private func half(number: Int?, text: String?, spans: [TextDiff.Span],
+                      marker: String, tint: Color?) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(number.map(String.init) ?? "")
                 .foregroundStyle(.tertiary)
@@ -159,7 +194,7 @@ struct DiffView: View {
             Text(marker)
                 .foregroundStyle(.secondary)
                 .frame(width: 10)
-            Text(text ?? "")
+            body(of: text ?? "", spans: spans, tint: tint)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)

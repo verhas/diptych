@@ -366,6 +366,16 @@ final class AppModel {
             flash("Comparing folders is not built yet", error: true)
             return
         }
+        // Refused rather than answered. Comparing a file with itself has one
+        // possible outcome, and somebody who asks for it has almost certainly
+        // ticked the same file twice -- telling them so is more use than a
+        // window that says "these are the same" and means nothing by it.
+        // Canonical, so a symlink or an alias to the same file is caught too.
+        guard FileOperations.canonicalPath(pair.left)
+                != FileOperations.canonicalPath(pair.right) else {
+            flash("That is the same file on both sides", error: true)
+            return
+        }
         openDiffWindow?(DiffPair(left: pair.left, right: pair.right))
     }
 
