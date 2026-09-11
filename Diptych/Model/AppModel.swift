@@ -33,6 +33,7 @@ final class AppModel {
         case sendWork
         case gitConflict
         case gitNotSent
+        case gitClash
         case stopTracking
 
         var id: String {
@@ -44,6 +45,7 @@ final class AppModel {
             case .conflict:       return "conflict"
             case .message:   return "message"
             case .notice:    return "notice"
+            case .gitClash:       return "gitClash"
             case .stopTracking:   return "stopTracking"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
@@ -1343,11 +1345,19 @@ final class AppModel {
         let new = gitChanges.new.map(\.path).filter { gitIncluding.contains($0) }
         let message = gitSendMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         dialog = nil
+        // A fresh send starts with nothing settled; a retry after the clash
+        // dialog keeps what was settled there.
+        gitKeepingMine = []
+        attemptSend(paths: paths, newPaths: new, message: message, root: root)
+    }
 
+    private func attemptSend(paths: [String], newPaths: [String], message: String, root: URL) {
+        gitPendingSend = (paths, newPaths, message, root)
         Task {
             beginGit("Sending your work\u{2026}")
-            let result = await GitService.shared.send(paths: paths, newPaths: new,
-                                                     message: message, inRepository: root)
+            let result = await GitService.shared.send(paths: paths, newPaths: newPaths,
+                                                     message: message, inRepository: root,
+                                                     decided: gitKeepingMine)
             endGit()
             active.reload()
 
@@ -1355,10 +1365,85 @@ final class AppModel {
         }
     }
 
+    // MARK: - Files nobody ticked, that both sides changed
+
+    /// The clash dialog walks these one at a time, unless the user says to do
+    /// the same for the rest.
+    private(set) var gitClashPaths: [String] = []
+    var gitClashApplyToAll = false
+    private var gitKeepingMine: Set<String> = []
+    private var gitTakingTheirs: [String] = []
+    private var gitPendingSend: (paths: [String], newPaths: [String],
+                                 message: String, root: URL)?
+
+    var gitClashCurrent: String { gitClashPaths.first ?? "" }
+    var gitClashRemaining: Int { max(0, gitClashPaths.count - 1) }
+
+    private func askAboutClashes(_ paths: [String]) {
+        gitClashPaths = paths
+        gitClashApplyToAll = false
+        gitTakingTheirs = []
+        dialog = .gitClash
+    }
+
+    /// Keep a copy of my version and take the shared one.
+    func clashTakeTheirs() { decideClash { gitTakingTheirs.append($0) } }
+
+    /// My version stays and wins. It is not sent, and it no longer counts as a
+    /// clash -- which is exactly what Diptych used to do without asking.
+    func clashKeepMine() { decideClash { gitKeepingMine.insert($0) } }
+
+    private func decideClash(_ record: (String) -> Void) {
+        guard !gitClashPaths.isEmpty else { return }
+        if gitClashApplyToAll {
+            gitClashPaths.forEach(record)
+            gitClashPaths = []
+        } else {
+            record(gitClashPaths.removeFirst())
+        }
+        guard gitClashPaths.isEmpty else { return }
+        dialog = nil
+        applyClashDecisions()
+    }
+
+    func cancelClashes() {
+        dialog = nil
+        gitClashPaths = []
+        gitTakingTheirs = []
+        gitKeepingMine = []
+        gitPendingSend = nil
+        flash("Nothing was sent", error: false)
+    }
+
+    private func applyClashDecisions() {
+        guard let pending = gitPendingSend else { return }
+        let takingTheirs = gitTakingTheirs
+        gitTakingTheirs = []
+        Task {
+            var kept: [String] = []
+            if !takingTheirs.isEmpty {
+                beginGit("Keeping your versions\u{2026}")
+                kept = await GitService.shared.setAsideMyVersion(takingTheirs,
+                                                                 inRepository: pending.root)
+                endGit()
+            }
+            gitClashKept = kept
+            attemptSend(paths: pending.paths, newPaths: pending.newPaths,
+                        message: pending.message, root: pending.root)
+        }
+    }
+
+    /// Reported alongside the send that follows, so the user is told once.
+    private var gitClashKept: [String] = []
+
     private func handleSendResult(_ result: GitService.SendResult,
                                   alsoKept kept: [String] = []) {
             switch result {
+            case .needsDecision(let paths):
+                askAboutClashes(paths)
             case .sent(let count):
+                let kept = kept + gitClashKept
+                gitClashKept = []
                 guard kept.isEmpty else {
                     // Both things happened, and the renamed copies are the half
                     // nothing else would point out.

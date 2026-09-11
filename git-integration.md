@@ -182,11 +182,20 @@ send my work?**
 | red | cannot go as it stands — see below |
 | purple | out of date: someone else has sent a newer version |
 | blue | *no longer tracked*: kept here, removal waiting to be sent |
+| dimmed | a `(my version)` copy Diptych kept: never sent, cannot be tracked |
 | *none* | nothing to send: unchanged, **or ignored** |
 
 Ignored files are drawn normally. That falls out of the rule consistently — an
 ignored file and an unchanged file both answer "nothing happens" — and it stops
 a `build/` folder painting half the pane.
+
+**With one exception, reported and fair.** A `(my version)` copy is excluded, so
+it was drawn plainly and looked exactly like a tracked, up-to-date file. It is
+neither: it is not up to date, it is not tracked, and unlike a brown file it
+*cannot* be tracked while the exclude rule stands. It is a note Diptych left for
+the user, so it is drawn as one — dimmed, the quietest thing in the pane, with
+"kept copy" in the Git column. Recognised by name, because once Git calls a file
+ignored it says nothing more about it.
 
 ### Purple, and why the rule had to change
 
@@ -432,6 +441,46 @@ limitation, never a Git one.
 
 Two things can go wrong, and both are handled without ever showing a `<<<<<<<`
 marker to the user:
+
+### The question that has to come first
+
+Catching up puts the shared version of every file into the local history —
+including files nobody ticked. For one whose own edits clash, that quietly
+destroys the only record that a decision was owed: the copy on disk stays as it
+was, Git sees an ordinary change against the new history, and **sending it later
+wipes the other person's work with no refusal and no warning.** Measured on a
+real pair of repositories: after the catch-up the merge-base *is* the shared
+tip, so nothing is contested any more, the file reads as a plain blue "changed",
+and the eventual push exits 0.
+
+So the question comes first, with the folder untouched. On a refused push
+Diptych fetches, works out which unticked files would lose work, and if there
+are any it **undoes its own commit and asks** — a question, not a state.
+
+Which files? Only those where both sides changed the *same lines*. Where they
+did not, Git merges them and the copy here ends up holding both changes, which
+needs no decision from anyone. `git merge-file -p` rehearses each one: it writes
+the merged result to standard output and leaves every input alone, so the answer
+is known before anything on disk moves.
+
+One file at a time, each being a separate decision about somebody else's work,
+with one tick to stop it being one at a time. The three answers are the only
+three there are:
+
+1. **Keep a copy of mine and take theirs** — `(my version)` beside it, the
+   shared version takes the name.
+2. **Keep mine, theirs is discarded here** — the copy stays exactly as it is and
+   is still not sent. This is precisely what Diptych used to do on its own; the
+   change is that somebody now chooses it.
+3. **Cancel the whole send.**
+
+The "do the same for the rest" tick says plainly that *all* means the whole
+tracked folder, above and below the one on screen, and that each file kept gets
+its own `(my version)` copy.
+
+The retry carries the decisions, so nothing is asked twice.
+
+### Work nobody ticked
 
 The governing rule: **a file the user did not tick is a file they are still
 working on, and nothing may happen to it.** Not renamed, not replaced, not

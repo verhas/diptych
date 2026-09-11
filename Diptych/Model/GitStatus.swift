@@ -21,6 +21,16 @@ enum GitState: Sendable, Equatable, Hashable {
     /// the send dialog lists it, and "changed" would read as a mistake next to
     /// a file the user knows they deleted.
     case deleted
+    /// A copy Diptych kept of the user's version.
+    ///
+    /// Reported: these looked exactly like tracked, up-to-date files, because
+    /// they are in `.git/info/exclude` and an ignored file is drawn plainly --
+    /// the rule being that an ignored file and an unchanged one both answer
+    /// "nothing happens when you send". True, and useless here: this one is
+    /// not up to date, it is not tracked, and unlike a brown file it *cannot*
+    /// be tracked while the exclude rule stands. It is a note Diptych left for
+    /// the user, so it is drawn as one.
+    case keptCopy
     /// Taken out of Git but still on disk: "Stop Tracking This File".
     ///
     /// Git reports this path *twice* -- once as a staged removal and once as
@@ -61,6 +71,7 @@ extension GitState {
         case .added:      "new"
         case .changed:    "changed"
         case .deleted:    "removed"
+        case .keptCopy:   "kept copy"
         case .untracking: "no longer tracked"
         case .stale:      "out of date"
         // Not "also changed", which was reported as too mild for what it
@@ -79,6 +90,9 @@ extension GitState {
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
         case .deleted:    "Removed. The removal will be sent."
+        case .keptCopy:   "A copy Diptych kept of your version. It is never sent and "
+                          + "cannot be tracked. Delete it once you have taken what "
+                          + "you need."
         case .untracking: "Kept here, but taken out of version tracking. Sending this "
                           + "removes it for everyone else."
         case .stale:      "Someone else has sent a newer version. Get the Latest "
@@ -103,9 +117,14 @@ struct GitStatus: Sendable {
     var ahead = 0
     var behind = 0
 
+    /// The name Diptych gives a copy it keeps, and the only way to recognise
+    /// one afterwards: Git calls it ignored and says no more.
+    static func isKeptCopy(_ name: String) -> Bool { name.contains("(my version)") }
+
     func state(for url: URL, root: URL) -> GitState {
         guard let relative = GitStatus.relativePath(of: url, under: root) else { return .clean }
         if let exact = states[relative] { return exact }
+        if GitStatus.isKeptCopy(url.lastPathComponent) { return .keptCopy }
 
         // A directory takes the strongest state of anything inside it, so a
         // folder is not silently clean while it holds changes -- the pane shows
@@ -134,6 +153,10 @@ struct GitStatus: Sendable {
             case .untracking: 3
             case .added:      2
             case .untracked:  1
+            // Below everything: it is not work, it is a note about work. A
+            // folder holding one and nothing else says so; a folder holding
+            // anything real says that instead.
+            case .keptCopy:   1
             case .clean:      0
             }
         }
@@ -148,6 +171,7 @@ struct GitStatus: Sendable {
     func states(for url: URL, root: URL) -> [GitState] {
         guard let relative = GitStatus.relativePath(of: url, under: root) else { return [] }
         if let exact = states[relative] { return [exact] }
+        if GitStatus.isKeptCopy(url.lastPathComponent) { return [.keptCopy] }
 
         let prefix = relative + "/"
         var found: Set<GitState> = []

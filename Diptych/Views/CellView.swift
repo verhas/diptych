@@ -50,6 +50,10 @@ struct CellView: View {
         // its nearest neighbour in both light and dark, and reads at 4.2:1 on
         // white, better than any colour already here.
         case .stale:      .purple
+        // Dimmed rather than coloured, and deliberately the quietest thing in
+        // the pane: it is not part of the work, it is a copy set aside until
+        // the user has taken what they need from it.
+        case .keptCopy:   .secondary
         case .clean:      nil
         }
     }

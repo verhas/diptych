@@ -664,6 +664,9 @@ struct DialogSheet: View {
                     confirm: "Authenticate...",
                     destructive: false) { model.confirmPrivilegedOwnerChange() }
 
+            case .gitClash:
+                gitClash
+
             case .stopTracking:
                 let items = model.active.selectedItems.filter { !$0.isParent }
                 confirmation(
@@ -795,6 +798,52 @@ struct DialogSheet: View {
             Button(confirm) { action(); model.dialog = nil }
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.textInput.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    /// One file at a time, because each is a separate decision about somebody
+    /// else's work -- with one tick to stop it being one at a time.
+    @ViewBuilder
+    private var gitClash: some View {
+        Text("\u{201C}\(model.gitClashCurrent)\u{201D} was changed by someone else too")
+            .font(.headline)
+
+        Text("You did not tick this one, so it is not being sent \u{2014} but your copy and "
+             + "the shared copy have both changed in the same places. Whichever you choose, "
+             + "nothing is lost without you saying so.")
+            .font(.subheadline).foregroundStyle(.secondary)
+
+        if model.gitClashRemaining > 0 {
+            Toggle(isOn: Bindable(model).gitClashApplyToAll) {
+                Text("Do the same for the other \(model.gitClashRemaining) "
+                     + "\(model.gitClashRemaining == 1 ? "file" : "files")")
+            }
+            .toggleStyle(.checkbox)
+
+            // Said plainly, because "all" reaches further than the folder on
+            // screen: the whole tracked folder, above and below.
+            Text("This covers every clashing file in the whole tracked folder, including "
+                 + "ones in folders above and below this one. Each gets its own "
+                 + "\u{201C}(my version)\u{201D} copy where you keep one.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+            Button("Keep a copy of mine and take theirs") { model.clashTakeTheirs() }
+            Text("Your version is saved beside it as \u{201C}(my version)\u{201D} and the "
+                 + "shared version takes the name.")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Button("Keep mine \u{2014} theirs is discarded here") { model.clashKeepMine() }
+            Text("Your copy stays exactly as it is and is still not sent. Sending it later "
+                 + "will replace what the other person wrote.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
+        HStack {
+            Spacer()
+            Button("Cancel the whole send") { model.cancelClashes() }
+                .keyboardShortcut(.cancelAction)
         }
     }
 

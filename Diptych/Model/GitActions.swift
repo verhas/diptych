@@ -22,6 +22,7 @@ extension GitService {
             case .added:      "new, tracked"
             case .changed:    "changed"
             case .deleted:    "removed"
+            case .keptCopy:   "kept copy"
             case .untracking: "no longer tracked"
             case .stale:      "out of date"
             case .contested:  "clashes with the shared copy"
@@ -48,8 +49,9 @@ extension GitService {
         for (path, state) in status.states.sorted(by: { $0.key < $1.key }) {
             switch state {
             case .untracked:            changes.new.append(Change(path: path, state: state))
-            // Nothing of the user's to send: it is only out of date.
-            case .stale:                break
+            // Nothing of the user's to send: out of date, or a copy Diptych
+            // made and will never send.
+            case .stale, .keptCopy:     break
             case .added, .changed, .deleted, .untracking,
                  .contested:            changes.sending.append(Change(path: path, state: state))
             // Never offered. `git add` on a half-finished merge marks it
@@ -237,6 +239,10 @@ extension GitService {
 
     enum SendResult: Sendable {
         case sent(count: Int)
+        /// Files nobody ticked would lose one side or the other if the folder
+        /// caught up. The send is undone and nothing has changed: this is a
+        /// question, not a state.
+        case needsDecision(paths: [String])
         case nothingSelected
         /// Committed and pushed by someone else first, or offline. The commit
         /// has been undone; the files are exactly as they were.
@@ -262,7 +268,7 @@ extension GitService {
     /// here for one reason, and only that reason: **the commit provably never
     /// left this Mac.** Which is why the failure path checks before undoing.
     func send(paths: [String], newPaths: [String], message: String,
-              inRepository root: URL) async -> SendResult {
+              inRepository root: URL, decided: Set<String> = []) async -> SendResult {
         let all = paths + newPaths
         guard !all.isEmpty else { return .nothingSelected }
 
@@ -334,7 +340,7 @@ extension GitService {
             return .sent(count: all.count)
 
         case .timedOut:
-            return await afterFailedPush(count: all.count, sent: Set(all),
+            return await afterFailedPush(count: all.count, sent: Set(all), decided: decided,
                                          previousHead: previousHead,
                                          keepTracked: keepTracked, root: root,
                                          details: "The push took too long and was stopped.")
@@ -343,7 +349,7 @@ extension GitService {
             // A connection that dies *after* the server accepted means the
             // outcome is unknown. Undoing then would delete a commit other
             // people can already see, so ask before assuming.
-            return await afterFailedPush(count: all.count, sent: Set(all),
+            return await afterFailedPush(count: all.count, sent: Set(all), decided: decided,
                                          previousHead: previousHead,
                                          keepTracked: keepTracked, root: root, details: text)
         }
@@ -488,8 +494,8 @@ extension GitService {
     /// reach the shared copy. A push that failed after the server accepted it
     /// would otherwise have its commit deleted from under everyone who can
     /// already see it.
-    private func afterFailedPush(count: Int, sent: Set<String>, previousHead: String,
-                                 keepTracked: Staging, root: URL,
+    private func afterFailedPush(count: Int, sent: Set<String>, decided: Set<String>,
+                                 previousHead: String, keepTracked: Staging, root: URL,
                                  details: String) async -> SendResult {
         _ = await command(["fetch"], in: root, timeout: 120)
         if case .ok = await command(["merge-base", "--is-ancestor", "HEAD", "@{u}"], in: root) {
@@ -503,6 +509,24 @@ extension GitService {
         // by the dialog rather than taken here.
         if ConfigStore.shared.configuration.gitUpdateWhenSending,
            case .ok = await command(["rev-parse", "--verify", "@{u}"], in: root) {
+            // Ask before catching up, never after.
+            //
+            // Catching up puts the shared version of every file into the local
+            // history, including files nobody ticked. For one whose own edits
+            // clash, that quietly destroys the only record that a decision was
+            // owed: the copy on disk stays as it was, Git sees an ordinary
+            // change against the new history, and sending it later wipes the
+            // other person's work with no refusal and no warning. So the
+            // question comes first, with the folder still untouched.
+            let (contested, _) = await comparison(inRepository: root)
+            let undecided = contested.subtracting(sent).subtracting(decided)
+            let losing = await wouldLoseWork(undecided, inRepository: root)
+            if !losing.isEmpty {
+                await rollBack(previousHead: previousHead, keepTracked: keepTracked, root: root)
+                invalidate(root)
+                return .needsDecision(paths: losing)
+            }
+
             return await catchUpAndSendAgain(count: count, sent: sent,
                                              previousHead: previousHead,
                                              keepTracked: keepTracked, root: root,
@@ -513,14 +537,19 @@ extension GitService {
                                    keepTracked: keepTracked, root: root, details: details)
     }
 
-    private func undoTheCommit(sent: Set<String>, previousHead: String, keepTracked: Staging,
-                               root: URL, details: String) async -> SendResult {
+    /// Back to before the send: the commit gone, the staging as it was.
+    private func rollBack(previousHead: String, keepTracked: Staging, root: URL) async {
         _ = await command(["reset", "--mixed", previousHead], in: root)
         // Put back what was staged before the send, which the reset has just
         // swept away along with everything else -- including any file the user
         // had asked to stop tracking, which must not come back as tracked.
-        let clashing = await conflictingPaths(inRepository: root)
         await restage(keepTracked, in: root)
+    }
+
+    private func undoTheCommit(sent: Set<String>, previousHead: String, keepTracked: Staging,
+                               root: URL, details: String) async -> SendResult {
+        let clashing = await conflictingPaths(inRepository: root)
+        await rollBack(previousHead: previousHead, keepTracked: keepTracked, root: root)
         invalidate(root)
         // Everything contested is remembered, so the pane can colour all of it
         // without the user having to ask a second time...
@@ -605,6 +634,74 @@ extension GitService {
     /// Computed as an intersection rather than "everything that differs":
     /// someone who is fifty commits behind has hundreds of differing files and
     /// only two of them are their problem.
+    /// Which unticked files would lose work if the folder caught up.
+    ///
+    /// Only the ones where both sides touched the *same lines*. Where they did
+    /// not, Git merges them and the copy here ends up holding both changes,
+    /// which needs no decision from anyone -- asking would be friction with
+    /// nothing behind it.
+    ///
+    /// `merge-file -p` writes the merged result to standard output and leaves
+    /// every input alone, so this is a rehearsal: nothing on disk moves, and
+    /// the question can be asked with the folder exactly as the user left it.
+    func wouldLoseWork(_ paths: Set<String>, inRepository root: URL) async -> [String] {
+        guard !paths.isEmpty else { return [] }
+        guard case .ok(let baseText) = await command(["merge-base", "HEAD", "@{u}"], in: root)
+        else { return [] }
+        let base = baseText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let scratch = root.appendingPathComponent(".git/diptych-rehearsal")
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        var clashing: [String] = []
+        for path in paths.sorted() {
+            let mine = root.appendingPathComponent(path)
+            guard FileManager.default.fileExists(atPath: mine.path) else { continue }
+            guard case .ok(let baseBlob) = await command(["show", "\(base):\(path)"], in: root),
+                  case .ok(let theirBlob) = await command(["show", "@{u}:\(path)"], in: root)
+            else { continue }
+
+            let baseFile = scratch.appendingPathComponent("base")
+            let theirFile = scratch.appendingPathComponent("theirs")
+            guard (try? baseBlob.write(to: baseFile, atomically: true, encoding: .utf8)) != nil,
+                  (try? theirBlob.write(to: theirFile, atomically: true, encoding: .utf8)) != nil
+            else { continue }
+
+            if case .failed = await command(["merge-file", "-p", "--quiet", mine.path,
+                                             baseFile.path, theirFile.path], in: root) {
+                clashing.append(path)
+            }
+        }
+        return clashing
+    }
+
+    /// Put a copy of the user's version beside the original and let the shared
+    /// version take the name.
+    ///
+    /// Only ever from an explicit choice. The copies go into
+    /// `.git/info/exclude` rather than `.gitignore`: local-only, never pushed,
+    /// no tracked file touched, and no collaborator ever sees the rule.
+    func setAsideMyVersion(_ paths: [String], inRepository root: URL) async -> [String] {
+        var kept: [String] = []
+        for path in paths {
+            let source = root.appendingPathComponent(path)
+            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            let stem = (path as NSString).deletingPathExtension
+            let suffix = (path as NSString).pathExtension
+            let name = suffix.isEmpty ? "\(stem) (my version)" : "\(stem) (my version).\(suffix)"
+            let target = FileOperations.uniqueURL(for: root.appendingPathComponent(name))
+            guard (try? FileManager.default.copyItem(at: source, to: target)) != nil else { continue }
+            kept.append(target.lastPathComponent)
+            // Back to the last committed version, so catching up brings the
+            // shared one in without a murmur.
+            _ = await command(["checkout", "HEAD", "--", path], in: root)
+        }
+        if !kept.isEmpty { excludeLocally(pattern: "*(my version)*", inRepository: root) }
+        invalidate(root)
+        return kept
+    }
+
     /// Contested and stale in one pass.
     ///
     /// Both come out of the same three-way comparison, so asking for them
