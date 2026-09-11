@@ -569,9 +569,17 @@ final class PaneModel {
         errorIsPermission = false
 
         if !pendingSelection.isEmpty {
-            let wanted = pendingSelection
+            // Matched by path, not by URL. A row's URL comes from the directory
+            // listing, which puts a trailing slash on a folder; a URL built by
+            // the caller only gets one if the folder already existed when it
+            // was built -- `appendingPathComponent` stats the disk to decide.
+            // So the URL a rename or a New Folder hands back never carried it,
+            // never equalled the row, and the new folder was silently left
+            // unselected. Files were unaffected, which is why it looked like a
+            // folders-only bug. `path` has no trailing slash either way.
+            let wanted = Set(pendingSelection.map(\.path))
             pendingSelection = []
-            let present = wanted.filter { id in loaded.contains { $0.id == id } }
+            let present = Set(loaded.filter { wanted.contains($0.id.path) }.map(\.id))
             if !present.isEmpty {
                 selection = present
                 owner?.scrollSelectionIntoView()

@@ -186,3 +186,55 @@ final class PaneModelTests: XCTestCase {
         return root
     }
 }
+
+extension PaneModelTests {
+
+    /// Reported: renaming a folder lost the selection, renaming a file kept
+    /// it, and renaming a folder to its own name kept it too -- because that
+    /// path returns before any reload happens.
+    ///
+    /// The row's URL comes from the directory listing and carries a trailing
+    /// slash on a folder. A URL built by the caller only gets one if the folder
+    /// already existed when it was built, and a rename builds its target while
+    /// the new name does not yet exist. The two never compared equal.
+    func testAFolderStaysSelectedWhenItsURLHasNoTrailingSlash() async throws {
+        let pane = PaneModel(directory: root)
+        await pane.reloadAndWait()
+        let row = try XCTUnwrap(pane.rows.first { $0.name == "child" })
+        XCTAssertTrue(row.id.absoluteString.hasSuffix("/"), "the listing puts one on")
+
+        // Exactly the shape a rename or a New Folder hands over.
+        let built = URL(fileURLWithPath: row.id.path, isDirectory: false)
+        XCTAssertFalse(built.absoluteString.hasSuffix("/"), "and the caller's does not")
+
+        pane.pendingSelection = [built]
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(pane.selection, [row.id], "selected all the same")
+    }
+
+    func testAFileStaysSelectedToo() async throws {
+        try Data("x".utf8).write(to: root.appendingPathComponent("note.txt"))
+        let pane = PaneModel(directory: root)
+        await pane.reloadAndWait()
+        let row = try XCTUnwrap(pane.rows.first { $0.name == "note.txt" })
+
+        pane.pendingSelection = [URL(fileURLWithPath: row.id.path)]
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(pane.selection, [row.id])
+    }
+
+    func testAPendingSelectionThatIsNotThereLeavesTheSelectionAlone() async throws {
+        let pane = PaneModel(directory: root)
+        await pane.reloadAndWait()
+        let row = try XCTUnwrap(pane.rows.first { $0.name == "child" })
+        pane.selection = [row.id]
+
+        pane.pendingSelection = [URL(fileURLWithPath: row.id.path + "-gone")]
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(pane.selection, [row.id],
+                       "a target that never arrived does not clear what was there")
+    }
+}
