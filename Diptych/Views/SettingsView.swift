@@ -283,6 +283,20 @@ struct GitSettingsView: View {
 
             Divider()
 
+            Toggle("When sending, also bring in what other people have sent",
+                   isOn: $store.configuration.gitUpdateWhenSending)
+                .toggleStyle(.checkbox)
+                .disabled(!store.configuration.gitEnabled)
+
+            Text("The shared copy refuses your work whenever it has moved on at all, "
+                 + "even when nobody touched the files you are sending. With this on, "
+                 + "Diptych catches up by itself and your work goes \u{2014} which also "
+                 + "means newer versions of other files arrive. With it off, the send "
+                 + "stops and offers to update instead of doing it for you.")
+                .font(.subheadline).foregroundStyle(.secondary)
+
+            Divider()
+
             Toggle("Check for changes automatically when a folder is first opened",
                    isOn: $store.configuration.gitCheckOnOpen)
                 .toggleStyle(.checkbox)

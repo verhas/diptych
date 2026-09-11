@@ -398,8 +398,11 @@ extension GitService {
         }
 
         // Refused because the shared copy has moved on, which is the ordinary
-        // case and not something to hand back to the user.
-        if case .ok = await command(["rev-parse", "--verify", "@{u}"], in: root) {
+        // case and not something to hand back to the user -- unless they have
+        // said they would rather be asked, in which case the update is offered
+        // by the dialog rather than taken here.
+        if ConfigStore.shared.configuration.gitUpdateWhenSending,
+           case .ok = await command(["rev-parse", "--verify", "@{u}"], in: root) {
             return await catchUpAndSendAgain(count: count, sent: sent,
                                              previousHead: previousHead,
                                              keepTracked: keepTracked, root: root,
@@ -431,14 +434,25 @@ extension GitService {
         // a file the user deliberately left out reads as though it were in the
         // way, when it is simply none of this send's business.
         let blocking = clashing.filter { sent.contains($0) }
+        // Behind but with nothing ticked contested: there is nothing to decide,
+        // only something to fetch. Saying "someone changed the same files"
+        // would be untrue, and saying nothing at all leaves the user guessing
+        // why a file nobody touched would not go.
+        let behind = (await status(forRepository: root)?.behind ?? 0) > 0
         // Says what happened, not what the user already knows. That their work
         // is still on their own Mac is not news; that it did not reach anyone
         // else is the whole point of the message.
-        return .notSent(reason: blocking.isEmpty
-                            ? "Your changes were not sent."
-                            : "Your changes were not sent \u{2014} someone else has changed "
-                              + "some of the same files.",
-                        details: details, conflicts: blocking)
+        let reason: String
+        if !blocking.isEmpty {
+            reason = "Your changes were not sent \u{2014} someone else has changed "
+                   + "some of the same files."
+        } else if behind {
+            reason = "Your changes were not sent \u{2014} other people have sent changes "
+                   + "since you last updated."
+        } else {
+            reason = "Your changes were not sent."
+        }
+        return .notSent(reason: reason, details: details, conflicts: blocking)
     }
 
     // MARK: - Getting the latest

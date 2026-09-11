@@ -15,6 +15,7 @@ final class GitActionsTests: XCTestCase {
     private var mine: URL!
     private var shared: URL!
     private let fm = FileManager.default
+    private var settings: Configuration!
 
     override func setUpWithError() throws {
         try XCTSkipIf(GitTool.locate(override: nil) == nil, "no git on this machine")
@@ -34,6 +35,14 @@ final class GitActionsTests: XCTestCase {
         try run(["push", "-u", "origin", "main"], in: mine)
 
         GitService.shared.forgetEverything()
+
+        // These run against the real ConfigStore, so anything a test depends on
+        // is set here rather than inherited from the machine it runs on. One
+        // test assumed a default this way and started failing the day the
+        // setting began persisting properly.
+        settings = ConfigStore.shared.configuration
+        ConfigStore.shared.configuration.gitUpdateWhenSending = true
+        ConfigStore.shared.configuration.gitCheckOnOpen = false
     }
 
     /// Resolving Git is asynchronous now, so every test that uses it waits
@@ -44,6 +53,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        if let settings { ConfigStore.shared.configuration = settings }
         GitService.shared.forgetEverything()
         try? fm.removeItem(at: root)
     }
@@ -511,6 +521,88 @@ final class GitActionsTests: XCTestCase {
         XCTAssertEqual(conflicts, ["readme.md"], "only the one that was ticked")
         XCTAssertEqual(GitService.shared.check(for: mine)?.contested, ["readme.md", "second.md"],
                        "but both are remembered, so both are coloured")
+    }
+
+    // MARK: - Whether a send may update the folder
+
+    private func withUpdating(_ on: Bool, _ body: () async throws -> Void) async rethrows {
+        let was = ConfigStore.shared.configuration.gitUpdateWhenSending
+        ConfigStore.shared.configuration.gitUpdateWhenSending = on
+        defer { ConfigStore.shared.configuration.gitUpdateWhenSending = was }
+        try await body()
+    }
+
+    private func withUpdatingOff(_ body: () async throws -> Void) async rethrows {
+        try await withUpdating(false, body)
+    }
+
+    private func withUpdatingOn(_ body: () async throws -> Void) async rethrows {
+        try await withUpdating(true, body)
+    }
+
+    func testUpdatingWhileSendingIsOnByDefault() {
+        XCTAssertTrue(Configuration().gitUpdateWhenSending)
+    }
+
+    func testWithUpdatingOffASendBehindIsRefusedRatherThanCaughtUp() async throws {
+        // "I only wanted to send a file" -- so nothing arrives, the folder is
+        // left exactly as it was, and the update is offered instead of taken.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("theirs-only.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "unrelated"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("second.md", "mine too\n")
+        let before = try run(["rev-parse", "HEAD"], in: mine)
+
+        try await withUpdatingOff {
+            let result = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                      message: "just the second",
+                                                      inRepository: mine)
+
+            guard case .notSent(let reason, _, let conflicts) = result else {
+                return XCTFail("\(result)")
+            }
+            XCTAssertTrue(conflicts.isEmpty, "nothing clashes; it is only behind")
+            XCTAssertTrue(reason.contains("since you last updated"),
+                          "and says so rather than blaming a clash: \(reason)")
+            XCTAssertNil(read("theirs-only.md"), "nothing arrived unasked")
+            XCTAssertEqual(try run(["rev-parse", "HEAD"], in: mine), before, "commit undone")
+            XCTAssertEqual(read("second.md"), "mine too\n", "and my work is where I left it")
+        }
+    }
+
+    func testWithUpdatingOnTheSameSendGoesThrough() async throws {
+        // The other half of the switch, so the default keeps working.
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("theirs-only.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "unrelated"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("second.md", "mine too\n")
+
+        try await withUpdatingOn {
+            let result = await GitService.shared.send(paths: ["second.md"], newPaths: [],
+                                                      message: "just the second",
+                                                      inRepository: mine)
+
+            guard case .sent = result else { return XCTFail("\(result)") }
+            XCTAssertEqual(read("theirs-only.md"), "theirs\n", "and theirs came down with it")
+        }
     }
 
     // MARK: - Checking what other people have sent

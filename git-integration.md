@@ -387,6 +387,15 @@ what arrived is exactly right -- and safe, because the commit provably never
 left this Mac. `rebase.autoStash` puts the *unticked* working changes aside for
 the duration and restores them afterwards.
 
+This is a **setting**, on by default: *When sending, also bring in what other
+people have sent*. On, because a refusal for being behind is a question with no
+decision in it. Off for anyone who would rather nothing arrived unasked — "I
+only wanted to send a file, not update my whole folder" is fair, and then the
+send stops and the dialog *offers* the update instead of taking it. With it off
+the folder is left exactly as it was: the commit is undone, nothing is fetched
+into the working tree, and the message says the shared copy has moved on rather
+than blaming a clash that does not exist.
+
 This is what makes a partial send work, and it is what other Git clients (an
 IDE's "commit selected files") have always done. Two files changed here, one of
 them also changed by a colleague: leaving the contested one unticked sends the

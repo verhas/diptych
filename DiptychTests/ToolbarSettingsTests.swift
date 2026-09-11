@@ -148,6 +148,7 @@ final class ConfigurationPersistenceTests: XCTestCase {
         var configuration = Configuration()
         configuration.gitEnabled = true
         configuration.gitCheckOnOpen = true
+        configuration.gitUpdateWhenSending = false
         configuration.gitPath = "/opt/homebrew/bin/git"
         configuration.foldersFirst = false
         configuration.soundsEnabled = false

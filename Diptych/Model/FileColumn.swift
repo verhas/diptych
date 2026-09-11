@@ -137,6 +137,17 @@ struct Configuration: Codable, Equatable {
     /// on a slow connection or a large repository it is not instant.
     var gitCheckOnOpen = false
 
+    /// When a send is refused for being behind, catch up and send anyway.
+    ///
+    /// On by default, because a push is refused whenever the shared copy has
+    /// moved on *at all* -- even when nobody went near the files being sent --
+    /// and stopping for that is a question with no decision in it.
+    ///
+    /// Off for anyone who would rather nothing arrived unasked: "I wanted to
+    /// send one file, not update my whole folder" is a fair thing to want, and
+    /// then the send stops and offers the update instead of taking it.
+    var gitUpdateWhenSending = true
+
     /// Directories above files, rather than everything in one sequence.
     ///
     /// On by default because that is what every file manager does and what the
@@ -161,7 +172,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, toolbar
+        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
     }
 
     init() {}
@@ -184,6 +195,8 @@ struct Configuration: Codable, Equatable {
         gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
         gitPath = (try? container.decode(String.self, forKey: .gitPath)) ?? ""
         gitCheckOnOpen = (try? container.decode(Bool.self, forKey: .gitCheckOnOpen)) ?? false
+        gitUpdateWhenSending =
+            (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
         // Clamped on the way in: config.json is hand-editable, and a font size
         // of 0 or 4000 would render the panes unusable with no way back.
