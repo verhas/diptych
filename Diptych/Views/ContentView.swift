@@ -664,6 +664,21 @@ struct DialogSheet: View {
                     confirm: "Authenticate...",
                     destructive: false) { model.confirmPrivilegedOwnerChange() }
 
+            case .stopTracking:
+                let items = model.active.selectedItems.filter { !$0.isParent }
+                confirmation(
+                    title: items.count == 1
+                        ? "Stop tracking \u{201C}\(items.first?.name ?? "")\u{201D}?"
+                        : "Stop tracking \(items.count) items?",
+                    detail: "The \(items.count == 1 ? "file stays" : "files stay") on this Mac "
+                        + "and will not be sent again when changed.\n\n"
+                        + "This is a change like any other, so it waits in your next send. "
+                        + "Once sent, everyone else loses "
+                        + "\(items.count == 1 ? "their copy" : "their copies") the next time "
+                        + "they get the latest. Only your copy is kept.",
+                    confirm: "Stop Tracking",
+                    destructive: true) { model.confirmStopTracking() }
+
             case .conflict:
                 conflictPrompt
 

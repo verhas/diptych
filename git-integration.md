@@ -181,6 +181,7 @@ send my work?**
 | blue | tracked and changed — will be sent |
 | red | cannot go as it stands — see below |
 | purple | out of date: someone else has sent a newer version |
+| blue | *no longer tracked*: kept here, removal waiting to be sent |
 | *none* | nothing to send: unchanged, **or ignored** |
 
 Ignored files are drawn normally. That falls out of the rule consistently — an
@@ -325,10 +326,37 @@ Source: `status --porcelain=v2 -z --untracked-files=all`. Formats confirmed:
 
 ## 4. The three verbs
 
-### Track this file / Never track this
+### Track this file / Never track this / Stop tracking this
 
 Context menu on a brown file, offering exactly two futures in plain words.
 "Never track this" writes the `.gitignore` line.
+
+**Stop Tracking This File** is the other direction, on anything that *is*
+tracked: `git rm --cached`, which takes the file out of Git and leaves it on
+disk. It is local until the next send, and the confirmation says the part that
+is easy to miss — the removal is a change like any other, so once sent,
+everyone else loses their copy. Only yours is kept.
+
+Two silent traps live under that one menu item, and both were real:
+
+* Git reports such a path **twice** — `1 D.` for the staged removal and `?` for
+  the untracked file on disk. The parser took the last record and reported "not
+  tracked", hiding the removal waiting to go. Neither word alone is honest, so
+  the pair is its own state: `.untracking`, *"no longer tracked"*, blue, listed
+  for sending. "Removed" beside a file you can see on screen reads as a bug.
+* `git commit -- <paths>` takes the **working tree** for those paths and
+  disregards the index. A file that is in HEAD and on disk looks unchanged, so
+  git answers *"nothing to commit"* and the removal is silently dropped — and
+  the `git add` that precedes it would have re-tracked the file anyway. So a
+  send now empties the index to HEAD, puts exactly what was ticked into it
+  (`rm --cached` for untracking paths, `add` for everything else) and commits
+  the index with no pathspec at all.
+
+That second change means a send must put back staging it did not own, and put
+each kind back by its own route: `add` for an ordinary staged change,
+`rm --cached` for a file the user had stopped tracking. Using `add` on the
+latter silently re-tracks it, which is how the decision would disappear without
+a word.
 
 ### Send my work
 

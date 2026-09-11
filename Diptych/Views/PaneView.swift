@@ -418,6 +418,16 @@ struct PaneView: View {
                 }
             }
 
+            // The other direction, and only where it could mean anything: a
+            // brown file is not tracked, so there is nothing to stop.
+            if pane.gitRoot != nil,
+               pane.rows.contains(where: { ids.contains($0.id) && !$0.isParent
+                                           && $0.gitState != .untracked }) {
+                Button("Stop Tracking \(ids.count == 1 ? "This File" : "These Files")") {
+                    act(ids) { model.requestStopTracking() }
+                }
+            }
+
             // Hidden rather than disabled for a folder: the entry would be
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),

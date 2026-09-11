@@ -33,6 +33,7 @@ final class AppModel {
         case sendWork
         case gitConflict
         case gitNotSent
+        case stopTracking
 
         var id: String {
             switch self {
@@ -43,6 +44,7 @@ final class AppModel {
             case .conflict:       return "conflict"
             case .message:   return "message"
             case .notice:    return "notice"
+            case .stopTracking:   return "stopTracking"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -1258,6 +1260,35 @@ final class AppModel {
             let outcome = await GitService.shared.neverTrack(paths, inRepository: root)
             finishGit(outcome, success: "\(paths.count) will never be sent", root: root)
         }
+    }
+
+    func requestStopTracking() {
+        guard active.gitRoot != nil, !relativeSelectionIsEmpty else { return }
+        dialog = .stopTracking
+    }
+
+    func confirmStopTracking() {
+        dialog = nil
+        guard let root = active.gitRoot else { return }
+        let paths = relativeSelection(under: root)
+        guard !paths.isEmpty else { return }
+        Task {
+            let outcome = await GitService.shared.stopTracking(paths, inRepository: root)
+            // `git rm --cached` fails on a file it was never tracking, which is
+            // the likeliest way to arrive here by mistake: the menu cannot tell
+            // a tracked unchanged file from an ignored one without asking Git,
+            // and asking Git is not something a menu can wait for.
+            if case .failed = outcome {
+                dialog = .message("\(paths.count == 1 ? "That file is" : "Those files are") "
+                                  + "not being tracked, so there is nothing to stop.")
+                return
+            }
+            finishGit(outcome, success: "\(paths.count) no longer tracked", root: root)
+        }
+    }
+
+    private var relativeSelectionIsEmpty: Bool {
+        active.selectedItems.allSatisfy(\.isParent)
     }
 
     private func relativeSelection(under root: URL) -> [String] {

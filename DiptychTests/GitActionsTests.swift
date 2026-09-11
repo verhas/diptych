@@ -523,6 +523,127 @@ final class GitActionsTests: XCTestCase {
                        "but both are remembered, so both are coloured")
     }
 
+    // MARK: - Stop tracking, but keep the file
+
+    func testStoppingTrackingKeepsTheFileAndTurnsItIntoARemovalToSend() async throws {
+        try await readyGit()
+
+        let outcome = await GitService.shared.stopTracking(["readme.md"], inRepository: mine)
+
+        guard case .ok = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(read("readme.md"), "first\n", "the file is still here, untouched")
+
+        GitService.shared.invalidate(mine)
+        let seen = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(seen).status
+        XCTAssertEqual(status.states["readme.md"], .untracking,
+                       "not \"removed\" beside a file you can see, and not merely \"new\"")
+    }
+
+    func testTheRemovalIsOfferedAndActuallySent() async throws {
+        // "This action should also be pushed later" -- so it has to appear in
+        // the send list, and survive the send.
+        try await readyGit()
+        _ = await GitService.shared.stopTracking(["readme.md"], inRepository: mine)
+        GitService.shared.invalidate(mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["readme.md"], "offered, ticked")
+        XCTAssertFalse(changes.new.contains { $0.path == "readme.md" },
+                       "and not offered as a new file, which would re-track it")
+
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "stop tracking it",
+                                                  inRepository: mine)
+
+        guard case .sent = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(read("readme.md"), "first\n", "still mine, still here")
+        let theirs = try colleague()
+        XCTAssertNil(read("readme.md", in: theirs), "and gone from the shared copy")
+    }
+
+    func testSendingSomethingElseDoesNotQuietlyRetrackIt() async throws {
+        // The trap: `git add` on an untracked-but-staged path puts it straight
+        // back, and a pathspec commit ignores the index entirely. Either one
+        // would undo the user's decision without saying a word.
+        try await readyGit()
+        try write("other.md", "other\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add other"], in: mine)
+        try run(["push"], in: mine)
+
+        _ = await GitService.shared.stopTracking(["readme.md"], inRepository: mine)
+        try write("other.md", "changed\n")
+
+        let result = await GitService.shared.send(paths: ["other.md"], newPaths: [],
+                                                  message: "just the other one",
+                                                  inRepository: mine)
+
+        guard case .sent = result else { return XCTFail("\(result)") }
+        GitService.shared.invalidate(mine)
+        let seen = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(seen).status
+        XCTAssertEqual(status.states["readme.md"], .untracking,
+                       "the decision survives a send that had nothing to do with it")
+        let theirs = try colleague()
+        XCTAssertEqual(read("readme.md", in: theirs), "first\n", "and was not sent yet")
+    }
+
+    func testAnUndoneSendDoesNotRetrackItEither() async throws {
+        try await readyGit()
+        _ = await GitService.shared.stopTracking(["readme.md"], inRepository: mine)
+        try write("other.md", "mine\n")
+
+        // Someone else goes first, and the update is not wanted, so the send is
+        // rolled back.
+        let theirs = try colleague()
+        try write("theirs.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try await withUpdatingOff {
+            let result = await GitService.shared.send(paths: [], newPaths: ["other.md"],
+                                                      message: "mine", inRepository: mine)
+            guard case .notSent = result else { return XCTFail("\(result)") }
+        }
+
+        GitService.shared.invalidate(mine)
+        let seen = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(seen).status
+        XCTAssertEqual(status.states["readme.md"], .untracking, "still untracked after the undo")
+        XCTAssertEqual(read("readme.md"), "first\n")
+    }
+
+    func testStoppingTrackingAFolderWorks() async throws {
+        try await readyGit()
+        try write("notes/one.md", "one\n")
+        try write("notes/two.md", "two\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "notes"], in: mine)
+
+        let outcome = await GitService.shared.stopTracking(["notes"], inRepository: mine)
+
+        guard case .ok = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(read("notes/one.md"), "one\n", "the folder is still here")
+        GitService.shared.invalidate(mine)
+        let seen = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(seen).status
+        XCTAssertEqual(status.states["notes/one.md"], .untracking)
+    }
+
+    func testStoppingTrackingSomethingNeverTrackedFails() async throws {
+        // Which is what tells the user so, rather than pretending it worked:
+        // the menu cannot tell a tracked unchanged file from an ignored one.
+        try await readyGit()
+        try write("stray.md", "never added\n")
+
+        let outcome = await GitService.shared.stopTracking(["stray.md"], inRepository: mine)
+
+        guard case .failed = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(read("stray.md"), "never added\n", "and the file is untouched")
+    }
+
     // MARK: - Whether a send may update the folder
 
     private func withUpdating(_ on: Bool, _ body: () async throws -> Void) async rethrows {

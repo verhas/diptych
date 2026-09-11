@@ -207,4 +207,15 @@ final class GitStatusTests: XCTestCase {
         XCTAssertEqual(GitState.stale.title, "out of date")
         XCTAssertNotNil(GitState.stale.explanation)
     }
+
+    func testAPathReportedBothAsRemovedAndUntrackedIsNeitherAlone() {
+        // `git rm --cached` produces exactly this: "1 D." then "? path".
+        // Taking the last record won gave "not tracked", which hid that a
+        // removal was waiting to be sent.
+        let text = "1 D. N... 100644 000000 000000 aaa bbb a.md\u{0}? a.md\u{0}"
+
+        let status = GitStatus.parse(text)
+
+        XCTAssertEqual(status.states["a.md"], .untracking)
+    }
 }

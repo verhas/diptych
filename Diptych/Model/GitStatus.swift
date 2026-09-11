@@ -21,6 +21,14 @@ enum GitState: Sendable, Equatable, Hashable {
     /// the send dialog lists it, and "changed" would read as a mistake next to
     /// a file the user knows they deleted.
     case deleted
+    /// Taken out of Git but still on disk: "Stop Tracking This File".
+    ///
+    /// Git reports this path *twice* -- once as a staged removal and once as
+    /// untracked -- and neither word alone is honest. "Removed" beside a file
+    /// you can see on screen reads as a bug, and "not tracked" hides that a
+    /// removal is waiting to be sent, which is the half that affects everyone
+    /// else.
+    case untracking
     /// Not changed here, but someone else has sent a newer version.
     ///
     /// The only state that says nothing about sending -- a file like this is
@@ -53,6 +61,7 @@ extension GitState {
         case .added:      "new"
         case .changed:    "changed"
         case .deleted:    "removed"
+        case .untracking: "no longer tracked"
         case .stale:      "out of date"
         // Not "also changed", which was reported as too mild for what it
         // means: this one cannot be sent until somebody decides something.
@@ -70,6 +79,8 @@ extension GitState {
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
         case .deleted:    "Removed. The removal will be sent."
+        case .untracking: "Kept here, but taken out of version tracking. Sending this "
+                          + "removes it for everyone else."
         case .stale:      "Someone else has sent a newer version. Get the Latest "
                           + "before you change this."
         case .contested:  "Changed here, and in the shared copy too when it was "
@@ -120,6 +131,7 @@ struct GitStatus: Sendable {
             case .stale:      4
             case .changed:    3
             case .deleted:    3
+            case .untracking: 3
             case .added:      2
             case .untracked:  1
             case .clean:      0
@@ -187,7 +199,11 @@ struct GitStatus: Sendable {
                 }
 
             case "?":
-                status.states[String(field.dropFirst(2))] = .untracked
+                let path = String(field.dropFirst(2))
+                // The same path has already been seen as a staged removal, so
+                // this is a file taken out of tracking rather than a new one.
+                // Both records are true; only together do they mean anything.
+                status.states[path] = status.states[path] == .deleted ? .untracking : .untracked
 
             case "!":
                 // Only present if --ignored was asked for, which it is not.

@@ -36,6 +36,9 @@ struct CellView: View {
         case .added:      .green
         case .changed:    .blue
         case .deleted:    .blue
+        // Blue like the others that are waiting to be sent, because that is
+        // what it is: a change of yours on its way out.
+        case .untracking: .blue
         // One colour for both: to the person reading the pane, "this file needs
         // attention before it can go anywhere" is the same message, whether the
         // obstacle is a half-finished merge or a change someone else made.

@@ -22,6 +22,7 @@ extension GitService {
             case .added:      "new, tracked"
             case .changed:    "changed"
             case .deleted:    "removed"
+            case .untracking: "no longer tracked"
             case .stale:      "out of date"
             case .contested:  "clashes with the shared copy"
             case .conflicted: "unfinished merge"
@@ -49,7 +50,7 @@ extension GitService {
             case .untracked:            changes.new.append(Change(path: path, state: state))
             // Nothing of the user's to send: it is only out of date.
             case .stale:                break
-            case .added, .changed, .deleted,
+            case .added, .changed, .deleted, .untracking,
                  .contested:            changes.sending.append(Change(path: path, state: state))
             // Never offered. `git add` on a half-finished merge marks it
             // resolved and stages the file *with the conflict markers in it* --
@@ -154,6 +155,84 @@ extension GitService {
         return .ok("")
     }
 
+    /// What is in the index right now, split by how it has to be put back.
+    ///
+    /// A plain staged change goes back with `add`; a staged removal of a file
+    /// that is still on disk -- "no longer tracked" -- goes back with
+    /// `rm --cached`, and using `add` on one of those silently re-tracks the
+    /// file and undoes what the user asked for.
+    struct Staging: Sendable {
+        var normal: [String] = []
+        var untracking: [String] = []
+        var isEmpty: Bool { normal.isEmpty && untracking.isEmpty }
+        var all: [String] { normal + untracking }
+
+        func dropping(_ paths: [String]) -> Staging {
+            Staging(normal: normal.filter { !paths.contains($0) },
+                    untracking: untracking.filter { !paths.contains($0) })
+        }
+    }
+
+    func staged(in root: URL) async -> Staging {
+        guard case .ok(let text) = await command(["diff", "--name-only", "--cached", "HEAD"],
+                                                 in: root) else { return Staging() }
+        let all = text.split(separator: "\n").map(String.init)
+        guard !all.isEmpty else { return Staging() }
+
+        var removals: Set<String> = []
+        if case .ok(let text) = await command(["diff", "--name-only", "--cached",
+                                               "--diff-filter=D", "HEAD"], in: root) {
+            removals = Set(text.split(separator: "\n").map(String.init))
+        }
+
+        var staging = Staging()
+        for path in all {
+            // Staged as removed but still on disk: the file was untracked on
+            // purpose. A genuine deletion is not on disk any more.
+            if removals.contains(path),
+               FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) {
+                staging.untracking.append(path)
+            } else {
+                staging.normal.append(path)
+            }
+        }
+        return staging
+    }
+
+    /// Put the index back the way it was, each kind by its own route.
+    private func restage(_ staging: Staging, in root: URL) async {
+        let surviving = staging.normal.filter {
+            FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
+        }
+        // A file staged as deleted and gone from disk needs `add` to record the
+        // deletion again, so those go through too.
+        let deletions = staging.normal.filter { !surviving.contains($0) }
+        if !surviving.isEmpty { _ = await command(["add", "--"] + surviving, in: root) }
+        if !deletions.isEmpty { _ = await command(["add", "--"] + deletions, in: root) }
+        if !staging.untracking.isEmpty {
+            _ = await command(["rm", "--cached", "-r", "--"] + staging.untracking, in: root)
+        }
+    }
+
+    /// Stop tracking, but keep the file.
+    ///
+    /// `git rm --cached` takes the file out of Git's index and leaves it on
+    /// disk, so it goes brown here and is no longer sent when it changes.
+    ///
+    /// What it does *not* do is stay local. The removal is a change like any
+    /// other: it sits in the next send, and once sent, everyone else loses the
+    /// file from their folder the next time they get the latest. Keeping the
+    /// copy is a promise made to this Mac only, which is why the confirmation
+    /// says so in those words.
+    ///
+    /// `-r` because a folder cannot be removed from the index without it, and
+    /// the menu offers folders.
+    func stopTracking(_ paths: [String], inRepository root: URL) async -> GitTool.Outcome {
+        let outcome = await command(["rm", "--cached", "-r", "--"] + paths, in: root)
+        invalidate(root)
+        return outcome
+    }
+
     // MARK: - Sending
 
     enum SendResult: Sendable {
@@ -197,35 +276,56 @@ extension GitService {
         // a separate decision the user made earlier, and undoing the send must
         // not undo it -- `reset --mixed` unstages everything indiscriminately,
         // so a file marked green by hand went brown again when the push failed.
-        var alreadyTracked: [String] = []
-        if case .ok(let staged) = await command(["diff", "--name-only", "--cached", "HEAD"],
-                                                in: root) {
-            alreadyTracked = staged.split(separator: "\n").map(String.init)
-        }
+        let before = await staged(in: root)
 
-        // New files have to be tracked before a commit can name them.
-        if !newPaths.isEmpty {
-            if case .failed(_, let text) = await track(newPaths, inRepository: root) {
-                return .notSent(reason: "Those files could not be included.",
+        // Build the commit in the index rather than naming paths on `commit`.
+        //
+        // `git commit -- <paths>` takes the *working tree* for those paths and
+        // disregards the index, which cannot express "no longer tracked but
+        // still on disk": the file is in HEAD and on disk, git sees no change,
+        // and answers "nothing to commit" -- silently dropping the removal. So
+        // the index is emptied to HEAD, exactly what was ticked is put into it,
+        // and the commit takes the index as it stands.
+        _ = await command(["reset", "-q"], in: root)
+
+        let untracking = before.untracking.filter { all.contains($0) }
+        let ordinary = all.filter { !untracking.contains($0) }
+        if !untracking.isEmpty {
+            // Not `add`, which would put the file straight back and undo the
+            // decision the user made from the menu.
+            if case .failed(_, let text) = await command(["rm", "--cached", "-r", "--"]
+                                                         + untracking, in: root) {
+                await restage(before, in: root)
+                return .notSent(reason: "Your changes could not be prepared.",
                                 details: text, conflicts: [])
             }
         }
-        // Staging modifications too, so a deletion is recorded as one.
-        if case .failed(_, let text) = await command(["add", "--"] + all, in: root) {
-            return .notSent(reason: "Your changes could not be prepared.",
-                            details: text, conflicts: [])
+        // `add` covers new files, modifications and deletions alike.
+        if !ordinary.isEmpty {
+            if case .failed(_, let text) = await command(["add", "--"] + ordinary, in: root) {
+                await restage(before, in: root)
+                return .notSent(reason: "Your changes could not be prepared.",
+                                details: text, conflicts: [])
+            }
         }
 
-        let commit = await command(["commit", "-m", message, "--"] + all, in: root)
+        let commit = await command(["commit", "-m", message], in: root)
         if case .failed(_, let text) = commit {
+            await restage(before, in: root)
             return .notSent(reason: "Your work could not be saved.",
                             details: text, conflicts: [])
         }
 
-        // Ticking a new file in the dialog means "include it, now and from now
-        // on", so those stay tracked too: the send is undone, the decisions
-        // that led to it are not.
-        let keepTracked = alreadyTracked + newPaths
+        // Emptying the index swept away staging that was nothing to do with
+        // this send. What was ticked is in the commit now and needs nothing.
+        await restage(before.dropping(all), in: root)
+
+        // But if the send has to be undone, *everything* that was staged goes
+        // back, ticked or not -- tracking a file is a decision made before the
+        // send, and rolling the commit back must not roll that back too.
+        // Ticking a new file in the dialog is the same kind of decision.
+        var keepTracked = before
+        keepTracked.normal += newPaths
 
         switch await command(["push"], in: root, timeout: 120) {
         case .ok:
@@ -263,7 +363,7 @@ extension GitService {
     /// two people editing different parts of one file is not a conflict, only
     /// a coincidence -- and the ones that do not are set aside by name.
     private func catchUpAndSendAgain(count: Int, sent: Set<String>, previousHead: String,
-                                     keepTracked: [String], root: URL,
+                                     keepTracked: Staging, root: URL,
                                      details: String) async -> SendResult {
         // An untracked file here that also arrives in the update would stop the
         // rebase before it started. Autostash does not cover those, so they are
@@ -389,7 +489,7 @@ extension GitService {
     /// would otherwise have its commit deleted from under everyone who can
     /// already see it.
     private func afterFailedPush(count: Int, sent: Set<String>, previousHead: String,
-                                 keepTracked: [String], root: URL,
+                                 keepTracked: Staging, root: URL,
                                  details: String) async -> SendResult {
         _ = await command(["fetch"], in: root, timeout: 120)
         if case .ok = await command(["merge-base", "--is-ancestor", "HEAD", "@{u}"], in: root) {
@@ -413,18 +513,14 @@ extension GitService {
                                    keepTracked: keepTracked, root: root, details: details)
     }
 
-    private func undoTheCommit(sent: Set<String>, previousHead: String, keepTracked: [String],
+    private func undoTheCommit(sent: Set<String>, previousHead: String, keepTracked: Staging,
                                root: URL, details: String) async -> SendResult {
         _ = await command(["reset", "--mixed", previousHead], in: root)
-        // Put back what was tracked before the send, which the reset has just
-        // swept away along with everything else.
+        // Put back what was staged before the send, which the reset has just
+        // swept away along with everything else -- including any file the user
+        // had asked to stop tracking, which must not come back as tracked.
         let clashing = await conflictingPaths(inRepository: root)
-        let surviving = keepTracked.filter {
-            FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
-        }
-        if !surviving.isEmpty {
-            _ = await command(["add", "--"] + surviving, in: root)
-        }
+        await restage(keepTracked, in: root)
         invalidate(root)
         // Everything contested is remembered, so the pane can colour all of it
         // without the user having to ask a second time...
