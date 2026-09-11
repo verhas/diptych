@@ -152,9 +152,7 @@ extension GitService {
     // MARK: - Sending
 
     enum SendResult: Sendable {
-        /// `kept` names copies set aside because restoring an unsent change on
-        /// top of the newly arrived version genuinely clashed.
-        case sent(count: Int, kept: [String])
+        case sent(count: Int)
         case nothingSelected
         /// Committed and pushed by someone else first, or offline. The commit
         /// has been undone; the files are exactly as they were.
@@ -228,10 +226,11 @@ extension GitService {
         case .ok:
             invalidate(root)
             noteCheck(root, contested: [], behind: 0)
-            return .sent(count: all.count, kept: [])
+            return .sent(count: all.count)
 
         case .timedOut:
-            return await afterFailedPush(count: all.count, previousHead: previousHead,
+            return await afterFailedPush(count: all.count, sent: Set(all),
+                                         previousHead: previousHead,
                                          keepTracked: keepTracked, root: root,
                                          details: "The push took too long and was stopped.")
 
@@ -239,7 +238,8 @@ extension GitService {
             // A connection that dies *after* the server accepted means the
             // outcome is unknown. Undoing then would delete a commit other
             // people can already see, so ask before assuming.
-            return await afterFailedPush(count: all.count, previousHead: previousHead,
+            return await afterFailedPush(count: all.count, sent: Set(all),
+                                         previousHead: previousHead,
                                          keepTracked: keepTracked, root: root, details: text)
         }
     }
@@ -257,13 +257,13 @@ extension GitService {
     /// duration and brings them back afterwards. Most come back cleanly --
     /// two people editing different parts of one file is not a conflict, only
     /// a coincidence -- and the ones that do not are set aside by name.
-    private func catchUpAndSendAgain(count: Int, previousHead: String,
+    private func catchUpAndSendAgain(count: Int, sent: Set<String>, previousHead: String,
                                      keepTracked: [String], root: URL,
                                      details: String) async -> SendResult {
         // An untracked file here that also arrives in the update would stop the
-        // rebase before it started. Autostash does not cover those.
-        let blocking = await untrackedFilesArrivingInUpdate(root: root)
-        let movedAside = moveAside(blocking, inRepository: root)
+        // rebase before it started. Autostash does not cover those, so they are
+        // parked for the duration and put back afterwards under their own name.
+        let parked = parkUntrackedFiles(await arrivingInUpdate(root: root), inRepository: root)
 
         let rebase = await command(["-c", "rebase.autoStash=true", "rebase", "@{u}"],
                                    in: root, timeout: 120)
@@ -271,17 +271,13 @@ extension GitService {
             // A file we *did* choose to send is contested, which is a real
             // decision for the user rather than something to paper over.
             _ = await command(["rebase", "--abort"], in: root)
-            // Nothing arrived after all, so the files moved out of the way go
-            // back under their own names rather than leaving the user with
-            // renamed copies from an attempt that changed nothing.
-            for (original, copy) in movedAside {
-                try? FileManager.default.moveItem(at: copy, to: root.appendingPathComponent(original))
-            }
-            return await undoTheCommit(previousHead: previousHead, keepTracked: keepTracked,
-                                       root: root, details: text.isEmpty ? details : text)
+            unpark(parked, inRepository: root)
+            return await undoTheCommit(sent: sent, previousHead: previousHead,
+                                       keepTracked: keepTracked, root: root,
+                                       details: text.isEmpty ? details : text)
         }
-        var kept = movedAside.map { $0.copy.lastPathComponent }
-        if !kept.isEmpty { excludeLocally(pattern: "*(my version)*", inRepository: root) }
+        unpark(parked, inRepository: root)
+        await restoreUnsentWork(root: root)
 
         switch await command(["push"], in: root, timeout: 120) {
         case .ok:
@@ -295,18 +291,40 @@ extension GitService {
                             details: "The push took too long and was stopped.", conflicts: [])
         }
 
-        // Whatever the autostash could not put back cleanly is still in the
-        // stash, with conflict markers in the file. Take the user's version out
-        // by name and leave the folder clean rather than leaving them to stare
-        // at <<<<<<< in a document.
-        kept += await rescueFailedAutostash(root: root)
         invalidate(root)
         noteCheck(root, contested: [], behind: 0)
-        return .sent(count: count, kept: kept)
+        return .sent(count: count)
+    }
+
+    /// Put back, verbatim and uncommitted, whatever the autostash could not
+    /// restore cleanly.
+    ///
+    /// These are files the user deliberately left unticked: they are still
+    /// working on them. Git's answer is to write `<<<<<<<` into the file;
+    /// Diptych's earlier answer was to copy it aside as "(my version)" and let
+    /// the arrived version take the name. Both are wrong for the same reason --
+    /// they change work that nobody asked to have changed. The file keeps the
+    /// user's content and their name, and simply shows as changed again, which
+    /// is exactly what it was before the send.
+    private func restoreUnsentWork(root: URL) async {
+        guard case .ok(let list) = await command(["stash", "list"], in: root),
+              !list.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        if case .ok(let conflicted) = await command(["diff", "--name-only",
+                                                     "--diff-filter=U"], in: root) {
+            for path in conflicted.split(separator: "\n").map(String.init) {
+                // Straight out of the stash into the file, then out of the
+                // index again: the content is mine, the commit is theirs, and
+                // the difference between them is a change still to be made.
+                _ = await command(["checkout", "stash@{0}", "--", path], in: root)
+                _ = await command(["reset", "--", path], in: root)
+            }
+        }
+        _ = await command(["stash", "drop"], in: root)
     }
 
     /// Untracked files here that the update is about to bring in.
-    private func untrackedFilesArrivingInUpdate(root: URL) async -> [String] {
+    private func arrivingInUpdate(root: URL) async -> [String] {
         guard case .ok(let incomingText) = await command(["diff", "--name-only", "HEAD", "@{u}"],
                                                          in: root) else { return [] }
         let incoming = Set(incomingText.split(separator: "\n").map(String.init))
@@ -317,59 +335,57 @@ extension GitService {
             .filter { incoming.contains($0) }
     }
 
-    /// Renames each file out of the way so the arriving version has somewhere
-    /// to land, remembering enough to put it back if the attempt is abandoned.
-    private func moveAside(_ paths: [String],
-                           inRepository root: URL) -> [(original: String, copy: URL)] {
-        var moved: [(original: String, copy: URL)] = []
-        for path in paths {
+    /// Move each file somewhere Git will not look, remembering where from.
+    ///
+    /// Inside `.git` rather than beside the original, because this is plumbing
+    /// the user should never see: it lasts for the length of one rebase and
+    /// leaves nothing behind in the folder they are working in.
+    private func parkUntrackedFiles(_ paths: [String],
+                                    inRepository root: URL) -> [(path: String, parked: URL)] {
+        guard !paths.isEmpty else { return [] }
+        let yard = root.appendingPathComponent(".git/diptych-parked")
+        try? FileManager.default.removeItem(at: yard)
+        guard (try? FileManager.default.createDirectory(at: yard,
+                                                        withIntermediateDirectories: true)) != nil
+        else { return [] }
+
+        var parked: [(path: String, parked: URL)] = []
+        for (index, path) in paths.enumerated() {
             let source = root.appendingPathComponent(path)
             guard FileManager.default.fileExists(atPath: source.path) else { continue }
-            let target = FileOperations.uniqueURL(for: root.appendingPathComponent(myVersion(of: path)))
-            guard (try? FileManager.default.moveItem(at: source, to: target)) != nil else { continue }
-            moved.append((path, target))
-        }
-        return moved
-    }
-
-    /// The autostash conflicted: the user's version is in the stash and the
-    /// file on disk has conflict markers in it.
-    private func rescueFailedAutostash(root: URL) async -> [String] {
-        guard case .ok(let list) = await command(["stash", "list"], in: root),
-              !list.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-
-        guard case .ok(let conflicted) = await command(["diff", "--name-only",
-                                                        "--diff-filter=U"], in: root)
-        else { return [] }
-        let paths = conflicted.split(separator: "\n").map(String.init)
-
-        var kept: [String] = []
-        for path in paths {
-            guard case .ok(let mine) = await command(["show", "stash@{0}:\(path)"], in: root)
+            let destination = yard.appendingPathComponent("\(index)")
+            guard (try? FileManager.default.moveItem(at: source, to: destination)) != nil
             else { continue }
-            let target = FileOperations.uniqueURL(for: root.appendingPathComponent(myVersion(of: path)))
-            guard (try? mine.write(to: target, atomically: true, encoding: .utf8)) != nil
-            else { continue }
-            kept.append(target.lastPathComponent)
-            _ = await command(["checkout", "HEAD", "--", path], in: root)
+            parked.append((path, destination))
         }
-        if !kept.isEmpty { excludeLocally(pattern: "*(my version)*", inRepository: root) }
-        _ = await command(["stash", "drop"], in: root)
-        return kept
+        return parked
     }
 
-    private func myVersion(of path: String) -> String {
-        let stem = (path as NSString).deletingPathExtension
-        let suffix = (path as NSString).pathExtension
-        return suffix.isEmpty ? "\(stem) (my version)" : "\(stem) (my version).\(suffix)"
+    /// Back under its own name, over whatever arrived in the meantime.
+    ///
+    /// The user's file was never sent and never asked to be replaced, so it
+    /// wins. The version that arrived is safe in the commit, and the file now
+    /// reads as changed -- which is the truth.
+    private func unpark(_ parked: [(path: String, parked: URL)], inRepository root: URL) {
+        for (path, copy) in parked {
+            let destination = root.appendingPathComponent(path)
+            try? FileManager.default.removeItem(at: destination)
+            try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            try? FileManager.default.moveItem(at: copy, to: destination)
+        }
+        if !parked.isEmpty {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(".git/diptych-parked"))
+        }
     }
 
-    /// Undo the commit -- but only after establishing that it really did not
+    /// Undo the commit -- but only after establishing that it really did not    /// Undo the commit -- but only after establishing that it really did not
     /// reach the shared copy. A push that failed after the server accepted it
     /// would otherwise have its commit deleted from under everyone who can
     /// already see it.
-    private func afterFailedPush(count: Int, previousHead: String, keepTracked: [String],
-                                 root: URL, details: String) async -> SendResult {
+    private func afterFailedPush(count: Int, sent: Set<String>, previousHead: String,
+                                 keepTracked: [String], root: URL,
+                                 details: String) async -> SendResult {
         _ = await command(["fetch"], in: root, timeout: 120)
         if case .ok = await command(["merge-base", "--is-ancestor", "HEAD", "@{u}"], in: root) {
             invalidate(root)
@@ -379,17 +395,18 @@ extension GitService {
         // Refused because the shared copy has moved on, which is the ordinary
         // case and not something to hand back to the user.
         if case .ok = await command(["rev-parse", "--verify", "@{u}"], in: root) {
-            return await catchUpAndSendAgain(count: count, previousHead: previousHead,
+            return await catchUpAndSendAgain(count: count, sent: sent,
+                                             previousHead: previousHead,
                                              keepTracked: keepTracked, root: root,
                                              details: details)
         }
 
-        return await undoTheCommit(previousHead: previousHead, keepTracked: keepTracked,
-                                   root: root, details: details)
+        return await undoTheCommit(sent: sent, previousHead: previousHead,
+                                   keepTracked: keepTracked, root: root, details: details)
     }
 
-    private func undoTheCommit(previousHead: String, keepTracked: [String], root: URL,
-                               details: String) async -> SendResult {
+    private func undoTheCommit(sent: Set<String>, previousHead: String, keepTracked: [String],
+                               root: URL, details: String) async -> SendResult {
         _ = await command(["reset", "--mixed", previousHead], in: root)
         // Put back what was tracked before the send, which the reset has just
         // swept away along with everything else.
@@ -401,18 +418,22 @@ extension GitService {
             _ = await command(["add", "--"] + surviving, in: root)
         }
         invalidate(root)
-        // The fetch above and this comparison are seconds old, so the pane can
-        // go red now without the user having to ask a second time.
+        // Everything contested is remembered, so the pane can colour all of it
+        // without the user having to ask a second time...
         noteCheck(root, contested: Set(clashing),
                   behind: await status(forRepository: root)?.behind ?? 0)
+        // ...but the dialog speaks only about what was actually ticked. Naming
+        // a file the user deliberately left out reads as though it were in the
+        // way, when it is simply none of this send's business.
+        let blocking = clashing.filter { sent.contains($0) }
         // Says what happened, not what the user already knows. That their work
         // is still on their own Mac is not news; that it did not reach anyone
         // else is the whole point of the message.
-        return .notSent(reason: clashing.isEmpty
+        return .notSent(reason: blocking.isEmpty
                             ? "Your changes were not sent."
                             : "Your changes were not sent \u{2014} someone else has changed "
                               + "some of the same files.",
-                        details: details, conflicts: clashing)
+                        details: details, conflicts: blocking)
     }
 
     // MARK: - Getting the latest
@@ -570,6 +591,10 @@ extension GitService {
             }
         }
         invalidate(root)
+        // The folder now matches the shared copy, so nothing is contested any
+        // more. Without this the files that were just brought in stayed red
+        // until the user pressed Check for Changes.
+        noteCheck(root, contested: [], behind: 0)
         return .keptCopies(names: kept)
     }
 

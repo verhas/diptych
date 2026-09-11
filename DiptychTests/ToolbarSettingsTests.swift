@@ -136,3 +136,45 @@ final class ToolbarSettingsTests: XCTestCase {
         XCTAssertTrue(read.toolbarButtons(on: .middle).contains(.hiddenFiles))
     }
 }
+
+/// Settings have to survive a restart, and a hand-written `CodingKeys` list is
+/// exactly the kind of thing a new setting gets left out of.
+final class ConfigurationPersistenceTests: XCTestCase {
+
+    /// One setting added, one `CodingKeys` entry forgotten, and the box was
+    /// unticked again at every launch. This round-trip catches the next one:
+    /// a field with no key decodes as its default, and the comparison fails.
+    func testEverySettingSurvivesBeingWrittenAndReadBack() throws {
+        var configuration = Configuration()
+        configuration.gitEnabled = true
+        configuration.gitCheckOnOpen = true
+        configuration.gitPath = "/opt/homebrew/bin/git"
+        configuration.foldersFirst = false
+        configuration.soundsEnabled = false
+        configuration.copySound = "Frog"
+        configuration.moveSound = "Hero"
+        configuration.trashSound = "Basso"
+        configuration.fontName = "Menlo"
+        configuration.fontSize = 15
+        configuration.favourites = ["/tmp"]
+        configuration.columnWidths = ["name": 250]
+        configuration.enabledColumns = [.name, .size]
+        configuration.toolbar = [ToolbarSlot(button: .sendWork, isShown: true, side: .left)]
+
+        let data = try JSONEncoder().encode(configuration)
+        let read = try JSONDecoder().decode(Configuration.self, from: data)
+
+        XCTAssertEqual(read, configuration)
+    }
+
+    /// The other half of the same bargain: a config written by an older build
+    /// must not be thrown away because it lacks a key added since.
+    func testAConfigWithoutTheNewestKeyStillLoads() throws {
+        let old = Data(#"{"gitEnabled": true, "fontSize": 13}"#.utf8)
+
+        let read = try JSONDecoder().decode(Configuration.self, from: old)
+
+        XCTAssertTrue(read.gitEnabled, "what was there is kept")
+        XCTAssertFalse(read.gitCheckOnOpen, "and what was not takes its default")
+    }
+}

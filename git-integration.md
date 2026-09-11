@@ -341,16 +341,29 @@ limitation, never a Git one.
 Two things can go wrong, and both are handled without ever showing a `<<<<<<<`
 marker to the user:
 
-* **The restore clashes.** The unticked change and the arriving change touch
-  the same lines. Git leaves markers in the file and keeps `stash@{0}`. Diptych
-  takes the user's version out with `git show stash@{0}:<path>` into
-  `<name> (my version).<ext>`, restores the shared version with
-  `git checkout HEAD -- <path>`, and drops the stash. Same treatment, same
-  naming, as everywhere else.
+The governing rule: **a file the user did not tick is a file they are still
+working on, and nothing may happen to it.** Not renamed, not replaced, not
+annotated. It may change colour — that is information — but its name and its
+contents are untouchable. An earlier version of this copied such files aside as
+`(my version)` and let the arrived version take the name; that was wrong for the
+same reason conflict markers are wrong, only quieter.
+
+* **The restore clashes.** The unticked change and the arriving change touch the
+  same lines, so Git leaves markers in the file and keeps `stash@{0}`. Diptych
+  puts the user's own content straight back with
+  `git checkout stash@{0} -- <path>`, then `git reset -- <path>` to take it out
+  of the index again, then drops the stash. The file holds what it held before
+  the send, uncommitted, and shows as changed — which it is.
 * **An untracked file here has the same name as one arriving.** Autostash does
-  not cover untracked files, and the rebase would refuse to start. Those files
-  are moved aside by name first -- and moved *back* if the attempt is abandoned,
-  so a send that changed nothing leaves nothing renamed.
+  not cover untracked files, and the rebase would refuse to start. The file is
+  parked inside `.git` for the length of the rebase and put straight back
+  afterwards, over whatever arrived. Nothing appears in the working folder, and
+  an abandoned attempt leaves no trace.
+
+**The refusal dialog names only what was ticked.** Everything contested is
+remembered, so all of it is coloured; but a file the user deliberately left out
+is none of that send's business, and listing it reads as though it were in the
+way.
 
 Only when a file that *was* ticked is genuinely contested does the rebase
 conflict. Then `rebase --abort`, undo the commit, and ask -- because now there

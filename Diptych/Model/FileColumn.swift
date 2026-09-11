@@ -161,7 +161,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, toolbar
+        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, toolbar
     }
 
     init() {}
@@ -183,6 +183,7 @@ struct Configuration: Codable, Equatable {
             ?? Configuration.defaultToolbar
         gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
         gitPath = (try? container.decode(String.self, forKey: .gitPath)) ?? ""
+        gitCheckOnOpen = (try? container.decode(Bool.self, forKey: .gitCheckOnOpen)) ?? false
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
         // Clamped on the way in: config.json is hand-editable, and a font size
         // of 0 or 4000 would render the panes unusable with no way back.

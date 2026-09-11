@@ -1304,10 +1304,7 @@ final class AppModel {
     private func handleSendResult(_ result: GitService.SendResult,
                                   alsoKept kept: [String] = []) {
             switch result {
-            case .sent(let count, let alsoSetAside):
-                // Copies may be set aside at either end: before the send, and
-                // again when catching up brought a genuinely clashing change.
-                let kept = kept + alsoSetAside
+            case .sent(let count):
                 guard kept.isEmpty else {
                     // Both things happened, and the renamed copies are the half
                     // nothing else would point out.

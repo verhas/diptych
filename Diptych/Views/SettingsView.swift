@@ -260,6 +260,13 @@ struct GitSettingsView: View {
     @Bindable private var store = ConfigStore.shared
     @Bindable private var git = GitService.shared
     @State private var copied = false
+    @State private var warnAboutTheServer = false
+
+    static let talksToTheServer =
+        "Everything else Diptych does with version tracking happens on this Mac, "
+        + "but a check has to ask the shared copy \u{2014} so it needs a working "
+        + "connection, and on a slow one or a very large folder it can take a while. "
+        + "Without this, use Check for Changes when you want to know."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -286,11 +293,7 @@ struct GitSettingsView: View {
                  + "changed as well turn red, with no interruption.")
                 .font(.subheadline).foregroundStyle(.secondary)
 
-            Text("This one talks to the server. Everything else Diptych does with "
-                 + "version tracking happens on this Mac, but a check has to ask the "
-                 + "shared copy \u{2014} so it needs a working connection, and on a slow "
-                 + "one or a very large folder it can take a while. Without this, use "
-                 + "Check for Changes when you want to know.")
+            Text(Self.talksToTheServer)
                 .font(.caption).foregroundStyle(.orange)
 
             HStack {
@@ -326,6 +329,17 @@ struct GitSettingsView: View {
         // merely stop refreshing them.
         .onChange(of: store.configuration.gitEnabled) { _, _ in
             Task { await git.locate() }
+        }
+        // Said once, in front of the user, at the moment they switch it on.
+        // Caption text beside a checkbox is read by nobody, and this is the
+        // one setting that changes what Diptych does over the network.
+        .onChange(of: store.configuration.gitCheckOnOpen) { _, on in
+            if on { warnAboutTheServer = true }
+        }
+        .alert("This checks with the server", isPresented: $warnAboutTheServer) {
+            Button("OK") { }
+        } message: {
+            Text(Self.talksToTheServer)
         }
     }
 
