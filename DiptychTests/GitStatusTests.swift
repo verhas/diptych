@@ -162,4 +162,49 @@ final class GitStatusTests: XCTestCase {
         XCTAssertEqual(status.state(for: URL(fileURLWithPath: "/repo-backup/x.md"),
                                     root: URL(fileURLWithPath: "/repo")), .clean)
     }
+
+    // MARK: - Out of date, and what a folder says
+
+    func testAFolderListsEverythingInsideItStrongestFirst() {
+        var status = GitStatus()
+        status.states = [
+            "book/one.md": .added,
+            "book/two.md": .contested,
+            "book/three.md": .changed,
+            "book/four.md": .stale,
+        ]
+        let root = URL(fileURLWithPath: "/repo")
+
+        let found = status.states(for: root.appendingPathComponent("book"), root: root)
+
+        XCTAssertEqual(found, [.contested, .stale, .changed, .added],
+                       "red, purple, blue, green")
+    }
+
+    func testAFileListsOnlyItself() {
+        var status = GitStatus()
+        status.states = ["book/one.md": .stale, "book/one.md.bak": .changed]
+        let root = URL(fileURLWithPath: "/repo")
+
+        XCTAssertEqual(status.states(for: root.appendingPathComponent("book/one.md"), root: root),
+                       [.stale], "and not its neighbour, whose name it is a prefix of")
+    }
+
+    func testOutOfDateOutranksChangedButNotAClash() {
+        // A folder holding work you are about to waste matters more than one
+        // holding work you have already done -- but less than one you cannot
+        // send at all.
+        XCTAssertEqual(GitStatus.stronger(.stale, .changed), .stale)
+        XCTAssertEqual(GitStatus.stronger(.stale, .added), .stale)
+        XCTAssertEqual(GitStatus.stronger(.stale, .contested), .contested)
+        XCTAssertEqual(GitStatus.stronger(.stale, .conflicted), .conflicted)
+    }
+
+    func testTheWordsAreWorthReading() {
+        // "also changed" was reported as too mild for a file that cannot be
+        // sent until somebody decides something.
+        XCTAssertEqual(GitState.contested.title, "clash")
+        XCTAssertEqual(GitState.stale.title, "out of date")
+        XCTAssertNotNil(GitState.stale.explanation)
+    }
 }

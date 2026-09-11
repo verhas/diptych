@@ -532,13 +532,19 @@ final class PaneModel {
             var status = answer.status
             let check = GitService.shared.check(for: answer.root)
             self.gitCheckedAt = check?.at
+            for path in check?.stale ?? [] {
+                status.states[path] = .stale
+            }
+            // After stale, never before: a file changed on both sides is
+            // contested, and that is the stronger thing to say about it.
             for path in check?.contested ?? [] {
                 status.states[path] = .contested
             }
 
             for index in self.items.indices where !self.items[index].isParent {
-                self.items[index].gitState = status.state(for: self.items[index].url,
-                                                          root: answer.root)
+                let found = status.states(for: self.items[index].url, root: answer.root)
+                self.items[index].gitStates = found
+                self.items[index].gitState = found.first ?? .clean
             }
 
             // Rows are drawn by now, so this never delays them. One check

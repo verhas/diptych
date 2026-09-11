@@ -46,6 +46,9 @@ struct FileItem: Identifiable, Hashable, Sendable {
     var linkTarget: String = ""
     /// Filled in after the listing, once the repository has been asked.
     var gitState: GitState = .clean
+    /// Everything found at or under this row, strongest first. One entry for a
+    /// file; a folder may hold several.
+    var gitStates: [GitState] = []
 
     /// `Identifiable` requires `id`. A URL is unique within a directory listing,
     /// so we get identity for free instead of inventing a synthetic key.
@@ -94,7 +97,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .owner:         return owner
         case .group:         return group
         case .tags:          return tags.joined(separator: ", ")
-        case .git:           return gitState.title
+        case .git:           return gitStates.map(\.title).joined(separator: ", ")
         }
     }
 

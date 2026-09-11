@@ -129,12 +129,13 @@ final class GitService {
     /// Check would be silly. It also keeps the age on screen honest: the stamp
     /// means "when Diptych last spoke to the server", which is precisely what
     /// this records.
-    func noteCheck(_ root: URL, contested: Set<String>, behind: Int) {
+    func noteCheck(_ root: URL, contested: Set<String>, stale: Set<String>, behind: Int) {
         if checks.count >= Self.checksRemembered, checks[root.path] == nil,
            let oldest = checks.min(by: { $0.value.at < $1.value.at })?.key {
             checks.removeValue(forKey: oldest)
         }
-        checks[root.path] = Check(contested: contested, behind: behind, at: Date())
+        checks[root.path] = Check(contested: contested, stale: stale,
+                                  behind: behind, at: Date())
     }
 
     // MARK: - Asking

@@ -20,10 +20,13 @@ struct CellView: View {
         item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
     }
 
-    /// One question, five answers: what happens to this file when I send my
-    /// work? An ignored file and an unchanged file get the same answer --
-    /// nothing -- so they look the same, and a build folder does not paint half
-    /// the pane.
+    /// What do I need to know before I touch this file?
+    ///
+    /// That used to read "what happens when I send my work?", which was true
+    /// until `stale` arrived: a file nobody here has touched is not in the send
+    /// at all, and what it has to say is about editing it, not sending it. An
+    /// ignored file and an unchanged file still answer the same -- nothing --
+    /// so a build folder does not paint half the pane.
     static func gitColour(_ state: GitState) -> Color? {
         switch state {
         // The system brown, not a hand-mixed one: a fixed dark brown was very
@@ -37,6 +40,13 @@ struct CellView: View {
         // attention before it can go anywhere" is the same message, whether the
         // obstacle is a half-finished merge or a change someone else made.
         case .contested, .conflicted: .red
+        // Purple by measurement rather than taste. Orange was the instinct --
+        // the footer already counts what is waiting in orange -- but brown is
+        // dark orange, and the two were 16 points apart in CIEDE2000 where
+        // everything else in this palette is 30 or more. Purple sits 35 from
+        // its nearest neighbour in both light and dark, and reads at 4.2:1 on
+        // white, better than any colour already here.
+        case .stale:      .purple
         case .clean:      nil
         }
     }
@@ -59,6 +69,7 @@ struct CellView: View {
             switch column {
             case .name:        nameCell
             case .permissions: permissionsCell
+            case .git:         gitCell
             default:           plainText
             }
         }
@@ -80,6 +91,29 @@ struct CellView: View {
             .monospacedDigit()
             .frame(maxWidth: .infinity,
                    alignment: column.isTrailingAligned ? .trailing : .leading)
+    }
+
+    /// The words, in their own colours, comma separated.
+    ///
+    /// A folder lists everything inside it -- "clash, changed, new" -- because
+    /// one word can only ever report the worst thing in there, which tells you
+    /// nothing about what else you would find. Colouring each word is what
+    /// makes the list readable at a glance instead of something to parse, and
+    /// it is what carries the meaning for anyone who cannot separate the hues
+    /// in the name column.
+    private var gitCell: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(item.gitStates.enumerated()), id: \.offset) { index, state in
+                if index > 0 {
+                    Text(", ").foregroundStyle(.secondary)
+                }
+                Text(state.title)
+                    .foregroundStyle(Self.gitColour(state) ?? .secondary)
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Name

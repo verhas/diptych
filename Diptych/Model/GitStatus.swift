@@ -7,7 +7,7 @@ import Foundation
 /// ignored file is `.clean`, because "nothing will happen" is the same answer
 /// as for a file that has not changed, and colouring a `build` folder would
 /// paint half the pane for no information.
-enum GitState: Sendable, Equatable {
+enum GitState: Sendable, Equatable, Hashable {
     /// New, and Git does not know about it: it will **not** be sent.
     case untracked
     /// New and tracked: it will be sent.
@@ -21,6 +21,14 @@ enum GitState: Sendable, Equatable {
     /// the send dialog lists it, and "changed" would read as a mistake next to
     /// a file the user knows they deleted.
     case deleted
+    /// Not changed here, but someone else has sent a newer version.
+    ///
+    /// The only state that says nothing about sending -- a file like this is
+    /// not in the send at all. It answers the other question: what happens if
+    /// you start editing? You would be working from an old copy, and what is
+    /// purple today is red tomorrow. Server knowledge, so it appears only
+    /// after a check and expires with it, exactly as `contested` does.
+    case stale
     /// Changed here, and also changed on the shared side as of the last
     /// check -- which is the whole caveat: this one is not a property of the
     /// file but of a comparison made at a moment, and it can only be known by
@@ -45,7 +53,10 @@ extension GitState {
         case .added:      "new"
         case .changed:    "changed"
         case .deleted:    "removed"
-        case .contested:  "also changed"
+        case .stale:      "out of date"
+        // Not "also changed", which was reported as too mild for what it
+        // means: this one cannot be sent until somebody decides something.
+        case .contested:  "clash"
         case .conflicted: "unfinished merge"
         case .clean:      ""
         }
@@ -59,8 +70,11 @@ extension GitState {
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
         case .deleted:    "Removed. The removal will be sent."
+        case .stale:      "Someone else has sent a newer version. Get the Latest "
+                          + "before you change this."
         case .contested:  "Changed here, and in the shared copy too when it was "
-                          + "last checked."
+                          + "last checked. It cannot be sent until you decide "
+                          + "which to keep."
         case .conflicted: "A merge left half-finished by another program. Sort it out "
                           + "there before sending."
         case .clean:      nil
@@ -98,8 +112,12 @@ struct GitStatus: Sendable {
     static func stronger(_ a: GitState, _ b: GitState) -> GitState {
         let rank: (GitState) -> Int = {
             switch $0 {
-            case .conflicted: 5
-            case .contested:  4
+            case .conflicted: 6
+            case .contested:  5
+            // Above "changed", because a folder holding work you are about to
+            // lose time on matters more than one holding work you have already
+            // done. Red, then purple, then blue, then green.
+            case .stale:      4
             case .changed:    3
             case .deleted:    3
             case .added:      2
@@ -108,6 +126,23 @@ struct GitStatus: Sendable {
             }
         }
         return rank(a) >= rank(b) ? a : b
+    }
+
+    /// Every distinct state at or under a path, strongest first.
+    ///
+    /// A folder gets one colour but the column gets the whole list: "clash,
+    /// changed, new" says what is in there, where a single word only ever says
+    /// what is worst in there.
+    func states(for url: URL, root: URL) -> [GitState] {
+        guard let relative = GitStatus.relativePath(of: url, under: root) else { return [] }
+        if let exact = states[relative] { return [exact] }
+
+        let prefix = relative + "/"
+        var found: Set<GitState> = []
+        for (path, state) in states where path.hasPrefix(prefix) {
+            found.insert(state)
+        }
+        return found.sorted { GitStatus.stronger($0, $1) == $0 && $0 != $1 }
     }
 
     static func relativePath(of url: URL, under root: URL) -> String? {

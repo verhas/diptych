@@ -471,13 +471,36 @@ final class AppModel {
     }
 
     func requestNewFolder() {
-        textInput = "untitled folder"
+        textInput = suggestedName("untitled folder")
         dialog = .newFolder
     }
 
     func requestNewFile() {
-        textInput = "untitled.txt"
+        textInput = suggestedName("untitled.txt")
         dialog = .newFile
+    }
+
+    /// "untitled folder", then "untitled folder 2", and so on.
+    ///
+    /// Finder's numbering rather than `FileOperations.uniqueURL`'s "-1", and
+    /// deliberately: that one exists to stop a copy clobbering something, where
+    /// this is a name a person is about to read and quite possibly keep.
+    private func suggestedName(_ base: String) -> String {
+        let directory = active.directory
+        let stem = (base as NSString).deletingPathExtension
+        let suffix = (base as NSString).pathExtension
+        func name(_ number: Int) -> String {
+            let stem = number == 1 ? stem : "\(stem) \(number)"
+            return suffix.isEmpty ? stem : "\(stem).\(suffix)"
+        }
+        for number in 1...9999 {
+            let candidate = name(number)
+            if !FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent(candidate).path) {
+                return candidate
+            }
+        }
+        return base
     }
 
     func confirmNewFile() {

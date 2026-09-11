@@ -22,7 +22,8 @@ extension GitService {
             case .added:      "new, tracked"
             case .changed:    "changed"
             case .deleted:    "removed"
-            case .contested:  "also changed elsewhere"
+            case .stale:      "out of date"
+            case .contested:  "clashes with the shared copy"
             case .conflicted: "unfinished merge"
             case .clean:      ""
             }
@@ -46,6 +47,8 @@ extension GitService {
         for (path, state) in status.states.sorted(by: { $0.key < $1.key }) {
             switch state {
             case .untracked:            changes.new.append(Change(path: path, state: state))
+            // Nothing of the user's to send: it is only out of date.
+            case .stale:                break
             case .added, .changed, .deleted,
                  .contested:            changes.sending.append(Change(path: path, state: state))
             // Never offered. `git add` on a half-finished merge marks it
@@ -70,6 +73,8 @@ extension GitService {
     /// correct behaviour, so the store that forgets by itself is the right one.
     struct Check: Sendable {
         var contested: Set<String>
+        /// Changed on the shared side and *not* here: safe, but out of date.
+        var stale: Set<String>
         var behind: Int
         var at: Date
     }
@@ -111,10 +116,10 @@ extension GitService {
         }
 
         invalidate(root)
-        let contested = Set(await conflictingPaths(inRepository: root))
+        let (contested, stale) = await comparison(inRepository: root)
         let behind = await status(forRepository: root)?.behind ?? 0
 
-        noteCheck(root, contested: contested, behind: behind)
+        noteCheck(root, contested: contested, stale: stale, behind: behind)
         NotificationCenter.default.post(name: Self.checkCompleted, object: nil)
         return .checked(behind: behind, contested: contested.sorted())
     }
@@ -225,7 +230,7 @@ extension GitService {
         switch await command(["push"], in: root, timeout: 120) {
         case .ok:
             invalidate(root)
-            noteCheck(root, contested: [], behind: 0)
+            noteCheck(root, contested: [], stale: [], behind: 0)
             return .sent(count: all.count)
 
         case .timedOut:
@@ -292,7 +297,7 @@ extension GitService {
         }
 
         invalidate(root)
-        noteCheck(root, contested: [], behind: 0)
+        noteCheck(root, contested: [], stale: [], behind: 0)
         return .sent(count: count)
     }
 
@@ -420,7 +425,7 @@ extension GitService {
         invalidate(root)
         // Everything contested is remembered, so the pane can colour all of it
         // without the user having to ask a second time...
-        noteCheck(root, contested: Set(clashing),
+        noteCheck(root, contested: Set(clashing), stale: [],
                   behind: await status(forRepository: root)?.behind ?? 0)
         // ...but the dialog speaks only about what was actually ticked. Naming
         // a file the user deliberately left out reads as though it were in the
@@ -470,18 +475,18 @@ extension GitService {
                            details: "no upstream branch")
         }
         if status.behind == 0 {
-            noteCheck(root, contested: [], behind: 0)
+            noteCheck(root, contested: [], stale: [], behind: 0)
             return .upToDate
         }
 
         if case .ok = await command(["merge", "--ff-only", "@{u}"], in: root) {
             invalidate(root)
-            noteCheck(root, contested: [], behind: 0)
+            noteCheck(root, contested: [], stale: [], behind: 0)
             return .updated(count: status.behind)
         }
 
         let clashing = await conflictingPaths(inRepository: root)
-        noteCheck(root, contested: Set(clashing), behind: status.behind)
+        noteCheck(root, contested: Set(clashing), stale: [], behind: status.behind)
         return .conflicting(paths: clashing, hasOwnVersions: status.ahead > 0)
     }
 
@@ -490,6 +495,31 @@ extension GitService {
     /// Computed as an intersection rather than "everything that differs":
     /// someone who is fifty commits behind has hundreds of differing files and
     /// only two of them are their problem.
+    /// Contested and stale in one pass.
+    ///
+    /// Both come out of the same three-way comparison, so asking for them
+    /// separately would mean running it twice. Contested is "changed on both
+    /// sides"; stale is what is left of their side once ours is taken out.
+    func comparison(inRepository root: URL) async -> (contested: Set<String>,
+                                                      stale: Set<String>) {
+        guard case .ok(let baseText) = await command(["merge-base", "HEAD", "@{u}"], in: root)
+        else { return ([], []) }
+        let base = baseText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        func names(_ arguments: [String]) async -> Set<String> {
+            guard case .ok(let text) = await command(arguments, in: root) else { return [] }
+            return Set(text.split(separator: "\n").map(String.init))
+        }
+
+        var mine = await names(["diff", "--name-only", base, "HEAD"])
+        mine.formUnion(await names(["diff", "--name-only", "HEAD"]))
+        mine.formUnion(await names(["diff", "--name-only", "--cached", "HEAD"]))
+        mine.formUnion(await names(["ls-files", "--others", "--exclude-standard"]))
+        let theirs = await names(["diff", "--name-only", base, "@{u}"])
+
+        return (theirs.intersection(mine), theirs.subtracting(mine))
+    }
+
     func conflictingPaths(inRepository root: URL) async -> [String] {
         guard case .ok(let baseText) = await command(["merge-base", "HEAD", "@{u}"], in: root)
         else { return [] }
@@ -594,7 +624,7 @@ extension GitService {
         // The folder now matches the shared copy, so nothing is contested any
         // more. Without this the files that were just brought in stayed red
         // until the user pressed Check for Changes.
-        noteCheck(root, contested: [], behind: 0)
+        noteCheck(root, contested: [], stale: [], behind: 0)
         return .keptCopies(names: kept)
     }
 

@@ -180,15 +180,69 @@ send my work?**
 | green | new and tracked — will be sent |
 | blue | tracked and changed — will be sent |
 | red | cannot go as it stands — see below |
+| purple | out of date: someone else has sent a newer version |
 | *none* | nothing to send: unchanged, **or ignored** |
 
 Ignored files are drawn normally. That falls out of the rule consistently — an
 ignored file and an unchanged file both answer "nothing happens" — and it stops
 a `build/` folder painting half the pane.
 
+### Purple, and why the rule had to change
+
+The rule above — *what happens when I send?* — held until purple. A file nobody
+here has touched is not in the send at all, so purple answers the other
+question: **what happens if I start editing this?** You would be working from an
+old copy, and what is purple today is red tomorrow. The colours now answer
+*what do I need to know before I touch this file?*, which describes red better
+than the original rule did too.
+
+Purple is structurally the tidiest of the states: "changed there, not changed
+here" is by definition the only thing that can be true of a file that is
+otherwise clean, so it never competes with brown, green or blue. It fills the
+slot that had no colour.
+
+It is also the first colour that arrives in bulk — a colleague pushing fifty
+files turns fifty rows purple through no action of the user's. That is the
+signal, not noise: it says *this folder is behind*, and it clears the instant
+you Get the Latest.
+
+Chosen by measurement, not taste. The instinct was orange, since the footer
+already counts what is waiting in orange — but brown *is* dark orange:
+
+| candidate | ΔE2000 light | ΔE2000 dark | nearest | contrast light | contrast dark |
+| --- | --- | --- | --- | --- | --- |
+| **purple** | **35.2** | **35.6** | blue | **4.17** | **4.59** |
+| teal | 30.6 | 27.9 | blue | 2.16 | 8.97 |
+| yellow | 30.2 | 29.3 | brown | 1.51 | 11.81 |
+| gray | 20.0 | 20.2 | brown | 3.26 | 5.81 |
+| orange | 18.2 | 15.9 | **brown** | 2.31 | 7.47 |
+| pink | 7.3 | 7.9 | red | — | — |
+
+Purple wins both tests and is more legible than every colour already in the
+palette (red 3.57 on white, blue 3.52, brown 3.53). Yellow is the obvious
+"caution" choice semantically and unreadable at 1.51:1.
+
+Purple and blue can converge under protanopia, which is the reason the Git
+column carries words as well as the name carrying colour.
+
+### The Git column
+
+A file shows one word. **A folder shows all of them, comma separated and each in
+its own colour** — "clash, out of date, changed, new" — because a single word
+can only report the worst thing inside, which says nothing about what else is
+in there. The colour of the folder name stays the strongest one.
+
+Strongest first, and the order is: red, purple, blue, green, brown. Work you are
+about to waste outranks work you have already done; work you cannot send at all
+outranks both.
+
+The word for `contested` is **"clash"**, not "also changed" — which was reported
+as far too mild for a file that cannot go anywhere until somebody decides
+something.
+
 ### Red, and the staleness problem
 
-Four of the five colours are read out of `git status`, which describes *this
+Four of the six colours are read out of `git status`, which describes *this
 disk*. They are always true and cost nothing to learn.
 
 Red is not like the others, and pretending otherwise was a design mistake worth
@@ -216,6 +270,7 @@ can go anywhere*:
 | --- | --- | --- |
 | `.conflicted` — a half-finished merge left by another program | `u` records in `git status` | never |
 | `.contested` — changed here and on the shared side | a comparison after a `fetch` | **yes, and its age is shown** |
+| `.stale` — changed on the shared side and not here | the same comparison, the other half of it | **yes, and its age is shown** |
 
 Three rules keep the second one honest:
 

@@ -584,7 +584,7 @@ final class GitActionsTests: XCTestCase {
         // Red that outlives what it was based on is exactly the complaint this
         // feature had to answer, so the answer expires on its own.
         try await readyGit()
-        GitService.shared.noteCheck(mine, contested: ["readme.md"], behind: 1)
+        GitService.shared.noteCheck(mine, contested: ["readme.md"], stale: [], behind: 1)
         XCTAssertNotNil(GitService.shared.check(for: mine), "fresh")
 
         GitService.shared.checks[mine.path]?.at =
@@ -599,7 +599,7 @@ final class GitActionsTests: XCTestCase {
         try await readyGit()
         for index in 0 ... GitService.checksRemembered {
             let fake = root.appendingPathComponent("repo\(index)")
-            GitService.shared.noteCheck(fake, contested: [], behind: 0)
+            GitService.shared.noteCheck(fake, contested: [], stale: [], behind: 0)
         }
         XCTAssertLessThanOrEqual(GitService.shared.checks.count, GitService.checksRemembered)
     }
@@ -623,7 +623,7 @@ final class GitActionsTests: XCTestCase {
 
     func testASuccessfulSendLeavesNothingContested() async throws {
         try await readyGit()
-        GitService.shared.noteCheck(mine, contested: ["readme.md"], behind: 1)
+        GitService.shared.noteCheck(mine, contested: ["readme.md"], stale: [], behind: 1)
         try write("readme.md", "changed\n")
 
         _ = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
@@ -672,15 +672,28 @@ final class GitActionsTests: XCTestCase {
         try body()
     }
 
-    func testNothingIsCheckedAutomaticallyUnlessAskedFor() async throws {
+    func testNothingIsCheckedAutomaticallyWhileTheSettingIsOff() async throws {
+        // Set explicitly rather than relied upon: these tests run against the
+        // real ConfigStore, so once the setting started persisting properly a
+        // test that assumed the default failed on any machine where the user
+        // had turned it on.
         try await readyGit()
         try write("readme.md", "changed\n")
         GitService.shared.invalidate(mine)
         let answer = await GitService.shared.status(for: mine)
         let status = try XCTUnwrap(answer).status
 
+        let was = ConfigStore.shared.configuration.gitCheckOnOpen
+        ConfigStore.shared.configuration.gitCheckOnOpen = false
+        defer { ConfigStore.shared.configuration.gitCheckOnOpen = was }
+
         XCTAssertFalse(GitService.shared.claimAutomaticCheck(for: mine, status: status),
-                       "off by default: it is the one thing that reaches the network")
+                       "nothing reaches the network unless this is asked for")
+    }
+
+    func testCheckingOnOpenIsOffInAFreshConfiguration() {
+        XCTAssertFalse(Configuration().gitCheckOnOpen,
+                       "the default is off: it is the one thing that reaches the network")
     }
 
     func testAFolderWithChangesIsCheckedOncePerLaunch() async throws {
@@ -777,6 +790,59 @@ final class GitActionsTests: XCTestCase {
 
         XCTAssertEqual(GitService.shared.check(for: mine)?.contested, [],
                        "and black again, without being asked")
+    }
+
+    func testAFileChangedOnlyByThemIsOutOfDateNotAClash() async throws {
+        try await readyGit()
+        try write("second.md", "first version\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add second"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)      // only they touched this
+        try write("second.md", "theirs too\n", in: theirs)  // both touched this
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("second.md", "mine\n")
+
+        _ = await GitService.shared.checkForChanges(inRepository: mine)
+
+        let check = try XCTUnwrap(GitService.shared.check(for: mine))
+        XCTAssertEqual(check.stale, ["readme.md"], "theirs alone: purple")
+        XCTAssertEqual(check.contested, ["second.md"], "both: red")
+    }
+
+    func testNothingIsOutOfDateOnceTheLatestIsIn() async throws {
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        _ = await GitService.shared.checkForChanges(inRepository: mine)
+        XCTAssertEqual(GitService.shared.check(for: mine)?.stale, ["readme.md"])
+
+        _ = await GitService.shared.getLatest(inRepository: mine)
+
+        XCTAssertEqual(GitService.shared.check(for: mine)?.stale, [],
+                       "the purple clears itself the moment the reason for it is gone")
+    }
+
+    func testAnOutOfDateFileIsNotOfferedForSending() async throws {
+        // There is nothing of the user's in it to send.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+        _ = await GitService.shared.checkForChanges(inRepository: mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+
+        XCTAssertTrue(changes.sending.isEmpty)
+        XCTAssertTrue(changes.new.isEmpty)
     }
 
     // MARK: - Getting the latest
