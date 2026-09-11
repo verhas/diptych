@@ -110,7 +110,11 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .actualSize:      "textformat.size"
         case .sendWork:        "arrow.up.circle"
         case .getLatest:       "arrow.down.circle"
-        case .checkForChanges: "arrow.triangle.2.circlepath"
+        // Deliberately not another circular arrow: "arrow.triangle.2.circlepath"
+        // sat next to Refresh's "arrow.clockwise" and the two were a coin toss
+        // at toolbar size. This one matches the up/down circles of its siblings
+        // and reads as "go and look".
+        case .checkForChanges: "magnifyingglass.circle"
         }
     }
 
@@ -170,6 +174,20 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         default:                    .left
         }
     }
+
+    /// The button this one belongs beside.
+    ///
+    /// Someone who has already arranged their toolbar has said where a family
+    /// of buttons lives. A button added in a later version should join them
+    /// there rather than appearing alone on the opposite side, which is how
+    /// Check for Changes ended up next to Refresh in a toolbar whose owner had
+    /// moved Send and Get to the left.
+    var belongsBeside: ToolbarButton? {
+        switch self {
+        case .checkForChanges: .getLatest
+        default:               nil
+        }
+    }
 }
 
 /// Where a button sits. Three groups, because that is what a macOS toolbar
@@ -219,7 +237,17 @@ extension Configuration {
         var slots = toolbar.filter { slot in ToolbarButton.allCases.contains(slot.button) }
         for button in ToolbarButton.allCases where !slots.contains(where: { $0.button == button }) {
             let fallback = Configuration.defaultToolbar.first { $0.button == button }
-            slots.append(fallback ?? ToolbarSlot(button: button, isShown: true, side: .right))
+                ?? ToolbarSlot(button: button, isShown: true, side: .right)
+            // Next to its family if the family has been moved, otherwise where
+            // the defaults put it.
+            if let companion = button.belongsBeside,
+               let at = slots.firstIndex(where: { $0.button == companion }) {
+                slots.insert(ToolbarSlot(button: button, isShown: fallback.isShown,
+                                         side: slots[at].side),
+                             at: at + 1)
+            } else {
+                slots.append(fallback)
+            }
         }
         return slots
     }

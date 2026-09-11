@@ -129,6 +129,14 @@ struct Configuration: Codable, Equatable {
     /// "look in the usual places".
     var gitPath = ""
 
+    /// Check with the server the first time a tracked folder with changes in it
+    /// is opened after Diptych starts.
+    ///
+    /// Off by default, and it must stay a decision the user makes: it is the
+    /// only thing in Diptych that reaches the network without being asked, and
+    /// on a slow connection or a large repository it is not instant.
+    var gitCheckOnOpen = false
+
     /// Directories above files, rather than everything in one sequence.
     ///
     /// On by default because that is what every file manager does and what the

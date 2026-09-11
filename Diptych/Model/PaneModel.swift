@@ -540,6 +540,16 @@ final class PaneModel {
                 self.items[index].gitState = status.state(for: self.items[index].url,
                                                           root: answer.root)
             }
+
+            // Rows are drawn by now, so this never delays them. One check
+            // covers the whole repository -- `conflictingPaths` compares every
+            // path, not only this folder's -- so walking into a subfolder
+            // afterwards is coloured from the cache with nothing more asked of
+            // the network. Silent by design: no dialog, no progress panel, only
+            // the colours and the stamp changing.
+            if GitService.shared.claimAutomaticCheck(for: answer.root, status: answer.status) {
+                Task { _ = await GitService.shared.checkForChanges(inRepository: answer.root) }
+            }
         }
     }
 

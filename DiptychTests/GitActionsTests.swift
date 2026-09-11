@@ -653,6 +653,101 @@ final class GitActionsTests: XCTestCase {
         XCTAssertEqual(GitStatus.stronger(.changed, .contested), .contested)
     }
 
+    // MARK: - Checking automatically
+
+    /// The setting is off by default, so every test here turns it on and puts
+    /// it back.
+    private func withAutomaticChecking(_ body: () throws -> Void) rethrows {
+        let was = ConfigStore.shared.configuration.gitCheckOnOpen
+        ConfigStore.shared.configuration.gitCheckOnOpen = true
+        defer { ConfigStore.shared.configuration.gitCheckOnOpen = was }
+        try body()
+    }
+
+    func testNothingIsCheckedAutomaticallyUnlessAskedFor() async throws {
+        try await readyGit()
+        try write("readme.md", "changed\n")
+        GitService.shared.invalidate(mine)
+        let answer = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(answer).status
+
+        XCTAssertFalse(GitService.shared.claimAutomaticCheck(for: mine, status: status),
+                       "off by default: it is the one thing that reaches the network")
+    }
+
+    func testAFolderWithChangesIsCheckedOncePerLaunch() async throws {
+        try await readyGit()
+        try write("readme.md", "changed\n")
+        GitService.shared.invalidate(mine)
+        let answer = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(answer).status
+
+        withAutomaticChecking {
+            XCTAssertTrue(GitService.shared.claimAutomaticCheck(for: mine, status: status))
+            XCTAssertFalse(GitService.shared.claimAutomaticCheck(for: mine, status: status),
+                           "and not again -- decoration runs on every navigation")
+        }
+    }
+
+    func testAFolderWithNoChangesIsLeftAlone() async throws {
+        // Contested means "changed on both sides", so with nothing changed here
+        // there is nothing a check could colour. No network call.
+        try await readyGit()
+        GitService.shared.invalidate(mine)
+        let answer = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(answer).status
+
+        withAutomaticChecking {
+            XCTAssertFalse(GitService.shared.claimAutomaticCheck(for: mine, status: status))
+        }
+    }
+
+    func testTheOncePerLaunchPromiseOutlivesTheAnswer() async throws {
+        // `checks` expires after half an hour. The right to make a network call
+        // must not come back with it, or an afternoon in one folder would mean
+        // a fetch every thirty minutes.
+        try await readyGit()
+        try write("readme.md", "changed\n")
+        GitService.shared.invalidate(mine)
+        let answer = await GitService.shared.status(for: mine)
+        let status = try XCTUnwrap(answer).status
+
+        withAutomaticChecking {
+            XCTAssertTrue(GitService.shared.claimAutomaticCheck(for: mine, status: status))
+            GitService.shared.checks.removeAll()
+            XCTAssertFalse(GitService.shared.claimAutomaticCheck(for: mine, status: status))
+        }
+    }
+
+    func testOneCheckColoursTheWholeTree() async throws {
+        // "Recurse the whole directory structure": a check is repository-wide,
+        // so walking into a subfolder afterwards costs nothing more.
+        try await readyGit()
+        try write("chapters/deep/three.md", "first\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "add a deep one"], in: mine)
+        try run(["push"], in: mine)
+
+        let theirs = try colleague()
+        try write("chapters/deep/three.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("chapters/deep/three.md", "mine\n")
+        _ = await GitService.shared.checkForChanges(inRepository: mine)
+
+        let check = try XCTUnwrap(GitService.shared.check(for: mine))
+        XCTAssertEqual(check.contested, ["chapters/deep/three.md"], "found without visiting it")
+
+        // And the folders above it carry the colour up, which is what the pane
+        // draws when only the top of the tree is on screen.
+        let second = await GitService.shared.status(for: mine)
+        var status = try XCTUnwrap(second).status
+        for path in check.contested { status.states[path] = .contested }
+        XCTAssertEqual(status.state(for: mine.appendingPathComponent("chapters"), root: mine),
+                       .contested)
+    }
+
     // MARK: - Getting the latest
 
     func testGettingTheLatestFastForwards() async throws {

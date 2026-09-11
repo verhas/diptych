@@ -226,6 +226,16 @@ final class AppModel {
                 self?.right.reload()
             }
         }
+        // A check -- pressed, or the automatic one on first opening a folder --
+        // has just changed what the rows should be coloured.
+        NotificationCenter.default.addObserver(
+            forName: GitService.checkCompleted, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.left.reload()
+                self?.right.reload()
+            }
+        }
         Task { await GitService.shared.locateIfNeeded() }
 
         // Write a slot on first launch, so ~/.diptych exists and is editable
@@ -1346,10 +1356,8 @@ final class AppModel {
             beginGit("Checking for changes\u{2026}")
             let result = await GitService.shared.checkForChanges(inRepository: root)
             endGit()
-            // Both panes, because they may well be showing the same folder or
-            // two folders in the same repository.
-            left.reload()
-            right.reload()
+            // The panes redraw from the checkCompleted notification, which the
+            // automatic check raises too.
             switch result {
             case .checked(let behind, let contested):
                 report(behind: behind, contested: contested)

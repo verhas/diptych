@@ -274,6 +274,25 @@ struct GitSettingsView: View {
 
             warning
 
+            Divider()
+
+            Toggle("Check for changes automatically when a folder is first opened",
+                   isOn: $store.configuration.gitCheckOnOpen)
+                .toggleStyle(.checkbox)
+                .disabled(!store.configuration.gitEnabled)
+
+            Text("Once per folder each time Diptych starts, and only where the folder "
+                 + "is tracked and you have changes in it. Files that someone else has "
+                 + "changed as well turn red, with no interruption.")
+                .font(.subheadline).foregroundStyle(.secondary)
+
+            Text("This one talks to the server. Everything else Diptych does with "
+                 + "version tracking happens on this Mac, but a check has to ask the "
+                 + "shared copy \u{2014} so it needs a working connection, and on a slow "
+                 + "one or a very large folder it can take a while. Without this, use "
+                 + "Check for Changes when you want to know.")
+                .font(.caption).foregroundStyle(.orange)
+
             HStack {
                 Text("Use a different program\u{2026}")
                     .font(.caption).foregroundStyle(.secondary)

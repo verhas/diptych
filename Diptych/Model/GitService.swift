@@ -17,6 +17,10 @@ final class GitService {
     /// Panes listen, because a pane that was drawn before Git was available has
     /// no colours and nothing else would ever tell it to look again.
     static let availabilityChanged = Notification.Name("dev.verhas.Diptych.gitAvailability")
+    /// A check finished and the colours may have moved. Both panes listen,
+    /// because they are often in the same repository and a folder that is red
+    /// on the left must not be plain on the right.
+    static let checkCompleted = Notification.Name("dev.verhas.Diptych.gitCheckCompleted")
 
     /// A status that takes longer than this is a repository Diptych should not
     /// be holding up a pane for. No colours is an acceptable outcome; a stalled
@@ -81,6 +85,7 @@ final class GitService {
         roots.removeAll()
         statuses.removeAll()
         checks.removeAll()
+        autoChecked.removeAll()
         inFlight.values.forEach { $0.cancel() }
         inFlight.removeAll()
     }
@@ -89,6 +94,31 @@ final class GitService {
     /// fires.
     func invalidate(_ root: URL) {
         statuses.removeValue(forKey: root.path)
+    }
+
+    /// Roots already checked automatically since Diptych started.
+    ///
+    /// Separate from `checks`, which expires: "once per folder per launch" is a
+    /// promise about *network calls*, and it has to hold even after the answer
+    /// itself has gone stale. Otherwise walking in and out of a folder for an
+    /// afternoon would mean a fetch every half hour.
+    @ObservationIgnored private var autoChecked: Set<String> = []
+
+    /// Whether to check this repository automatically, claiming the right to do
+    /// so at the same time.
+    ///
+    /// One call, returning true at most once per repository per launch, because
+    /// it is read from pane decoration -- which runs on every navigation, from
+    /// both panes, and often twice for the same folder.
+    func claimAutomaticCheck(for root: URL, status: GitStatus) -> Bool {
+        guard ConfigStore.shared.configuration.gitCheckOnOpen, isEnabled else { return false }
+        guard !autoChecked.contains(root.path) else { return false }
+        // Nothing changed here means nothing can be contested -- contested is
+        // "changed on both sides" -- so there is nothing a check could colour.
+        // Not worth a network call.
+        guard status.states.values.contains(where: { $0 != .clean }) else { return false }
+        autoChecked.insert(root.path)
+        return true
     }
 
     /// Record what we now know about the shared copy.

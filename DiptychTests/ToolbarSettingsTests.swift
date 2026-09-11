@@ -32,6 +32,34 @@ final class ToolbarSettingsTests: XCTestCase {
                        [.sendWork, .getLatest, .checkForChanges])
     }
 
+    func testANewButtonJoinsItsFamilyWhereTheUserPutIt() {
+        // A real report: Send and Get had been moved to the left, so Check for
+        // Changes -- added later -- appeared alone on the right, next to
+        // Refresh, where nobody was looking for it.
+        var configuration = Configuration()
+        configuration.toolbar = [
+            ToolbarSlot(button: .singlePane, isShown: true, side: .left),
+            ToolbarSlot(button: .refresh, isShown: true, side: .right),
+            ToolbarSlot(button: .getLatest, isShown: true, side: .left),
+            ToolbarSlot(button: .sendWork, isShown: true, side: .left),
+        ]
+
+        let left = configuration.toolbarButtons(on: .left)
+        XCTAssertTrue(left.contains(.checkForChanges), "on the left with its family")
+        XCTAssertFalse(configuration.toolbarButtons(on: .right).contains(.checkForChanges))
+        XCTAssertEqual(left.firstIndex(of: .checkForChanges),
+                       left.firstIndex(of: .getLatest).map { $0 + 1 },
+                       "and right beside it, not at the far end")
+    }
+
+    func testCheckIsNotAnotherCircularArrow() {
+        // Two circular arrows side by side in one toolbar is a coin toss, and
+        // Refresh may sit anywhere the user puts it.
+        XCTAssertNotEqual(ToolbarButton.checkForChanges.symbol, ToolbarButton.refresh.symbol)
+        XCTAssertFalse(ToolbarButton.checkForChanges.symbol.contains("clockwise"))
+        XCTAssertFalse(ToolbarButton.checkForChanges.symbol.contains("circlepath"))
+    }
+
     func testEveryButtonHasAnIconAndAnExplanation() {
         // A toolbar is read at a glance, so a missing or duplicated glyph is a
         // real defect rather than a cosmetic one.

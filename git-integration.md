@@ -231,9 +231,22 @@ Three rules keep the second one honest:
 3. **It expires.** After 30 minutes the answer is dropped and the red goes with
    it. An alarm nobody can vouch for is worse than no alarm.
 
-Never on a timer. A background `fetch` would bound the staleness without
-removing it, and it is the only thing in Diptych that would reach the network
-without being asked. The user presses the button; the answer carries its date.
+Never on a timer, and there is one opt-in exception, off by default:
+**Check for changes automatically when a folder is first opened**. It fires at
+most once per repository per launch, and only when the folder is tracked *and*
+has local changes in it — with nothing changed here, nothing can be contested,
+so there would be nothing to colour. It is silent: no dialog, no progress panel,
+only the colours and the stamp changing. The setting says plainly that this one
+talks to a server and can be slow.
+
+"Once per launch" is a promise about *network calls*, so it is remembered
+separately from the answer. The answer expires after thirty minutes; the right
+to make another call does not come back with it, or an afternoon in one folder
+would mean a fetch every half hour.
+
+A check covers the **whole repository** — `conflictingPaths` compares every path,
+not only the folder on screen — so walking into a subfolder afterwards is
+coloured out of the cache with nothing more asked of the network.
 
 **Where it is kept: in memory, and nowhere else.** An extended attribute or a
 dotfile would let a judgement outlive its own truth — a week-old "contested"

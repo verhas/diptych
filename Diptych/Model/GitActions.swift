@@ -115,6 +115,7 @@ extension GitService {
         let behind = await status(forRepository: root)?.behind ?? 0
 
         noteCheck(root, contested: contested, behind: behind)
+        NotificationCenter.default.post(name: Self.checkCompleted, object: nil)
         return .checked(behind: behind, contested: contested.sorted())
     }
 
