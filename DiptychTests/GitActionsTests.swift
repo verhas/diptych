@@ -505,6 +505,154 @@ final class GitActionsTests: XCTestCase {
                        "still there to send, so the button still means something")
     }
 
+    // MARK: - Checking what other people have sent
+
+    func testCheckingFindsWhatIsWaiting() async throws {
+        try await readyGit()
+        let theirs = try colleague()
+        try write("theirs-only.md", "theirs\n", in: theirs)
+        try run(["add", "-A"], in: theirs)
+        try run(["commit", "-m", "unrelated"], in: theirs)
+        try run(["push"], in: theirs)
+
+        // Nothing knows about it until we ask -- the whole point.
+        XCTAssertNil(GitService.shared.check(for: mine), "no answer before asking")
+
+        let result = await GitService.shared.checkForChanges(inRepository: mine)
+
+        guard case .checked(let behind, let contested) = result else {
+            return XCTFail("\(result)")
+        }
+        XCTAssertEqual(behind, 1)
+        XCTAssertTrue(contested.isEmpty, "nobody touched the same file")
+        XCTAssertNotNil(GitService.shared.check(for: mine)?.at, "and the answer is dated")
+    }
+
+    func testCheckingNamesWhatBothSidesChanged() async throws {
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+
+        let result = await GitService.shared.checkForChanges(inRepository: mine)
+
+        guard case .checked(_, let contested) = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(contested, ["readme.md"])
+        XCTAssertEqual(GitService.shared.check(for: mine)?.contested, ["readme.md"])
+    }
+
+    func testAContestedFileIsRedInThePane() async throws {
+        // The colour is the point of the whole feature: red appears only after
+        // the check, because only the check can know.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+        GitService.shared.invalidate(mine)
+
+        let first = await GitService.shared.status(for: mine)
+        var status = try XCTUnwrap(first).status
+        XCTAssertEqual(status.state(for: mine.appendingPathComponent("readme.md"), root: mine),
+                       .changed, "blue until we ask")
+
+        _ = await GitService.shared.checkForChanges(inRepository: mine)
+
+        let second = await GitService.shared.status(for: mine)
+        status = try XCTUnwrap(second).status
+        for path in try XCTUnwrap(GitService.shared.check(for: mine)).contested {
+            status.states[path] = .contested
+        }
+        XCTAssertEqual(status.state(for: mine.appendingPathComponent("readme.md"), root: mine),
+                       .contested, "red once we have asked")
+    }
+
+    func testAnAnswerTooOldToVouchForIsDropped() async throws {
+        // Red that outlives what it was based on is exactly the complaint this
+        // feature had to answer, so the answer expires on its own.
+        try await readyGit()
+        GitService.shared.noteCheck(mine, contested: ["readme.md"], behind: 1)
+        XCTAssertNotNil(GitService.shared.check(for: mine), "fresh")
+
+        GitService.shared.checks[mine.path]?.at =
+            Date().addingTimeInterval(-GitService.checkGoesStaleAfter - 1)
+
+        XCTAssertNil(GitService.shared.check(for: mine), "and gone once it is too old")
+        XCTAssertNil(GitService.shared.checks[mine.path], "not merely hidden, actually dropped")
+    }
+
+    func testOnlySoManyAnswersAreKept() async throws {
+        // Browsing through a great many repositories must not grow without end.
+        try await readyGit()
+        for index in 0 ... GitService.checksRemembered {
+            let fake = root.appendingPathComponent("repo\(index)")
+            GitService.shared.noteCheck(fake, contested: [], behind: 0)
+        }
+        XCTAssertLessThanOrEqual(GitService.shared.checks.count, GitService.checksRemembered)
+    }
+
+    func testARefusedSendRecordsWhatItLearned() async throws {
+        // The send has just fetched and worked out the clash. Making the user
+        // press Check to see it in red would be asking for what we already have.
+        try await readyGit()
+        let theirs = try colleague()
+        try write("readme.md", "theirs\n", in: theirs)
+        try run(["commit", "-am", "theirs"], in: theirs)
+        try run(["push"], in: theirs)
+
+        try write("readme.md", "mine\n")
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "mine", inRepository: mine)
+
+        guard case .notSent = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(GitService.shared.check(for: mine)?.contested, ["readme.md"])
+    }
+
+    func testASuccessfulSendLeavesNothingContested() async throws {
+        try await readyGit()
+        GitService.shared.noteCheck(mine, contested: ["readme.md"], behind: 1)
+        try write("readme.md", "changed\n")
+
+        _ = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                         message: "an edit", inRepository: mine)
+
+        XCTAssertEqual(GitService.shared.check(for: mine)?.contested, [],
+                       "it went, so nothing is contested -- and the stamp stays fresh")
+    }
+
+    func testAHalfFinishedMergeIsNeverOfferedForSending() async throws {
+        // `git add` on an unmerged file marks it resolved and stages it *with
+        // the conflict markers in it*. It must not be tickable.
+        try await readyGit()
+        try run(["checkout", "-b", "side"], in: mine)
+        try write("readme.md", "side\n")
+        try run(["commit", "-am", "side"], in: mine)
+        try run(["checkout", "main"], in: mine)
+        try write("readme.md", "main\n")
+        try run(["commit", "-am", "main"], in: mine)
+        _ = try? run(["merge", "side"], in: mine)   // conflicts on purpose
+
+        GitService.shared.invalidate(mine)
+        let changes = await GitService.shared.changes(inRepository: mine)
+
+        XCTAssertFalse(changes.sending.contains { $0.path == "readme.md" },
+                       "not offered with a tick beside it")
+        XCTAssertFalse(changes.new.contains { $0.path == "readme.md" })
+        XCTAssertEqual(changes.unresolved.map(\.path), ["readme.md"],
+                       "listed, so it does not simply vanish")
+    }
+
+    func testAHalfFinishedMergeOutranksEverythingElse() async throws {
+        try await readyGit()
+        XCTAssertEqual(GitStatus.stronger(.contested, .conflicted), .conflicted)
+        XCTAssertEqual(GitStatus.stronger(.changed, .contested), .contested)
+    }
+
     // MARK: - Getting the latest
 
     func testGettingTheLatestFastForwards() async throws {

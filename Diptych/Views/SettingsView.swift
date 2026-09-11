@@ -207,8 +207,9 @@ struct ToolbarSettingsView: View {
             .listStyle(.bordered(alternatesRowBackgrounds: true))
             .frame(maxHeight: .infinity)
 
-            Text("Send My Work and Get the Latest appear only in a folder that is tracked, "
-                 + "and only while version tracking is switched on.")
+            Text("Send My Work, Get the Latest and Check for Changes appear only in a "
+                 + "folder that is tracked, and only while version tracking is "
+                 + "switched on.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

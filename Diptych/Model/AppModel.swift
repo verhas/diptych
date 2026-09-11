@@ -1332,6 +1332,57 @@ final class AppModel {
         }
     }
 
+    /// Ask the server what it has, and say so plainly.
+    ///
+    /// Nothing else in Diptych reaches the network unasked, and this does not
+    /// either: it runs when the user presses it. The answer is a snapshot, so
+    /// what it produces on screen always carries its own age.
+    func checkForChanges() {
+        guard let root = active.gitRoot else {
+            flash("This folder is not tracked", error: true)
+            return
+        }
+        Task {
+            beginGit("Checking for changes\u{2026}")
+            let result = await GitService.shared.checkForChanges(inRepository: root)
+            endGit()
+            // Both panes, because they may well be showing the same folder or
+            // two folders in the same repository.
+            left.reload()
+            right.reload()
+            switch result {
+            case .checked(let behind, let contested):
+                report(behind: behind, contested: contested)
+            case .failed(let details):
+                gitLastDetails = details
+                dialog = .message("The shared copy could not be reached."
+                                  + (details.isEmpty ? "" : "\n\n" + details))
+            }
+        }
+    }
+
+    private func report(behind: Int, contested: [String]) {
+        guard behind > 0 || !contested.isEmpty else {
+            flash("Nothing new \u{2014} you are up to date", error: false)
+            return
+        }
+        let waiting = behind == 1 ? "1 change is waiting" : "\(behind) changes are waiting"
+        guard !contested.isEmpty else {
+            flash("\(waiting) for you", error: false)
+            return
+        }
+        // Worth a dialog rather than a flash: it names files, and it is the one
+        // answer that changes what the user should do next.
+        dialog = .notice(title: "Checked",
+                         text: "\(waiting) for you on the shared copy.\n\n"
+                             + "\(contested.count == 1 ? "This file has" : "These files have") "
+                             + "been changed here and by someone else as well, so "
+                             + "\(contested.count == 1 ? "it is" : "they are") shown in red:\n\n"
+                             + contested.map { "\u{2022} " + $0 }.joined(separator: "\n")
+                             + "\n\nGet the Latest will offer to keep your own version "
+                             + "beside theirs.")
+    }
+
     func getLatest(keepingCopiesWithoutAsking: Bool = false) {
         guard let root = active.gitRoot else {
             flash("This folder is not tracked", error: true)

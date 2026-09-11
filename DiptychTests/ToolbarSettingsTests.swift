@@ -29,7 +29,7 @@ final class ToolbarSettingsTests: XCTestCase {
         XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .left),
                        [.singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles])
         XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .right),
-                       [.sendWork, .getLatest])
+                       [.sendWork, .getLatest, .checkForChanges])
     }
 
     func testEveryButtonHasAnIconAndAnExplanation() {

@@ -33,7 +33,10 @@ struct CellView: View {
         case .added:      .green
         case .changed:    .blue
         case .deleted:    .blue
-        case .conflicted: .red
+        // One colour for both: to the person reading the pane, "this file needs
+        // attention before it can go anywhere" is the same message, whether the
+        // obstacle is a half-finished merge or a change someone else made.
+        case .contested, .conflicted: .red
         case .clean:      nil
         }
     }

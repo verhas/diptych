@@ -43,6 +43,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     // Version tracking
     case sendWork
     case getLatest
+    case checkForChanges
 
     var id: String { rawValue }
 
@@ -74,6 +75,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .actualSize:      "Actual Size"
         case .sendWork:        "Send My Work"
         case .getLatest:       "Get the Latest"
+        case .checkForChanges: "Check for Changes"
         }
     }
 
@@ -108,6 +110,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .actualSize:      "textformat.size"
         case .sendWork:        "arrow.up.circle"
         case .getLatest:       "arrow.down.circle"
+        case .checkForChanges: "arrow.triangle.2.circlepath"
         }
     }
 
@@ -140,18 +143,21 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .actualSize:      "Back to the standard text size"
         case .sendWork:        "Save your changes and send them to the shared copy"
         case .getLatest:       "Bring in what other people have sent"
+        case .checkForChanges: "Ask the shared copy what is waiting, without changing anything"
         }
     }
 
     /// Only meaningful in a tracked folder, so these are left out of the
     /// toolbar entirely when the folder is not one -- a permanently greyed
     /// button teaches nothing.
-    var needsRepository: Bool { self == .sendWork || self == .getLatest }
+    var needsRepository: Bool {
+        self == .sendWork || self == .getLatest || self == .checkForChanges
+    }
 
     var isOnByDefault: Bool {
         switch self {
         case .singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles,
-             .sendWork, .getLatest:
+             .sendWork, .getLatest, .checkForChanges:
             true
         default:
             false
@@ -160,7 +166,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var defaultSide: ToolbarSide {
         switch self {
-        case .sendWork, .getLatest: .right
+        case .sendWork, .getLatest, .checkForChanges: .right
         default:                    .left
         }
     }

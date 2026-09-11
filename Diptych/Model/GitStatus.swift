@@ -21,7 +21,16 @@ enum GitState: Sendable, Equatable {
     /// the send dialog lists it, and "changed" would read as a mistake next to
     /// a file the user knows they deleted.
     case deleted
-    /// Changed here and on the shared side.
+    /// Changed here, and also changed on the shared side as of the last
+    /// check -- which is the whole caveat: this one is not a property of the
+    /// file but of a comparison made at a moment, and it can only be known by
+    /// asking the server. It appears after *Check for Changes* and nowhere
+    /// else, and it is discarded once it is too old to vouch for.
+    case contested
+    /// A merge left half-finished in this folder, with both versions sitting
+    /// in the index. Diptych never creates this -- every path it takes either
+    /// completes or is abandoned cleanly -- so it means another Git program
+    /// was used here and stopped in the middle. Purely local, never stale.
     case conflicted
     /// Nothing to send.
     case clean
@@ -36,7 +45,8 @@ extension GitState {
         case .added:      "new"
         case .changed:    "changed"
         case .deleted:    "removed"
-        case .conflicted: "conflict"
+        case .contested:  "also changed"
+        case .conflicted: "unfinished merge"
         case .clean:      ""
         }
     }
@@ -49,7 +59,10 @@ extension GitState {
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
         case .deleted:    "Removed. The removal will be sent."
-        case .conflicted: "Changed here and in the shared copy."
+        case .contested:  "Changed here, and in the shared copy too when it was "
+                          + "last checked."
+        case .conflicted: "A merge left half-finished by another program. Sort it out "
+                          + "there before sending."
         case .clean:      nil
         }
     }
@@ -85,7 +98,8 @@ struct GitStatus: Sendable {
     static func stronger(_ a: GitState, _ b: GitState) -> GitState {
         let rank: (GitState) -> Int = {
             switch $0 {
-            case .conflicted: 4
+            case .conflicted: 5
+            case .contested:  4
             case .changed:    3
             case .deleted:    3
             case .added:      2

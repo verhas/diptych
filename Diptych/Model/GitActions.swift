@@ -22,7 +22,8 @@ extension GitService {
             case .added:      "new, tracked"
             case .changed:    "changed"
             case .deleted:    "removed"
-            case .conflicted: "conflict"
+            case .contested:  "also changed elsewhere"
+            case .conflicted: "unfinished merge"
             case .clean:      ""
             }
         }
@@ -33,10 +34,12 @@ extension GitService {
         var sending: [Change] = []
         /// New files Git does not know about: offered unticked.
         var new: [Change] = []
-        var isEmpty: Bool { sending.isEmpty && new.isEmpty }
+        /// Half-finished merges: listed, but not sendable at all.
+        var unresolved: [Change] = []
+        var isEmpty: Bool { sending.isEmpty && new.isEmpty && unresolved.isEmpty }
     }
 
-    /// What the send dialog lists, split into the two groups it shows.
+    /// What the send dialog lists, split into the groups it shows.
     func changes(inRepository root: URL) async -> Changes {
         guard let status = await status(forRepository: root) else { return Changes() }
         var changes = Changes()
@@ -44,11 +47,80 @@ extension GitService {
             switch state {
             case .untracked:            changes.new.append(Change(path: path, state: state))
             case .added, .changed, .deleted,
-                 .conflicted:           changes.sending.append(Change(path: path, state: state))
+                 .contested:            changes.sending.append(Change(path: path, state: state))
+            // Never offered. `git add` on a half-finished merge marks it
+            // resolved and stages the file *with the conflict markers in it* --
+            // committing the one thing the rest of this design exists to
+            // prevent. It is listed so it does not simply vanish.
+            case .conflicted:           changes.unresolved.append(Change(path: path, state: state))
             case .clean:                break
             }
         }
         return changes
+    }
+
+    // MARK: - Checking what other people have sent
+
+    /// The result of one check, and when it was made.
+    ///
+    /// Held in memory only, deliberately. An extended attribute or a dotfile
+    /// would outlive the truth: a week-old "also changed" would look exactly as
+    /// authoritative as one from ten seconds ago, and it would mean writing to
+    /// the user's own files to store Diptych's UI state. Here forgetting is the
+    /// correct behaviour, so the store that forgets by itself is the right one.
+    struct Check: Sendable {
+        var contested: Set<String>
+        var behind: Int
+        var at: Date
+    }
+
+    /// How long a check is worth showing. Long enough to cover a work session,
+    /// short enough that red cannot quietly persist into a world that has moved
+    /// on -- the colour is only honest while its age is still defensible.
+    static let checkGoesStaleAfter: TimeInterval = 30 * 60
+
+    /// Bounded so that browsing through many repositories cannot grow without
+    /// limit. Tiny either way: a set of short strings per repository.
+    static let checksRemembered = 16
+
+    /// The last check for a repository, or nil if there is none worth showing.
+    func check(for root: URL) -> Check? {
+        guard let check = checks[root.path] else { return nil }
+        guard Date().timeIntervalSince(check.at) < Self.checkGoesStaleAfter else {
+            checks.removeValue(forKey: root.path)
+            return nil
+        }
+        return check
+    }
+
+    /// Ask the server what it has. The only operation that reaches the network
+    /// without the user having asked for something else, which is why it is
+    /// never on a timer: the user presses it, and the age of the answer is
+    /// shown next to the answer.
+    ///
+    /// `fetch` is read-only -- it updates what this Mac knows about the shared
+    /// copy and touches no file in the folder.
+    func checkForChanges(inRepository root: URL) async -> CheckResult {
+        switch await command(["fetch"], in: root, timeout: 120) {
+        case .ok:
+            break
+        case .failed(_, let text), .couldNotRun(let text):
+            return .failed(details: text)
+        case .timedOut:
+            return .failed(details: "The check took too long and was stopped.")
+        }
+
+        invalidate(root)
+        let contested = Set(await conflictingPaths(inRepository: root))
+        let behind = await status(forRepository: root)?.behind ?? 0
+
+        noteCheck(root, contested: contested, behind: behind)
+        return .checked(behind: behind, contested: contested.sorted())
+    }
+
+    enum CheckResult: Sendable {
+        case checked(behind: Int, contested: [String])
+        case failed(details: String)
     }
 
     // MARK: - Tracking
@@ -154,6 +226,7 @@ extension GitService {
         switch await command(["push"], in: root, timeout: 120) {
         case .ok:
             invalidate(root)
+            noteCheck(root, contested: [], behind: 0)
             return .sent(count: all.count, kept: [])
 
         case .timedOut:
@@ -227,6 +300,7 @@ extension GitService {
         // at <<<<<<< in a document.
         kept += await rescueFailedAutostash(root: root)
         invalidate(root)
+        noteCheck(root, contested: [], behind: 0)
         return .sent(count: count, kept: kept)
     }
 
@@ -326,6 +400,10 @@ extension GitService {
             _ = await command(["add", "--"] + surviving, in: root)
         }
         invalidate(root)
+        // The fetch above and this comparison are seconds old, so the pane can
+        // go red now without the user having to ask a second time.
+        noteCheck(root, contested: Set(clashing),
+                  behind: await status(forRepository: root)?.behind ?? 0)
         // Says what happened, not what the user already knows. That their work
         // is still on their own Mac is not news; that it did not reach anyone
         // else is the whole point of the message.
@@ -369,14 +447,19 @@ extension GitService {
             return .failed(reason: "This folder is not linked to a shared copy.",
                            details: "no upstream branch")
         }
-        if status.behind == 0 { return .upToDate }
+        if status.behind == 0 {
+            noteCheck(root, contested: [], behind: 0)
+            return .upToDate
+        }
 
         if case .ok = await command(["merge", "--ff-only", "@{u}"], in: root) {
             invalidate(root)
+            noteCheck(root, contested: [], behind: 0)
             return .updated(count: status.behind)
         }
 
         let clashing = await conflictingPaths(inRepository: root)
+        noteCheck(root, contested: Set(clashing), behind: status.behind)
         return .conflicting(paths: clashing, hasOwnVersions: status.ahead > 0)
     }
 

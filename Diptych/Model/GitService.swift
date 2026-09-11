@@ -34,6 +34,10 @@ final class GitService {
     /// One command in flight per repository. Git takes index.lock, and two
     /// concurrent commands in one repository fail.
     @ObservationIgnored private var inFlight: [String: Task<GitStatus?, Never>] = [:]
+    /// The last *Check for Changes* per repository. Not cleared by `invalidate`
+    /// -- that fires on every save in a watched folder, and editing a file here
+    /// does not make what the server holds any less true.
+    @ObservationIgnored var checks: [String: GitService.Check] = [:]
 
     var isEnabled: Bool { ConfigStore.shared.configuration.gitEnabled && tool != nil }
 
@@ -76,6 +80,7 @@ final class GitService {
     func forgetEverything() {
         roots.removeAll()
         statuses.removeAll()
+        checks.removeAll()
         inFlight.values.forEach { $0.cancel() }
         inFlight.removeAll()
     }
@@ -84,6 +89,22 @@ final class GitService {
     /// fires.
     func invalidate(_ root: URL) {
         statuses.removeValue(forKey: root.path)
+    }
+
+    /// Record what we now know about the shared copy.
+    ///
+    /// Called from every operation that fetches, not only from *Check for
+    /// Changes* -- a send that was refused has just worked out exactly which
+    /// files are contested, and throwing that away only to make the user press
+    /// Check would be silly. It also keeps the age on screen honest: the stamp
+    /// means "when Diptych last spoke to the server", which is precisely what
+    /// this records.
+    func noteCheck(_ root: URL, contested: Set<String>, behind: Int) {
+        if checks.count >= Self.checksRemembered, checks[root.path] == nil,
+           let oldest = checks.min(by: { $0.value.at < $1.value.at })?.key {
+            checks.removeValue(forKey: oldest)
+        }
+        checks[root.path] = Check(contested: contested, behind: behind, at: Date())
     }
 
     // MARK: - Asking

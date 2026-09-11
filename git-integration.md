@@ -179,12 +179,75 @@ send my work?**
 | brown | new — **will not be sent** unless you say so |
 | green | new and tracked — will be sent |
 | blue | tracked and changed — will be sent |
-| red | conflicts with the shared version |
+| red | cannot go as it stands — see below |
 | *none* | nothing to send: unchanged, **or ignored** |
 
 Ignored files are drawn normally. That falls out of the rule consistently — an
 ignored file and an unchanged file both answer "nothing happens" — and it stops
 a `build/` folder painting half the pane.
+
+### Red, and the staleness problem
+
+Four of the five colours are read out of `git status`, which describes *this
+disk*. They are always true and cost nothing to learn.
+
+Red is not like the others, and pretending otherwise was a design mistake worth
+recording. **Whether a file is contested is not a property of the file. It is a
+property of a comparison, made at a moment, against a machine somewhere else.**
+Git cannot know it without being told, and the moment it has been told the
+answer starts going out of date. A colour has nowhere to put "as of when", so
+red on its own is a claim Diptych cannot back up.
+
+The original design had exactly this bug in both directions:
+
+* Red was driven only by porcelain `u` records — unmerged index entries. That is
+  a genuinely local state, never stale. But **Diptych never produces it**: every
+  path either completes or is abandoned cleanly. So red only ever appeared if
+  another Git program had been used in the folder and stopped halfway. In
+  Diptych-only use it was unreachable.
+* Meanwhile the *label* on red read "Changed here and in the shared copy" —
+  claiming precisely the knowledge about the server that it did not have.
+
+So red now covers two distinct states with one colour, because to the person
+reading the pane the message is the same — *this one needs attention before it
+can go anywhere*:
+
+| State | Where it comes from | Stale? |
+| --- | --- | --- |
+| `.conflicted` — a half-finished merge left by another program | `u` records in `git status` | never |
+| `.contested` — changed here and on the shared side | a comparison after a `fetch` | **yes, and its age is shown** |
+
+Three rules keep the second one honest:
+
+1. **It appears only after Diptych has actually asked.** *Check for Changes*
+   (⇧⌘K, and a toolbar button beside Send and Get) runs `fetch` — read-only,
+   touching no file — and compares. Every other operation that fetches records
+   what it learned too, so a refused send paints its clash red immediately
+   rather than making the user ask twice.
+2. **Its age is always on screen.** The pane footer reads
+   `main • 3 changes you don't have • checked 12 min ago`, and the stamp ticks.
+   Every number in that line concerns the server and none of them can refresh
+   themselves, so the age travels with them.
+3. **It expires.** After 30 minutes the answer is dropped and the red goes with
+   it. An alarm nobody can vouch for is worse than no alarm.
+
+Never on a timer. A background `fetch` would bound the staleness without
+removing it, and it is the only thing in Diptych that would reach the network
+without being asked. The user presses the button; the answer carries its date.
+
+**Where it is kept: in memory, and nowhere else.** An extended attribute or a
+dotfile would let a judgement outlive its own truth — a week-old "contested"
+would look exactly as authoritative as one from ten seconds ago. It would also
+mean writing to the user's files to store Diptych's UI state, on files that may
+be read-only, and leaving traces in a folder the user did not invite us to write
+in. Forgetting is the correct behaviour here, so the store that forgets by
+itself is the right store. Bounded to 16 repositories, oldest evicted.
+
+One bug fell out of the same confusion: a `.conflicted` file was being offered
+in the send dialog with a tick beside it. `git add` on an unmerged file marks it
+resolved and stages it **with the conflict markers in it** — committing the one
+thing this whole design exists to prevent. It is now listed under *Cannot be
+sent*, with no checkbox.
 
 Colour goes on the **name text**. The row background is already the Finder tag
 band and must not be disturbed.

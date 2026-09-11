@@ -132,6 +132,8 @@ struct FileCommands: Commands {
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                 Button("Get the Latest") { model?.getLatest() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
+                Button("Check for Changes") { model?.checkForChanges() }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
 
                 Divider()
             }

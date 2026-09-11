@@ -493,9 +493,36 @@ struct PaneView: View {
                     Text("\u{2022} \(pane.gitAhead) not sent")
                         .foregroundStyle(.blue)
                 }
+                // Everything to the left that mentions the shared copy is only
+                // as true as the last time Diptych spoke to it, and none of it
+                // can refresh itself. So the age travels with the numbers: a
+                // count about a server with no age on it is a claim Diptych
+                // cannot back up.
+                // Ticking, not frozen. A stamp that said "just now" for an
+                // hour would be the very bug this exists to prevent, so the
+                // clock redraws it -- and retires the red along with it once
+                // the answer is too old to stand behind.
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Text("\u{2022} " + checked)
+                        .foregroundStyle(.secondary)
+                        .onChange(of: context.date) { _, _ in pane.retireStaleGitCheck() }
+                }
             }
             .lineLimit(1)
         }
+    }
+
+    /// "checked 12 min ago", or an admission that we have not asked.
+    private var checked: String {
+        guard let at = pane.gitCheckedAt else { return "not checked" }
+        let seconds = Date().timeIntervalSince(at)
+        if seconds < 60 { return "checked just now" }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = seconds < 3600 ? [.minute] : [.hour, .minute]
+        formatter.maximumUnitCount = 1
+        guard let span = formatter.string(from: seconds) else { return "checked" }
+        return "checked \(span) ago"
     }
 
     private var summary: String {

@@ -34,6 +34,10 @@ final class PaneModel {
     private(set) var gitBranch: String?
     private(set) var gitAhead = 0
     private(set) var gitBehind = 0
+    /// When *Check for Changes* last ran here, or nil if it has not (or the
+    /// answer has gone too old to show). Drawn next to the counts, because a
+    /// number about the server means nothing without its age.
+    private(set) var gitCheckedAt: Date?
     @ObservationIgnored private var gitTask: Task<Void, Never>?
     /// Where cancelling goes back to.
     @ObservationIgnored private var directoryBeforeLoad: URL?
@@ -479,6 +483,18 @@ final class PaneModel {
     /// Git state arrives *after* the rows are on screen, never before them.
     /// A status call is tens of milliseconds on a small repository and can be
     /// seconds on a large or networked one; the listing must not wait for it.
+    /// Drop a check that has gone too old to vouch for, and redraw without it.
+    ///
+    /// Costs one `git status` at most once per check -- half an hour apart --
+    /// and only in a tracked folder that has actually been checked.
+    func retireStaleGitCheck() {
+        guard let at = gitCheckedAt, let root = gitRoot else { return }
+        guard Date().timeIntervalSince(at) >= GitService.checkGoesStaleAfter else { return }
+        GitService.shared.checks.removeValue(forKey: root.path)
+        gitCheckedAt = nil
+        decorateWithGit(for: directory)
+    }
+
     private func decorateWithGit(for target: URL) {
         gitTask?.cancel()
         guard GitService.shared.isEnabled else {
@@ -486,6 +502,7 @@ final class PaneModel {
             gitBranch = nil
             gitAhead = 0
             gitBehind = 0
+            gitCheckedAt = nil
             return
         }
 
@@ -496,6 +513,7 @@ final class PaneModel {
                 self.gitBranch = nil
                 self.gitAhead = 0
                 self.gitBehind = 0
+                self.gitCheckedAt = nil
                 return
             }
             guard !Task.isCancelled, let self, target == self.directory else { return }
@@ -504,9 +522,23 @@ final class PaneModel {
             self.gitBranch = answer.status.branch
             self.gitAhead = answer.status.ahead
             self.gitBehind = answer.status.behind
+
+            // What the last check found, laid over what the working tree says.
+            // Kept as an overlay rather than merged into GitStatus because the
+            // two have different provenance: `git status` describes this disk
+            // and is always true, while this describes a comparison with the
+            // server made at a known moment. Writing it on top here means the
+            // existing folder roll-up applies to it for free.
+            var status = answer.status
+            let check = GitService.shared.check(for: answer.root)
+            self.gitCheckedAt = check?.at
+            for path in check?.contested ?? [] {
+                status.states[path] = .contested
+            }
+
             for index in self.items.indices where !self.items[index].isParent {
-                self.items[index].gitState = answer.status.state(for: self.items[index].url,
-                                                                 root: answer.root)
+                self.items[index].gitState = status.state(for: self.items[index].url,
+                                                          root: answer.root)
             }
         }
     }

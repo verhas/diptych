@@ -366,6 +366,7 @@ struct ContentView: View {
         case .smallerText:     PaneFont.zoom(by: -1)
         case .actualSize:      PaneFont.reset()
         case .sendWork:        model.requestSendWork()
+        case .checkForChanges: model.checkForChanges()
         case .getLatest:       model.getLatest()
         }
     }
@@ -382,7 +383,8 @@ struct ContentView: View {
         case .biggerText:               PaneFont.size >= Configuration.fontSizes.upperBound
         case .smallerText:              PaneFont.size <= Configuration.fontSizes.lowerBound
         case .actualSize:               PaneFont.size == Configuration.defaultFontSize
-        case .sendWork, .getLatest:     model.gitBusy
+        case .sendWork, .getLatest,
+             .checkForChanges:          model.gitBusy
         default:                        false
         }
     }
@@ -435,6 +437,23 @@ struct DialogSheet: View {
                     group(title: "Changes to be sent",
                           items: model.gitChanges.sending,
                           selection: $model.gitSending)
+                }
+                if !model.gitChanges.unresolved.isEmpty {
+                    // No checkboxes, deliberately: there is no tick that would
+                    // make sending these safe.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cannot be sent").font(.subheadline).bold()
+                            .foregroundStyle(.red)
+                        Text("Another program left a merge half-finished in "
+                             + "\(model.gitChanges.unresolved.count == 1 ? "this file" : "these files"). "
+                             + "Finish it there first.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(model.gitChanges.unresolved) { item in
+                            Text(item.path).lineLimit(1).truncationMode(.middle)
+                                .font(.system(size: 11))
+                                .padding(.leading, 16)
+                        }
+                    }
                 }
                 if !model.gitChanges.new.isEmpty {
                     // Loud when non-empty, so it reads as "these are being left
