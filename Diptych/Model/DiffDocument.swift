@@ -62,9 +62,12 @@ final class DiffDocument {
 
     /// Which side the user has unlocked, and nil while the window is read only.
     private(set) var editable: Side?
-    /// Set once the choice has been made, so the other padlock stays shut even
-    /// after a save.
-    private(set) var choiceIsMade = false
+    /// Whether anything has actually been written yet.
+    ///
+    /// The padlock is only binding once it has: unlocking a side by mistake,
+    /// or typing and undoing it all, must be undoable too. Requiring a restart
+    /// for a decision nothing came of is punishment for a misclick.
+    private(set) var hasSaved = false
 
     private(set) var lines: [Side: [String]] = [:]
     private var asRead: [Side: [String]] = [:]
@@ -84,8 +87,23 @@ final class DiffDocument {
         guard let editable else { return false }
         return lines[editable] != asRead[editable]
     }
-    var canUndo: Bool { !undoStack.isEmpty }
+    var canUndo: Bool { !undoStack.isEmpty || sessionIsOpen }
     var canRedo: Bool { !redoStack.isEmpty }
+
+    /// True while the choice of side can still be changed: nothing unsaved,
+    /// and nothing saved either.
+    var canChooseAgain: Bool { !isDirty && !hasSaved }
+
+    /// The line being typed into, and what it held when typing began.
+    ///
+    /// Typing reaches `lines` at once -- so Save, Undo and the dirty mark are
+    /// all true immediately, which they were not when the document only heard
+    /// about a line as the caret left it -- but the *alignment* is left alone
+    /// until the line is finished. Recomputing it per keystroke makes the rows
+    /// jump under the caret; not recomputing it at all made a one-line file
+    /// impossible to save, because there was no other line to move to.
+    private var session: (index: Int, text: String)?
+    private var sessionIsOpen: Bool { session != nil }
 
     init(pair: DiffPair) {
         self.pair = pair
@@ -163,33 +181,81 @@ final class DiffDocument {
     }
 
     func unlock(_ side: Side) -> UnlockRefusal? {
-        guard !choiceIsMade else { return .alreadyChosen }
+        guard editable != side else { return nil }
+        guard editable == nil || canChooseAgain else { return .alreadyChosen }
         guard let file = file(side) else { return nil }
         guard file.isWritable else {
             return .notWritable(name: side == .left ? pair.left.lastPathComponent
                                                     : pair.right.lastPathComponent)
         }
         editable = side
-        choiceIsMade = true
+        forgetHistory()
         return nil
+    }
+
+    /// Shut the padlock again, which is only allowed while there is nothing to
+    /// lose by it.
+    @discardableResult
+    func relock() -> Bool {
+        guard canChooseAgain else { return false }
+        editable = nil
+        forgetHistory()
+        recompute()
+        return true
+    }
+
+    private func forgetHistory() {
+        session = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
+        recomputeEdits()
     }
 
     // MARK: - Editing
 
-    /// Replace one line. Called when the caret leaves it, not on every
-    /// keystroke: recomputing the alignment under a moving cursor makes the
-    /// rows jump mid-word.
-    func setLine(_ index: Int, to text: String) {
+    /// A keystroke. Reaches the text at once and the alignment not at all.
+    func typing(_ index: Int, _ text: String) {
         guard let side = editable, var current = lines[side],
-              current.indices.contains(index), current[index] != text else { return }
-        record(Step(start: index, newCount: 1, previous: [current[index]]))
+              current.indices.contains(index) else { return }
+        if session?.index != index {
+            endLine()
+            session = (index, current[index])
+        }
+        guard current[index] != text else { return }
         current[index] = text
+        lines[side] = current
+    }
+
+    /// The caret has left the line, so the alignment can move without moving
+    /// the ground under anybody's cursor.
+    func endLine() {
+        guard let open = session, let side = editable, let current = lines[side] else { return }
+        session = nil
+        if current.indices.contains(open.index), current[open.index] != open.text {
+            record(Step(start: open.index, newCount: 1, previous: [open.text]))
+        }
+        recompute()
+    }
+
+    /// Put the line back to what it held when typing began.
+    func revertLine() {
+        guard let open = session, let side = editable, var current = lines[side],
+              current.indices.contains(open.index) else { return }
+        session = nil
+        current[open.index] = open.text
         lines[side] = current
         recompute()
     }
 
+    /// Replace a line outright, as one undoable step.
+    func setLine(_ index: Int, to text: String) {
+        typing(index, text)
+        endLine()
+    }
+
     /// Return in the middle of a line.
     func splitLine(_ index: Int, at offset: Int) {
+        session = nil
         guard let side = editable, var current = lines[side],
               current.indices.contains(index) else { return }
         let line = current[index]
@@ -203,6 +269,7 @@ final class DiffDocument {
 
     /// Backspace at the very start of a line.
     func joinWithPrevious(_ index: Int) {
+        session = nil
         guard let side = editable, var current = lines[side],
               current.indices.contains(index), index > 0 else { return }
         record(Step(start: index - 1, newCount: 1,
@@ -213,6 +280,7 @@ final class DiffDocument {
     }
 
     func deleteLine(_ index: Int) {
+        session = nil
         guard let side = editable, var current = lines[side],
               current.indices.contains(index) else { return }
         record(Step(start: index, newCount: 0, previous: [current[index]]))
@@ -230,6 +298,7 @@ final class DiffDocument {
     /// bit the same", and a run of changed lines is one bit. Undone in one
     /// step for the same reason.
     func takeDifference(atRow row: Int) {
+        endLine()
         guard let side = editable, var current = lines[side] else { return }
         guard let span = run(containing: row) else { return }
 
@@ -284,8 +353,15 @@ final class DiffDocument {
         redoStack.removeAll()
     }
 
-    func undo() { apply(popping: &undoStack, pushing: &redoStack) }
-    func redo() { apply(popping: &redoStack, pushing: &undoStack) }
+    func undo() {
+        endLine()
+        apply(popping: &undoStack, pushing: &redoStack)
+    }
+
+    func redo() {
+        endLine()
+        apply(popping: &redoStack, pushing: &undoStack)
+    }
 
     private func apply(popping source: inout [Step], pushing destination: inout [Step]) {
         guard let side = editable, var current = lines[side], let step = source.popLast()
@@ -310,6 +386,8 @@ final class DiffDocument {
     }
 
     func save() -> SaveOutcome {
+        // What is on screen, including a line still being typed into.
+        endLine()
         guard let side = editable, let file = file(side), isDirty else { return .nothingToDo }
         let url = side == .left ? pair.left : pair.right
 
@@ -335,6 +413,7 @@ final class DiffDocument {
         }
 
         asRead[side] = lines[side]
+        hasSaved = true
         var refreshed = file
         refreshed.modified = (try? FileManager.default
             .attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
@@ -365,8 +444,7 @@ final class DiffDocument {
         let side = editable
         await load()
         editable = side
-        undoStack.removeAll()
-        redoStack.removeAll()
+        forgetHistory()
     }
 
     // MARK: - The comparison

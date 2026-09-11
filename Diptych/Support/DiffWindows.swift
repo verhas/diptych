@@ -45,8 +45,20 @@ final class CloseGuard: NSObject, NSWindowDelegate {
     /// What to ask about, and what to do about it. Returning true lets the
     /// window close.
     var shouldClose: (() -> Bool)?
+    /// Run once the window really is closing.
+    ///
+    /// This, not `onDisappear`: SwiftUI does not reliably call that when a
+    /// window is closed, which left the file registered as open for the rest
+    /// of the session and refused every later attempt to compare it. Cmd-W
+    /// showed it every time.
+    var willClose: (() -> Void)?
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         shouldClose?() ?? true
+    }
+
+    func windowWillClose(_ note: Notification) {
+        willClose?()
+        willClose = nil
     }
 }

@@ -13,6 +13,9 @@ struct DiffView: View {
     @State private var document: DiffDocument
     @State private var atChange = 0
     @State private var notice: String?
+    @State private var wraps = true
+    @State private var query = ""
+    @State private var atMatch = 0
     @State private var guard_ = CloseGuard()
     @State private var window: NSWindow?
 
@@ -49,6 +52,7 @@ struct DiffView: View {
             if window !== found { window = found }
             guard found.delegate !== guard_ else { return }
             guard_.shouldClose = { closeIsAllowed() }
+            guard_.willClose = { DiffWindows.shared.release(pair) }
             found.delegate = guard_
         })
         .onChange(of: document.isDirty) { _, dirty in
@@ -57,6 +61,8 @@ struct DiffView: View {
             window?.isDocumentEdited = dirty
         }
         .onAppear { DiffWindows.shared.claim(pair) }
+        // Belt and braces: the window delegate is what actually frees it, but
+        // this costs nothing and covers a view that goes away without one.
         .onDisappear { DiffWindows.shared.release(pair) }
     }
 
@@ -73,16 +79,20 @@ struct DiffView: View {
                     .font(.subheadline)
                     .foregroundStyle(diff.isIdentical ? .secondary : .primary)
                 Spacer()
+                find
+                Toggle("Wrap", isOn: $wraps)
+                    .toggleStyle(.checkbox)
+                    .help("Wrap long lines on both sides")
                 Toggle("Ignore spacing", isOn: $document.ignoreWhitespace)
                     .toggleStyle(.checkbox)
                 if document.editable != nil {
-                    Button("Undo") { document.undo() }
+                    Button("Undo") { act { document.undo() } }
                         .disabled(!document.canUndo)
                         .keyboardShortcut("z", modifiers: .command)
-                    Button("Redo") { document.redo() }
+                    Button("Redo") { act { document.redo() } }
                         .disabled(!document.canRedo)
                         .keyboardShortcut("z", modifiers: [.command, .shift])
-                    Button("Save") { saveNow() }
+                    Button("Save") { act { saveNow() } }
                         .disabled(!document.isDirty)
                         .keyboardShortcut("s", modifiers: .command)
                 }
@@ -109,15 +119,22 @@ struct DiffView: View {
         let folders = pair.folders
         return HStack(spacing: 6) {
             Button {
-                unlock(which)
+                if document.editable == which { relock() } else { unlock(which) }
             } label: {
                 Image(systemName: document.editable == which ? "lock.open" : "lock")
             }
             .buttonStyle(.borderless)
             .help(document.editable == which
-                  ? "\(url.lastPathComponent) can be edited"
+                  ? (document.canChooseAgain
+                     ? "Lock \(url.lastPathComponent) again"
+                     : "\(url.lastPathComponent) can be edited")
                   : "Edit \(url.lastPathComponent)")
-            .disabled(document.choiceIsMade && document.editable != which)
+            // Only shut once something has actually come of the choice. A
+            // padlock opened by mistake, or opened and then everything undone,
+            // must be closable again -- needing to restart the comparison over
+            // a misclick is a punishment.
+            .disabled(document.editable != nil && document.editable != which
+                      && !document.canChooseAgain)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(url.lastPathComponent)
@@ -140,6 +157,37 @@ struct DiffView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var find: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Find", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 150)
+                .onSubmit { stepMatch(1) }
+            if !query.isEmpty {
+                Text(matches.isEmpty ? "none"
+                     : "\(min(atMatch + 1, matches.count)) of \(matches.count)")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Button { stepMatch(-1) } label: { Image(systemName: "chevron.up") }
+                    .disabled(matches.isEmpty)
+                Button { stepMatch(1) } label: { Image(systemName: "chevron.down") }
+                    .disabled(matches.isEmpty)
+            }
+        }
+    }
+
+    /// Rows holding the search text, on either side.
+    ///
+    /// Find only: replace was ruled out, and a find that has to be told which
+    /// column to look in would be a worse tool than no find at all.
+    private var matches: [Int] {
+        guard query.count > 1 else { return [] }
+        return diff.rows.filter { row in
+            [row.left, row.right].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+        }.map(\.id)
     }
 
     private var summary: String {
@@ -173,6 +221,12 @@ struct DiffView: View {
                     guard diff.changeStarts.indices.contains(index) else { return }
                     withAnimation { scroller.scrollTo(diff.changeStarts[index], anchor: .center) }
                 }
+                .onChange(of: atMatch) { _, index in
+                    let found = matches
+                    guard found.indices.contains(index) else { return }
+                    withAnimation { scroller.scrollTo(found[index], anchor: .center) }
+                }
+                .onChange(of: query) { _, _ in atMatch = 0 }
             }
         }
     }
@@ -250,17 +304,19 @@ struct DiffView: View {
                 // under the caret. No tap gesture either -- one placed over a
                 // text field swallows the click that would put the caret where
                 // the user pointed.
-                DiffLineField(text: .constant(text ?? ""),
-                              onFinish: { document.setLine(index, to: $0) },
-                              onSplit: { value, offset in
-                                  document.setLine(index, to: value)
-                                  document.splitLine(index, at: offset)
-                              },
-                              onJoin: { document.joinWithPrevious(index) })
+                DiffLineField(text: text ?? "",
+                              wraps: wraps,
+                              onType: { document.typing(index, $0) },
+                              onFinish: { document.endLine() },
+                              onSplit: { document.splitLine(index, at: $0) },
+                              onJoin: { document.joinWithPrevious(index) },
+                              onRevert: { document.revertLine() })
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 body(of: text ?? "", spans: spans, tint: tint)
                     .textSelection(.enabled)
+                    .lineLimit(wraps ? nil : 1)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 0)
@@ -300,6 +356,30 @@ struct DiffView: View {
 
     private func unlock(_ side: DiffDocument.Side) {
         if let refusal = document.unlock(side) { notice = refusal.message }
+    }
+
+    private func relock() {
+        guard document.relock() else {
+            notice = "There are changes to save first. Save them, or undo them, and the "
+                   + "padlock can be shut again."
+            return
+        }
+    }
+
+    /// Take focus off the line before acting on the document.
+    ///
+    /// Clicking a button does this by itself, but the keyboard shortcut does
+    /// not, and a Save or an Undo that ran while a line still held the caret
+    /// would act on a document the text view had not finished telling about.
+    private func act(_ body: () -> Void) {
+        window?.makeFirstResponder(nil)
+        body()
+    }
+
+    private func stepMatch(_ by: Int) {
+        let found = matches
+        guard !found.isEmpty else { return }
+        atMatch = (atMatch + by + found.count) % found.count
     }
 
     private func step(_ by: Int) {

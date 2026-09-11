@@ -44,29 +44,67 @@ final class DiffDocumentTests: XCTestCase {
         let document = try await document("a\nb\n", "a\nc\n")
 
         XCTAssertNil(document.editable, "nothing can be typed into by accident")
-        XCTAssertFalse(document.choiceIsMade)
+        XCTAssertTrue(document.canChooseAgain)
     }
 
-    func testUnlockingOneSideShutsTheOtherForGood() async throws {
-        // Restrictive on purpose: editing both halves of a comparison in one
-        // sitting invites losing track of which side is the one you mean.
+    func testAPadlockOpenedByMistakeCanBeShutAgain() async throws {
+        // Reported: needing to restart the whole comparison because of a
+        // misclick is a punishment, not a safeguard.
         let document = try await document("a\nb\n", "a\nc\n")
-
         XCTAssertNil(document.unlock(.left))
-        XCTAssertEqual(document.editable, .left)
+
+        XCTAssertTrue(document.relock())
+
+        XCTAssertNil(document.editable)
+        XCTAssertNil(document.unlock(.right), "and the other side is now free")
+        XCTAssertEqual(document.editable, .right)
+    }
+
+    func testTheOtherSideCanBeOpenedDirectlyWhileNothingIsEdited() async throws {
+        let document = try await document("a\nb\n", "a\nc\n")
+        _ = document.unlock(.left)
+
+        XCTAssertNil(document.unlock(.right))
+
+        XCTAssertEqual(document.editable, .right)
+    }
+
+    func testTheOtherSideIsShutWhileThereAreUnsavedChanges() async throws {
+        // The safeguard that matters: unsaved work on one side must not be
+        // abandoned by a click on the other padlock.
+        let document = try await document("a\nb\n", "a\nc\n")
+        _ = document.unlock(.left)
+        document.setLine(1, to: "edited")
 
         guard case .alreadyChosen = try XCTUnwrap(document.unlock(.right)) else {
-            return XCTFail("the second padlock has to stay shut")
+            return XCTFail("there is work to lose")
         }
-        XCTAssertEqual(document.editable, .left, "and the choice does not move")
+        XCTAssertFalse(document.relock())
+        XCTAssertEqual(document.editable, .left)
     }
 
-    func testTheChoiceStaysMadeEvenAfterSaving() async throws {
+    func testUndoingEverythingFreesThePadlockAgain() async throws {
+        let document = try await document("a\nb\n", "a\nc\n")
+        _ = document.unlock(.left)
+        document.setLine(1, to: "edited")
+        XCTAssertFalse(document.canChooseAgain)
+
+        document.undo()
+
+        XCTAssertTrue(document.canChooseAgain, "nothing came of it, so nothing is at stake")
+        XCTAssertTrue(document.relock())
+    }
+
+    func testOnceSomethingIsWrittenTheChoiceIsFinal() async throws {
+        // "If the user wants to modify the other side they have to save, close
+        // diff again" -- so a save is the point of no return, not an edit.
         let document = try await document("a\nb\n", "a\nc\n")
         _ = document.unlock(.left)
         document.setLine(1, to: "edited")
         XCTAssertEqual(document.save(), .saved)
 
+        XCTAssertFalse(document.canChooseAgain, "the file on disk has been touched")
+        XCTAssertFalse(document.relock())
         guard case .alreadyChosen = try XCTUnwrap(document.unlock(.right)) else {
             return XCTFail("saving is not permission to start on the other side")
         }
@@ -397,5 +435,82 @@ final class DiffDocumentTests: XCTestCase {
         document.ignoreWhitespace = true
 
         XCTAssertFalse(document.diff.isIdentical)
+    }
+
+    // MARK: - Typing reaching the document at once
+
+    func testTypingCountsAsAChangeStraightAway() async throws {
+        // Reported: while a line still had the caret, Save and Undo were dead
+        // -- and in a one-line file there was no other line to move to.
+        let document = try await document("one\n", "two\n")
+        _ = document.unlock(.left)
+
+        document.typing(0, "on")
+
+        XCTAssertTrue(document.isDirty, "so Save is live")
+        XCTAssertTrue(document.canUndo, "and so is Undo")
+    }
+
+    func testTheAlignmentHoldsStillWhileALineIsBeingTyped() async throws {
+        // The reason the document was not told sooner: rows shifting under a
+        // moving caret. Told at once, but the comparison waits.
+        let document = try await document("a\nb\nc\n", "a\nb\nc\n")
+        _ = document.unlock(.left)
+
+        document.typing(1, "")
+
+        XCTAssertTrue(document.diff.isIdentical, "not recomputed mid-word")
+
+        document.endLine()
+
+        XCTAssertFalse(document.diff.isIdentical, "and recomputed once the line is done")
+    }
+
+    func testSavingWhileALineIsStillBeingTypedSavesWhatIsThere() async throws {
+        let document = try await document("one\n", "two\n")
+        _ = document.unlock(.left)
+        document.typing(0, "typed but not left")
+
+        XCTAssertEqual(document.save(), .saved)
+
+        XCTAssertEqual(read("mine.md"), "typed but not left\n")
+    }
+
+    func testAWholeTypingSessionUndoesAsOneStep() async throws {
+        // Not character by character: one visit to a line is one thing done.
+        let document = try await document("one\n", "x\n")
+        _ = document.unlock(.left)
+        document.typing(0, "o")
+        document.typing(0, "on")
+        document.typing(0, "one two")
+        document.endLine()
+
+        document.undo()
+
+        XCTAssertEqual(document.lines[.left], ["one"])
+        XCTAssertFalse(document.canUndo)
+    }
+
+    func testEscapePutsTheLineBack() async throws {
+        let document = try await document("original\n", "x\n")
+        _ = document.unlock(.left)
+        document.typing(0, "half-typed mistake")
+
+        document.revertLine()
+
+        XCTAssertEqual(document.lines[.left], ["original"])
+        XCTAssertFalse(document.isDirty)
+    }
+
+    func testUndoingWhileStillInTheLineWorks() async throws {
+        // Pressing Undo with the caret still in the line has to end the line
+        // first, or there is nothing on the stack to undo yet.
+        let document = try await document("one\n", "x\n")
+        _ = document.unlock(.left)
+        document.typing(0, "changed")
+
+        document.undo()
+
+        XCTAssertEqual(document.lines[.left], ["one"])
     }
 }
