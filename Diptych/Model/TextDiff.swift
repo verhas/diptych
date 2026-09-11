@@ -73,16 +73,42 @@ struct TextDiff: Sendable {
 
     // MARK: - Building
 
-    init(left: [String], right: [String]) {
+    /// How two lines are judged the same.
+    ///
+    /// Spacing is the commonest difference nobody wants to see: a trailing
+    /// space, a tab where there were spaces, two spaces after a full stop.
+    /// Runs of whitespace collapse to one and the ends are trimmed, so the
+    /// words have to match but their spacing need not.
+    ///
+    /// The comparison is normalised; what is *shown* is always the real line.
+    /// A window that silently displayed tidied-up text would be lying about
+    /// the file.
+    static let withoutSpacing: @Sendable (String) -> String = { line in
+        line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    init(left: [String], right: [String],
+         comparing normalise: (@Sendable (String) -> String)? = nil) {
+        // When lines are compared loosely the diff has to run over the
+        // normalised text while the rows carry the originals, so both are kept
+        // and only the keys go to `difference(from:)`.
+        let leftKeys = normalise.map { left.map($0) } ?? left
+        let rightKeys = normalise.map { right.map($0) } ?? right
+        self.init(left: left, right: right, leftKeys: leftKeys, rightKeys: rightKeys)
+    }
+
+    private init(left: [String], right: [String], leftKeys: [String], rightKeys: [String]) {
         // Offsets in a `CollectionDifference` are into the two original
         // collections -- removals into the left, insertions into the right --
         // so both can be walked in step to rebuild the alignment.
         var removals: [Int: String] = [:]
         var insertions: [Int: String] = [:]
-        for change in right.difference(from: left) {
+        for change in rightKeys.difference(from: leftKeys) {
             switch change {
-            case .remove(let offset, let element, _): removals[offset] = element
-            case .insert(let offset, let element, _): insertions[offset] = element
+            case .remove(let offset, _, _):
+                removals[offset] = left.indices.contains(offset) ? left[offset] : ""
+            case .insert(let offset, _, _):
+                insertions[offset] = right.indices.contains(offset) ? right[offset] : ""
             }
         }
 
@@ -311,6 +337,43 @@ struct TextDiff: Sendable {
 
     static func compare(_ left: URL, _ right: URL) throws -> TextDiff {
         TextDiff(left: try read(left), right: try read(right))
+    }
+
+    /// Everything a file has to be given back when it is written.
+    static func load(_ url: URL) throws -> SourceFile {
+        let name = url.lastPathComponent
+        guard let data = try? Data(contentsOf: url) else { throw Failure.notText(name: name) }
+        if data.prefix(8000).contains(0) { throw Failure.notText(name: name) }
+
+        var encoding = String.Encoding.utf8
+        var text = String(data: data, encoding: .utf8)
+        if text == nil {
+            var guessed = String.Encoding.utf8
+            text = try? String(contentsOf: url, usedEncoding: &guessed)
+            encoding = guessed
+        }
+        guard let text else { throw Failure.notText(name: name) }
+
+        let lines = Self.lines(of: text)
+        guard lines.count <= lineLimit else {
+            throw Failure.tooBig(name: name, lines: lines.count)
+        }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return SourceFile(lines: lines,
+                          lineEnding: Self.lineEnding(of: text),
+                          hasFinalNewline: text.last?.isNewline ?? false,
+                          encoding: encoding,
+                          modified: attributes?[.modificationDate] as? Date,
+                          isWritable: FileManager.default.isWritableFile(atPath: url.path))
+    }
+
+    /// Whatever the file already uses, so saving does not convert it.
+    static func lineEnding(of text: String) -> String {
+        for character in text where character.isNewline {
+            return String(character)
+        }
+        return "\n"
     }
 }
 
