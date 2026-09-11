@@ -146,6 +146,38 @@ final class TextDiffTests: XCTestCase {
         }
     }
 
+    func testAFileWrittenOnWindowsIsNotDoubleSpaced() throws {
+        // `.newlines` counts CR and LF separately, so every real line came back
+        // followed by a phantom blank one and the whole comparison was rubbish.
+        let url = root.appendingPathComponent("crlf.txt")
+        try Data("one\r\ntwo\r\nthree\r\n".utf8).write(to: url)
+
+        XCTAssertEqual(try TextDiff.read(url), ["one", "two", "three"])
+    }
+
+    func testOldMacLineEndingsWorkToo() throws {
+        let url = root.appendingPathComponent("cr.txt")
+        try Data("one\rtwo\r".utf8).write(to: url)
+
+        XCTAssertEqual(try TextDiff.read(url), ["one", "two"])
+    }
+
+    func testBlankLinesInTheMiddleAreKept() {
+        // A paragraph break is a line, and losing it would misalign everything
+        // after it.
+        XCTAssertEqual(TextDiff.lines(of: "one\n\ntwo\n"), ["one", "", "two"])
+    }
+
+    func testTheSameFileWithTwoLineEndingsComparesAsEqual() throws {
+        let unix = root.appendingPathComponent("u.txt")
+        let windows = root.appendingPathComponent("w.txt")
+        try Data("alpha\nbeta\n".utf8).write(to: unix)
+        try Data("alpha\r\nbeta\r\n".utf8).write(to: windows)
+
+        XCTAssertTrue(try TextDiff.compare(unix, windows).isIdentical,
+                      "the text is the same; only the invisible bytes differ")
+    }
+
     func testTextWithAccentsSurvives() throws {
         let url = try write("c.txt", "Grüße\nZürich\n")
 

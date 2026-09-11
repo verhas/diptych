@@ -243,11 +243,41 @@ struct TextDiff: Sendable {
 
     // MARK: - Reading files
 
-    /// Split the way a diff needs rather than the way `components` does: a
-    /// trailing newline ends the last line, it does not begin an empty one.
+    /// Split the way a diff needs.
+    ///
+    /// Two things `components(separatedBy: .newlines)` gets wrong here. It
+    /// treats CR and LF as separate separators, so a file written on Windows
+    /// came back with a phantom blank line after every real one and diffed as
+    /// double-spaced nonsense. And a trailing newline ends the last line rather
+    /// than beginning an empty one.
     static func lines(of text: String) -> [String] {
-        var lines = text.components(separatedBy: .newlines)
-        if lines.last == "" { lines.removeLast() }
+        var lines: [String] = []
+        var current = ""
+        var previousWasReturn = false
+
+        for character in text {
+            switch character {
+            case "\r\n":
+                // Swift reads CRLF as a single Character, but a file may also
+                // hold a lone CR or LF, so all three are handled.
+                lines.append(current)
+                current = ""
+                previousWasReturn = false
+            case "\n":
+                lines.append(current)
+                current = ""
+                previousWasReturn = false
+            case "\r":
+                lines.append(current)
+                current = ""
+                previousWasReturn = true
+            default:
+                previousWasReturn = false
+                current.append(character)
+            }
+        }
+        _ = previousWasReturn
+        if !current.isEmpty { lines.append(current) }
         return lines
     }
 
