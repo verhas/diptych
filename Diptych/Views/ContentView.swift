@@ -119,6 +119,7 @@ struct ContentView: View {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
+            model.openDiffWindow = { openWindow(id: DiptychApp.diffWindowID, value: $0) }
             model.start()
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
@@ -354,6 +355,7 @@ struct ContentView: View {
         case .newFile:         model.requestNewFile()
         case .view:            model.viewSelection()
         case .getInfo:         model.showInfo()
+        case .compare:         model.showDiff()
         case .rename:          model.requestRename()
         case .copyToOther:     model.copySelection()
         case .moveToOther:     model.moveSelection()

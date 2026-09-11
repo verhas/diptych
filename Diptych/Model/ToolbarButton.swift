@@ -26,6 +26,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     // Acting on the selection
     case view
     case getInfo
+    case compare
     case rename
     case copyToOther
     case moveToOther
@@ -62,6 +63,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .newFile:         "New File"
         case .view:            "View"
         case .getInfo:         "Get Info"
+        case .compare:         "Compare"
         case .rename:          "Rename"
         case .copyToOther:     "Copy to Other Pane"
         case .moveToOther:     "Move to Other Pane"
@@ -97,6 +99,9 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .newFile:         "doc.badge.plus"
         case .view:            "eye.circle"
         case .getInfo:         "info.circle"
+        // The same minus and plus the window puts in its gutter, and nothing
+        // else in the toolbar carries them.
+        case .compare:         "plusminus.circle"
         case .rename:          "pencil"
         case .copyToOther:     "doc.on.doc"
         case .moveToOther:     "arrow.right.doc.on.clipboard"
@@ -134,6 +139,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .newFile:         "Create an empty file here"
         case .view:            "Preview the selected file"
         case .getInfo:         "Everything about the selected file"
+        case .compare:         "Compare two files side by side"
         case .rename:          "Rename the selected file"
         case .copyToOther:     "Copy the selection to the other pane"
         case .moveToOther:     "Move the selection to the other pane"

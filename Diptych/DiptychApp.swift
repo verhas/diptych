@@ -9,6 +9,7 @@ struct DiptychApp: App {
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
+    static let diffWindowID = "diptych.diff"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -34,6 +35,13 @@ struct DiptychApp: App {
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+
+        // One comparison per pair of files, so a second Cmd-D on two other
+        // files opens its own window rather than replacing the first.
+        WindowGroup(id: DiptychApp.diffWindowID, for: DiffPair.self) { $pair in
+            if let pair { DiffView(pair: pair) }
+        }
+        .defaultSize(width: 1000, height: 640)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
@@ -106,6 +114,8 @@ struct FileCommands: Commands {
             .keyboardShortcut(.downArrow, modifiers: .command)
             Button("Get Info") { model?.showInfo() }
                 .keyboardShortcut("i")
+            Button("Compare Two Files") { model?.showDiff() }
+                .keyboardShortcut("d", modifiers: .command)
             Button("Rename...") { model?.requestRename() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
 

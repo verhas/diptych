@@ -631,6 +631,15 @@ Not oversights:
   that is the helper's job, and it is where non-experts make messes that are
   hard to explain remotely. Diptych reads the setup and acts on **content**
   only.
+* **A diff window exists now** (⌘D, File menu, toolbar): two files side by
+  side, read only, with "only what differs" and jumping between differences.
+  The diff itself is `CollectionDifference` from the standard library -- Myers,
+  already there, better tested than anything that could be written here. What
+  Diptych adds is the alignment: turning insertions and removals back into two
+  columns that stay level, pairing a removal and an insertion in the same place
+  into one rewritten line rather than two events, and counting a run of changed
+  lines as one difference because that is what a reader means by "next".
+  Comparing folders is not built.
 * merge conflict *resolution*. Detect the state, refuse further operations,
   explain.
 * local-only checkpointing. There is no way to save without publishing; for

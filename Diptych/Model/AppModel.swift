@@ -351,6 +351,44 @@ final class AppModel {
     /// The hex editor. Never for a directory: a directory's bytes are the file
     /// system's own bookkeeping, and on APFS opening one for update is not
     /// something a file manager should offer to do.
+    @ObservationIgnored var openDiffWindow: ((DiffPair) -> Void)?
+
+    /// Two files, side by side.
+    ///
+    /// Either two ticked in one pane, or one in each -- both are natural in a
+    /// two-pane file manager and guessing wrongly between them would be worse
+    /// than accepting both. When it comes from the two panes the left pane's
+    /// file goes on the left, which is the only arrangement that would not
+    /// surprise anybody.
+    func showDiff() {
+        guard let pair = pairToCompare() else { return }
+        guard !pair.hasFolder else {
+            flash("Comparing folders is not built yet", error: true)
+            return
+        }
+        openDiffWindow?(DiffPair(left: pair.left, right: pair.right))
+    }
+
+    private func pairToCompare() -> (left: URL, right: URL, hasFolder: Bool)? {
+        let here = active.selectedItems.filter { !$0.isParent }
+        if here.count == 2 {
+            // Row order, not selection order: what the user sees top to bottom.
+            let ordered = active.rows.filter { item in here.contains { $0.id == item.id } }
+            guard ordered.count == 2 else { return nil }
+            return (ordered[0].url, ordered[1].url,
+                    ordered.contains { $0.isDirectory })
+        }
+
+        let other = (active === left ? right : self.left).selectedItems.filter { !$0.isParent }
+        guard here.count == 1, other.count == 1 else {
+            flash("Select two files, or one in each pane", error: true)
+            return nil
+        }
+        let leftItem = active === left ? here[0] : other[0]
+        let rightItem = active === left ? other[0] : here[0]
+        return (leftItem.url, rightItem.url, leftItem.isDirectory || rightItem.isDirectory)
+    }
+
     func showBinaryView() {
         guard let item = singleSelection("open in the binary view",
                                          includingParent: false) else { return }
