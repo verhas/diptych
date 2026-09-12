@@ -31,16 +31,22 @@ final class ScriptCatalogue {
     // MARK: - Reading the folder
 
     func reload() {
+        reload(from: Self.folder, checkingTheSetting: true)
+    }
+
+    /// Split out so a test can point it at a folder of its own; the folder is
+    /// otherwise always `~/.diptych/scripts`.
+    func reload(from folder: URL, checkingTheSetting: Bool = true) {
         scripts = []
         problems = []
         approved = Self.readApprovals()
-        guard isEnabled else { return }
+        if checkingTheSetting { guard isEnabled else { return } }
 
         let manager = FileManager.default
-        guard let names = try? manager.contentsOfDirectory(atPath: Self.folder.path) else { return }
+        guard let names = try? manager.contentsOfDirectory(atPath: folder.path) else { return }
 
         for name in names.sorted() where !name.hasPrefix(".") {
-            let url = Self.folder.appendingPathComponent(name)
+            let url = folder.appendingPathComponent(name)
             var isFolder: ObjCBool = false
             guard manager.fileExists(atPath: url.path, isDirectory: &isFolder),
                   !isFolder.boolValue else { continue }
@@ -99,8 +105,9 @@ final class ScriptCatalogue {
 
     // MARK: - Which apply
 
-    func applicable(to targets: [ScriptTarget], in folder: URL) -> [ScriptDefinition] {
-        guard isEnabled else { return [] }
+    func applicable(to targets: [ScriptTarget], in folder: URL,
+                    checkingTheSetting: Bool = true) -> [ScriptDefinition] {
+        if checkingTheSetting { guard isEnabled else { return [] } }
         // A script that takes no items is about the folder on screen, so that
         // is what its scope is judged against.
         guard !targets.isEmpty else {

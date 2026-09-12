@@ -166,6 +166,22 @@ struct FileCommands: Commands {
             Button("Change Owner...") { model?.requestOwnerEdit() }
             Button("Change Group...") { model?.requestGroupEdit() }
 
+            // Named for what they are. Absent entirely when scripts are
+            // switched off, or when none of them suits what is selected --
+            // a menu of permanently greyed commands teaches nobody anything.
+            if let scripts = model?.applicableScripts, !scripts.isEmpty {
+                Menu("Scripts") {
+                    ForEach(scripts) { script in
+                        Button(script.name) { model?.runScript(script) }
+                            .help(script.summary)
+                    }
+                }
+            }
+            if ConfigStore.shared.configuration.scriptsDeveloperMode,
+               ConfigStore.shared.configuration.scriptsEnabled {
+                Button("Read the Scripts Folder Again") { model?.rereadScripts() }
+            }
+
             Divider()
 
             // Version tracking. Hidden entirely when the folder is not tracked

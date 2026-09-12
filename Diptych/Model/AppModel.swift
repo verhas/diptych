@@ -36,6 +36,8 @@ final class AppModel {
         case gitClash
         case stopTracking
         case clipboardFormat
+        case scriptApproval
+        case scriptProblems
 
         var id: String {
             switch self {
@@ -49,6 +51,8 @@ final class AppModel {
             case .gitClash:       return "gitClash"
             case .stopTracking:   return "stopTracking"
             case .clipboardFormat: return "clipboardFormat"
+            case .scriptApproval: return "scriptApproval"
+            case .scriptProblems: return "scriptProblems"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -243,6 +247,13 @@ final class AppModel {
             }
         }
         Task { await GitService.shared.locateIfNeeded() }
+
+        // Read once, when Diptych starts. A script that could change between
+        // being agreed to and being run would make the agreement worth
+        // nothing.
+        if ScriptCatalogue.shared.scripts.isEmpty, ScriptCatalogue.shared.problems.isEmpty {
+            ScriptCatalogue.shared.reload()
+        }
 
         // Write a slot on first launch, so ~/.diptych exists and is editable
         // before the user has changed anything.
@@ -589,6 +600,82 @@ final class AppModel {
         } catch {
             dialog = .message(error.localizedDescription)
         }
+    }
+
+    // MARK: - Scripts
+
+    private(set) var scriptRun: ScriptRun?
+    private(set) var scriptAwaitingApproval: ScriptDefinition?
+
+    /// The scripts that suit what is selected right now.
+    var applicableScripts: [ScriptDefinition] {
+        ScriptCatalogue.shared.applicable(to: scriptTargets, in: active.directory)
+    }
+
+    private var scriptTargets: [ScriptTarget] {
+        active.selectedItems.filter { !$0.isParent }.map {
+            ScriptTarget(url: $0.url,
+                         kind: $0.isSymlink ? .link : ($0.isDirectory ? .directory : .file))
+        }
+    }
+
+    func runScript(_ script: ScriptDefinition) {
+        // Asked once per script, and again whenever its contents change. The
+        // person this feature is built for cannot judge a program by reading
+        // it, so the question is about where it came from, not what it says.
+        guard ScriptCatalogue.shared.isApproved(script) else {
+            scriptAwaitingApproval = script
+            dialog = .scriptApproval
+            return
+        }
+        begin(script)
+    }
+
+    func approveAndRunScript() {
+        dialog = nil
+        guard let script = scriptAwaitingApproval else { return }
+        scriptAwaitingApproval = nil
+        ScriptCatalogue.shared.approve(script)
+        begin(script)
+    }
+
+    func cancelScriptApproval() {
+        dialog = nil
+        scriptAwaitingApproval = nil
+    }
+
+    private func begin(_ script: ScriptDefinition) {
+        let targets = scriptTargets
+        // Long before execve would fail obscurely. ARG_MAX is a megabyte, so
+        // a thousand long paths is a safe distance from it.
+        guard targets.count <= 1000 else {
+            dialog = .message("That is \(targets.count) items, which is more than a script can "
+                              + "be given at once. Try fewer than a thousand.")
+            return
+        }
+        scriptRun = ScriptRun(script: script, targets: targets,
+                              left: left.directory, right: right.directory,
+                              active: active.directory, other: inactive.directory)
+    }
+
+    func finishScript() {
+        scriptRun = nil
+        // Scripts exist to change files.
+        left.reload()
+        right.reload()
+    }
+
+    /// Read the folder again. Only in developer mode, and only from the menu:
+    /// a script that could change between being agreed to and being run would
+    /// make the agreement worth nothing.
+    func rereadScripts() {
+        ScriptCatalogue.shared.reload()
+        reportScriptProblems()
+    }
+
+    func reportScriptProblems() {
+        guard !ScriptCatalogue.shared.problems.isEmpty else { return }
+        dialog = .scriptProblems
     }
 
     func requestNewFolder() {

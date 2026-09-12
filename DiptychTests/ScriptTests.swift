@@ -249,3 +249,204 @@ final class ScriptApprovalTests: XCTestCase {
                           "a script that changes has to be agreed to again")
     }
 }
+
+/// Reading the folder, and refusing what should not be run.
+///
+/// The refusals are the security of the feature, so they are tested against
+/// real files with real permissions rather than against a description of them.
+@MainActor
+final class ScriptCatalogueTests: XCTestCase {
+
+    private var folder: URL!
+    private let manager = FileManager.default
+    private var developerMode = false
+
+    override func setUpWithError() throws {
+        folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("DiptychScripts-\(UUID().uuidString)")
+        try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+        developerMode = ConfigStore.shared.configuration.scriptsDeveloperMode
+        ConfigStore.shared.configuration.scriptsDeveloperMode = false
+    }
+
+    override func tearDownWithError() throws {
+        ConfigStore.shared.configuration.scriptsDeveloperMode = developerMode
+        try? manager.removeItem(at: folder)
+    }
+
+    @discardableResult
+    private func install(_ name: String, _ text: String, mode: Int = 0o444) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        try Data(text.utf8).write(to: url)
+        try manager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
+        return url
+    }
+
+    private func load() {
+        ScriptCatalogue.shared.reload(from: folder, checkingTheSetting: false)
+    }
+
+    private let good = "#!/bin/sh\n# name: Good one\n# call: $0 $1\necho hello\n"
+
+    func testAReadOnlyScriptIsFound() throws {
+        try install("good.sh", good)
+
+        load()
+
+        XCTAssertEqual(ScriptCatalogue.shared.scripts.map(\.name), ["Good one"])
+        XCTAssertEqual(ScriptCatalogue.shared.problems, [])
+    }
+
+    func testAWritableScriptIsRefused() throws {
+        // A download lands as rw-r--r--, so requiring no write bit makes
+        // installing a script an act rather than an accident.
+        try install("writable.sh", good, mode: 0o644)
+
+        load()
+
+        XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("read-only")
+                      ?? false, "\(ScriptCatalogue.shared.problems)")
+    }
+
+    func testDeveloperModeAllowsAWritableScript() throws {
+        try install("writable.sh", good, mode: 0o644)
+        ConfigStore.shared.configuration.scriptsDeveloperMode = true
+
+        load()
+
+        XCTAssertEqual(ScriptCatalogue.shared.scripts.count, 1,
+                       "for whoever is writing them rather than running them")
+    }
+
+    func testAQuarantinedScriptIsRefused() throws {
+        // The attack this feature invents: a script that arrived by post.
+        // Marked before it is made read-only: setting an attribute needs write
+        // permission, which is exactly what the next line takes away.
+        let url = try install("downloaded.sh", good, mode: 0o644)
+        let value = "0081;00000000;Safari;"
+        XCTAssertEqual(setxattr(url.path, "com.apple.quarantine", value, value.utf8.count, 0, 0), 0)
+        try manager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+
+        load()
+
+        XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("outside your Mac")
+                      ?? false, "\(ScriptCatalogue.shared.problems)")
+    }
+
+    func testABrokenScriptIsReportedAndNotListed() throws {
+        try install("broken.sh", "#!/bin/sh\n# args: ,7\n# call: $0 $1\n")
+        try install("good.sh", good)
+
+        load()
+
+        XCTAssertEqual(ScriptCatalogue.shared.scripts.map(\.name), ["Good one"],
+                       "the good one still works")
+        XCTAssertEqual(ScriptCatalogue.shared.problems.count, 1)
+        XCTAssertEqual(ScriptCatalogue.shared.problems.first?.file, "broken.sh")
+    }
+
+    func testOnlyTheApplicableOnesAreOffered() throws {
+        try install("pictures.sh", "#!/bin/sh\n# name: Pictures\n# extensions: png\n# call: $0 $1\n")
+        try install("anything.sh", "#!/bin/sh\n# name: Anything\n# call: $0 $1\n")
+        load()
+
+        let text = [ScriptTarget(url: folder.appendingPathComponent("a.txt"), kind: .file)]
+        let picture = [ScriptTarget(url: folder.appendingPathComponent("a.png"), kind: .file)]
+
+        XCTAssertEqual(ScriptCatalogue.shared.applicable(to: text, in: folder,
+                                                         checkingTheSetting: false)
+                        .map(\.name), ["Anything"])
+        XCTAssertEqual(Set(ScriptCatalogue.shared.applicable(to: picture, in: folder,
+                                                             checkingTheSetting: false)
+                        .map(\.name)), ["Anything", "Pictures"])
+    }
+
+    func testAScriptThatTakesNoItemsIsOfferedWithNothingSelected() throws {
+        try install("here.sh", "#!/bin/sh\n# name: Here\n# args: 0\n# call: $0\n")
+        try install("one.sh", "#!/bin/sh\n# name: One\n# call: $0 $1\n")
+        load()
+
+        let offered = ScriptCatalogue.shared.applicable(to: [], in: folder,
+                                                        checkingTheSetting: false)
+
+        XCTAssertEqual(offered.map(\.name), ["Here"])
+    }
+}
+
+/// Actually running one.
+@MainActor
+final class ScriptRunTests: XCTestCase {
+
+    private var folder: URL!
+
+    override func setUpWithError() throws {
+        folder = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("DiptychRun-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    private func run(_ text: String, on targets: [ScriptTarget] = []) async throws -> ScriptRun {
+        let url = folder.appendingPathComponent("script.sh")
+        try Data(text.utf8).write(to: url)
+        let (script, problems) = ScriptDefinition.read(url, contents: text)
+        XCTAssertEqual(problems, [])
+        let run = ScriptRun(script: try XCTUnwrap(script), targets: targets,
+                            left: folder, right: folder, active: folder, other: folder)
+        for _ in 0..<200 where run.isRunning {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        return run
+    }
+
+    func testTheOutputAndTheExitStatusComeBack() async throws {
+        let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho hello\n")
+
+        XCTAssertFalse(run.isRunning)
+        XCTAssertEqual(run.status, 0)
+        XCTAssertTrue(run.output.contains("hello"), run.output)
+    }
+
+    func testAFailureIsReportedAsOneRatherThanLookingLikeSuccess() async throws {
+        let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho oh dear\nexit 3\n")
+
+        XCTAssertEqual(run.status, 3)
+        XCTAssertTrue(run.output.contains("oh dear"), "and what it said is still there")
+    }
+
+    func testWhatItPrintsToStandardErrorIsShownToo() async throws {
+        let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho trouble >&2\n")
+
+        XCTAssertTrue(run.output.contains("trouble"), run.output)
+    }
+
+    func testThePanesAndTheScriptArriveAsEnvironmentVariables() async throws {
+        let run = try await run("""
+        #!/bin/sh
+        # args: 0
+        # call: $0
+        echo "active=$DIPTYCH_ACTIVE"
+        echo "script=$DIPTYCH_SCRIPT"
+        """)
+
+        XCTAssertTrue(run.output.contains("active=\(folder.path)"), run.output)
+        XCTAssertTrue(run.output.contains("script=\(folder.appendingPathComponent("script.sh").path)"),
+                      "the original, not the copy that ran: \(run.output)")
+    }
+
+    func testAnAwkwardFileNameArrivesInOnePiece() async throws {
+        // The whole no-shell design, proven end to end.
+        let awkward = folder.appendingPathComponent("my notes (draft).txt")
+        try Data("x".utf8).write(to: awkward)
+
+        let run = try await run("#!/bin/sh\n# call: $0 $1\necho \"[$1]\"\n",
+                                on: [ScriptTarget(url: awkward, kind: .file)])
+
+        XCTAssertTrue(run.output.contains("[\(awkward.path)]"), run.output)
+    }
+}

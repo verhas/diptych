@@ -66,6 +66,36 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Toggle("Run the scripts in ~/.diptych/scripts",
+                   isOn: $store.configuration.scriptsEnabled)
+                .toggleStyle(.checkbox)
+            Text("A script is a program. Whatever is in that folder can do anything you can "
+                 + "do \u{2014} change your files, delete them, send them somewhere. Diptych "
+                 + "asks before running each one for the first time, and again whenever one "
+                 + "changes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("It will not run a script that came from outside this Mac, that belongs to "
+                 + "somebody else, or that can still be written to. A file has to be made "
+                 + "read-only before Diptych will run it, so that putting one there is "
+                 + "something you did on purpose.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Developer mode \u{2014} for writing scripts, not running them",
+                   isOn: $store.configuration.scriptsDeveloperMode)
+                .toggleStyle(.checkbox)
+                .disabled(!store.configuration.scriptsEnabled)
+            Text("Allows a script that can still be written to, and adds a command to read "
+                 + "the folder again without restarting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
                 .toggleStyle(.checkbox)
             Text("Quit sits one key away from Close Window and Select All.")

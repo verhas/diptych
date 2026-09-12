@@ -396,6 +396,7 @@ struct PaneView: View {
             Button("New Folder") { activate(); model.requestNewFolder() }
             Button("New File") { activate(); model.requestNewFile() }
             newFromClipboard
+            scripts
             Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Paste as Link") { activate(); model.pasteAsLink() }
             Button("Refresh") { pane.reload() }
@@ -435,6 +436,7 @@ struct PaneView: View {
                !item.isDirectory, !item.isParent {
                 Button("Bin View") { act(ids) { model.showBinaryView() } }
             }
+            scripts
 
             Divider()
 
@@ -490,6 +492,20 @@ struct PaneView: View {
     /// Branch, and how far this folder is from the shared copy. Phrased as
     /// what it means rather than as "ahead 2, behind 3", and nudging towards
     /// getting the latest first -- most conflicts never happen if you do.
+    /// Whatever suits the selection, under one heading.
+    @ViewBuilder
+    private var scripts: some View {
+        let applicable = model.applicableScripts
+        if !applicable.isEmpty {
+            Menu("Scripts") {
+                ForEach(applicable) { script in
+                    Button(script.name) { model.runScript(script) }
+                        .help(script.summary)
+                }
+            }
+        }
+    }
+
     /// The same command the File menu offers, where a right click expects to
     /// find it. Absent when the setting switches it off, and greyed when there
     /// is nothing on the clipboard to make a file from.

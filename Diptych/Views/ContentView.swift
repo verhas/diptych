@@ -151,6 +151,17 @@ struct ContentView: View {
         .navigationTitle(model.title)
 
         .toolbar { toolbar }
+        // An overlay, not a sheet: only one presentation modifier per view
+        // works reliably here, and this view has already spent its one.
+        .overlay {
+            if let run = model.scriptRun {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                ScriptOutputView(run: run) { model.finishScript() }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .shadow(radius: 20)
+                    .padding(40)
+            }
+        }
 
         // Columns changed in Settings: reload so the loader fetches the
         // metadata the new set needs, and drop a sort that points at a column
@@ -683,6 +694,23 @@ struct DialogSheet: View {
                         + "they get the latest. Only your copy is kept.",
                     confirm: "Stop Tracking",
                     destructive: true) { model.confirmStopTracking() }
+
+            case .scriptApproval:
+                let script = model.scriptAwaitingApproval
+                confirmation(
+                    title: "Run \u{201C}\(script?.name ?? "")\u{201D}?",
+                    detail: "This is a program somebody put on your Mac. It can do anything "
+                        + "you can do: change files, delete them, send them somewhere.\n\n"
+                        + "Only run it if you know where it came from.\n\n"
+                        + (script?.url.path ?? "")
+                        + "\n\nYou will be asked again if it changes.",
+                    confirm: "Run it",
+                    destructive: true) { model.approveAndRunScript() }
+
+            case .scriptProblems:
+                ScriptProblemsView(problems: ScriptCatalogue.shared.problems) {
+                    model.dialog = nil
+                }
 
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
