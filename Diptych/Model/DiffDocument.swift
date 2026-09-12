@@ -389,6 +389,93 @@ final class DiffDocument {
         recompute()
     }
 
+    // MARK: - Finishing a clash that was set aside
+
+    /// The side holding a `(my version)` copy of the file on the other side.
+    ///
+    /// Nil unless the pair is exactly that: the same folder, the same
+    /// extension, and a name that is the other one with `(my version)` on the
+    /// end. A number may follow it, because a second clash on the same file
+    /// makes `(my version)-1`.
+    var keptCopySide: Side? {
+        if Self.isKeptCopy(of: pair.left, pair.right) { return .right }
+        if Self.isKeptCopy(of: pair.right, pair.left) { return .left }
+        return nil
+    }
+
+    static func isKeptCopy(of original: URL, _ candidate: URL) -> Bool {
+        guard FileOperations.canonicalPath(original.deletingLastPathComponent())
+                == FileOperations.canonicalPath(candidate.deletingLastPathComponent()),
+              original.pathExtension == candidate.pathExtension else { return false }
+
+        let stem = original.deletingPathExtension().lastPathComponent
+        let mine = candidate.deletingPathExtension().lastPathComponent
+        let marked = stem + " (my version)"
+        guard mine.hasPrefix(marked) else { return false }
+        let tail = mine.dropFirst(marked.count)
+        return tail.isEmpty || (tail.hasPrefix("-") && tail.dropFirst().allSatisfy(\.isNumber))
+    }
+
+    /// Whether there is a clash here that this window could finish.
+    ///
+    /// Only when the kept copy is the side being edited *and* something has
+    /// come of it. Offering it on an untouched copy would be offering to throw
+    /// the shared version away for nothing.
+    var canReplaceOriginal: Bool {
+        guard let side = keptCopySide else { return false }
+        return editable == side && (isDirty || hasSaved)
+    }
+
+    var originalName: String {
+        guard let side = keptCopySide else { return "" }
+        return (side == .left ? pair.right : pair.left).lastPathComponent
+    }
+
+    enum ReplaceOutcome: Equatable {
+        case done
+        case notApplicable
+        case failed(String)
+    }
+
+    /// Save, put the copy in the original's place, and send the original to
+    /// the Trash.
+    ///
+    /// The end of the clash the send dialog set aside: two files that were one
+    /// file become one file again. The old version goes to the Trash rather
+    /// than being destroyed -- this is a single press with no dialog in front
+    /// of it, and a single press that cannot be undone is a different thing
+    /// altogether.
+    func replaceOriginal() async -> ReplaceOutcome {
+        guard canReplaceOriginal, let side = keptCopySide else { return .notApplicable }
+        let copy = side == .left ? pair.left : pair.right
+        let original = side == .left ? pair.right : pair.left
+
+        if isDirty {
+            switch save() {
+            case .saved, .nothingToDo:
+                break
+            case .changedUnderneath(let name):
+                return .failed("\u{201C}\(name)\u{201D} was changed by something else since "
+                               + "this window opened.")
+            case .failed(let reason):
+                return .failed(reason)
+            }
+        }
+
+        if FileManager.default.fileExists(atPath: original.path) {
+            let outcome = await FileOperations.shared.trash([original])
+            if let failure = outcome.failures.first {
+                return .failed(failure.1)
+            }
+        }
+        do {
+            try FileManager.default.moveItem(at: copy, to: original)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+        return .done
+    }
+
     // MARK: - Saving
 
     enum SaveOutcome: Equatable {

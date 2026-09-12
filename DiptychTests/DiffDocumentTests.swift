@@ -557,6 +557,118 @@ final class DiffDocumentTests: XCTestCase {
     }
 }
 
+extension DiffDocumentTests {
+
+    // MARK: - Finishing a clash that was set aside
+
+    private func keptCopyPair(original: String = "chapter3.md",
+                              copy: String = "chapter3 (my version).md")
+        async throws -> DiffDocument {
+        let document = DiffDocument(pair: DiffPair(left: try write(copy, "mine\n"),
+                                                   right: try write(original, "theirs\n")))
+        await document.load()
+        return document
+    }
+
+    func testAKeptCopyIsRecognisedOnEitherSide() {
+        let folder = URL(fileURLWithPath: "/work")
+        let original = folder.appendingPathComponent("chapter3.md")
+        let copy = folder.appendingPathComponent("chapter3 (my version).md")
+
+        XCTAssertTrue(DiffDocument.isKeptCopy(of: original, copy))
+        XCTAssertFalse(DiffDocument.isKeptCopy(of: copy, original), "not the other way round")
+    }
+
+    func testASecondKeptCopyIsRecognisedToo() {
+        // A second clash on the same file makes "(my version)-1".
+        let folder = URL(fileURLWithPath: "/work")
+        XCTAssertTrue(DiffDocument.isKeptCopy(of: folder.appendingPathComponent("a.md"),
+                                              folder.appendingPathComponent("a (my version)-1.md")))
+    }
+
+    func testUnrelatedFilesAreNotAKeptCopy() {
+        let folder = URL(fileURLWithPath: "/work")
+        XCTAssertFalse(DiffDocument.isKeptCopy(of: folder.appendingPathComponent("a.md"),
+                                               folder.appendingPathComponent("b (my version).md")))
+        XCTAssertFalse(DiffDocument.isKeptCopy(of: folder.appendingPathComponent("a.md"),
+                                               folder.appendingPathComponent("a (my version).txt")),
+                       "a different kind of file is a different file")
+        XCTAssertFalse(DiffDocument.isKeptCopy(of: folder.appendingPathComponent("a.md"),
+                                               URL(fileURLWithPath: "/elsewhere/a (my version).md")),
+                       "and one somewhere else cannot take its place")
+    }
+
+    func testTheButtonIsOfferedOnlyForAnEditedKeptCopy() async throws {
+        let document = try await keptCopyPair()
+        XCTAssertEqual(document.keptCopySide, .left)
+        XCTAssertFalse(document.canReplaceOriginal, "nothing has come of it yet")
+
+        _ = document.unlock(.right)
+        document.setLine(0, to: "editing the original instead")
+        XCTAssertFalse(document.canReplaceOriginal,
+                       "editing the shared version is not finishing a clash")
+    }
+
+    func testEditingTheKeptCopyOffersIt() async throws {
+        let document = try await keptCopyPair()
+        _ = document.unlock(.left)
+
+        document.setLine(0, to: "my settled version")
+
+        XCTAssertTrue(document.canReplaceOriginal)
+        XCTAssertEqual(document.originalName, "chapter3.md")
+    }
+
+    func testOrdinaryFilesNeverOfferIt() async throws {
+        let document = try await document("a\n", "b\n")
+        _ = document.unlock(.left)
+        document.setLine(0, to: "changed")
+
+        XCTAssertNil(document.keptCopySide)
+        XCTAssertFalse(document.canReplaceOriginal)
+    }
+
+    func testReplacingSavesTakesTheNameAndTrashesTheOld() async throws {
+        let document = try await keptCopyPair()
+        _ = document.unlock(.left)
+        document.typing(0, "my settled version")
+
+        let outcome = await document.replaceOriginal()
+        XCTAssertEqual(outcome, .done)
+
+        XCTAssertEqual(read("chapter3.md"), "my settled version\n",
+                       "saved, and under the original name")
+        XCTAssertNil(read("chapter3 (my version).md"), "the copy is gone")
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("chapter3 (my version).md").path))
+    }
+
+    func testReplacingAnUneditedCopyIsRefused() async throws {
+        let document = try await keptCopyPair()
+        _ = document.unlock(.left)
+
+        let outcome = await document.replaceOriginal()
+        XCTAssertEqual(outcome, .notApplicable)
+
+        XCTAssertEqual(read("chapter3.md"), "theirs\n", "nothing thrown away for nothing")
+        XCTAssertEqual(read("chapter3 (my version).md"), "mine\n")
+    }
+
+    func testReplacingWorksAfterTheCopyWasAlreadySaved() async throws {
+        // Saving and then finishing is two presses of two different buttons,
+        // and the second one still has work to do.
+        let document = try await keptCopyPair()
+        _ = document.unlock(.left)
+        document.setLine(0, to: "my settled version")
+        XCTAssertEqual(document.save(), .saved)
+        XCTAssertTrue(document.canReplaceOriginal)
+
+        let outcome = await document.replaceOriginal()
+        XCTAssertEqual(outcome, .done)
+
+        XCTAssertEqual(read("chapter3.md"), "my settled version\n")
+    }
+}
+
 /// How far sideways the two columns are allowed to go.
 ///
 /// Kept in an object rather than in view state because a scroll-wheel monitor

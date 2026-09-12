@@ -108,6 +108,18 @@ struct DiffView: View {
                         .disabled(!document.isDirty)
                         .keyboardShortcut("s", modifiers: .command)
                 }
+                // Only for the one shape it finishes: a kept copy, being
+                // edited, that something has come of. It is absent otherwise
+                // rather than greyed -- on any other pair of files it would
+                // not mean anything at all.
+                if document.canReplaceOriginal {
+                    Button("Replace \u{201C}\(document.originalName)\u{201D}") {
+                        act { finishTheClash() }
+                    }
+                    .help("Save this version, put it in place of "
+                          + "\u{201C}\(document.originalName)\u{201D}, and move the old one "
+                          + "to the Trash.")
+                }
                 if !diff.isIdentical {
                     Button { step(-1) } label: { Image(systemName: "chevron.up") }
                         .help("Previous difference")
@@ -518,6 +530,23 @@ struct DiffView: View {
                    + "the files again."
         case .failed(let reason):
             notice = reason
+        }
+    }
+
+    /// The end of a clash that was set aside: two files that were one file
+    /// become one file again, in a single press.
+    private func finishTheClash() {
+        Task {
+            switch await document.replaceOriginal() {
+            case .done:
+                // Nothing left to compare -- one of the two files is gone --
+                // so the window goes with it.
+                window?.performClose(nil)
+            case .notApplicable:
+                break
+            case .failed(let reason):
+                notice = reason
+            }
         }
     }
 
