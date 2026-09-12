@@ -703,11 +703,7 @@ struct DialogSheet: View {
                         + "you can do: change files, delete them, send them somewhere.\n\n"
                         + "Only run it if you know where it came from.\n\n"
                         + (script?.url.path ?? "")
-                        + "\n\nYou will be asked again if it changes."
-                        + ((script?.isWritable ?? false)
-                           ? "\n\nDeveloper mode is on, so this one can still be written to "
-                             + "\u{2014} which means it can change after you agree to it."
-                           : ""),
+                        + "\n\nYou will be asked again if it changes.",
                     confirm: "Run it",
                     destructive: true) { model.approveAndRunScript() }
 

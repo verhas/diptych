@@ -79,7 +79,8 @@ struct BehaviourSettingsView: View {
             Text("It will not run a script that came from outside this Mac, that belongs to "
                  + "somebody else, or that can still be written to. A file has to be made "
                  + "read-only before Diptych will run it, so that putting one there is "
-                 + "something you did on purpose.")
+                 + "something you did on purpose. Nothing lifts those rules, so a script is "
+                 + "written under the same conditions it will be run under.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -88,8 +89,8 @@ struct BehaviourSettingsView: View {
                    isOn: $store.configuration.scriptsDeveloperMode)
                 .toggleStyle(.checkbox)
                 .disabled(!store.configuration.scriptsEnabled)
-            Text("Allows a script that can still be written to, and adds a command to read "
-                 + "the folder again without restarting.")
+            Text("Adds a command to read the folder again without restarting, for when you "
+                 + "have just changed a script. It does not relax any of the rules above.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

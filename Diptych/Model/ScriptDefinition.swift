@@ -62,10 +62,6 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
     var onlyIn: [String]
     var onlyUnder: [String]
     var contents: String
-    /// True when the file can still be written to, which only developer mode
-    /// allows. Carried so that it can be *said*: a rule that is silently
-    /// switched off looks exactly like a rule that does not work.
-    var isWritable = false
 
     var id: String { url.path }
 
@@ -104,7 +100,7 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
         var definition = ScriptDefinition(
             url: url, name: url.deletingPathExtension().lastPathComponent, summary: "",
             extensions: [], fewestItems: 1, mostItems: 1, kinds: Set(ScriptKind.allCases),
-            call: [], onlyIn: [], onlyUnder: [], contents: contents, isWritable: false)
+            call: [], onlyIn: [], onlyUnder: [], contents: contents)
         var sawArgs = false
         var sawCall = false
 

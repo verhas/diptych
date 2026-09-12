@@ -62,19 +62,8 @@ final class ScriptCatalogue {
             }
             let (definition, found) = ScriptDefinition.read(url, contents: contents)
             problems.append(contentsOf: found)
-            if var definition {
-                definition.isWritable = isWritableFile(url)
-                scripts.append(definition)
-            }
+            if let definition { scripts.append(definition) }
         }
-    }
-
-    private func isWritableFile(_ url: URL) -> Bool {
-        guard let mode = (try? FileManager.default
-            .attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber else {
-            return false
-        }
-        return mode.uint16Value & 0o222 != 0
     }
 
     /// Why a file in the scripts folder will not be run at all.
@@ -103,9 +92,15 @@ final class ScriptCatalogue {
         // as rw-r--r--, so requiring no write bit at all makes installing a
         // script a deliberate act rather than something that can happen by
         // accident. It also means an approved script cannot quietly change
-        // afterwards. Developer mode lifts it for whoever is writing them.
+        // afterwards.
+        //
+        // Nothing lifts this, developer mode included. A check anybody can
+        // switch off is not a check, and a script written under a relaxed rule
+        // is first tried under the real one on the day it matters. Making a
+        // script editable and read-only again is what the two scripts in the
+        // folder are for.
         if let mode = attributes[.posixPermissions] as? NSNumber,
-           mode.uint16Value & 0o222 != 0, !isDeveloperMode {
+           mode.uint16Value & 0o222 != 0 {
             let bits = String(mode.uint16Value & 0o777, radix: 8)
             return "Anything that can be written to can change after you have agreed to it. "
                  + "This one is \(bits); it has to be read-only. Diptych's permission editor "

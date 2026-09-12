@@ -309,27 +309,19 @@ final class ScriptCatalogueTests: XCTestCase {
                       ?? false, "\(ScriptCatalogue.shared.problems)")
     }
 
-    func testDeveloperModeAllowsAWritableScriptAndSaysSo() throws {
-        // Reported as a bug, and it was the mode working -- which is the
-        // problem: a rule that is silently switched off looks exactly like a
-        // rule that does not work.
+    func testNotEvenDeveloperModeAllowsAWritableScript() throws {
+        // A check anybody can switch off is not a check -- and a script written
+        // under a relaxed rule is first tried under the real one on the day it
+        // matters. Making a script editable and read-only again is what the two
+        // scripts in the folder are for.
         try install("writable.sh", good, mode: 0o644)
         ConfigStore.shared.configuration.scriptsDeveloperMode = true
 
         load()
 
-        XCTAssertEqual(ScriptCatalogue.shared.scripts.count, 1,
-                       "for whoever is writing them rather than running them")
-        XCTAssertTrue(ScriptCatalogue.shared.scripts[0].isWritable,
-                      "and it knows, so the window can say it")
-    }
-
-    func testAReadOnlyScriptIsNotMarkedWritable() throws {
-        try install("good.sh", good)
-
-        load()
-
-        XCTAssertFalse(ScriptCatalogue.shared.scripts[0].isWritable)
+        XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("read-only")
+                      ?? false, "\(ScriptCatalogue.shared.problems)")
     }
 
     func testAQuarantinedScriptIsRefused() throws {
@@ -456,6 +448,18 @@ final class ScriptRunTests: XCTestCase {
 
         XCTAssertEqual(run.status, 3)
         XCTAssertTrue(run.output.contains("oh dear"), "and what it said is still there")
+    }
+
+    func testTheLastLinesAreNotLostWhenAScriptEndsAtOnce() async throws {
+        // Caught by the test above: a process can exit with its last lines
+        // still in the pipe, and marking the run finished before collecting
+        // them lost them. For a script this short that was all of them.
+        for _ in 0..<5 {
+            let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho first\necho last\n")
+
+            XCTAssertTrue(run.output.contains("first"), run.output)
+            XCTAssertTrue(run.output.contains("last"), run.output)
+        }
     }
 
     func testWhatItPrintsToStandardErrorIsShownToo() async throws {

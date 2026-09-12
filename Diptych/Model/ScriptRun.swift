@@ -93,10 +93,18 @@ final class ScriptRun {
         }
 
         task.terminationHandler = { [weak self] finished in
-            pipe.fileHandleForReading.readabilityHandler = nil
+            let reading = pipe.fileHandleForReading
+            reading.readabilityHandler = nil
+            // Whatever is still in the pipe. A process can exit with its last
+            // lines unread, and marking the run finished before collecting
+            // them lost them -- which for a short script could be all of them.
+            let remaining = (try? reading.readToEnd()) ?? Data()
             let code = finished.terminationStatus
             let signalled = finished.terminationReason == .uncaughtSignal
             Task { @MainActor [weak self] in
+                if !remaining.isEmpty {
+                    self?.output += String(decoding: remaining, as: UTF8.self)
+                }
                 self?.finish(with: code,
                              trouble: signalled ? "The script was stopped." : nil)
             }
@@ -104,6 +112,9 @@ final class ScriptRun {
 
         do {
             try task.run()
+            // The child has its own copy now, and holding ours open means the
+            // reader never sees the end of the file.
+            try? pipe.fileHandleForWriting.close()
             process = task
         } catch {
             finish(with: nil,
