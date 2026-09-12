@@ -163,6 +163,13 @@ struct Configuration: Codable, Equatable {
     /// the kind of picture JPEG spoils.
     var clipboardImageFormat: ClipboardImageFormat = .png
 
+    /// Ask before quitting.
+    ///
+    /// On by default: this application holds unsaved edits in comparison
+    /// windows and half-finished transfers, and Cmd-Q sits one key away from
+    /// Cmd-W and Cmd-A.
+    var confirmQuit = true
+
     var gitCheckOnOpen = false
 
     /// When a send is refused for being behind, catch up and send anyway.
@@ -201,7 +208,7 @@ struct Configuration: Codable, Equatable {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
-        case clipboardImageFormat
+        case clipboardImageFormat, confirmQuit
     }
 
     init() {}
@@ -226,6 +233,7 @@ struct Configuration: Codable, Equatable {
         gitCheckOnOpen = (try? container.decode(Bool.self, forKey: .gitCheckOnOpen)) ?? false
         clipboardImageFormat =
             (try? container.decode(ClipboardImageFormat.self, forKey: .clipboardImageFormat)) ?? .png
+        confirmQuit = (try? container.decode(Bool.self, forKey: .confirmQuit)) ?? true
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

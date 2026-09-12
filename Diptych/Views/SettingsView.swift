@@ -16,8 +16,8 @@ struct SettingsView: View {
                 .tabItem { Label("Toolbar", systemImage: "slider.horizontal.3") }
             AppearanceSettingsView()
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
-            ClipboardSettingsView()
-                .tabItem { Label("Clipboard", systemImage: "doc.on.clipboard") }
+            BehaviourSettingsView()
+                .tabItem { Label("Behaviour", systemImage: "switch.2") }
             GitSettingsView()
                 .tabItem { Label("Version Tracking",
                                  systemImage: "point.3.filled.connected.trianglepath.dotted") }
@@ -28,9 +28,8 @@ struct SettingsView: View {
     }
 }
 
-/// What New from Clipboard does. Not an appearance setting -- it decides what
-/// the command makes, and whether it is offered at all.
-struct ClipboardSettingsView: View {
+/// What the application does, as opposed to how it looks.
+struct BehaviourSettingsView: View {
 
     @Bindable private var store = ConfigStore.shared
 
@@ -61,6 +60,15 @@ struct ClipboardSettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("Switched off, the command is not in any menu at all.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
+                .toggleStyle(.checkbox)
+            Text("Quit sits one key away from Close Window and Select All.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

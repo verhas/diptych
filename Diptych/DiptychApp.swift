@@ -29,12 +29,17 @@ struct DiptychApp: App {
             if let url { InfoView(url: url) }
         }
         .defaultSize(width: 560, height: 540)
+        // Not restored at launch. macOS brings a window group back without the
+        // value it was opened with, so what reappeared was an empty window
+        // about nothing -- which the user then has to close.
+        .restorationBehavior(.disabled)
 
         // One binary view per file, for the same reason as the info window.
         WindowGroup(id: DiptychApp.binaryWindowID, for: URL.self) { $url in
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+        .restorationBehavior(.disabled)
 
         // One comparison per pair of files, so a second Cmd-D on two other
         // files opens its own window rather than replacing the first.
@@ -42,6 +47,7 @@ struct DiptychApp: App {
             if let pair { DiffView(pair: pair) }
         }
         .defaultSize(width: 1000, height: 640)
+        .restorationBehavior(.disabled)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
@@ -51,6 +57,24 @@ struct DiptychApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    /// Ask before quitting, when the setting says to.
+    ///
+    /// An NSAlert rather than anything in SwiftUI: the answer has to be given
+    /// back to AppKit as a return value, before the application starts tearing
+    /// itself down.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard MainActor.assumeIsolated({ ConfigStore.shared.configuration.confirmQuit })
+        else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit Diptych?"
+        alert.informativeText = "Anything you have not saved will be asked about separately."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The Dock caches an app's icon against its bundle path, and a debug

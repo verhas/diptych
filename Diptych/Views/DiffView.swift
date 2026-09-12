@@ -21,6 +21,10 @@ struct DiffView: View {
     @State private var sideways: CGFloat = 0
     @State private var guard_ = CloseGuard()
     @State private var window: NSWindow?
+    @State private var wheel = SidewaysWheel()
+    /// The widths the rows were last laid out with, so a swipe knows how far
+    /// it is allowed to go.
+    @State private var lastWidths: (viewport: CGFloat, content: CGFloat) = (1, 1)
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -53,9 +57,17 @@ struct DiffView: View {
             // Held, rather than looked up later: `NSApp.keyWindow` is whichever
             // window happens to be in front, which is not necessarily this one.
             if window !== found { window = found }
+            wheel.watch(found) { delta in
+                guard !wraps else { return }
+                let travel = max(lastWidths.content - lastWidths.viewport, 0)
+                sideways = min(max(sideways - delta, 0), travel)
+            }
             guard found.delegate !== guard_ else { return }
             guard_.shouldClose = { closeIsAllowed() }
-            guard_.willClose = { DiffWindows.shared.release(pair) }
+            guard_.willClose = {
+                DiffWindows.shared.release(pair)
+                wheel.stop()
+            }
             found.delegate = guard_
         })
         .onChange(of: document.isDirty) { _, dirty in
@@ -66,7 +78,10 @@ struct DiffView: View {
         .onAppear { DiffWindows.shared.claim(pair) }
         // Belt and braces: the window delegate is what actually frees it, but
         // this costs nothing and covers a view that goes away without one.
-        .onDisappear { DiffWindows.shared.release(pair) }
+        .onDisappear {
+            DiffWindows.shared.release(pair)
+            wheel.stop()
+        }
     }
 
     // MARK: - Chrome
@@ -242,6 +257,8 @@ struct DiffView: View {
                       .frame(height: 15)
               }
               }
+              .onAppear { lastWidths = text }
+              .onChange(of: text.viewport) { _, _ in lastWidths = text }
               .onChange(of: wraps) { _, _ in sideways = 0 }
               .onChange(of: text.content) { _, _ in
                   sideways = min(sideways, max(text.content - text.viewport, 0))
@@ -283,6 +300,14 @@ struct DiffView: View {
             // text is about to move.
             takeButton(row)
             half(row, side: .right, text: text)
+        }
+        // The whole row, outlined, so the current match can be found on a
+        // screen of eighty of them -- and so it is visible even on the side
+        // being edited, where the text is a live editor and cannot be painted.
+        .overlay {
+            if currentMatch == row.id {
+                Rectangle().strokeBorder(Color.accentColor, lineWidth: 2)
+            }
         }
     }
 
@@ -350,10 +375,11 @@ struct DiffView: View {
                               onFinish: { document.endLine() },
                               onSplit: { document.splitLine(index, at: $0) },
                               onJoin: { document.joinWithPrevious(index) },
-                              onRevert: { document.revertLine() })
+                              onRevert: { document.revertLine() },
+                              onCaret: { keepInView($0, widths) })
                     .frame(width: widths.content, alignment: .leading)
             } else {
-                body(of: text ?? "", spans: spans, tint: tint)
+                body(of: text ?? "", spans: spans, tint: tint, row: row.id)
                     .textSelection(.enabled)
                     .lineLimit(wraps ? nil : 1)
                     .fixedSize(horizontal: !wraps, vertical: false)
@@ -381,19 +407,53 @@ struct DiffView: View {
     /// One `Text` holding an `AttributedString` rather than several joined
     /// together: only the single string wraps as one paragraph, and a line
     /// broken into separate views would wrap at every span boundary.
-    private func body(of text: String, spans: [TextDiff.Span], tint: Color?) -> Text {
-        guard !spans.isEmpty, let tint else { return Text(text) }
-        var built = AttributedString()
-        for span in spans {
-            var piece = AttributedString(span.text)
-            if span.changed {
-                // Stronger than the line's own wash, so it reads as "this part"
-                // against "this line".
-                piece.backgroundColor = tint.opacity(0.45)
+    private func body(of text: String, spans: [TextDiff.Span], tint: Color?,
+                      row: Int) -> Text {
+        var built: AttributedString
+        if spans.isEmpty || tint == nil {
+            built = AttributedString(text)
+        } else {
+            built = AttributedString()
+            for span in spans {
+                var piece = AttributedString(span.text)
+                if span.changed, let tint {
+                    // Stronger than the line's own wash, so it reads as "this
+                    // part" against "this line".
+                    piece.backgroundColor = tint.opacity(0.45)
+                }
+                built += piece
             }
-            built += piece
         }
+        mark(query, in: &built, of: text, isCurrent: currentMatch == row)
         return Text(built)
+    }
+
+    /// Paint the search text where it actually is.
+    ///
+    /// Scrolling a match into view says which *row*, which in a window of
+    /// eighty rows is not much of an answer. Marking the words themselves --
+    /// in both columns, since the search reads both -- is the difference
+    /// between being taken near something and being shown it.
+    private func mark(_ query: String, in built: inout AttributedString,
+                      of text: String, isCurrent: Bool) {
+        guard query.count > 1 else { return }
+        var from = text.startIndex
+        while let found = text.range(of: query, options: .caseInsensitive,
+                                     range: from..<text.endIndex) {
+            let start = text.distance(from: text.startIndex, to: found.lowerBound)
+            let length = text.distance(from: found.lowerBound, to: found.upperBound)
+            let low = built.index(built.startIndex, offsetByCharacters: start)
+            let high = built.index(low, offsetByCharacters: length)
+            built[low..<high].backgroundColor = isCurrent ? .orange : .yellow
+            built[low..<high].foregroundColor = .black
+            from = found.upperBound
+        }
+    }
+
+    /// The row the find buttons are currently sitting on.
+    private var currentMatch: Int? {
+        let found = matches
+        return found.indices.contains(atMatch) ? found[atMatch] : nil
     }
 
     // MARK: - Editing
@@ -418,6 +478,19 @@ struct DiffView: View {
     private func act(_ body: () -> Void) {
         window?.makeFirstResponder(nil)
         body()
+    }
+
+    /// Move the columns so the caret stays on screen while typing.
+    private func keepInView(_ caret: CGFloat,
+                            _ widths: (viewport: CGFloat, content: CGFloat)) {
+        guard !wraps, widths.content > widths.viewport else { return }
+        let margin: CGFloat = 60
+        let travel = widths.content - widths.viewport
+        if caret - sideways > widths.viewport - margin {
+            sideways = min(caret - widths.viewport + margin, travel)
+        } else if caret - sideways < margin {
+            sideways = max(min(caret - margin, travel), 0)
+        }
     }
 
     private func stepMatch(_ by: Int) {

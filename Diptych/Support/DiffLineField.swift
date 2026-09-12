@@ -39,6 +39,12 @@ struct DiffLineField: NSViewRepresentable {
     let onJoin: () -> Void
     /// Escape: put the line back to what it was when typing began.
     let onRevert: () -> Void
+    /// Where the caret is, measured from the start of the line.
+    ///
+    /// Without this, typing past the right-hand edge of an unwrapped column
+    /// carried on off-screen: the text was scrollable but would not follow the
+    /// person writing it, which is the one moment it has to.
+    let onCaret: (CGFloat) -> Void
 
     func makeNSView(context: Context) -> NSTextView {
         let view = NSTextView()
@@ -124,6 +130,16 @@ struct DiffLineField: NSViewRepresentable {
         init(_ parent: DiffLineField) { self.parent = parent }
 
         func textDidBeginEditing(_ note: Notification) { isEditing = true }
+
+        func textViewDidChangeSelection(_ note: Notification) {
+            guard let view = note.object as? NSTextView, view.window?.firstResponder === view,
+                  let layout = view.layoutManager, let container = view.textContainer
+            else { return }
+            let range = view.selectedRange()
+            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            parent.onCaret(rect.maxX)
+        }
 
         func textDidChange(_ note: Notification) {
             guard let view = note.object as? NSTextView else { return }

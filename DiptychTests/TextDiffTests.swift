@@ -378,4 +378,14 @@ final class ClipboardContentTests: XCTestCase {
 
         XCTAssertEqual(read.clipboardImageFormat, .pdf)
     }
+
+    func testAskingBeforeQuittingIsOnAndSurvivesBeingSaved() throws {
+        XCTAssertTrue(Configuration().confirmQuit, "Quit is one key from Close Window")
+
+        var configuration = Configuration()
+        configuration.confirmQuit = false
+        let data = try JSONEncoder().encode(configuration)
+
+        XCTAssertFalse(try JSONDecoder().decode(Configuration.self, from: data).confirmQuit)
+    }
 }

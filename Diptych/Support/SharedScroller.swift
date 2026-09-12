@@ -23,7 +23,12 @@ struct SharedScroller: NSViewRepresentable {
     private var travel: CGFloat { max(content - viewport, 0) }
 
     func makeNSView(context: Context) -> NSScroller {
-        let scroller = WheelScroller()
+        // Created with a frame that is wider than it is tall, because that is
+        // how NSScroller decides whether it is a horizontal scroller or a
+        // vertical one -- and it decides once. Built from a zero frame it
+        // becomes a vertical scroller squeezed into a horizontal slot, which
+        // is to say: nothing you can see or use.
+        let scroller = WheelScroller(frame: NSRect(x: 0, y: 0, width: 400, height: 15))
         scroller.scrollerStyle = .legacy
         scroller.controlSize = .small
         scroller.target = context.coordinator
@@ -37,6 +42,7 @@ struct SharedScroller: NSViewRepresentable {
         scroller.isEnabled = travel > 0
         scroller.knobProportion = content > 0 ? min(viewport / content, 1) : 1
         scroller.doubleValue = travel > 0 ? Double(offset / travel) : 0
+        scroller.needsDisplay = true
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -75,6 +81,52 @@ struct SharedScroller: NSViewRepresentable {
             guard travel > 0 else { return }
             parent.offset = min(max(parent.offset - delta, 0), travel)
         }
+    }
+}
+
+/// Catches two-finger sideways swipes anywhere in one window.
+///
+/// The scrollbar answers the trackpad when the pointer is over it, which is
+/// not where anybody's pointer is. The vertical scroll view in front of the
+/// rows swallows the event otherwise, so it is taken before the view hierarchy
+/// sees it -- and only when the swipe is more sideways than up, so ordinary
+/// scrolling is left alone.
+@MainActor
+final class SidewaysWheel {
+
+    private var monitor: Any?
+
+    func watch(_ window: NSWindow?, onScroll: @escaping @MainActor (CGFloat) -> Void) {
+        stop()
+        guard let window else { return }
+        let number = window.windowNumber
+
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            // NSEvent is not Sendable, so only plain values cross the boundary
+            // -- the same shape the key monitor uses.
+            let sideways = event.scrollingDeltaX
+            let upwards = event.scrollingDeltaY
+            let precise = event.hasPreciseScrollingDeltas
+            let from = event.windowNumber
+
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                guard from == number else { return false }
+                // Only a swipe that is more sideways than up, so ordinary
+                // scrolling is left entirely alone.
+                guard abs(sideways) > abs(upwards), sideways != 0 else { return false }
+                onScroll(precise ? sideways : sideways * 10)
+                return true
+            }
+            return consumed ? nil : event
+        }
+    }
+
+    /// Called when the window goes, which is the only thing that ends a
+    /// comparison. A `deinit` cannot reach the monitor from outside the main
+    /// actor, so the view takes it down explicitly.
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
 
