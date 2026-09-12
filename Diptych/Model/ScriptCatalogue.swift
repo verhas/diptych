@@ -109,6 +109,36 @@ final class ScriptCatalogue {
         return nil
     }
 
+    /// Checked again at the moment of running, not only when the folder was
+    /// read.
+    ///
+    /// Reported: unlocking a script and then running it worked, because it had
+    /// been judged at startup and nothing looked again. A rule that holds only
+    /// until somebody changes the file is not much of a rule -- and the moment
+    /// of running is the moment it matters.
+    func troubleRunning(_ script: ScriptDefinition) -> String? {
+        if let refusal = refusal(for: script.url) { return refusal }
+        guard let now = try? String(contentsOf: script.url, encoding: .utf8) else {
+            return "\u{201C}\(script.url.lastPathComponent)\u{201D} is not there any more."
+        }
+        // What is in memory is what was read, checked and agreed to. If the
+        // file no longer matches it, the thing in the menu is not the thing on
+        // disk, and neither one should be run on the strength of the other.
+        guard now == script.contents else {
+            return "\u{201C}\(script.url.lastPathComponent)\u{201D} has changed since Diptych "
+                 + "read it, so what is in the menu is not what is in the file.\n\n"
+                 + "Start Diptych again \u{2014} or, in developer mode, use Read the Scripts "
+                 + "Folder Again."
+        }
+        return nil
+    }
+
+    /// Drop one that has just been refused, so the menu stops offering
+    /// something that is certain to fail.
+    func forget(_ script: ScriptDefinition) {
+        scripts.removeAll { $0.id == script.id }
+    }
+
     // MARK: - Which apply
 
     func applicable(to targets: [ScriptTarget], in folder: URL,

@@ -55,7 +55,7 @@ struct SidebarView: View {
 
     private func row(_ entry: SidebarEntry) -> some View {
         HStack(spacing: 6) {
-            Image(nsImage: Self.icon(for: entry.url))
+            Image(nsImage: SidebarIcons.shared.icon(for: entry.url))
             Text(entry.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -77,16 +77,54 @@ struct SidebarView: View {
         .help(entry.url.path)
     }
 
-    /// Cached, because this runs for every row on every redraw and a volume
-    /// root's icon can come off the disk itself -- a sleeping one answers
-    /// slowly, and the sidebar redraws while it is waking.
-    @MainActor private static var icons: [String: NSImage] = [:]
+}
 
-    private static func icon(for url: URL) -> NSImage {
-        if let cached = icons[url.path] { return cached }
-        let image = NSWorkspace.shared.icon(forFile: url.path)
+/// The sidebar's icons, fetched off the main thread.
+///
+/// A volume's icon can come off the volume itself, and a disk that has spun
+/// down answers in seconds rather than milliseconds. Asking for it while
+/// drawing a row froze the whole application at launch -- the sidebar is built
+/// before anything else -- and with three external disks and a one-minute
+/// sleep setting it froze every time. Sampling it said so plainly: the main
+/// thread, inside `icon(for:)`.
+///
+/// So a row is drawn at once with a plain icon, the real one is fetched behind
+/// it, and the row redraws when it arrives. Nothing waits for a disk.
+@MainActor
+@Observable
+final class SidebarIcons {
+
+    static let shared = SidebarIcons()
+
+    private var icons: [String: NSImage] = [:]
+    @ObservationIgnored private var asking: Set<String> = []
+
+    /// Never touches the disk: it is asked about a kind of thing, not a thing.
+    @ObservationIgnored private lazy var placeholder: NSImage = {
+        let image = NSWorkspace.shared.icon(for: .folder)
         image.size = NSSize(width: 16, height: 16)
-        icons[url.path] = image
         return image
+    }()
+
+    func icon(for url: URL) -> NSImage {
+        if let cached = icons[url.path] { return cached }
+        fetch(url)
+        return placeholder
+    }
+
+    private func fetch(_ url: URL) {
+        let path = url.path
+        guard !asking.contains(path) else { return }
+        asking.insert(path)
+        Task {
+            // NSImage is not Sendable, so what crosses back is the bytes.
+            let data = await BlockingWork.run { () -> Data? in
+                NSWorkspace.shared.icon(forFile: path).tiffRepresentation
+            }
+            asking.remove(path)
+            guard let data, let image = NSImage(data: data) else { return }
+            image.size = NSSize(width: 16, height: 16)
+            icons[path] = image
+        }
     }
 }

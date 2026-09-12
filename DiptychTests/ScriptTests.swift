@@ -368,6 +368,61 @@ final class ScriptCatalogueTests: XCTestCase {
                         .map(\.name)), ["Anything", "Pictures"])
     }
 
+    // MARK: - Judged again at the moment of running
+
+    func testAScriptMadeWritableAfterwardsIsRefusedWhenRun() throws {
+        // Reported: unlock a script, and it still ran -- because it had been
+        // judged at startup and nothing looked again. A rule that holds only
+        // until somebody changes the file is not much of a rule.
+        let url = try install("thing.sh", good)
+        load()
+        let script = try XCTUnwrap(ScriptCatalogue.shared.scripts.first)
+        XCTAssertNil(ScriptCatalogue.shared.troubleRunning(script), "fine to begin with")
+
+        try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+
+        let trouble = ScriptCatalogue.shared.troubleRunning(script)
+        XCTAssertTrue(trouble?.contains("read-only") ?? false, "\(trouble ?? "nil")")
+    }
+
+    func testAScriptChangedAfterwardsIsRefusedWhenRun() throws {
+        // What is in the menu is then not what is in the file, and neither
+        // should be run on the strength of the other.
+        let url = try install("thing.sh", good)
+        load()
+        let script = try XCTUnwrap(ScriptCatalogue.shared.scripts.first)
+
+        try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        try Data((good + "echo extra\n").utf8).write(to: url)
+        try manager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+
+        let trouble = ScriptCatalogue.shared.troubleRunning(script)
+        XCTAssertTrue(trouble?.contains("has changed") ?? false, "\(trouble ?? "nil")")
+    }
+
+    func testAScriptTakenAwayIsRefusedWhenRun() throws {
+        let url = try install("thing.sh", good)
+        load()
+        let script = try XCTUnwrap(ScriptCatalogue.shared.scripts.first)
+
+        try manager.removeItem(at: url)
+
+        XCTAssertNotNil(ScriptCatalogue.shared.troubleRunning(script))
+    }
+
+    func testARefusedScriptStopsBeingOffered() throws {
+        // A menu that offers something certain to fail is worse than one that
+        // does not offer it.
+        let url = try install("thing.sh", good)
+        load()
+        let script = try XCTUnwrap(ScriptCatalogue.shared.scripts.first)
+        try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+
+        ScriptCatalogue.shared.forget(script)
+
+        XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
+    }
+
     func testScopeIsJudgedAgainstTheItemsItIsGiven() throws {
         // Reported: scripts scoped to one folder were offered on a right click
         // in the *other* pane. A menu is built before its buttons run, so

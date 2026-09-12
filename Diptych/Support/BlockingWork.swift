@@ -15,9 +15,25 @@ enum BlockingWork {
                                              qos: .userInitiated,
                                              attributes: .concurrent)
 
+    /// How many blocking calls may be in flight at once.
+    ///
+    /// Growing threads is the point, but not without end. Dispatch stops
+    /// creating them at 64, and a machine with several sleeping USB disks can
+    /// reach that with nothing but directory listings: each one waits seconds
+    /// for a disk to spin up, the next arrives before the last returns, and at
+    /// 64 the whole process stops -- every queue in it, not only this one.
+    /// Sampling it says so in as many words: "too many dispatch threads
+    /// blocked in synchronous operations".
+    ///
+    /// Held well below that, so a slow disk makes Diptych wait rather than
+    /// making it stop.
+    private static let permits = DispatchSemaphore(value: 12)
+
     static func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
+                permits.wait()
+                defer { permits.signal() }
                 do { continuation.resume(returning: try work()) }
                 catch { continuation.resume(throwing: error) }
             }
@@ -26,7 +42,11 @@ enum BlockingWork {
 
     static func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: work()) }
+            queue.async {
+                permits.wait()
+                defer { permits.signal() }
+                continuation.resume(returning: work())
+            }
         }
     }
 }

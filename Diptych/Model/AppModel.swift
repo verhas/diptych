@@ -639,6 +639,14 @@ final class AppModel {
     /// the active pane can change, and running against a selection the user
     /// was not looking at is the worst thing this feature could do.
     func runScript(_ script: ScriptDefinition, on targets: [ScriptTarget], in folder: URL) {
+        // Judged again here, not only when the folder was read. A script that
+        // was made writable, or replaced, or taken away since then must not run
+        // on the strength of what it was at startup.
+        if let trouble = ScriptCatalogue.shared.troubleRunning(script) {
+            ScriptCatalogue.shared.forget(script)
+            dialog = .message(trouble)
+            return
+        }
         guard ScriptCatalogue.shared.isApproved(script) else {
             scriptAwaitingApproval = script
             pendingScriptTargets = targets
