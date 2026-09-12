@@ -516,7 +516,11 @@ final class DiffDocument {
         do {
             try Self.write(data, to: url)
         } catch {
-            return .failed(error.localizedDescription)
+            // Worked out from the file, not repeated from the system: macOS
+            // says "you do not have permission" for failures that have nothing
+            // to do with permission, and sends the reader off checking things
+            // that were never wrong.
+            return .failed(WriteTrouble.explaining(error, writing: url))
         }
 
         asRead[side] = lines[side]

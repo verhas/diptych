@@ -409,11 +409,27 @@ struct InfoView: View {
                                     .font(.system(size: 11, weight: .medium))
                                     .textSelection(.enabled)
                                 Spacer()
-                                Text("\(attribute.data.count) bytes")
+                                Text(attribute.isReadable
+                                     ? "\(attribute.data?.count ?? 0) bytes"
+                                     : "protected")
                                     .font(.caption).foregroundStyle(.secondary)
                                 Button("Remove") { model.removeAttribute(named: attribute.name) }
+                                    // Removing it would fail for the same
+                                    // reason reading it does.
+                                    .disabled(!attribute.isReadable)
                             }
-                            if attribute.text != nil {
+                            if !attribute.isReadable {
+                                // Listed rather than hidden. The file has this
+                                // attribute; what is in it is simply not ours
+                                // to see, and an inspector that quietly left it
+                                // out would be disagreeing with the file.
+                                Text("macOS keeps this one to itself \u{2014} it can be listed "
+                                     + "but not read, by anybody, including an administrator. "
+                                     + "Left by a program that was granted access to this file.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } else if attribute.text != nil {
                                 HStack {
                                     TextField("Value", text: draft(for: attribute))
                                         .font(.system(size: 11, design: .monospaced))

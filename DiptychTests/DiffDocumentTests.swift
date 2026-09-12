@@ -754,3 +754,84 @@ final class SidewaysStateTests: XCTestCase {
         XCTAssertEqual(state.offset, 300)
     }
 }
+
+/// Saying what is actually wrong, rather than repeating what macOS said.
+final class WriteTroubleTests: XCTestCase {
+
+    private var root: URL!
+    private let fm = FileManager.default
+
+    override func setUpWithError() throws {
+        root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("DiptychTrouble-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        try? fm.removeItem(at: root)
+    }
+
+    private let refusal = NSError(domain: NSCocoaErrorDomain,
+                                  code: NSFileWriteNoPermissionError,
+                                  userInfo: [NSLocalizedDescriptionKey:
+                                             "You do not have permission to save the file."])
+
+    func testAFileThatReallyIsUnwritableSaysSo() throws {
+        let url = root.appendingPathComponent("locked.md")
+        try Data("x".utf8).write(to: url)
+        try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+
+        let said = WriteTrouble.explaining(refusal, writing: url)
+
+        XCTAssertTrue(said.contains("cannot be written to"), said)
+        XCTAssertTrue(said.contains("Get Info"), "and where to change it: \(said)")
+    }
+
+    func testAnUnwritableFolderIsNamedRatherThanTheFile() throws {
+        let closed = root.appendingPathComponent("closed", isDirectory: true)
+        try fm.createDirectory(at: closed, withIntermediateDirectories: true)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: closed.path)
+
+        let said = WriteTrouble.explaining(refusal, writing: closed.appendingPathComponent("a.md"))
+
+        XCTAssertTrue(said.contains("closed"), said)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: closed.path)
+    }
+
+    func testALockedFileIsCalledLocked() throws {
+        // The word the Finder uses, because that is where the user unlocks it.
+        let url = root.appendingPathComponent("immutable.md")
+        try Data("x".utf8).write(to: url)
+        try fm.setAttributes([.immutable: true], ofItemAtPath: url.path)
+        defer { try? fm.setAttributes([.immutable: false], ofItemAtPath: url.path) }
+
+        let said = WriteTrouble.explaining(refusal, writing: url)
+
+        XCTAssertTrue(said.contains("locked"), said)
+    }
+
+    func testAFullDiskIsNotBlamedOnTheUser() throws {
+        let error = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+
+        let said = WriteTrouble.explaining(error, writing: root.appendingPathComponent("a.md"))
+
+        XCTAssertTrue(said.contains("no room"), said)
+    }
+
+    func testWhenNothingIsWrongItSaysNothingIsWrong() throws {
+        // The reported case: the file is writable, the folder is writable, and
+        // macOS refused anyway. Telling somebody to check permissions that are
+        // already correct is worse than useless.
+        let url = root.appendingPathComponent("fine.md")
+        try Data("x".utf8).write(to: url)
+
+        let said = WriteTrouble.explaining(refusal, writing: url)
+
+        XCTAssertTrue(said.contains("not about permissions"), said)
+        XCTAssertTrue(said.contains("nothing you need to change"), said)
+        XCTAssertTrue(said.contains("copying the file"), "and a way forward: \(said)")
+        XCTAssertTrue(said.contains("You do not have permission to save the file."),
+                      "with what macOS said kept, but as a quotation rather than the answer")
+    }
+}

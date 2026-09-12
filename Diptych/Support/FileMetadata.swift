@@ -31,21 +31,27 @@ enum ExtendedAttributes {
 
     struct Attribute: Identifiable, Hashable {
         var name: String
-        var data: Data
+        /// Nil when macOS refuses the value: the attribute is there, and what
+        /// is in it is not ours to see.
+        var data: Data?
         var id: String { name }
 
         /// Attributes holding text can be edited as text; the rest are shown as
         /// a hex dump and can only be removed.
         var text: String? {
-            guard !data.isEmpty, let string = String(data: data, encoding: .utf8) else { return nil }
+            guard let data, !data.isEmpty,
+                  let string = String(data: data, encoding: .utf8) else { return nil }
             return string.unicodeScalars.contains { $0.value < 9 } ? nil : string
         }
 
+        /// Nil when macOS will not let the value be read at all.
+        var isReadable: Bool { data != nil }
+
         var hexPreview: String {
-            data.prefix(64)
+            (data ?? Data()).prefix(64)
                 .map { String(format: "%02x", $0) }
                 .joined(separator: " ")
-                + (data.count > 64 ? " ..." : "")
+                + ((data?.count ?? 0) > 64 ? " ..." : "")
         }
     }
 
@@ -71,10 +77,19 @@ enum ExtendedAttributes {
         return read >= 0 ? data : nil
     }
 
+    /// Every attribute the file has, including the ones whose value cannot be
+    /// read.
+    ///
+    /// `listxattr` gives the names; `getxattr` may still refuse the value.
+    /// macOS keeps some attributes in a private namespace -- a file a
+    /// sandboxed program has been granted access to carries
+    /// `com.apple.security.private.scoped-bookmark-token` -- and no process
+    /// may read those, root included. Dropping them from the list left the
+    /// Attributes tab quietly disagreeing with the file, which is the one
+    /// thing an inspector must never do. They are listed, and said to be
+    /// unreadable.
     static func all(of path: String) -> [Attribute] {
-        names(of: path).compactMap { name in
-            data(of: path, name: name).map { Attribute(name: name, data: $0) }
-        }
+        names(of: path).map { Attribute(name: $0, data: data(of: path, name: $0)) }
     }
 
     /// Returns nil on success.
