@@ -347,6 +347,19 @@ final class ClipboardContentTests: XCTestCase {
     func testAskIsNotAFormatToWrite() {
         XCTAssertNil(Clipboard.data(for: picture(), pdf: nil, as: .ask),
                      "it is a question, and the caller has to answer it first")
+        XCTAssertNil(Clipboard.data(for: picture(), pdf: nil, as: .off),
+                     "and off means the command does not exist")
+    }
+
+    func testOffHasNoExtensionAndIsStillARealSetting() throws {
+        XCTAssertTrue(Configuration.ClipboardImageFormat.off.fileExtension.isEmpty)
+
+        var configuration = Configuration()
+        configuration.clipboardImageFormat = .off
+        let data = try JSONEncoder().encode(configuration)
+
+        XCTAssertEqual(try JSONDecoder().decode(Configuration.self, from: data)
+                        .clipboardImageFormat, .off)
     }
 
     func testEveryFormatHasAnExtensionExceptTheQuestion() {

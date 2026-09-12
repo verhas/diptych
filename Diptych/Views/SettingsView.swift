@@ -16,6 +16,8 @@ struct SettingsView: View {
                 .tabItem { Label("Toolbar", systemImage: "slider.horizontal.3") }
             AppearanceSettingsView()
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
+            ClipboardSettingsView()
+                .tabItem { Label("Clipboard", systemImage: "doc.on.clipboard") }
             GitSettingsView()
                 .tabItem { Label("Version Tracking",
                                  systemImage: "point.3.filled.connected.trianglepath.dotted") }
@@ -23,6 +25,50 @@ struct SettingsView: View {
                 .tabItem { Label("Sounds", systemImage: "speaker.wave.2") }
         }
         .frame(width: 500, height: 470)
+    }
+}
+
+/// What New from Clipboard does. Not an appearance setting -- it decides what
+/// the command makes, and whether it is offered at all.
+struct ClipboardSettingsView: View {
+
+    @Bindable private var store = ConfigStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New from Clipboard").font(.headline)
+
+            Text("Makes a file in the current folder out of whatever has been copied. "
+                 + "Text becomes a text file. A picture becomes the format chosen here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                // Without this the caption is given one line in a window nobody
+                // can resize, and the rest of the sentence is simply not there.
+                .fixedSize(horizontal: false, vertical: true)
+
+            Picker("Save a picture as", selection: $store.configuration.clipboardImageFormat) {
+                ForEach(Configuration.ClipboardImageFormat.allCases) { format in
+                    Text(format.title).tag(format)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Text("PDF keeps a drawing as a drawing when it was copied as one, instead of "
+                 + "flattening it into dots. PNG is the safe choice for a screenshot; "
+                 + "JPEG is smaller but blurs sharp edges and text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Switched off, the command is not in any menu at all.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -111,21 +157,6 @@ struct AppearanceSettingsView: View {
             Text("Off, everything is in one sequence in whatever order the column "
                  + "header says \u{2014} which is what you want when sorting by size or "
                  + "date. \u{201C}..\u{201D} stays on top either way.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-
-            Picker("Save a picture from the clipboard as",
-                   selection: $store.configuration.clipboardImageFormat) {
-                ForEach(Configuration.ClipboardImageFormat.allCases) { format in
-                    Text(format.title).tag(format)
-                }
-            }
-            .pickerStyle(.radioGroup)
-            Text("New from Clipboard makes a text file when the clipboard holds text. "
-                 + "When it holds a picture, this is what it saves. PDF keeps a drawing "
-                 + "as a drawing if it was copied as one.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

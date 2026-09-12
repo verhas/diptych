@@ -101,12 +101,16 @@ struct FileCommands: Commands {
                 .disabled(model == nil)
             Button("New File") { model?.requestNewFile() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
-            Button("New from Clipboard") { model?.newFromClipboard() }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
-                // Greyed out when there is nothing to make a file from, rather
-                // than enabled and then complaining.
-                .disabled(ClipboardWatcher.shared.kind == .empty)
                 .disabled(model == nil)
+            // Absent, not greyed, when the setting says so: a command switched
+            // off is not a command that is temporarily unavailable.
+            if model?.clipboardCommandIsOffered ?? false {
+                Button("New from Clipboard") { model?.newFromClipboard() }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    // Greyed out when there is nothing to make a file from,
+                    // rather than enabled and then complaining.
+                    .disabled(model == nil || ClipboardWatcher.shared.kind == .empty)
+            }
 
             Divider()
 

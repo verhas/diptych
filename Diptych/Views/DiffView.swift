@@ -345,12 +345,13 @@ struct DiffView: View {
                 // the user pointed.
                 DiffLineField(text: text ?? "",
                               wraps: wraps,
+                              width: widths.content,
                               onType: { document.typing(index, $0) },
                               onFinish: { document.endLine() },
                               onSplit: { document.splitLine(index, at: $0) },
                               onJoin: { document.joinWithPrevious(index) },
                               onRevert: { document.revertLine() })
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: widths.content, alignment: .leading)
             } else {
                 body(of: text ?? "", spans: spans, tint: tint)
                     .textSelection(.enabled)

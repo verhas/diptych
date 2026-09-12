@@ -17,6 +17,16 @@ struct DiffLineField: NSViewRepresentable {
 
     let text: String
     let wraps: Bool
+    /// How wide the text is allowed to be, given by the view that lays the
+    /// columns out.
+    ///
+    /// Not taken from the proposal: SwiftUI probes a representable with an
+    /// *infinite* width to find its ideal size, and writing that into the text
+    /// container made it infinitely wide -- so the line stopped wrapping while
+    /// the row kept the height an earlier, finite probe had measured. The
+    /// caller already knows the real number; asking it is the only reliable
+    /// way to have it.
+    let width: CGFloat
     /// Every keystroke. The document takes the text at once -- so Save, Undo
     /// and the dirty mark are immediately true -- and leaves the alignment
     /// alone until the line is finished.
@@ -66,24 +76,31 @@ struct DiffLineField: NSViewRepresentable {
         // exactly what a stale measurement looks like.
         view.textContainer?.widthTracksTextView = false
         view.isHorizontallyResizable = !wraps
-        if !wraps {
-            view.textContainer?.containerSize = CGSize(width: 1e7, height: 1e7)
-        }
+        view.textContainer?.containerSize = CGSize(width: usableWidth, height: 1e6)
+    }
+
+    /// Always finite, always positive: an infinite or zero container is a line
+    /// that never wraps or wraps at every character.
+    private var usableWidth: CGFloat {
+        guard wraps else { return 1e7 }
+        guard width.isFinite, width > 1 else { return 1e7 }
+        return width
     }
 
     /// The row's height, which is what keeps the two columns level when a long
     /// line wraps on one side and not the other.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView,
                       context: Context) -> CGSize? {
-        let width = proposal.width ?? nsView.bounds.width
-        guard width > 0, let container = nsView.textContainer,
+        // An unwrapped row is one line, always, so there is nothing to measure
+        // and nothing that can go stale.
+        guard wraps else { return CGSize(width: width, height: Self.oneLine) }
+        guard let container = nsView.textContainer,
               let layout = nsView.layoutManager else { return nil }
 
-        guard wraps else { return CGSize(width: width, height: Self.oneLine) }
-
-        // Measured against the width being proposed, which is the width the
-        // view is about to have -- not the one it still has.
-        container.containerSize = CGSize(width: width, height: 1e6)
+        // Measured at exactly the width the text will be laid out at, because
+        // both come from the same number rather than from whatever SwiftUI
+        // happens to be proposing at the time.
+        container.containerSize = CGSize(width: usableWidth, height: 1e6)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container).height
         return CGSize(width: width, height: max(ceil(used) + 1, Self.oneLine))

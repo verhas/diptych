@@ -137,7 +137,7 @@ struct Configuration: Codable, Equatable {
     /// on a slow connection or a large repository it is not instant.
     /// What a picture from the clipboard is saved as.
     enum ClipboardImageFormat: String, Codable, CaseIterable, Identifiable, Sendable {
-        case png, jpeg, pdf, ask
+        case png, jpeg, pdf, ask, off
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -145,6 +145,7 @@ struct Configuration: Codable, Equatable {
             case .jpeg: "JPEG"
             case .pdf:  "PDF"
             case .ask:  "Ask each time"
+            case .off:  "Off \u{2014} do not offer New from Clipboard"
             }
         }
         var fileExtension: String {
@@ -152,7 +153,7 @@ struct Configuration: Codable, Equatable {
             case .png:  "png"
             case .jpeg: "jpg"
             case .pdf:  "pdf"
-            case .ask:  ""
+            case .ask, .off: ""
             }
         }
     }

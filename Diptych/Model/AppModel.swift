@@ -538,7 +538,13 @@ final class AppModel {
     /// asked.
     private var pendingImage: (image: NSImage, pdf: Data?)?
 
+    /// Whether the command exists at all, which the setting can decide.
+    var clipboardCommandIsOffered: Bool {
+        ConfigStore.shared.configuration.clipboardImageFormat != .off
+    }
+
     func newFromClipboard() {
+        guard clipboardCommandIsOffered else { return }
         switch Clipboard.contents() {
         case .nothing:
             flash("There is nothing on the clipboard", error: true)

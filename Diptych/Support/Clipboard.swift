@@ -122,7 +122,9 @@ enum Clipboard {
                                          properties: format == .jpeg
                                              ? [.compressionFactor: 0.9] : [:])
 
-        case .ask:
+        // Neither is a format to write: one is a question the caller has to
+        // answer first, the other means the command does not exist.
+        case .ask, .off:
             return nil
         }
     }

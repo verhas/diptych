@@ -395,6 +395,7 @@ struct PaneView: View {
         if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
             Button("New File") { activate(); model.requestNewFile() }
+            newFromClipboard
             Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Paste as Link") { activate(); model.pasteAsLink() }
             Button("Refresh") { pane.reload() }
@@ -450,6 +451,7 @@ struct PaneView: View {
             Divider()
 
             Button("New File") { activate(); model.requestNewFile() }
+            newFromClipboard
 
             Divider()
 
@@ -488,6 +490,17 @@ struct PaneView: View {
     /// Branch, and how far this folder is from the shared copy. Phrased as
     /// what it means rather than as "ahead 2, behind 3", and nudging towards
     /// getting the latest first -- most conflicts never happen if you do.
+    /// The same command the File menu offers, where a right click expects to
+    /// find it. Absent when the setting switches it off, and greyed when there
+    /// is nothing on the clipboard to make a file from.
+    @ViewBuilder
+    private var newFromClipboard: some View {
+        if model.clipboardCommandIsOffered {
+            Button("New from Clipboard") { activate(); model.newFromClipboard() }
+                .disabled(ClipboardWatcher.shared.kind == .empty)
+        }
+    }
+
     @ViewBuilder
     private var gitSummary: some View {
         if let branch = pane.gitBranch {
