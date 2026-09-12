@@ -34,7 +34,7 @@ struct DiffLineField: NSViewRepresentable {
         let view = NSTextView()
         view.delegate = context.coordinator
         view.string = text
-        view.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        view.font = Self.font
         view.drawsBackground = false
         view.isRichText = false
         view.isAutomaticQuoteSubstitutionEnabled = false
@@ -57,25 +57,44 @@ struct DiffLineField: NSViewRepresentable {
     }
 
     private func apply(wraps: Bool, to view: NSTextView) {
-        view.textContainer?.widthTracksTextView = wraps
+        // Never `widthTracksTextView`. With it on, the container takes its
+        // width from the view, which during measurement is still the width it
+        // had *before* the window was resized -- so a narrowed window was
+        // measured against the old wide one, every wrapped line was given the
+        // height of fewer lines than it needed, and the overflow was drawn on
+        // top of the row below. Scrolling away and back fixed it, which is
+        // exactly what a stale measurement looks like.
+        view.textContainer?.widthTracksTextView = false
         view.isHorizontallyResizable = !wraps
         if !wraps {
             view.textContainer?.containerSize = CGSize(width: 1e7, height: 1e7)
         }
     }
 
-    /// Asked for the row's height, which is what keeps the two columns level
-    /// when a long line wraps on one side and not the other.
+    /// The row's height, which is what keeps the two columns level when a long
+    /// line wraps on one side and not the other.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView,
                       context: Context) -> CGSize? {
         let width = proposal.width ?? nsView.bounds.width
         guard width > 0, let container = nsView.textContainer,
               let layout = nsView.layoutManager else { return nil }
-        if wraps { container.containerSize = CGSize(width: width, height: 1e6) }
+
+        guard wraps else { return CGSize(width: width, height: Self.oneLine) }
+
+        // Measured against the width being proposed, which is the width the
+        // view is about to have -- not the one it still has.
+        container.containerSize = CGSize(width: width, height: 1e6)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container).height
-        return CGSize(width: width, height: max(used, 15))
+        return CGSize(width: width, height: max(ceil(used) + 1, Self.oneLine))
     }
+
+    static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    /// One line of that font, rounded up. In the unwrapped case every row is
+    /// exactly this, so there is nothing to measure and nothing to get stale.
+    static let oneLine = ceil(NSLayoutManager().defaultLineHeight(for: font)) + 1
+    /// Monospaced, so one character's width is every character's width.
+    static let characterWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -118,10 +137,13 @@ struct DiffLineField: NSViewRepresentable {
 
             // A single line has nowhere to move the caret to, so there has to
             // be a way out of it that is not the mouse.
+            //
+            // `handled` is deliberately left alone: dropping first responder
+            // ends editing, and that path is what tells the document the line
+            // is finished. Marking it handled swallowed exactly that, so the
+            // text changed and the colours did not.
             case #selector(NSResponder.insertTab(_:)),
                  #selector(NSResponder.insertBacktab(_:)):
-                handled = true
-                parent.onType(view.string)
                 view.window?.makeFirstResponder(nil)
                 return true
 

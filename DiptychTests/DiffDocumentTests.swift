@@ -513,4 +513,46 @@ final class DiffDocumentTests: XCTestCase {
 
         XCTAssertEqual(document.lines[.left], ["one"])
     }
+
+    // MARK: - Starting again
+
+    func testComparingTheSamePairAgainStartsFromWhatIsOnDisk() async throws {
+        // Reported: SwiftUI keeps a window's state against the value it was
+        // opened with, so the same comparison came back with the old undo
+        // history and the old padlock open on a file that had since been saved.
+        let document = try await document("one\n", "two\n")
+        _ = document.unlock(.left)
+        document.setLine(0, to: "edited")
+        XCTAssertEqual(document.save(), .saved)
+        XCTAssertTrue(document.canUndo)
+
+        await document.load()
+
+        XCTAssertNil(document.editable, "both sides locked again")
+        XCTAssertTrue(document.canChooseAgain)
+        XCTAssertFalse(document.canUndo, "and no history from last time")
+        XCTAssertEqual(document.lines[.left], ["edited"], "starting from what was saved")
+        XCTAssertFalse(document.isDirty)
+    }
+
+    func testReloadingAfterAnOutsideChangeKeepsTheChosenSide() async throws {
+        // The other direction: re-reading because the file moved underneath is
+        // not the same as opening the comparison afresh.
+        let document = try await document("one\n", "two\n")
+        _ = document.unlock(.left)
+
+        await document.reload()
+
+        XCTAssertEqual(document.editable, .left)
+    }
+
+    // MARK: - The longest line
+
+    func testTheLongestLineIsKnownForScrolling() async throws {
+        // The columns have to be at least this wide before there is anything
+        // for a horizontal scroller to reach.
+        let document = try await document("short\n", "a much longer line over here\n")
+
+        XCTAssertEqual(document.longestLine, 28)
+    }
 }

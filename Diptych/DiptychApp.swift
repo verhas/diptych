@@ -101,6 +101,11 @@ struct FileCommands: Commands {
                 .disabled(model == nil)
             Button("New File") { model?.requestNewFile() }
                 .keyboardShortcut("n", modifiers: [.command, .option])
+            Button("New from Clipboard") { model?.newFromClipboard() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                // Greyed out when there is nothing to make a file from, rather
+                // than enabled and then complaining.
+                .disabled(ClipboardWatcher.shared.kind == .empty)
                 .disabled(model == nil)
 
             Divider()

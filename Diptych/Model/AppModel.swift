@@ -35,6 +35,7 @@ final class AppModel {
         case gitNotSent
         case gitClash
         case stopTracking
+        case clipboardFormat
 
         var id: String {
             switch self {
@@ -47,6 +48,7 @@ final class AppModel {
             case .notice:    return "notice"
             case .gitClash:       return "gitClash"
             case .stopTracking:   return "stopTracking"
+            case .clipboardFormat: return "clipboardFormat"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -527,6 +529,59 @@ final class AppModel {
             pane.reload()
             inactive.reload()   // the other pane may be showing the same folder
             report(outcome, verb: "move to Trash")
+        }
+    }
+
+    // MARK: - New from Clipboard
+
+    /// What a pasted picture is waiting to be saved as, while the user is
+    /// asked.
+    private var pendingImage: (image: NSImage, pdf: Data?)?
+
+    func newFromClipboard() {
+        switch Clipboard.contents() {
+        case .nothing:
+            flash("There is nothing on the clipboard", error: true)
+
+        case .text(let string):
+            write(Data(string.utf8), as: suggestedName("untitled.txt"))
+
+        case .image(let image, let pdf):
+            let format = ConfigStore.shared.configuration.clipboardImageFormat
+            guard format != .ask else {
+                pendingImage = (image, pdf)
+                dialog = .clipboardFormat
+                return
+            }
+            save(image, pdf: pdf, as: format)
+        }
+    }
+
+    func saveClipboardImage(as format: Configuration.ClipboardImageFormat) {
+        dialog = nil
+        guard let pending = pendingImage else { return }
+        pendingImage = nil
+        save(pending.image, pdf: pending.pdf, as: format)
+    }
+
+    private func save(_ image: NSImage, pdf: Data?,
+                      as format: Configuration.ClipboardImageFormat) {
+        guard let data = Clipboard.data(for: image, pdf: pdf, as: format) else {
+            dialog = .message("That picture could not be saved as \(format.title).")
+            return
+        }
+        write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+    }
+
+    private func write(_ data: Data, as name: String) {
+        let url = active.directory.appendingPathComponent(name)
+        do {
+            try data.write(to: url, options: .withoutOverwriting)
+            active.pendingSelection = [url]
+            active.reload()
+            flash("Created \(name)", error: false)
+        } catch {
+            dialog = .message(error.localizedDescription)
         }
     }
 

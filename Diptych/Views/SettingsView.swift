@@ -116,6 +116,21 @@ struct AppearanceSettingsView: View {
 
             Divider()
 
+            Picker("Save a picture from the clipboard as",
+                   selection: $store.configuration.clipboardImageFormat) {
+                ForEach(Configuration.ClipboardImageFormat.allCases) { format in
+                    Text(format.title).tag(format)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            Text("New from Clipboard makes a text file when the clipboard holds text. "
+                 + "When it holds a picture, this is what it saves. PDF keeps a drawing "
+                 + "as a drawing if it was copied as one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
             HStack {
                 Picker("Font", selection: $store.configuration.fontName) {
                     Text("System").tag("")

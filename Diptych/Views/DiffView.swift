@@ -209,11 +209,16 @@ struct DiffView: View {
         } else if diff.isIdentical && !document.isDirty {
             message("Every line matches, including the blank ones.")
         } else {
-            ScrollViewReader { scroller in
-                ScrollView {
+            GeometryReader { geometry in
+              ScrollViewReader { scroller in
+                // Both directions in one scroll view when lines are not
+                // wrapped. The two columns cannot scroll out of step with each
+                // other because there is only one thing scrolling -- the same
+                // reason the rows stay level vertically.
+                ScrollView(wraps ? .vertical : [.horizontal, .vertical]) {
                     LazyVStack(spacing: 0) {
                         ForEach(diff.rows) { row in
-                            line(row).id(row.id)
+                            line(row, half: halfWidth(in: geometry.size.width)).id(row.id)
                         }
                     }
                 }
@@ -227,8 +232,21 @@ struct DiffView: View {
                     withAnimation { scroller.scrollTo(found[index], anchor: .center) }
                 }
                 .onChange(of: query) { _, _ in atMatch = 0 }
+              }
             }
         }
+    }
+
+    /// How wide each column has to be, or nil to let it fill the window.
+    ///
+    /// Unwrapped, the columns are as wide as the longest line so there is
+    /// something for the horizontal scroller to reach -- never narrower than
+    /// half the window, so a file of short lines still fills it.
+    private func halfWidth(in available: CGFloat) -> CGFloat? {
+        guard !wraps else { return nil }
+        let gutter: CGFloat = 40 + 3 + 10 + 6 * 3
+        let longest = CGFloat(document.longestLine) * DiffLineField.characterWidth + gutter
+        return max(longest, (available - 18) / 2)
     }
 
     private func message(_ text: String) -> some View {
@@ -240,14 +258,14 @@ struct DiffView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func line(_ row: TextDiff.Row) -> some View {
+    private func line(_ row: TextDiff.Row, half width: CGFloat?) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            half(row, side: .left)
+            half(row, side: .left, width: width)
             // The button lives between the columns and points into the side
             // that can take it, so there is never a question which way the
             // text is about to move.
             takeButton(row)
-            half(row, side: .right)
+            half(row, side: .right, width: width)
         }
     }
 
@@ -269,7 +287,8 @@ struct DiffView: View {
         }
     }
 
-    private func half(_ row: TextDiff.Row, side: DiffDocument.Side) -> some View {
+    private func half(_ row: TextDiff.Row, side: DiffDocument.Side,
+                      width: CGFloat?) -> some View {
         let text = side == .left ? row.left : row.right
         let number = side == .left ? row.leftNumber : row.rightNumber
         let spans = side == .left ? row.leftSpans : row.rightSpans
@@ -328,7 +347,8 @@ struct DiffView: View {
         // shaded too, so the gap reads as part of the comparison rather than
         // as the end of the file.
         .background(tint?.opacity(0.16) ?? (text == nil ? Color.secondary.opacity(0.06) : .clear))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: width, alignment: .leading)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
     }
 
     /// The line, with the words that actually changed picked out when the two

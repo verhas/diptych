@@ -135,6 +135,33 @@ struct Configuration: Codable, Equatable {
     /// Off by default, and it must stay a decision the user makes: it is the
     /// only thing in Diptych that reaches the network without being asked, and
     /// on a slow connection or a large repository it is not instant.
+    /// What a picture from the clipboard is saved as.
+    enum ClipboardImageFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+        case png, jpeg, pdf, ask
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .png:  "PNG"
+            case .jpeg: "JPEG"
+            case .pdf:  "PDF"
+            case .ask:  "Ask each time"
+            }
+        }
+        var fileExtension: String {
+            switch self {
+            case .png:  "png"
+            case .jpeg: "jpg"
+            case .pdf:  "pdf"
+            case .ask:  ""
+            }
+        }
+    }
+
+    /// PNG by default: it is lossless, every program reads it, and a
+    /// screenshot -- which is most of what lands on a clipboard -- is exactly
+    /// the kind of picture JPEG spoils.
+    var clipboardImageFormat: ClipboardImageFormat = .png
+
     var gitCheckOnOpen = false
 
     /// When a send is refused for being behind, catch up and send anyway.
@@ -173,6 +200,7 @@ struct Configuration: Codable, Equatable {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
+        case clipboardImageFormat
     }
 
     init() {}
@@ -195,6 +223,8 @@ struct Configuration: Codable, Equatable {
         gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
         gitPath = (try? container.decode(String.self, forKey: .gitPath)) ?? ""
         gitCheckOnOpen = (try? container.decode(Bool.self, forKey: .gitCheckOnOpen)) ?? false
+        clipboardImageFormat =
+            (try? container.decode(ClipboardImageFormat.self, forKey: .clipboardImageFormat)) ?? .png
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

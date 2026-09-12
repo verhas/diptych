@@ -684,6 +684,20 @@ struct DialogSheet: View {
                     confirm: "Stop Tracking",
                     destructive: true) { model.confirmStopTracking() }
 
+            case .clipboardFormat:
+                Text("Save the picture as\u{2026}").font(.headline)
+                Text("You can choose a format once and for all in Settings.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { model.dialog = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("JPEG") { model.saveClipboardImage(as: .jpeg) }
+                    Button("PDF") { model.saveClipboardImage(as: .pdf) }
+                    Button("PNG") { model.saveClipboardImage(as: .png) }
+                        .keyboardShortcut(.defaultAction)
+                }
+
             case .conflict:
                 conflictPrompt
 

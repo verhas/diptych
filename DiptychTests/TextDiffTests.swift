@@ -302,3 +302,67 @@ final class TextDiffTests: XCTestCase {
         XCTAssertEqual(pair.folders?.right, "/work/old")
     }
 }
+
+/// Making a file out of what is on the clipboard.
+@MainActor
+final class ClipboardContentTests: XCTestCase {
+
+    private func picture() -> NSImage {
+        let image = NSImage(size: CGSize(width: 8, height: 8))
+        image.lockFocus()
+        NSColor.systemTeal.setFill()
+        NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+        image.unlockFocus()
+        return image
+    }
+
+    func testAPictureBecomesPngBytes() throws {
+        let data = try XCTUnwrap(Clipboard.data(for: picture(), pdf: nil, as: .png))
+
+        XCTAssertEqual(Array(data.prefix(4)), [0x89, 0x50, 0x4e, 0x47], "a real PNG header")
+    }
+
+    func testAPictureBecomesJpegBytes() throws {
+        let data = try XCTUnwrap(Clipboard.data(for: picture(), pdf: nil, as: .jpeg))
+
+        XCTAssertEqual(Array(data.prefix(2)), [0xff, 0xd8], "a real JPEG header")
+    }
+
+    func testAPictureBecomesAPdf() throws {
+        let data = try XCTUnwrap(Clipboard.data(for: picture(), pdf: nil, as: .pdf))
+
+        XCTAssertEqual(String(decoding: data.prefix(4), as: UTF8.self), "%PDF")
+    }
+
+    func testPdfOnTheClipboardIsPassedThroughUntouched() throws {
+        // A diagram copied from a drawing program is vector art. Putting it
+        // through a bitmap on the way to a PDF would throw that away.
+        let original = try XCTUnwrap(Clipboard.data(for: picture(), pdf: nil, as: .pdf))
+
+        let saved = try XCTUnwrap(Clipboard.data(for: picture(), pdf: original, as: .pdf))
+
+        XCTAssertEqual(saved, original)
+    }
+
+    func testAskIsNotAFormatToWrite() {
+        XCTAssertNil(Clipboard.data(for: picture(), pdf: nil, as: .ask),
+                     "it is a question, and the caller has to answer it first")
+    }
+
+    func testEveryFormatHasAnExtensionExceptTheQuestion() {
+        XCTAssertEqual(Configuration.ClipboardImageFormat.png.fileExtension, "png")
+        XCTAssertEqual(Configuration.ClipboardImageFormat.jpeg.fileExtension, "jpg")
+        XCTAssertEqual(Configuration.ClipboardImageFormat.pdf.fileExtension, "pdf")
+        XCTAssertTrue(Configuration.ClipboardImageFormat.ask.fileExtension.isEmpty)
+    }
+
+    func testTheFormatSurvivesBeingSaved() throws {
+        var configuration = Configuration()
+        configuration.clipboardImageFormat = .pdf
+
+        let data = try JSONEncoder().encode(configuration)
+        let read = try JSONDecoder().decode(Configuration.self, from: data)
+
+        XCTAssertEqual(read.clipboardImageFormat, .pdf)
+    }
+}

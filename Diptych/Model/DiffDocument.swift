@@ -73,6 +73,11 @@ final class DiffDocument {
     private var asRead: [Side: [String]] = [:]
 
     private(set) var diff = TextDiff(left: [], right: [])
+    /// The longest line in either file, in characters. Needed to know how wide
+    /// the columns have to be before they can be scrolled sideways, and worked
+    /// out here rather than in the view so it is not recomputed on every
+    /// redraw of a hundred thousand rows.
+    private(set) var longestLine = 0
     var ignoreWhitespace = false {
         didSet { if ignoreWhitespace != oldValue { recompute() } }
     }
@@ -124,6 +129,14 @@ final class DiffDocument {
             lines = [.left: leftFile.lines, .right: rightFile.lines]
             asRead = lines
             failure = nil
+            // A full reset, because reading is where a comparison starts.
+            // SwiftUI keeps a window's state against the value it was opened
+            // with, so comparing the same pair again came back with the old
+            // undo history and the old padlock still open on a file that had
+            // since been saved.
+            editable = nil
+            hasSaved = false
+            forgetHistory()
             recompute()
         case .failure(let error):
             failure = (error as? TextDiff.Failure)?.message ?? error.localizedDescription
@@ -440,10 +453,14 @@ final class DiffDocument {
     }
 
     /// After the file has been read again following an outside change.
+    /// After the file has been read again following an outside change: the
+    /// text starts over, the choice of side does not.
     func reload() async {
         let side = editable
+        let saved = hasSaved
         await load()
         editable = side
+        hasSaved = saved
         forgetHistory()
     }
 
@@ -456,5 +473,7 @@ final class DiffDocument {
             ? TextDiff(left: l, right: r, comparing: TextDiff.withoutSpacing)
             : TextDiff(left: l, right: r)
         recomputeEdits()
+        longestLine = max(lines[.left]?.reduce(0) { max($0, $1.count) } ?? 0,
+                          lines[.right]?.reduce(0) { max($0, $1.count) } ?? 0)
     }
 }
