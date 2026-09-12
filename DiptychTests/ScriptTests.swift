@@ -363,6 +363,32 @@ final class ScriptCatalogueTests: XCTestCase {
                         .map(\.name)), ["Anything", "Pictures"])
     }
 
+    func testScopeIsJudgedAgainstTheItemsItIsGiven() throws {
+        // Reported: scripts scoped to one folder were offered on a right click
+        // in the *other* pane. A menu is built before its buttons run, so
+        // asking "what is selected" at build time answered for the pane the
+        // user had just left. The answer is to ask about particular items
+        // rather than about whichever pane is active.
+        try install("scoped.sh", """
+        #!/bin/sh
+        # name: Only here
+        # only-in: \(folder.path)
+        # args: 1,
+        # call: $0 $@
+        """)
+        load()
+
+        let here = [ScriptTarget(url: folder.appendingPathComponent("a.txt"), kind: .file)]
+        let elsewhere = [ScriptTarget(url: URL(fileURLWithPath: "/tmp/other/a.txt"), kind: .file)]
+
+        XCTAssertEqual(ScriptCatalogue.shared.applicable(to: here, in: folder,
+                                                         checkingTheSetting: false).count, 1)
+        XCTAssertTrue(ScriptCatalogue.shared.applicable(to: elsewhere,
+                                                        in: URL(fileURLWithPath: "/tmp/other"),
+                                                        checkingTheSetting: false).isEmpty,
+                      "the same script, asked about items somewhere else")
+    }
+
     func testAScriptThatTakesNoItemsIsOfferedWithNothingSelected() throws {
         try install("here.sh", "#!/bin/sh\n# name: Here\n# args: 0\n# call: $0\n")
         try install("one.sh", "#!/bin/sh\n# name: One\n# call: $0 $1\n")

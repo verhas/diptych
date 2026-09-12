@@ -607,45 +607,67 @@ final class AppModel {
     private(set) var scriptRun: ScriptRun?
     private(set) var scriptAwaitingApproval: ScriptDefinition?
 
-    /// The scripts that suit what is selected right now.
+    /// The scripts that suit what is selected in the active pane. The menu bar
+    /// acts on the active pane, so this is what it asks.
     var applicableScripts: [ScriptDefinition] {
-        ScriptCatalogue.shared.applicable(to: scriptTargets, in: active.directory)
+        ScriptCatalogue.shared.applicable(to: scriptTargets(in: active), in: active.directory)
     }
 
-    private var scriptTargets: [ScriptTarget] {
-        active.selectedItems.filter { !$0.isParent }.map {
+    /// What a script would be run on, in a named pane.
+    ///
+    /// Always asked of a particular pane rather than of "the active one". A
+    /// context menu is *built* before any of its buttons run, so a right click
+    /// on the other pane was offering the scripts that suited the pane the user
+    /// had just left.
+    func scriptTargets(in pane: PaneModel) -> [ScriptTarget] {
+        pane.selectedItems.filter { !$0.isParent }.map {
             ScriptTarget(url: $0.url,
                          kind: $0.isSymlink ? .link : ($0.isDirectory ? .directory : .file))
         }
     }
 
     func runScript(_ script: ScriptDefinition) {
+        runScript(script, on: scriptTargets(in: active), in: active.directory)
+    }
         // Asked once per script, and again whenever its contents change. The
         // person this feature is built for cannot judge a program by reading
         // it, so the question is about where it came from, not what it says.
+    /// Run one on exactly these items.
+    ///
+    /// The items travel with the request rather than being looked up again
+    /// when the button fires: between a menu being built and being clicked,
+    /// the active pane can change, and running against a selection the user
+    /// was not looking at is the worst thing this feature could do.
+    func runScript(_ script: ScriptDefinition, on targets: [ScriptTarget], in folder: URL) {
         guard ScriptCatalogue.shared.isApproved(script) else {
             scriptAwaitingApproval = script
+            pendingScriptTargets = targets
+            pendingScriptFolder = folder
             dialog = .scriptApproval
             return
         }
-        begin(script)
+        begin(script, on: targets)
     }
+
+    private var pendingScriptTargets: [ScriptTarget] = []
+    private var pendingScriptFolder: URL?
 
     func approveAndRunScript() {
         dialog = nil
         guard let script = scriptAwaitingApproval else { return }
         scriptAwaitingApproval = nil
         ScriptCatalogue.shared.approve(script)
-        begin(script)
+        begin(script, on: pendingScriptTargets)
+        pendingScriptTargets = []
     }
 
     func cancelScriptApproval() {
         dialog = nil
         scriptAwaitingApproval = nil
+        pendingScriptTargets = []
     }
 
-    private func begin(_ script: ScriptDefinition) {
-        let targets = scriptTargets
+    private func begin(_ script: ScriptDefinition, on targets: [ScriptTarget]) {
         // Long before execve would fail obscurely. ARG_MAX is a megabyte, so
         // a thousand long paths is a safe distance from it.
         guard targets.count <= 1000 else {

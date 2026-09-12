@@ -396,7 +396,7 @@ struct PaneView: View {
             Button("New Folder") { activate(); model.requestNewFolder() }
             Button("New File") { activate(); model.requestNewFile() }
             newFromClipboard
-            scripts
+            scripts(for: [])
             Button("Paste") { activate(); model.pasteIntoActivePane() }
             Button("Paste as Link") { activate(); model.pasteAsLink() }
             Button("Refresh") { pane.reload() }
@@ -436,7 +436,7 @@ struct PaneView: View {
                !item.isDirectory, !item.isParent {
                 Button("Bin View") { act(ids) { model.showBinaryView() } }
             }
-            scripts
+            scripts(for: targets(of: ids))
 
             Divider()
 
@@ -492,17 +492,33 @@ struct PaneView: View {
     /// Branch, and how far this folder is from the shared copy. Phrased as
     /// what it means rather than as "ahead 2, behind 3", and nudging towards
     /// getting the latest first -- most conflicts never happen if you do.
-    /// Whatever suits the selection, under one heading.
+    /// Whatever suits these items, under one heading.
+    ///
+    /// Asked of *this* pane rather than of the active one. A context menu is
+    /// built before any of its buttons run, so a right click on the other pane
+    /// was offering the scripts that suited the pane just left behind -- and
+    /// then running them against that pane's files.
     @ViewBuilder
-    private var scripts: some View {
-        let applicable = model.applicableScripts
+    private func scripts(for chosen: [ScriptTarget]) -> some View {
+        let applicable = ScriptCatalogue.shared.applicable(to: chosen, in: pane.directory)
         if !applicable.isEmpty {
             Menu("Scripts") {
                 ForEach(applicable) { script in
-                    Button(script.name) { model.runScript(script) }
-                        .help(script.summary)
+                    Button(script.name) {
+                        activate()
+                        model.runScript(script, on: chosen, in: pane.directory)
+                    }
+                    .help(script.summary)
                 }
             }
+        }
+    }
+
+    /// The rows a menu was opened on, as a script sees them.
+    private func targets(of ids: Set<FileItem.ID>) -> [ScriptTarget] {
+        pane.rows.filter { ids.contains($0.id) && !$0.isParent }.map {
+            ScriptTarget(url: $0.url,
+                         kind: $0.isSymlink ? .link : ($0.isDirectory ? .directory : .file))
         }
     }
 
