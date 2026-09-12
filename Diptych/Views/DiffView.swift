@@ -16,6 +16,9 @@ struct DiffView: View {
     @State private var wraps = true
     @State private var query = ""
     @State private var atMatch = 0
+    /// How far sideways the text in *both* columns has been moved. One value,
+    /// so the two cannot fall out of step.
+    @State private var sideways: CGFloat = 0
     @State private var guard_ = CloseGuard()
     @State private var window: NSWindow?
 
@@ -210,15 +213,13 @@ struct DiffView: View {
             message("Every line matches, including the blank ones.")
         } else {
             GeometryReader { geometry in
+              let text = textWidths(in: geometry.size.width)
+              VStack(spacing: 0) {
               ScrollViewReader { scroller in
-                // Both directions in one scroll view when lines are not
-                // wrapped. The two columns cannot scroll out of step with each
-                // other because there is only one thing scrolling -- the same
-                // reason the rows stay level vertically.
-                ScrollView(wraps ? .vertical : [.horizontal, .vertical]) {
+                ScrollView(.vertical) {
                     LazyVStack(spacing: 0) {
                         ForEach(diff.rows) { row in
-                            line(row, half: halfWidth(in: geometry.size.width)).id(row.id)
+                            line(row, text: text).id(row.id)
                         }
                     }
                 }
@@ -233,21 +234,36 @@ struct DiffView: View {
                 }
                 .onChange(of: query) { _, _ in atMatch = 0 }
               }
+              // Only when there is something out of sight. A scrollbar that
+              // cannot move is furniture.
+              if !wraps, text.content > text.viewport {
+                  SharedScroller(offset: $sideways,
+                                 content: text.content, viewport: text.viewport)
+                      .frame(height: 15)
+              }
+              }
+              .onChange(of: wraps) { _, _ in sideways = 0 }
+              .onChange(of: text.content) { _, _ in
+                  sideways = min(sideways, max(text.content - text.viewport, 0))
+              }
             }
         }
     }
 
-    /// How wide each column has to be, or nil to let it fill the window.
+    /// How wide the text in one column is, and how much of it fits.
     ///
-    /// Unwrapped, the columns are as wide as the longest line so there is
-    /// something for the horizontal scroller to reach -- never narrower than
-    /// half the window, so a file of short lines still fills it.
-    private func halfWidth(in available: CGFloat) -> CGFloat? {
-        guard !wraps else { return nil }
-        let gutter: CGFloat = 40 + 3 + 10 + 6 * 3
-        let longest = CGFloat(document.longestLine) * DiffLineField.characterWidth + gutter
-        return max(longest, (available - 18) / 2)
+    /// The line numbers and the markers are not part of it: they stay put while
+    /// the text moves under them, which is what makes a long line readable
+    /// rather than merely reachable.
+    private func textWidths(in available: CGFloat) -> (viewport: CGFloat, content: CGFloat) {
+        let viewport = max((available - Self.between) / 2 - Self.gutter, 1)
+        guard !wraps else { return (viewport, viewport) }
+        let longest = CGFloat(document.longestLine) * DiffLineField.characterWidth + 8
+        return (viewport, max(longest, viewport))
     }
+
+    private static let gutter: CGFloat = 40 + 3 + 10 + 6 * 3 + 6
+    private static let between: CGFloat = 18
 
     private func message(_ text: String) -> some View {
         VStack {
@@ -258,14 +274,15 @@ struct DiffView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func line(_ row: TextDiff.Row, half width: CGFloat?) -> some View {
+    private func line(_ row: TextDiff.Row,
+                      text: (viewport: CGFloat, content: CGFloat)) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            half(row, side: .left, width: width)
+            half(row, side: .left, text: text)
             // The button lives between the columns and points into the side
             // that can take it, so there is never a question which way the
             // text is about to move.
             takeButton(row)
-            half(row, side: .right, width: width)
+            half(row, side: .right, text: text)
         }
     }
 
@@ -288,7 +305,7 @@ struct DiffView: View {
     }
 
     private func half(_ row: TextDiff.Row, side: DiffDocument.Side,
-                      width: CGFloat?) -> some View {
+                      text widths: (viewport: CGFloat, content: CGFloat)) -> some View {
         let text = side == .left ? row.left : row.right
         let number = side == .left ? row.leftNumber : row.rightNumber
         let spans = side == .left ? row.leftSpans : row.rightSpans
@@ -315,6 +332,9 @@ struct DiffView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 10)
 
+            // The text, and only the text, moves sideways -- clipped to what
+            // the column can show, and by the same amount on both sides.
+            Group {
             if isEditable, let index {
                 // The field owns its text while it is being typed into and the
                 // document owns it the rest of the time, which is why the
@@ -335,10 +355,14 @@ struct DiffView: View {
                 body(of: text ?? "", spans: spans, tint: tint)
                     .textSelection(.enabled)
                     .lineLimit(wraps ? nil : 1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: !wraps, vertical: false)
+                    .frame(maxWidth: wraps ? .infinity : nil, alignment: .leading)
             }
-            Spacer(minLength: 0)
+            }
+            .frame(width: widths.content, alignment: .leading)
+            .offset(x: -sideways)
+            .frame(width: widths.viewport, alignment: .leading)
+            .clipped()
         }
         .font(.system(size: 12, design: .monospaced))
         .padding(.vertical, 1)
@@ -347,8 +371,7 @@ struct DiffView: View {
         // shaded too, so the gap reads as part of the comparison rather than
         // as the end of the file.
         .background(tint?.opacity(0.16) ?? (text == nil ? Color.secondary.opacity(0.06) : .clear))
-        .frame(width: width, alignment: .leading)
-        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The line, with the words that actually changed picked out when the two
