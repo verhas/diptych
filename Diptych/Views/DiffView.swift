@@ -16,15 +16,13 @@ struct DiffView: View {
     @State private var wraps = true
     @State private var query = ""
     @State private var atMatch = 0
-    /// How far sideways the text in *both* columns has been moved. One value,
-    /// so the two cannot fall out of step.
-    @State private var sideways: CGFloat = 0
+    /// How far sideways the text in *both* columns has been moved. One object,
+    /// so the two cannot fall out of step and so a scroll-wheel monitor reads
+    /// the widths as they are rather than as they were.
+    @State private var sideways = SidewaysState()
     @State private var guard_ = CloseGuard()
     @State private var window: NSWindow?
     @State private var wheel = SidewaysWheel()
-    /// The widths the rows were last laid out with, so a swipe knows how far
-    /// it is allowed to go.
-    @State private var lastWidths: (viewport: CGFloat, content: CGFloat) = (1, 1)
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -57,11 +55,7 @@ struct DiffView: View {
             // Held, rather than looked up later: `NSApp.keyWindow` is whichever
             // window happens to be in front, which is not necessarily this one.
             if window !== found { window = found }
-            wheel.watch(found) { delta in
-                guard !wraps else { return }
-                let travel = max(lastWidths.content - lastWidths.viewport, 0)
-                sideways = min(max(sideways - delta, 0), travel)
-            }
+            wheel.watch(found) { [sideways] delta in sideways.move(by: delta) }
             guard found.delegate !== guard_ else { return }
             guard_.shouldClose = { closeIsAllowed() }
             guard_.willClose = {
@@ -251,17 +245,24 @@ struct DiffView: View {
               }
               // Only when there is something out of sight. A scrollbar that
               // cannot move is furniture.
-              if !wraps, text.content > text.viewport {
-                  SharedScroller(offset: $sideways,
-                                 content: text.content, viewport: text.viewport)
+              if sideways.isScrollable {
+                  SharedScroller(offset: Bindable(sideways).offset,
+                                 content: sideways.content, viewport: sideways.viewport)
                       .frame(height: 15)
               }
               }
-              .onAppear { lastWidths = text }
-              .onChange(of: text.viewport) { _, _ in lastWidths = text }
-              .onChange(of: wraps) { _, _ in sideways = 0 }
-              .onChange(of: text.content) { _, _ in
-                  sideways = min(sideways, max(text.content - text.viewport, 0))
+              // `initial` so the first layout counts: without it the widths
+              // stay at their defaults until something changes, and nothing
+              // can scroll until then.
+              .onChange(of: text.viewport, initial: true) { _, _ in
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
+              }
+              .onChange(of: text.content, initial: true) { _, _ in
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
+              }
+              .onChange(of: wraps) { _, _ in
+                  sideways.offset = 0
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
               }
             }
         }
@@ -387,7 +388,7 @@ struct DiffView: View {
             }
             }
             .frame(width: widths.content, alignment: .leading)
-            .offset(x: -sideways)
+            .offset(x: -sideways.offset)
             .frame(width: widths.viewport, alignment: .leading)
             .clipped()
         }
@@ -483,13 +484,12 @@ struct DiffView: View {
     /// Move the columns so the caret stays on screen while typing.
     private func keepInView(_ caret: CGFloat,
                             _ widths: (viewport: CGFloat, content: CGFloat)) {
-        guard !wraps, widths.content > widths.viewport else { return }
+        guard sideways.isScrollable else { return }
         let margin: CGFloat = 60
-        let travel = widths.content - widths.viewport
-        if caret - sideways > widths.viewport - margin {
-            sideways = min(caret - widths.viewport + margin, travel)
-        } else if caret - sideways < margin {
-            sideways = max(min(caret - margin, travel), 0)
+        if caret - sideways.offset > widths.viewport - margin {
+            sideways.moveTo(caret - widths.viewport + margin)
+        } else if caret - sideways.offset < margin {
+            sideways.moveTo(caret - margin)
         }
     }
 

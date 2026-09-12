@@ -556,3 +556,67 @@ final class DiffDocumentTests: XCTestCase {
         XCTAssertEqual(document.longestLine, 28)
     }
 }
+
+/// How far sideways the two columns are allowed to go.
+///
+/// Kept in an object rather than in view state because a scroll-wheel monitor
+/// outlives a layout pass -- and reading the widths as they were rather than as
+/// they are is what made a horizontal wheel do nothing and shift-and-wheel snap
+/// back to the left.
+@MainActor
+final class SidewaysStateTests: XCTestCase {
+
+    func testNothingScrollsUntilThereIsSomethingOutOfSight() {
+        let state = SidewaysState()
+
+        XCTAssertFalse(state.isScrollable, "and with no travel, no wheel can move it")
+        state.move(by: -100)
+        XCTAssertEqual(state.offset, 0)
+    }
+
+    func testWrappedTextNeverScrollsSideways() {
+        let state = SidewaysState()
+        state.layout(viewport: 400, content: 400, wraps: true)
+
+        XCTAssertFalse(state.isScrollable)
+    }
+
+    func testAWheelMovesItWithinItsTravel() {
+        let state = SidewaysState()
+        state.layout(viewport: 400, content: 1000, wraps: false)
+
+        state.move(by: -100)
+        XCTAssertEqual(state.offset, 100)
+
+        state.move(by: -10_000)
+        XCTAssertEqual(state.offset, 600, "and no further than there is to go")
+
+        state.move(by: 10_000)
+        XCTAssertEqual(state.offset, 0, "nor back past the beginning")
+    }
+
+    func testAWiderWindowPullsTheColumnsBack() {
+        // Otherwise the text stays scrolled off to the side with nothing there.
+        let state = SidewaysState()
+        state.layout(viewport: 400, content: 1000, wraps: false)
+        state.move(by: -600)
+        XCTAssertEqual(state.offset, 600)
+
+        state.layout(viewport: 900, content: 1000, wraps: false)
+
+        XCTAssertEqual(state.offset, 100)
+    }
+
+    func testTheLayoutIsWhatMakesItScrollable() {
+        // The bug in one line: without the widths, travel is zero and every
+        // movement is clamped to the far left.
+        let state = SidewaysState()
+        state.moveTo(300)
+        XCTAssertEqual(state.offset, 0)
+
+        state.layout(viewport: 400, content: 1000, wraps: false)
+        state.moveTo(300)
+
+        XCTAssertEqual(state.offset, 300)
+    }
+}

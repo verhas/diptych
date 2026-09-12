@@ -1,6 +1,45 @@
 import SwiftUI
 import AppKit
 
+/// How far sideways the two columns are, and how far they may go.
+///
+/// A class rather than view state, because a scroll-wheel monitor outlives any
+/// one pass of the layout: a closure that captured the widths got whatever
+/// they were when it was made, which at that moment was nothing. The travel
+/// came out as zero, the offset was clamped to zero with it, and so the
+/// horizontal wheel did nothing at all while shift-and-wheel snapped the
+/// columns back to the left. One object, read live, and neither can happen.
+@MainActor
+@Observable
+final class SidewaysState {
+
+    var offset: CGFloat = 0
+    var viewport: CGFloat = 1
+    var content: CGFloat = 1
+    var wraps = true
+
+    var travel: CGFloat { max(content - viewport, 0) }
+    var isScrollable: Bool { !wraps && travel > 0 }
+
+    func layout(viewport: CGFloat, content: CGFloat, wraps: Bool) {
+        self.viewport = viewport
+        self.content = content
+        self.wraps = wraps
+        // A window made wider can leave the columns scrolled further than
+        // there is now anything to see.
+        offset = min(offset, travel)
+    }
+
+    func move(by delta: CGFloat) {
+        guard isScrollable else { return }
+        offset = min(max(offset - delta, 0), travel)
+    }
+
+    func moveTo(_ value: CGFloat) {
+        offset = min(max(value, 0), travel)
+    }
+}
+
 /// One horizontal scrollbar driving two columns at once.
 ///
 /// The two halves of a comparison hold different text, so they cannot share a
@@ -104,8 +143,10 @@ final class SidewaysWheel {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             // NSEvent is not Sendable, so only plain values cross the boundary
             // -- the same shape the key monitor uses.
-            let sideways = event.scrollingDeltaX
-            let upwards = event.scrollingDeltaY
+            // A wheel that only reports the older `deltaX` counts too: not
+            // every mouse with a sideways wheel fills in `scrollingDeltaX`.
+            let sideways = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.deltaX
+            let upwards = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.deltaY
             let precise = event.hasPreciseScrollingDeltas
             let from = event.windowNumber
 
@@ -140,10 +181,8 @@ private final class WheelScroller: NSScroller {
     var onWheel: ((CGFloat) -> Void)?
 
     override func scrollWheel(with event: NSEvent) {
-        let delta = event.hasPreciseScrollingDeltas
-            ? event.scrollingDeltaX
-            : event.scrollingDeltaX * 10
-        guard delta != 0 else { return }
-        onWheel?(delta)
+        let sideways = event.scrollingDeltaX != 0 ? event.scrollingDeltaX : event.deltaX
+        guard sideways != 0 else { return }
+        onWheel?(event.hasPreciseScrollingDeltas ? sideways : sideways * 10)
     }
 }
