@@ -598,25 +598,36 @@ extension DiffDocumentTests {
                        "and one somewhere else cannot take its place")
     }
 
-    func testTheButtonIsOfferedOnlyForAnEditedKeptCopy() async throws {
+    func testItIsOfferedWithoutEditingAnything() async throws {
+        // "Drop theirs, mine stands as it is" is a decision like any other --
+        // and the commonest one after keeping a copy in the first place.
         let document = try await keptCopyPair()
-        XCTAssertEqual(document.keptCopySide, .left)
-        XCTAssertFalse(document.canReplaceOriginal, "nothing has come of it yet")
 
-        _ = document.unlock(.right)
-        document.setLine(0, to: "editing the original instead")
-        XCTAssertFalse(document.canReplaceOriginal,
-                       "editing the shared version is not finishing a clash")
+        XCTAssertEqual(document.keptCopySide, .left)
+        XCTAssertTrue(document.canReplaceOriginal, "no edit required")
+        XCTAssertEqual(document.originalName, "chapter3.md")
     }
 
-    func testEditingTheKeptCopyOffersIt() async throws {
+    func testEditingTheKeptCopyStillOffersIt() async throws {
         let document = try await keptCopyPair()
         _ = document.unlock(.left)
 
         document.setLine(0, to: "my settled version")
 
         XCTAssertTrue(document.canReplaceOriginal)
-        XCTAssertEqual(document.originalName, "chapter3.md")
+    }
+
+    func testItIsWithheldWhileTheOtherSideHasUnsavedWork() async throws {
+        // That side is about to go to the Trash, and it would take the unsaved
+        // work with it.
+        let document = try await keptCopyPair()
+        _ = document.unlock(.right)
+        document.setLine(0, to: "editing the original instead")
+
+        XCTAssertFalse(document.canReplaceOriginal)
+
+        document.undo()
+        XCTAssertTrue(document.canReplaceOriginal, "and offered again once there is none")
     }
 
     func testOrdinaryFilesNeverOfferIt() async throws {
@@ -642,15 +653,26 @@ extension DiffDocumentTests {
         XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("chapter3 (my version).md").path))
     }
 
-    func testReplacingAnUneditedCopyIsRefused() async throws {
+    func testReplacingAnUneditedCopyDitchesTheOtherVersion() async throws {
+        // Nothing taken from the shared version, which is the whole point of
+        // this particular press.
         let document = try await keptCopyPair()
-        _ = document.unlock(.left)
 
         let outcome = await document.replaceOriginal()
-        XCTAssertEqual(outcome, .notApplicable)
+        XCTAssertEqual(outcome, .done)
 
-        XCTAssertEqual(read("chapter3.md"), "theirs\n", "nothing thrown away for nothing")
-        XCTAssertEqual(read("chapter3 (my version).md"), "mine\n")
+        XCTAssertEqual(read("chapter3.md"), "mine\n", "mine, untouched, under their name")
+        XCTAssertNil(read("chapter3 (my version).md"))
+    }
+
+    func testReplacingOrdinaryFilesIsRefused() async throws {
+        let document = try await document("a\n", "b\n")
+
+        let outcome = await document.replaceOriginal()
+
+        XCTAssertEqual(outcome, .notApplicable)
+        XCTAssertEqual(read("mine.md"), "a\n")
+        XCTAssertEqual(read("theirs.md"), "b\n")
     }
 
     func testReplacingWorksAfterTheCopyWasAlreadySaved() async throws {

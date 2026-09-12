@@ -418,12 +418,17 @@ final class DiffDocument {
 
     /// Whether there is a clash here that this window could finish.
     ///
-    /// Only when the kept copy is the side being edited *and* something has
-    /// come of it. Offering it on an untouched copy would be offering to throw
-    /// the shared version away for nothing.
+    /// Offered whether or not the copy has been edited: "drop theirs, mine
+    /// stands as it is" is a decision like any other, and the commonest one
+    /// after keeping a copy in the first place. Which file wins is never in
+    /// question either, since only one of the two is named `(my version)`.
+    ///
+    /// Withheld in exactly one case: unsaved changes on the *other* side.
+    /// That side is about to go to the Trash, and it would take them with it.
     var canReplaceOriginal: Bool {
         guard let side = keptCopySide else { return false }
-        return editable == side && (isDirty || hasSaved)
+        if let editable, editable != side, isDirty { return false }
+        return true
     }
 
     var originalName: String {
@@ -450,7 +455,9 @@ final class DiffDocument {
         let copy = side == .left ? pair.left : pair.right
         let original = side == .left ? pair.right : pair.left
 
-        if isDirty {
+        // Only the copy's own unsaved work is worth saving here; the other
+        // side is on its way to the Trash.
+        if editable == side, isDirty {
             switch save() {
             case .saved, .nothingToDo:
                 break

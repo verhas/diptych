@@ -469,11 +469,13 @@ three there are:
 
 1. **Keep a copy of mine and take theirs** — `(my version)` beside it, the
    shared version takes the name. Comparing the two afterwards offers
-   **Replace "<name>"**, which is the end of that clash: save the copy, put it
-   in the original's place, and send the old version to the Trash. One press,
-   because a clash settled is a clash settled — and the Trash rather than
-   deletion, because a single press with no dialog in front of it has to be a
-   single press that can be taken back.
+   **Replace "<name>"**, which is the end of that clash: put the copy in the
+   original's place, saving it first if it has been edited, and send the old
+   version to the Trash. No edit is required — "drop theirs, mine stands as it
+   is" is a decision like any other, and the commonest one after keeping a copy
+   at all. One press, because a clash settled is a clash settled; and the Trash
+   rather than deletion, because a single press with no dialog in front of it
+   has to be a single press that can be taken back.
 2. **Keep mine, theirs is discarded here** — the copy stays exactly as it is and
    is still not sent. This is precisely what Diptych used to do on its own; the
    change is that somebody now chooses it.

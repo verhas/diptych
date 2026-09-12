@@ -108,17 +108,16 @@ struct DiffView: View {
                         .disabled(!document.isDirty)
                         .keyboardShortcut("s", modifiers: .command)
                 }
-                // Only for the one shape it finishes: a kept copy, being
-                // edited, that something has come of. It is absent otherwise
-                // rather than greyed -- on any other pair of files it would
-                // not mean anything at all.
+                // Only for the one shape it finishes: a file and a copy of it
+                // kept aside. Absent otherwise rather than greyed, because on
+                // any other pair of files it would not mean anything at all.
                 if document.canReplaceOriginal {
                     Button("Replace \u{201C}\(document.originalName)\u{201D}") {
                         act { finishTheClash() }
                     }
-                    .help("Save this version, put it in place of "
-                          + "\u{201C}\(document.originalName)\u{201D}, and move the old one "
-                          + "to the Trash.")
+                    .help("Put this version in place of "
+                          + "\u{201C}\(document.originalName)\u{201D}, saving it first if "
+                          + "you have changed it, and move the old one to the Trash.")
                 }
                 if !diff.isIdentical {
                     Button { step(-1) } label: { Image(systemName: "chevron.up") }
