@@ -528,22 +528,44 @@ final class DiffDocument {
         return .saved
     }
 
-    /// Written beside the original and swapped in.
+    /// Written beside the original and swapped in, or straight into the file
+    /// when that cannot be done.
     ///
-    /// `replaceItemAt` keeps the original file's permissions, ownership and
-    /// extended attributes by default, which matters here more than usual: in a
-    /// file manager, losing somebody's Finder tags when they fix a typo would
-    /// be its own small betrayal.
+    /// `replaceItemAt` is the safe way: the old file survives untouched until
+    /// the new one is complete, and it keeps the original's permissions,
+    /// ownership and extended attributes -- in a file manager, losing
+    /// somebody's Finder tags when they fix a typo would be its own small
+    /// betrayal.
+    ///
+    /// But it can only do that by *copying* the metadata, and some of it
+    /// cannot be copied. A file that a sandboxed program has opened carries
+    /// `com.apple.security.private.scoped-bookmark-token`, which no ordinary
+    /// process may even read: `getxattr` answers EPERM. The replacement then
+    /// fails, and macOS reports it as "you do not have permission to save the
+    /// file" -- which is untrue and unhelpful, since the file itself is
+    /// perfectly writable and opening it for writing proves so.
+    ///
+    /// So when the swap will not go through, the bytes go into the file that
+    /// is already there. Nothing is copied, so nothing can fail to copy: the
+    /// inode is the same one, and with it every permission, owner, ACL and
+    /// attribute the file had. The cost is that a crash halfway through leaves
+    /// a half-written file, which is why it is the second choice and not the
+    /// first.
     private nonisolated static func write(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent()
             .appendingPathComponent(".diptych-save-\(UUID().uuidString)")
-        try data.write(to: temporary)
         do {
+            try data.write(to: temporary)
             _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+            return
         } catch {
             try? FileManager.default.removeItem(at: temporary)
-            throw error
         }
+
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.truncate(atOffset: 0)
+        try handle.write(contentsOf: data)
     }
 
     /// After the file has been read again following an outside change.

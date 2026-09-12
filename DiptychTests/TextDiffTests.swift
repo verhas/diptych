@@ -206,6 +206,40 @@ final class TextDiffTests: XCTestCase {
         XCTAssertEqual(marked?.right.filter(\.changed).map(\.text), ["cat"])
     }
 
+    func testAWordAddedOnOneSideIsMarked() {
+        // Reported: the word that *replaced* another stood out plainly, while
+        // a word simply added did not. The marking was right; it was the green
+        // that was invisible against a green row. Pinned here either way.
+        let marked = TextDiff.spans(left: "extracting a table, lines, reflowing",
+                                    right: "extracting a table, inserting lines, reflowing")
+
+        XCTAssertEqual(marked?.right.filter(\.changed).map(\.text), ["inserting "])
+        XCTAssertTrue(marked?.left.allSatisfy { !$0.changed } ?? false,
+                      "and nothing on the side that has no such word")
+    }
+
+    func testAWordRemovedOnOneSideIsMarked() {
+        let marked = TextDiff.spans(left: "keep the extra words here",
+                                    right: "keep the words here")
+
+        XCTAssertEqual(marked?.left.filter(\.changed).map(\.text), ["extra "])
+        XCTAssertTrue(marked?.right.allSatisfy { !$0.changed } ?? false)
+    }
+
+    func testAWordAddedAtTheEndIsMarked() {
+        let marked = TextDiff.spans(left: "one two three",
+                                    right: "one two three four")
+
+        XCTAssertEqual(marked?.right.filter(\.changed).map(\.text), [" four"])
+    }
+
+    func testAWordAddedAtTheStartIsMarked() {
+        let marked = TextDiff.spans(left: "two three four",
+                                    right: "one two three four")
+
+        XCTAssertEqual(marked?.right.filter(\.changed).map(\.text), ["one "])
+    }
+
     func testTheWholeLineIsStillThereAfterMarking() {
         // Spans are the line cut up, so losing a character here would lose it
         // on screen.

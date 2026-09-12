@@ -430,8 +430,13 @@ struct DiffView: View {
                 var piece = AttributedString(span.text)
                 if span.changed, let tint {
                     // Stronger than the line's own wash, so it reads as "this
-                    // part" against "this line".
-                    piece.backgroundColor = tint.opacity(0.45)
+                    // part" against "this line" -- and bold as well as darker,
+                    // because a deeper green on a green row is very nearly the
+                    // same green, and a word added on one side was going
+                    // unnoticed while the word it replaced stood out plainly on
+                    // the other.
+                    piece.backgroundColor = tint.opacity(0.6)
+                    piece.inlinePresentationIntent = .stronglyEmphasized
                 }
                 built += piece
             }
