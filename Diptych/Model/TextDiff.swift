@@ -383,6 +383,26 @@ struct DiffPair: Hashable, Codable, Sendable {
     var left: URL
     var right: URL
 
+    /// What the window is called, in the title bar and in the list of windows
+    /// the Dock shows.
+    ///
+    /// The part that tells one comparison from another comes first, because
+    /// that list truncates at the end. Two files of the same name are told
+    /// apart by their folders -- and by the part of the folders that differs,
+    /// since comparing p1/states with p2/states by their last component would
+    /// give "states" twice.
+    var title: String {
+        let mine = left.lastPathComponent
+        let theirs = right.lastPathComponent
+        guard mine == theirs else { return "\(mine) \u{2194} \(theirs)" }
+        guard let folders else { return mine }
+        return "\(trimmed(folders.left)) \u{2194} \(trimmed(folders.right)) \u{2014} \(mine)"
+    }
+
+    private func trimmed(_ folder: String) -> String {
+        folder.hasPrefix("\u{2026}/") ? String(folder.dropFirst(2)) : folder
+    }
+
     /// Where each file lives, when that is the only thing telling them apart.
     ///
     /// Two files of the same name in different folders looked identical in the

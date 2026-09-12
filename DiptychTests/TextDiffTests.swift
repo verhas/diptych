@@ -423,3 +423,40 @@ final class ClipboardContentTests: XCTestCase {
         XCTAssertFalse(try JSONDecoder().decode(Configuration.self, from: data).confirmQuit)
     }
 }
+
+/// What a comparison window is called.
+final class DiffTitleTests: XCTestCase {
+
+    func testTwoDifferentNamesAreTheTitle() {
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/a.md"),
+                            right: URL(fileURLWithPath: "/work/b.md"))
+
+        XCTAssertEqual(pair.title, "a.md \u{2194} b.md")
+    }
+
+    func testTheSameNameIsToldApartByFolder() {
+        // Reported: every comparison window was called "Diptych", so picking
+        // one out of the Dock's list was guesswork.
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/p1/states/notes.md"),
+                            right: URL(fileURLWithPath: "/work/p2/states/notes.md"))
+
+        XCTAssertEqual(pair.title, "p1/states \u{2194} p2/states \u{2014} notes.md")
+    }
+
+    func testTheDistinguishingPartComesFirst() {
+        // That list truncates at the end, so a long file name must not push
+        // the only thing that differs off it.
+        let long = "make-llm-write-your-documentation-transcript.txt"
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/p1/states/\(long)"),
+                            right: URL(fileURLWithPath: "/work/p2/states/\(long)"))
+
+        XCTAssertTrue(pair.title.hasPrefix("p1/states \u{2194} p2/states"), pair.title)
+    }
+
+    func testOneFileInOneFolderNeedsNoFolder() {
+        let pair = DiffPair(left: URL(fileURLWithPath: "/work/a.md"),
+                            right: URL(fileURLWithPath: "/work/a.md"))
+
+        XCTAssertEqual(pair.title, "a.md", "nothing to tell apart")
+    }
+}

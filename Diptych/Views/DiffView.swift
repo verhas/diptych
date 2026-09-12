@@ -47,6 +47,7 @@ struct DiffView: View {
                 .padding(.vertical, 6)
             }
         }
+        .navigationTitle(pair.title)
         .task { await document.load() }
         // SwiftUI cannot refuse a window close and this window needs to:
         // closing with unsaved edits must ask rather than discard.
