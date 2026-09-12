@@ -170,6 +170,18 @@ struct Configuration: Codable, Equatable {
     /// Cmd-W and Cmd-A.
     var confirmQuit = true
 
+    /// Run the scripts in ~/.diptych/scripts.
+    ///
+    /// Off by default, and it must stay a decision somebody makes knowingly:
+    /// a script is a program, and a program can do anything the person running
+    /// it can do.
+    var scriptsEnabled = false
+
+    /// For whoever is *writing* the scripts rather than using them: allows a
+    /// script that can still be written to, and adds a command to read the
+    /// folder again without restarting.
+    var scriptsDeveloperMode = false
+
     var gitCheckOnOpen = false
 
     /// When a send is refused for being behind, catch up and send anyway.
@@ -208,7 +220,7 @@ struct Configuration: Codable, Equatable {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
-        case clipboardImageFormat, confirmQuit
+        case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
     }
 
     init() {}
@@ -234,6 +246,9 @@ struct Configuration: Codable, Equatable {
         clipboardImageFormat =
             (try? container.decode(ClipboardImageFormat.self, forKey: .clipboardImageFormat)) ?? .png
         confirmQuit = (try? container.decode(Bool.self, forKey: .confirmQuit)) ?? true
+        scriptsEnabled = (try? container.decode(Bool.self, forKey: .scriptsEnabled)) ?? false
+        scriptsDeveloperMode =
+            (try? container.decode(Bool.self, forKey: .scriptsDeveloperMode)) ?? false
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""
