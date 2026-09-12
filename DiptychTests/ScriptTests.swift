@@ -309,7 +309,10 @@ final class ScriptCatalogueTests: XCTestCase {
                       ?? false, "\(ScriptCatalogue.shared.problems)")
     }
 
-    func testDeveloperModeAllowsAWritableScript() throws {
+    func testDeveloperModeAllowsAWritableScriptAndSaysSo() throws {
+        // Reported as a bug, and it was the mode working -- which is the
+        // problem: a rule that is silently switched off looks exactly like a
+        // rule that does not work.
         try install("writable.sh", good, mode: 0o644)
         ConfigStore.shared.configuration.scriptsDeveloperMode = true
 
@@ -317,6 +320,16 @@ final class ScriptCatalogueTests: XCTestCase {
 
         XCTAssertEqual(ScriptCatalogue.shared.scripts.count, 1,
                        "for whoever is writing them rather than running them")
+        XCTAssertTrue(ScriptCatalogue.shared.scripts[0].isWritable,
+                      "and it knows, so the window can say it")
+    }
+
+    func testAReadOnlyScriptIsNotMarkedWritable() throws {
+        try install("good.sh", good)
+
+        load()
+
+        XCTAssertFalse(ScriptCatalogue.shared.scripts[0].isWritable)
     }
 
     func testAQuarantinedScriptIsRefused() throws {

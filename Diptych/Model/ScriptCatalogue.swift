@@ -62,8 +62,19 @@ final class ScriptCatalogue {
             }
             let (definition, found) = ScriptDefinition.read(url, contents: contents)
             problems.append(contentsOf: found)
-            if let definition { scripts.append(definition) }
+            if var definition {
+                definition.isWritable = isWritableFile(url)
+                scripts.append(definition)
+            }
         }
+    }
+
+    private func isWritableFile(_ url: URL) -> Bool {
+        guard let mode = (try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber else {
+            return false
+        }
+        return mode.uint16Value & 0o222 != 0
     }
 
     /// Why a file in the scripts folder will not be run at all.

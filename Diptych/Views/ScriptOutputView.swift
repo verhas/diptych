@@ -15,6 +15,19 @@ struct ScriptOutputView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(run.script.name).font(.headline)
+                // Said at the moment it matters. Diptych would normally refuse
+                // a script that can still be written to, because one that can
+                // change after being agreed to has not really been agreed to.
+                // Developer mode allows it -- and allowing it quietly would
+                // make a working rule look like a broken one.
+                if run.script.isWritable {
+                    Label("Developer mode: this script can still be written to, so what it "
+                          + "does can change after you have agreed to it.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(run.commandLine)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
