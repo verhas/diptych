@@ -270,6 +270,55 @@ extension PaneModelTests {
         XCTAssertEqual(canonical(pane.directory), canonical(three))
     }
 
+    /// Reported: A, B, A, C with B deleted leaves A, A, and going back then
+    /// walks from A to A, which to the user is a press that does nothing.
+    func testTheTrailNeverStepsFromAFolderToItself() async throws {
+        let a = try folder("a")
+        let b = try folder("b")
+        let c = try folder("c")
+        let pane = PaneModel(directory: a)
+        await pane.reloadAndWait()
+        for next in [b, a, c] {
+            pane.navigate(to: next)
+            await pane.reloadAndWait()
+        }
+
+        try fm.removeItem(at: b)
+
+        pane.goBack()
+        await pane.reloadAndWait()
+        XCTAssertEqual(canonical(pane.directory), canonical(a))
+
+        // The only place left behind this one is the same folder, so there is
+        // nowhere to go and the trail says so rather than offering to arrive
+        // where it already is.
+        pane.goBack()
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(canonical(pane.directory), canonical(a))
+        XCTAssertFalse(pane.canGoBack)
+    }
+
+    func testTheSameFolderTwiceOverIsStillTwoJourneys() async throws {
+        // A, B, A is honest history; only two in a row are not.
+        let a = try folder("a")
+        let b = try folder("b")
+        let pane = PaneModel(directory: a)
+        await pane.reloadAndWait()
+        pane.navigate(to: b)
+        await pane.reloadAndWait()
+        pane.navigate(to: a)
+        await pane.reloadAndWait()
+
+        pane.goBack()
+        await pane.reloadAndWait()
+        XCTAssertEqual(canonical(pane.directory), canonical(b))
+
+        pane.goBack()
+        await pane.reloadAndWait()
+        XCTAssertEqual(canonical(pane.directory), canonical(a), "and back to the first one")
+    }
+
     func testBackDoesNothingWhenEverywhereBehindHasGone() async throws {
         let one = try folder("one")
         let two = try folder("two")

@@ -195,6 +195,7 @@ final class PaneModel {
             // Going back, everything above the hole moves down, and the place
             // we are standing is one of them. Going forward, it does not.
             if direction < 0 { historyIndex -= 1 }
+            collapse()
             updateHistoryFlags()
         }
     }
@@ -221,12 +222,37 @@ final class PaneModel {
             if index <= historyIndex { historyIndex -= 1 }
         }
         historyIndex = max(historyIndex, -1)
+        collapse()
         updateHistoryFlags()
     }
 
+    /// Join up the seam left by a removal.
+    ///
+    /// A folder may honestly appear in the trail more than once -- A, B, A, C
+    /// is four journeys -- but not twice in a row, because going back from a
+    /// place to the same place is a press that does nothing. Taking B out of
+    /// that trail leaves exactly that, so the two are made one.
+    private func collapse() {
+        var index = 1
+        while index < history.count {
+            if history[index] == history[index - 1] {
+                history.remove(at: index)
+                if index <= historyIndex { historyIndex -= 1 }
+            } else {
+                index += 1
+            }
+        }
+        historyIndex = min(max(historyIndex, history.isEmpty ? -1 : 0), history.count - 1)
+    }
+
     private func updateHistoryFlags() {
-        canGoBack = historyIndex > 0
-        canGoForward = historyIndex + 1 < history.count
+        // Somewhere *else*, not merely somewhere. After a deletion the trail
+        // can hold the folder you are standing in on both sides of the hole,
+        // and a button that offers to take you where you already are is a
+        // button that does nothing.
+        canGoBack = history[..<max(historyIndex, 0)].contains { $0 != directory }
+        canGoForward = history.count > historyIndex + 1
+            && history[(historyIndex + 1)...].contains { $0 != directory }
     }
 
     /// True while the path bar is an open text field. The pane must not
