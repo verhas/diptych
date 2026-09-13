@@ -81,6 +81,7 @@ final class QuickLookController: NSObject {
     ]
 
     private func previewable(_ url: URL) -> URL {
+        if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
         }
@@ -130,6 +131,70 @@ final class QuickLookController: NSObject {
             return nil
         }
         return target
+    }
+
+    // MARK: - What is inside
+
+    /// Pages already built, so moving up and down a pane does not read the same
+    /// folder again on every keystroke.
+    private var listings: [String: URL] = [:]
+    private var reading: Set<String> = []
+
+    /// A folder or an archive, listed.
+    ///
+    /// Quick Look gives a folder a large blue icon and a size, which answers
+    /// none of the question anybody presses Space to ask.
+    ///
+    /// The page is written *before* anything is read and says "Reading...".
+    /// Reading a folder on a sleeping disk, or an archive that must be
+    /// decompressed from end to end, takes as long as it takes -- and this is
+    /// called while drawing, on the main thread. The listing arrives behind it
+    /// and the panel is told to draw again. Nothing waits for a disk.
+    private func listingReport(for url: URL) -> URL? {
+        let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        // A package is a folder, but somebody pressing Space on one means the
+        // application, not its contents.
+        let isPackage = (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+        let kind: ListingReport.Kind
+        if isFolder, !isPackage { kind = .folder }
+        else if !isFolder, Listing.isArchive(url) { kind = .archive }
+        else { return nil }
+
+        if let ready = listings[url.path] { return ready }
+
+        let target = scratch.appendingPathComponent(
+            "listing" + url.path.replacingOccurrences(of: "/", with: "_") + ".html")
+        write(ListingReport.html(for: Listing.Result(), name: url.lastPathComponent,
+                                 path: url.path, kind: kind, stillReading: true),
+              to: target)
+        fetchListing(for: url, kind: kind, into: target)
+        return target
+    }
+
+    private func fetchListing(for url: URL, kind: ListingReport.Kind, into target: URL) {
+        guard !reading.contains(url.path) else { return }
+        reading.insert(url.path)
+
+        Task { [weak self] in
+            let result = await BlockingWork.run {
+                kind == .folder ? Listing.folder(at: url) : Listing.archive(at: url)
+            }
+            guard let self else { return }
+            reading.remove(url.path)
+            write(ListingReport.html(for: result, name: url.lastPathComponent,
+                                     path: url.path, kind: kind),
+                  to: target)
+            listings[url.path] = target
+            // Only if the panel is still showing this very thing: by now the
+            // cursor may have moved on, and redrawing then would drag it back.
+            if isVisible, items.contains(target) {
+                QLPreviewPanel.shared().reloadData()
+            }
+        }
+    }
+
+    private func write(_ html: String, to target: URL) {
+        try? html.write(to: target, atomically: true, encoding: .utf8)
     }
 
     private static let markdownExtensions: Set<String> = ["md", "markdown"]
@@ -190,6 +255,9 @@ final class QuickLookController: NSObject {
 
     private func clearScratch() {
         try? FileManager.default.removeItem(at: scratch)
+        // The pages went with it, so a folder looked at again is read again
+        // rather than served from a file that is no longer there.
+        listings.removeAll()
     }
 }
 
