@@ -88,6 +88,9 @@ final class ScriptCatalogue {
            owner.uint32Value != getuid() {
             return "This belongs to somebody else, so Diptych will not run it."
         }
+        guard let mode = attributes[.posixPermissions] as? NSNumber else { return nil }
+        let bits = String(mode.uint16Value & 0o777, radix: 8)
+
         // Stricter than the usual "not writable by others": a download lands
         // as rw-r--r--, so requiring no write bit at all makes installing a
         // script a deliberate act rather than something that can happen by
@@ -99,12 +102,23 @@ final class ScriptCatalogue {
         // is first tried under the real one on the day it matters. Making a
         // script editable and read-only again is what the two scripts in the
         // folder are for.
-        if let mode = attributes[.posixPermissions] as? NSNumber,
-           mode.uint16Value & 0o222 != 0 {
-            let bits = String(mode.uint16Value & 0o777, radix: 8)
+        if mode.uint16Value & 0o222 != 0 {
             return "Anything that can be written to can change after you have agreed to it. "
-                 + "This one is \(bits); it has to be read-only. Diptych's permission editor "
-                 + "will do it: select the file, press Cmd-Option-P, and take away every W."
+                 + "This one is \(bits); nobody may be able to write to it. Diptych's "
+                 + "permission editor will do it: select the file, press Cmd-Option-P, and "
+                 + "leave only the owner's R."
+        }
+
+        // And nobody else may read it either. That is a different protection
+        // from the one above -- it guards what is *in* a script rather than
+        // what the script is -- but a script is a fair place to keep a token,
+        // a private path, or something else that is nobody else's business,
+        // and this folder belongs to one person by definition. Owner-only
+        // costs nothing and answers the question before it is asked.
+        if mode.uint16Value & 0o077 != 0 {
+            return "Only you may read a script. This one is \(bits), which lets other "
+                 + "accounts on this Mac read it, and a script is a fair place to keep "
+                 + "something private. Leave only the owner's R, with Cmd-Option-P."
         }
         return nil
     }

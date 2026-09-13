@@ -77,9 +77,10 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Text("It will not run a script that came from outside this Mac, that belongs to "
-                 + "somebody else, or that can still be written to. A file has to be made "
-                 + "read-only before Diptych will run it, so that putting one there is "
-                 + "something you did on purpose. Nothing lifts those rules, so a script is "
+                 + "somebody else, that can be written to, or that anybody else can read. A "
+                 + "file has to be made yours alone before Diptych will run it, so that "
+                 + "putting one there is something you did on purpose \u{2014} and so that "
+                 + "what is in it stays yours. Nothing lifts those rules, so a script is "
                  + "written under the same conditions it will be run under.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

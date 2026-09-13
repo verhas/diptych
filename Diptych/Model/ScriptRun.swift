@@ -21,6 +21,10 @@ final class ScriptRun {
 
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var temporary: URL?
+    /// The two things that have to have happened before a run is over: the
+    /// output has reached its end, and the process has exited.
+    @ObservationIgnored private var outputEnded = false
+    @ObservationIgnored private var exit: (code: Int32, signalled: Bool)?
 
     init(script: ScriptDefinition, targets: [ScriptTarget], left: URL, right: URL,
          active: URL, other: URL) {
@@ -82,31 +86,36 @@ final class ScriptRun {
         task.standardOutput = pipe
         task.standardError = pipe
 
-        // Both streams into one pipe, and read as it arrives: a script that
-        // prints for a minute should be readable for that minute, and one that
-        // never finishes must not leave a window that can only wait.
-        pipe.fileHandleForReading.readabilityHandler = { handle in
+        // Both streams into one pipe, read as it arrives: a script that prints
+        // for a minute should be readable for that minute, and one that never
+        // finishes must not leave a window that can only wait.
+        //
+        // One reader, not two. An earlier version read the remainder from the
+        // termination handler as well, and the two raced: the run could be
+        // marked finished while the last chunk was still on its way to the main
+        // actor, so a short script showed an empty window. The end of the
+        // output is the empty read *here*, and finishing waits for both that
+        // and the exit -- in either order, since they are separate events.
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                Task { @MainActor [weak self] in
+                    self?.outputEnded = true
+                    self?.finishIfBothAreIn()
+                }
+                return
+            }
             let text = String(decoding: data, as: UTF8.self)
             Task { @MainActor [weak self] in self?.output += text }
         }
 
         task.terminationHandler = { [weak self] finished in
-            let reading = pipe.fileHandleForReading
-            reading.readabilityHandler = nil
-            // Whatever is still in the pipe. A process can exit with its last
-            // lines unread, and marking the run finished before collecting
-            // them lost them -- which for a short script could be all of them.
-            let remaining = (try? reading.readToEnd()) ?? Data()
             let code = finished.terminationStatus
             let signalled = finished.terminationReason == .uncaughtSignal
             Task { @MainActor [weak self] in
-                if !remaining.isEmpty {
-                    self?.output += String(decoding: remaining, as: UTF8.self)
-                }
-                self?.finish(with: code,
-                             trouble: signalled ? "The script was stopped." : nil)
+                self?.exit = (code, signalled)
+                self?.finishIfBothAreIn()
             }
         }
 
@@ -127,7 +136,13 @@ final class ScriptRun {
         process?.terminate()
     }
 
+    private func finishIfBothAreIn() {
+        guard outputEnded, let exit else { return }
+        finish(with: exit.code, trouble: exit.signalled ? "The script was stopped." : nil)
+    }
+
     private func finish(with code: Int32?, trouble: String?) {
+        guard isRunning else { return }
         status = code
         self.trouble = trouble
         isRunning = false

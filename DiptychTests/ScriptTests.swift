@@ -275,7 +275,7 @@ final class ScriptCatalogueTests: XCTestCase {
     }
 
     @discardableResult
-    private func install(_ name: String, _ text: String, mode: Int = 0o444) throws -> URL {
+    private func install(_ name: String, _ text: String, mode: Int = 0o400) throws -> URL {
         let url = folder.appendingPathComponent(name)
         try Data(text.utf8).write(to: url)
         try manager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
@@ -305,8 +305,31 @@ final class ScriptCatalogueTests: XCTestCase {
         load()
 
         XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
-        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("read-only")
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("written to")
                       ?? false, "\(ScriptCatalogue.shared.problems)")
+    }
+
+    func testAScriptOthersCanReadIsRefused() throws {
+        // A different protection from the write bit: that one guards what the
+        // script *is*, this one guards what is in it. A script is a fair place
+        // to keep a token or a private path, and this folder belongs to one
+        // person by definition.
+        try install("shared.sh", good, mode: 0o444)
+
+        load()
+
+        XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("Only you may read")
+                      ?? false, "\(ScriptCatalogue.shared.problems)")
+    }
+
+    func testOwnerExecutableIsFine() throws {
+        // Making a script executable is a natural thing to do to a script.
+        try install("runnable.sh", good, mode: 0o500)
+
+        load()
+
+        XCTAssertEqual(ScriptCatalogue.shared.scripts.count, 1)
     }
 
     func testNotEvenDeveloperModeAllowsAWritableScript() throws {
@@ -320,7 +343,7 @@ final class ScriptCatalogueTests: XCTestCase {
         load()
 
         XCTAssertTrue(ScriptCatalogue.shared.scripts.isEmpty)
-        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("read-only")
+        XCTAssertTrue(ScriptCatalogue.shared.problems.first?.message.contains("written to")
                       ?? false, "\(ScriptCatalogue.shared.problems)")
     }
 
@@ -331,7 +354,7 @@ final class ScriptCatalogueTests: XCTestCase {
         let url = try install("downloaded.sh", good, mode: 0o644)
         let value = "0081;00000000;Safari;"
         XCTAssertEqual(setxattr(url.path, "com.apple.quarantine", value, value.utf8.count, 0, 0), 0)
-        try manager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+        try manager.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
 
         load()
 
@@ -382,7 +405,7 @@ final class ScriptCatalogueTests: XCTestCase {
         try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
 
         let trouble = ScriptCatalogue.shared.troubleRunning(script)
-        XCTAssertTrue(trouble?.contains("read-only") ?? false, "\(trouble ?? "nil")")
+        XCTAssertTrue(trouble?.contains("written to") ?? false, "\(trouble ?? "nil")")
     }
 
     func testAScriptChangedAfterwardsIsRefusedWhenRun() throws {
@@ -394,7 +417,7 @@ final class ScriptCatalogueTests: XCTestCase {
 
         try manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
         try Data((good + "echo extra\n").utf8).write(to: url)
-        try manager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+        try manager.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
 
         let trouble = ScriptCatalogue.shared.troubleRunning(script)
         XCTAssertTrue(trouble?.contains("has changed") ?? false, "\(trouble ?? "nil")")
@@ -509,7 +532,7 @@ final class ScriptRunTests: XCTestCase {
         // Caught by the test above: a process can exit with its last lines
         // still in the pipe, and marking the run finished before collecting
         // them lost them. For a script this short that was all of them.
-        for _ in 0..<5 {
+        for _ in 0..<20 {
             let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho first\necho last\n")
 
             XCTAssertTrue(run.output.contains("first"), run.output)
