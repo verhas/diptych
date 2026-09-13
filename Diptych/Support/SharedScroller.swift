@@ -86,6 +86,13 @@ struct SharedScroller: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    /// On the main actor because everything it touches is: the offset is a
+    /// SwiftUI binding, and `hitPart` and `doubleValue` belong to an NSScroller.
+    /// That was always true at run time -- AppKit delivers a target's action and
+    /// a view's scroll events on the main thread and nowhere else -- but the
+    /// compiler could not know it, and under strict concurrency a thing true
+    /// only by convention is an error waiting for the next language version.
+    @MainActor
     final class Coordinator: NSObject {
 
         var parent: SharedScroller

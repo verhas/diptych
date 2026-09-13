@@ -2426,7 +2426,9 @@ final class AppModel {
             } else {
                 active.selection = []
             }
-        default:              return false
+        // No `default`. Every key the router knows about is handled above, so
+        // one would never run -- and without it, a key added to the router
+        // later has to be decided about here rather than quietly doing nothing.
         }
         return true
     }

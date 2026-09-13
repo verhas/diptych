@@ -197,7 +197,7 @@ struct GitStatus: Sendable {
     /// naive split leaves that path masquerading as a record of its own.
     static func parse(_ output: String) -> GitStatus {
         var status = GitStatus()
-        var fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        let fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
         var index = 0
 
         while index < fields.count {
