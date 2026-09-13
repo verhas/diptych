@@ -189,6 +189,105 @@ final class PaneModelTests: XCTestCase {
 
 extension PaneModelTests {
 
+    // MARK: - History over a folder that has gone
+
+    private func folder(_ name: String) throws -> URL {
+        let url = root.appendingPathComponent(name)
+        try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Reported: go into A/B, come back out, delete A/B, and nothing before
+    /// A/B could be reached again. Back landed on the deleted folder, the
+    /// failure moved the pane to the nearest folder that still existed, and
+    /// that was recorded as a fresh arrival -- putting the cursor back at the
+    /// end of the trail, so every further press repeated the same three steps.
+    func testBackStepsOverAFolderThatHasGone() async throws {
+        let one = try folder("one")
+        let two = try folder("two")
+        let three = try folder("three")
+        let pane = PaneModel(directory: one)
+        await pane.reloadAndWait()
+        pane.navigate(to: two)
+        await pane.reloadAndWait()
+        pane.navigate(to: three)
+        await pane.reloadAndWait()
+
+        try fm.removeItem(at: two)
+
+        pane.goBack()
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(canonical(pane.directory), canonical(one),
+                       "straight past the one that is gone")
+    }
+
+    func testWhatIsBeyondTheGoneFolderIsStillReachable() async throws {
+        // The heart of the report: not that the deleted folder failed, but
+        // that everything older than it became unreachable.
+        let one = try folder("one")
+        let two = try folder("two")
+        let three = try folder("three")
+        let four = try folder("four")
+        let pane = PaneModel(directory: one)
+        await pane.reloadAndWait()
+        for next in [two, three, four] {
+            pane.navigate(to: next)
+            await pane.reloadAndWait()
+        }
+
+        try fm.removeItem(at: three)
+        try fm.removeItem(at: two)
+
+        pane.goBack()
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(canonical(pane.directory), canonical(one), "two gone, both stepped over")
+        XCTAssertFalse(pane.canGoBack, "and the trail knows there is nothing further")
+    }
+
+    func testForwardStepsOverOneToo() async throws {
+        let one = try folder("one")
+        let two = try folder("two")
+        let three = try folder("three")
+        let pane = PaneModel(directory: one)
+        await pane.reloadAndWait()
+        pane.navigate(to: two)
+        await pane.reloadAndWait()
+        pane.navigate(to: three)
+        await pane.reloadAndWait()
+        pane.goBack()
+        await pane.reloadAndWait()
+        pane.goBack()
+        await pane.reloadAndWait()
+        XCTAssertEqual(canonical(pane.directory), canonical(one))
+
+        try fm.removeItem(at: two)
+
+        pane.goForward()
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(canonical(pane.directory), canonical(three))
+    }
+
+    func testBackDoesNothingWhenEverywhereBehindHasGone() async throws {
+        let one = try folder("one")
+        let two = try folder("two")
+        let pane = PaneModel(directory: one)
+        await pane.reloadAndWait()
+        pane.navigate(to: two)
+        await pane.reloadAndWait()
+
+        try fm.removeItem(at: one)
+
+        pane.goBack()
+        await pane.reloadAndWait()
+
+        XCTAssertEqual(canonical(pane.directory), canonical(two), "still where it was")
+        XCTAssertFalse(pane.canGoBack, "and it no longer claims otherwise")
+    }
+
+
     /// Reported: renaming a folder lost the selection, renaming a file kept
     /// it, and renaming a folder to its own name kept it too -- because that
     /// path returns before any reload happens.

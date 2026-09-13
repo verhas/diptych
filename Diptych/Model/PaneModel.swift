@@ -158,15 +158,45 @@ final class PaneModel {
     private(set) var canGoForward = false
 
     func goBack() {
-        guard historyIndex > 0 else { return }
-        historyIndex -= 1
-        navigate(to: history[historyIndex], recordingHistory: false)
+        guard let target = step(-1) else { return }
+        navigate(to: target, recordingHistory: false)
     }
 
     func goForward() {
-        guard historyIndex + 1 < history.count else { return }
-        historyIndex += 1
-        navigate(to: history[historyIndex], recordingHistory: false)
+        guard let target = step(1) else { return }
+        navigate(to: target, recordingHistory: false)
+    }
+
+    /// Move through the history in one direction, stepping over anything that
+    /// is no longer there and forgetting it on the way past.
+    ///
+    /// Reported: go into A/B, come back out, delete A/B, and everything before
+    /// A/B became unreachable. Back landed on the deleted folder, the failure
+    /// sent the pane to the nearest folder that still existed, and *that* was
+    /// recorded as a fresh arrival -- which put the cursor back at the end of
+    /// the trail. Every further press repeated the same three steps.
+    ///
+    /// So a folder that has gone is not somewhere to try and fail to go; it is
+    /// removed, and the walk carries on in the same direction. What is left is
+    /// a history of places that are still there.
+    private func step(_ direction: Int) -> URL? {
+        while true {
+            let next = historyIndex + direction
+            guard next >= 0, next < history.count else {
+                updateHistoryFlags()
+                return nil
+            }
+            if FileManager.default.fileExists(atPath: history[next].path) {
+                historyIndex = next
+                updateHistoryFlags()
+                return history[next]
+            }
+            history.remove(at: next)
+            // Going back, everything above the hole moves down, and the place
+            // we are standing is one of them. Going forward, it does not.
+            if direction < 0 { historyIndex -= 1 }
+            updateHistoryFlags()
+        }
     }
 
     private func record(_ url: URL) {
@@ -180,6 +210,17 @@ final class PaneModel {
             if history.count > 200 { history.removeFirst() }
         }
         historyIndex = history.count - 1
+        updateHistoryFlags()
+    }
+
+    /// Take a place that is gone out of the trail, keeping the cursor pointing
+    /// at whatever it was pointing at.
+    private func forget(_ url: URL) {
+        while let index = history.firstIndex(of: url) {
+            history.remove(at: index)
+            if index <= historyIndex { historyIndex -= 1 }
+        }
+        historyIndex = max(historyIndex, -1)
         updateHistoryFlags()
     }
 
@@ -605,6 +646,10 @@ final class PaneModel {
                 return
             }
             owner?.flash("\u{201C}\(target.lastPathComponent)\u{201D} is no longer there")
+            // Out of the history as well, or Back walks into it again. It can
+            // still be reached this way when a folder is deleted between the
+            // moment the trail is checked and the moment it is read.
+            forget(target)
             navigate(to: Self.nearestExistingAncestor(of: target))
             return
         }
