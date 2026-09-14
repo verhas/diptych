@@ -20,28 +20,28 @@ one it found, with the option of naming a different one. It checks the program
 is called `git` and that it answers `git version`, and says plainly that this is
 not a security check: a harmful program can be called `git` too.
 
-### The colours
+### The colors
 
 The name of a file is coloured by what Diptych knows about it:
 
-| Colour | Meaning |
-| --- | --- |
-| brown | new — **will not be sent** unless you say so |
-| green | new and tracked — will be sent |
-| blue | tracked and changed — will be sent |
-| purple | out of date: someone else has sent a newer version |
-| red | cannot go as it stands: it clashes, or a merge was left half-finished |
-| dimmed | a `(my version)` copy Diptych kept for you |
-| *none* | nothing to send: unchanged, or ignored |
+| Colour | Meaning                                                               |
+| ------ | --------------------------------------------------------------------- |
+| brown  | new — **will not be sent** unless you say so                          |
+| green  | new and tracked — will be sent                                        |
+| blue   | tracked and changed — will be sent                                    |
+| purple | out of date: someone else has sent a newer version                    |
+| red    | cannot go as it stands: it clashes, or a merge was left half-finished |
+| dimmed | a `(my version)` copy Diptych kept for you                            |
+| *none* | nothing to send: unchanged, or ignored                                |
 
-A folder takes the strongest colour of anything inside it, and the Git column
+A folder takes the strongest color of anything inside it, and the Git column
 lists **every** state in there — `clash, out of date, changed, new` — because
 one word can only report the worst thing and says nothing about the rest.
 
 Purple and red are the two that depend on asking the server, so they appear only
 after **Check for Changes** (⇧⌘K, or the toolbar button), the age of the answer
 is always on screen beside the counts, and after thirty minutes the answer is
-discarded and the colour goes with it. A claim about a server with no date on it
+discarded and the color goes with it. A claim about a server with no date on it
 is a claim Diptych cannot back up.
 
 ### The three verbs
@@ -64,7 +64,7 @@ Git refuses a push whenever the shared copy has moved on *at all*, even when
 nobody went near your files. Diptych treats that as its own problem: it fetches,
 replays your commit on top, and pushes. **So you can send one file while another
 is still contested** — which every other Git client manages, and refusing it was
-a Diptych limitation rather than a Git one. There is a setting to switch that
+a Diptych limitation, not a Git one. There is a setting to switch that
 off for anyone who would rather nothing arrived unasked.
 
 When a file you did *not* tick genuinely clashes, Diptych **asks before doing
@@ -76,9 +76,9 @@ for the rest:
 3. cancel the whole send
 
 Only files where both sides changed the *same lines* raise the question; where
-they did not, Git merges them and your copy ends up with both changes.
+they did not, Git merges them, and your copy ends up with both changes.
 
-**A file you did not tick is never renamed, replaced or annotated.** No conflict
+**A file you did not tick is never renamed, replaced, or annotated. **** No conflict
 markers appear anywhere, ever.
 
 ---
@@ -107,7 +107,7 @@ and it makes everything else unambiguous.
 
 Return splits the line where the caret is, Backspace at the start joins it to
 the one above, Escape puts the line back, and Tab is a way out that is not the
-mouse. One visit to a line is one step of undo. **Take a whole difference from
+mouse. One visit to a line is one undo step. **Take a whole difference from
 the other side** with one press, undone with one press.
 
 Saving keeps what is invisible and easy to destroy: the line ending the file
@@ -155,7 +155,7 @@ one that worked.
 
 ### What it will not run
 
-The danger this invents is not a dishonest expert but a script that arrives by
+The danger this invites is not a dishonest expert but a script that arrives by
 post. So Diptych refuses anything that:
 
 - came from outside this Mac (it carries a quarantine mark);
