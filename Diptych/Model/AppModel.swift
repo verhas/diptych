@@ -2490,6 +2490,14 @@ final class AppModel {
                 // hand, so it lives in the context menu alone.
                 trashNow()
                 return true
+            case .f2:
+                // F2 renames, so Command-F2 renames with a suggestion -- the same
+                // command as Control-Command-R, reachable from the key people
+                // already use for renaming. A menu item can carry only one
+                // shortcut, which is why this one lives here.
+                guard dialog == nil, namesCanBeSuggested else { return false }
+                renameWithSuggestion()
+                return true
             default:
                 // Let the system keep its own shortcuts (Cmd-Q, Cmd-W, ...).
                 return false
