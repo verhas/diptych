@@ -12,13 +12,13 @@ final class BinaryViewTests: XCTestCase {
     private var root: URL!
     private let fm = FileManager.default
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychBinary-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? fm.removeItem(at: root)
     }
 

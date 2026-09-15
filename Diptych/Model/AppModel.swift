@@ -561,7 +561,16 @@ final class AppModel {
             flash("There is nothing on the clipboard", error: true)
 
         case .text(let string):
-            write(Data(string.utf8), as: suggestedName("untitled.txt"))
+            let data = Data(string.utf8)
+            // Already waiting on the model for something else: this one gets
+            // the plain name at once rather than a second wait nobody can stop.
+            guard namesCanBeSuggested, !isSuggestingName else {
+                write(data, as: suggestedName("untitled.txt"))
+                return
+            }
+            nameThenWrite(data, extension: "txt", kind: "text") {
+                await NameSuggester.suggest(forText: string, details: $1, style: $0)
+            }
 
         case .image(let image, let pdf):
             let format = ConfigStore.shared.configuration.clipboardImageFormat
@@ -587,7 +596,76 @@ final class AppModel {
             dialog = .message("That picture could not be saved as \(format.title).")
             return
         }
-        write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+        guard namesCanBeSuggested, !isSuggestingName,
+              let picture = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+            return
+        }
+        // Taken out of the NSImage here, on the main actor, since an NSImage
+        // may not cross to the queue that does the looking.
+        let sendable = NameSuggester.SendableImage(picture)
+        nameThenWrite(data, extension: format.fileExtension, kind: "picture") {
+            await NameSuggester.suggest(forImage: sendable.image, details: $1, style: $0)
+        }
+    }
+
+    /// Ask for a name, write the file under it, and open the rename field on it.
+    ///
+    /// Written under the suggestion rather than as "untitled" and renamed
+    /// afterwards, so that a file which is kept as it comes has a good name from
+    /// the start -- and the rename field opens straight away, so the suggestion
+    /// is something to accept, not something that simply happened.
+    private func nameThenWrite(
+        _ data: Data, extension suffix: String, kind: String,
+        asking: @escaping (NameSuggester.Style, [String: String]) async -> NameSuggester.Outcome
+    ) {
+        let pane = active
+        isSuggestingName = true
+        showWhileThinking()
+        var style = nameStyle
+        // The file it will be, since there is no file yet to ask about.
+        let details = NameSuggester.details(
+            name: suggestedName("untitled.\(suffix)", in: pane.directory),
+            folder: pane.directory, bytes: Int64(data.count), kind: kind)
+        suggestionTask = Task {
+            let template = await namingTemplate(for: pane.directory)
+            if !Task.isCancelled { showWhileThinking(following: template) }
+            style.template = template
+            let answer = await asking(style, details)
+            // Stopped with Escape, the state was already cleared then -- and
+            // clearing it again here could wipe out a newer request's message.
+            // The clipboard still becomes a file, since that is what was asked
+            // for; it just keeps the plain name.
+            let stopped = Task.isCancelled
+            if !stopped {
+                suggestionTask = nil
+                isSuggestingName = false
+                stopShowingThinking()
+            }
+            let stem = stopped ? "untitled" : (answer.name ?? "untitled")
+            let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
+            let url = pane.directory.appendingPathComponent(name)
+            do {
+                try data.write(to: url, options: .withoutOverwriting)
+            } catch {
+                dialog = .message(error.localizedDescription)
+                return
+            }
+            await offerRename(of: url, in: pane)
+            // The file is made either way; this says why it kept the plain name.
+            if !stopped, let why = answer.explanation { flash(why) }
+        }
+    }
+
+    /// The Settings that shape a suggested name, read once per question.
+    private var nameStyle: NameSuggester.Style {
+        let configuration = ConfigStore.shared.configuration
+        return NameSuggester.Style(
+            separator: configuration.nameSeparatorEnabled
+                ? configuration.nameSeparator.first : nil,
+            unicode: configuration.nameUnicode,
+            germanSpelling: configuration.nameGermanSpelling,
+            excerptLength: configuration.nameExcerptLength)
     }
 
     private func write(_ data: Data, as name: String) {
@@ -723,8 +801,11 @@ final class AppModel {
     /// Finder's numbering rather than `FileOperations.uniqueURL`'s "-1", and
     /// deliberately: that one exists to stop a copy clobbering something, where
     /// this is a name a person is about to read and quite possibly keep.
-    private func suggestedName(_ base: String) -> String {
-        let directory = active.directory
+    private func suggestedName(_ base: String, in folder: URL? = nil) -> String {
+        // The folder is passed in when there has been a wait: by the time a
+        // suggested name comes back the user may be in the other pane, and
+        // numbering against that one would pick a name that clashes here.
+        let directory = folder ?? active.directory
         let stem = (base as NSString).deletingPathExtension
         let suffix = (base as NSString).pathExtension
         func name(_ number: Int) -> String {
@@ -788,6 +869,144 @@ final class AppModel {
         active.renamingID = item.id
     }
 
+    // MARK: - Suggested names
+
+    /// Whether to offer suggestions at all: switched on in Settings, and the
+    /// model actually there to ask.
+    var namesCanBeSuggested: Bool {
+        ConfigStore.shared.configuration.useAppleIntelligence && NameSuggester.status == .ready
+    }
+
+    /// A question to the model is in flight, so a second press does not start
+    /// another one.
+    private(set) var isSuggestingName = false
+    @ObservationIgnored private var suggestionTask: Task<Void, Never>?
+
+    /// Keep the message on screen for as long as the model takes.
+    ///
+    /// An ordinary flash lasts a couple of seconds, and a name can take
+    /// longer: the message went away and the pane then did nothing visible for
+    /// the rest of the wait, which looks exactly like a command that failed.
+    ///
+    /// With the seconds counting up, because how long cannot be predicted but
+    /// it can be shown -- and "it took eight seconds" is something a person can
+    /// act on, or report, where "it felt slow" is not.
+    private func showWhileThinking(following template: NamingTemplate.Template? = nil) {
+        toastTask?.cancel()
+        toastIsError = false
+        // Whose template, when it is a folder's own: a name that looks wrong is
+        // otherwise a puzzle about which file was followed.
+        if let folder = template?.folder {
+            thinkingAbout = " for \(NamingTemplate.tilde(folder))"
+        }
+        let started = thinkingSince ?? Date()
+        thinkingSince = started
+        showThinking(since: started)
+
+        thinkingTicker?.cancel()
+        thinkingTicker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                self.showThinking(since: started)
+            }
+        }
+    }
+
+    private func showThinking(since started: Date) {
+        let seconds = Int(Date().timeIntervalSince(started))
+        toast = "Thinking of a name\(thinkingAbout)\u{2026} \(seconds) s  (Esc to stop)"
+    }
+
+    @ObservationIgnored private var thinkingSince: Date?
+    @ObservationIgnored private var thinkingAbout = ""
+    @ObservationIgnored private var thinkingTicker: Task<Void, Never>?
+
+    /// The template for a folder, read afresh so an edit applies at once.
+    private func namingTemplate(for folder: URL) async -> NamingTemplate.Template {
+        await BlockingWork.run { NamingTemplate.read().template(for: folder) }
+    }
+
+    private func stopShowingThinking() {
+        thinkingTicker?.cancel()
+        thinkingTicker = nil
+        thinkingSince = nil
+        thinkingAbout = ""
+        if toast?.hasPrefix("Thinking of a name") ?? false { toast = nil }
+    }
+
+    /// Escape, while the model is thinking.
+    func cancelNameSuggestion() -> Bool {
+        guard let suggestionTask else { return false }
+        suggestionTask.cancel()
+        self.suggestionTask = nil
+        isSuggestingName = false
+        stopShowingThinking()
+        return true
+    }
+
+    /// Rename, starting from a name worked out from what is in the file.
+    ///
+    /// Plain Rename stays exactly as it was and instant. This is its own
+    /// command because the answer takes a second or more, and a rename field
+    /// whose text changed a moment after it opened would be changing under
+    /// the user's fingers.
+    func renameWithSuggestion() {
+        guard namesCanBeSuggested, !isSuggestingName,
+              let item = singleSelection("rename") else { return }
+        let pane = active
+        isSuggestingName = true
+        showWhileThinking()
+
+        var style = nameStyle
+        suggestionTask = Task {
+            var outcome: NameSuggester.Outcome?
+            if !item.isDirectory {
+                let template = await namingTemplate(
+                    for: item.url.deletingLastPathComponent())
+                guard !Task.isCancelled else { return }
+                showWhileThinking(following: template)
+                style.template = template
+                outcome = await NameSuggester.suggest(forFile: item.url, style: style)
+            }
+            // Stopped with Escape: nothing opens.
+            guard !Task.isCancelled else { return }
+            suggestionTask = nil
+            isSuggestingName = false
+            stopShowingThinking()
+
+            // The user may have moved on while the model was thinking, and a
+            // rename field opening on a different row would rename the wrong
+            // thing.
+            guard pane === active, pane.selection == [item.id] else { return }
+
+            if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
+            renameTable = currentTable
+            if let suggestion = outcome?.name {
+                let suffix = item.url.pathExtension
+                pane.renameText = suffix.isEmpty ? suggestion : "\(suggestion).\(suffix)"
+            } else {
+                // No name, for whichever reason the outcome gives. The field
+                // still opens, since renaming is what was asked for.
+                pane.renameText = item.name
+                flash(outcome?.explanation
+                      ?? "Suggestions come from what is inside a file, not a folder")
+            }
+            pane.renamingID = item.id
+        }
+    }
+
+    /// Open the rename field on a file that has just been made, so a suggested
+    /// name can be accepted with Return or replaced by typing.
+    private func offerRename(of url: URL, in pane: PaneModel) async {
+        await pane.reloadAndWait()
+        guard let row = pane.rows.first(where: { $0.url.path == url.path }) else { return }
+        pane.selection = [row.id]
+        renameTable = currentTable
+        pane.renameText = row.name
+        pane.renamingID = row.id
+    }
+
     func cancelInlineRename() {
         active.renamingID = nil
         restoreTableFocus()
@@ -821,6 +1040,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
+                await GitService.shared.followMove(from: item.url, to: url)
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
                 pane.reload()
@@ -1194,6 +1414,9 @@ final class AppModel {
                 if monitor.isCancelled { cancelledTargets = outcome.succeeded; break }
                 outcome.failures.append((source, message))
             } else {
+                if kind == .move {
+                    await GitService.shared.followMove(from: source, to: target)
+                }
                 outcome.succeeded.append(target)
                 progress.finishedItem()
             }
@@ -2382,6 +2605,24 @@ final class AppModel {
                 // hand, so it lives in the context menu alone.
                 trashNow()
                 return true
+            case .f2:
+                // F2 renames, so Command-F2 renames with a suggestion -- the same
+                // command as Control-Command-R, reachable from the key people
+                // already use for renaming. A menu item can carry only one
+                // shortcut, which is why this one lives here.
+                guard dialog == nil else { return false }
+                // The menu item is hidden while the feature is unavailable, but
+                // a key press is a deliberate request, and a bare beep tells
+                // nobody that the command exists and is merely switched off.
+                if !ConfigStore.shared.configuration.useAppleIntelligence {
+                    flash("Apple Intelligence is switched off in Diptych. Turn it on in "
+                          + "Settings, under Apple Intelligence.")
+                } else if NameSuggester.status != .ready {
+                    flash(NameSuggester.status.explanation)
+                } else {
+                    renameWithSuggestion()
+                }
+                return true
             default:
                 // Let the system keep its own shortcuts (Cmd-Q, Cmd-W, ...).
                 return false
@@ -2416,7 +2657,9 @@ final class AppModel {
         case .pageDown:       moveCursor(by: pageStride)
         case .space:          toggleQuickLook()
         case .escape:
-            if QuickLookController.shared.isVisible {
+            if cancelNameSuggestion() {
+                // Stopped the model; nothing else this press.
+            } else if QuickLookController.shared.isVisible {
                 QuickLookController.shared.close()
             } else if active.isNavigating {
                 // Escape is what everyone presses at a spinner. The button's

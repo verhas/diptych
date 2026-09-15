@@ -91,7 +91,8 @@ final class GitStatusTests: XCTestCase {
             "? after-the-rename.txt",
         ]))
 
-        XCTAssertEqual(status.states["new-name.md"], .changed)
+        XCTAssertEqual(status.states["new-name.md"], .renamed)
+        XCTAssertEqual(status.renamedFrom["new-name.md"], "old-name.md")
         XCTAssertNil(status.states["old-name.md"], "the original path is not a record")
         XCTAssertEqual(status.states["after-the-rename.txt"], .untracked,
                        "and the record after the rename is still read")

@@ -261,7 +261,7 @@ final class ScriptCatalogueTests: XCTestCase {
     private let manager = FileManager.default
     private var developerMode = false
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychScripts-\(UUID().uuidString)")
         try manager.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -269,7 +269,7 @@ final class ScriptCatalogueTests: XCTestCase {
         ConfigStore.shared.configuration.scriptsDeveloperMode = false
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         ConfigStore.shared.configuration.scriptsDeveloperMode = developerMode
         try? manager.removeItem(at: folder)
     }
@@ -490,13 +490,13 @@ final class ScriptRunTests: XCTestCase {
 
     private var folder: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychRun-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: folder)
     }
 

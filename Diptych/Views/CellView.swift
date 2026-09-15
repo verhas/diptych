@@ -35,6 +35,7 @@ struct CellView: View {
         case .untracked:  .brown
         case .added:      .green
         case .changed:    .blue
+        case .renamed:    .blue
         case .deleted:    .blue
         // Blue like the others that are waiting to be sent, because that is
         // what it is: a change of yours on its way out.
