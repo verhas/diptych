@@ -569,7 +569,7 @@ final class AppModel {
                 return
             }
             nameThenWrite(data, extension: "txt") {
-                await NameSuggester.suggest(forText: string)
+                await NameSuggester.suggest(forText: string, style: self.nameStyle)
             }
 
         case .image(let image, let pdf):
@@ -605,7 +605,7 @@ final class AppModel {
         // may not cross to the queue that does the looking.
         let sendable = NameSuggester.SendableImage(picture)
         nameThenWrite(data, extension: format.fileExtension) {
-            await NameSuggester.suggest(forImage: sendable.image)
+            await NameSuggester.suggest(forImage: sendable.image, style: self.nameStyle)
         }
     }
 
@@ -616,7 +616,7 @@ final class AppModel {
     /// the start -- and the rename field opens straight away, so the suggestion
     /// is something to accept, not something that simply happened.
     private func nameThenWrite(_ data: Data, extension suffix: String,
-                               asking: @escaping () async -> String?) {
+                               asking: @escaping () async -> NameSuggester.Outcome) {
         let pane = active
         isSuggestingName = true
         showWhileThinking()
@@ -632,7 +632,7 @@ final class AppModel {
                 isSuggestingName = false
                 stopShowingThinking()
             }
-            let stem = stopped ? "untitled" : (answer ?? "untitled")
+            let stem = stopped ? "untitled" : (answer.name ?? "untitled")
             let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
             let url = pane.directory.appendingPathComponent(name)
             do {
@@ -642,7 +642,20 @@ final class AppModel {
                 return
             }
             await offerRename(of: url, in: pane)
+            // The file is made either way; this says why it kept the plain name.
+            if !stopped, let why = answer.explanation { flash(why) }
         }
+    }
+
+    /// The Settings that shape a suggested name, read once per question.
+    private var nameStyle: NameSuggester.Style {
+        let configuration = ConfigStore.shared.configuration
+        return NameSuggester.Style(
+            separator: configuration.nameSeparatorEnabled
+                ? configuration.nameSeparator.first : nil,
+            unicode: configuration.nameUnicode,
+            germanSpelling: configuration.nameGermanSpelling,
+            excerptLength: configuration.nameExcerptLength)
     }
 
     private func write(_ data: Data, as name: String) {
@@ -851,7 +864,7 @@ final class AppModel {
     /// Whether to offer suggestions at all: switched on in Settings, and the
     /// model actually there to ask.
     var namesCanBeSuggested: Bool {
-        ConfigStore.shared.configuration.suggestNames && NameSuggester.status == .ready
+        ConfigStore.shared.configuration.useAppleIntelligence && NameSuggester.status == .ready
     }
 
     /// A question to the model is in flight, so a second press does not start
@@ -897,10 +910,11 @@ final class AppModel {
         isSuggestingName = true
         showWhileThinking()
 
+        let style = nameStyle
         suggestionTask = Task {
-            let suggestion = item.isDirectory
+            let outcome: NameSuggester.Outcome? = item.isDirectory
                 ? nil
-                : await NameSuggester.suggest(forFile: item.url)
+                : await NameSuggester.suggest(forFile: item.url, style: style)
             // Stopped with Escape: nothing opens.
             guard !Task.isCancelled else { return }
             suggestionTask = nil
@@ -914,16 +928,15 @@ final class AppModel {
 
             if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
             renameTable = currentTable
-            if let suggestion {
+            if let suggestion = outcome?.name {
                 let suffix = item.url.pathExtension
                 pane.renameText = suffix.isEmpty ? suggestion : "\(suggestion).\(suffix)"
             } else {
-                // Nothing to go on -- a folder, a binary file, an empty one. The
-                // field still opens, since renaming is what was asked for.
+                // No name, for whichever reason the outcome gives. The field
+                // still opens, since renaming is what was asked for.
                 pane.renameText = item.name
-                flash(item.isDirectory
-                      ? "Suggestions come from what is inside a file, not a folder"
-                      : "There was nothing in this file to suggest a name from")
+                flash(outcome?.explanation
+                      ?? "Suggestions come from what is inside a file, not a folder")
             }
             pane.renamingID = item.id
         }
@@ -2543,9 +2556,9 @@ final class AppModel {
                 // The menu item is hidden while the feature is unavailable, but
                 // a key press is a deliberate request, and a bare beep tells
                 // nobody that the command exists and is merely switched off.
-                if !ConfigStore.shared.configuration.suggestNames {
-                    flash("Suggested names are switched off. Turn them on in Settings, "
-                          + "under Behaviour.")
+                if !ConfigStore.shared.configuration.useAppleIntelligence {
+                    flash("Apple Intelligence is switched off in Diptych. Turn it on in "
+                          + "Settings, under Apple Intelligence.")
                 } else if NameSuggester.status != .ready {
                     flash(NameSuggester.status.explanation)
                 } else {

@@ -79,48 +79,120 @@ enum NameSuggester {
     /// which it is better to give up than to keep somebody waiting.
     static let patience: TimeInterval = 20
 
-    /// A name for this file, without its extension, or nil if there is nothing
-    /// to go on or the model cannot help.
-    static func suggest(forFile url: URL) async -> String? {
-        let what = await BlockingWork.run { describe(url) }
-        guard let what else { return nil }
-        return await ask(about: what)
+    /// How a suggested name is written, from Settings.
+    ///
+    /// Taken as a value when the question is asked, so a setting changed while
+    /// the model is thinking does not half-apply to the answer.
+    struct Style: Equatable, Sendable {
+        /// Put between words instead of a space. Nil keeps spaces.
+        var separator: Character? = nil
+        /// Letters outside plain ASCII are allowed. Off, they are spelt in it.
+        var unicode = true
+        /// With `unicode` off: ä, ö, ü become ae, oe, ue rather than a, o, u.
+        var germanSpelling = false
+        /// How much of the start of a file the model is shown.
+        var excerptLength = NameSuggester.defaultExcerptLength
+    }
+
+    /// What came of asking.
+    ///
+    /// Not an optional name: "no name" has several causes, and they call for
+    /// different things from the user. Reporting every one of them as "there
+    /// was nothing in this file" would be wrong about most of them -- and
+    /// wrong in the way that sends someone looking at the file instead of at
+    /// the setting that caused it.
+    enum Outcome: Equatable, Sendable {
+        case name(String)
+        /// A binary file, an empty one, a picture with nothing Vision could see.
+        case nothingToGoOn
+        /// More content than the model can read at once.
+        case tooLong
+        case tookTooLong
+        /// The model answered, but with nothing usable as a file name.
+        case unusable
+        /// Apple's safety rules would not let the model describe it.
+        case declined
+        case unsupportedLanguage
+        case unavailable(Status)
+        case failed(String)
+
+        var name: String? {
+            if case .name(let name) = self { name } else { nil }
+        }
+
+        /// What to tell the user when there is no name. Nil when there is one.
+        var explanation: String? {
+            switch self {
+            case .name:
+                nil
+            case .nothingToGoOn:
+                "There was nothing in this file to suggest a name from"
+            case .tooLong:
+                "That is more than Apple Intelligence can read at once. Set fewer "
+                + "characters in Settings, under Apple Intelligence."
+            case .tookTooLong:
+                "No name came back within \(Int(NameSuggester.patience)) seconds"
+            case .unusable:
+                "Apple Intelligence answered with nothing usable as a file name"
+            case .declined:
+                "Apple Intelligence would not describe this content"
+            case .unsupportedLanguage:
+                "Apple Intelligence does not support the language this is written in"
+            case .unavailable(let status):
+                status.explanation
+            case .failed(let reason):
+                "Apple Intelligence could not suggest a name: \(reason)"
+            }
+        }
+    }
+
+    /// A name for this file, without its extension.
+    static func suggest(forFile url: URL, style: Style = Style()) async -> Outcome {
+        let length = style.excerptLength
+        let what = await BlockingWork.run { describe(url, length: length) }
+        guard let what else { return .nothingToGoOn }
+        return await ask(about: what, style: style)
     }
 
     /// A name for what is on the clipboard.
-    static func suggest(forText text: String) async -> String? {
-        await ask(about: excerpt(of: text))
+    static func suggest(forText text: String, style: Style = Style()) async -> Outcome {
+        let what = excerpt(of: text, length: style.excerptLength)
+        guard !what.isEmpty else { return .nothingToGoOn }
+        return await ask(about: what, style: style)
     }
 
-    static func suggest(forImage image: CGImage) async -> String? {
-        let words = await BlockingWork.run { describe(SendableImage(image)) }
-        guard let words else { return nil }
-        return await ask(about: words)
+    static func suggest(forImage image: CGImage, style: Style = Style()) async -> Outcome {
+        let length = style.excerptLength
+        let words = await BlockingWork.run { describe(SendableImage(image), length: length) }
+        guard let words else { return .nothingToGoOn }
+        return await ask(about: words, style: style)
     }
 
-    private static func ask(about content: String) async -> String? {
-        guard status == .ready, #available(macOS 26, *) else { return nil }
-        let answer = await withTaskGroup(of: String?.self) { group in
-            group.addTask { try? await Model.name(for: content) }
+    private static func ask(about content: String, style: Style) async -> Outcome {
+        let status = status
+        guard status == .ready, #available(macOS 26, *) else { return .unavailable(status) }
+        let outcome = await withTaskGroup(of: Outcome.self) { group in
+            group.addTask { await Model.name(for: content) }
             group.addTask {
                 try? await Task.sleep(for: .seconds(patience))
-                return nil
+                return .tookTooLong
             }
-            let first = await group.next() ?? nil
+            let first = await group.next() ?? .tookTooLong
             group.cancelAll()
             return first
         }
-        return answer.flatMap(tidy)
+        guard case .name(let raw) = outcome else { return outcome }
+        return tidy(raw, style: style).map(Outcome.name) ?? .unusable
     }
 
     // MARK: - What to show the model
 
     /// About a thousand tokens of a context window of four thousand, leaving
-    /// room for the instructions and the answer.
-    static let excerptLength = 3000
+    /// room for the instructions and the answer. Settings can change it.
+    static let defaultExcerptLength = 3000
 
-    static func excerpt(of text: String) -> String {
-        String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(excerptLength))
+    static func excerpt(of text: String, length: Int = defaultExcerptLength) -> String {
+        String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(max(length, 1)))
     }
 
     /// Turn a file into words the model can read.
@@ -129,16 +201,19 @@ enum NameSuggester {
     /// described by Vision -- because on macOS 26 the model reads words only.
     /// Image input arrives with macOS 27. Anything else has nothing to go on,
     /// and a guess from a file name alone would be worse than no suggestion.
-    static func describe(_ url: URL) -> String? {
+    static func describe(_ url: URL, length: Int = defaultExcerptLength) -> String? {
         let suffix = url.pathExtension.lowercased()
 
         if suffix == "pdf", let document = PDFDocument(url: url) {
             var text = ""
-            for index in 0..<min(document.pageCount, 3) {
+            // As many pages as it takes to fill the excerpt, but not a whole
+            // book's worth: a number typed into Settings should not be able to
+            // make this read a thousand pages.
+            for index in 0..<min(document.pageCount, 100) {
                 text += document.page(at: index)?.string ?? ""
-                if text.count >= excerptLength { break }
+                if text.count >= length { break }
             }
-            let trimmed = excerpt(of: text)
+            let trimmed = excerpt(of: text, length: length)
             return trimmed.isEmpty ? nil : trimmed
         }
 
@@ -150,16 +225,21 @@ enum NameSuggester {
                kCGImageSourceThumbnailMaxPixelSize: 1600,
            ] as CFDictionary),
            isPicture(suffix) {
-            return describe(SendableImage(image))
+            return describe(SendableImage(image), length: length)
         }
 
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 16_000), !data.isEmpty else { return nil }
+        // A character is at most four bytes in UTF-8, so this is always enough
+        // bytes for the characters wanted -- plus a margin, since what is cut
+        // off at the start by trimming white space would otherwise be missing
+        // at the end.
+        let bytes = min(max(length, 1), Int.max / 8) * 4 + 1024
+        guard let data = try? handle.read(upToCount: bytes), !data.isEmpty else { return nil }
         // A NUL byte in the first stretch still means "not text".
         guard !data.contains(0) else { return nil }
         let text = String(decoding: data, as: UTF8.self)
-        let trimmed = excerpt(of: text)
+        let trimmed = excerpt(of: text, length: length)
         return trimmed.isEmpty ? nil : trimmed
     }
 
@@ -177,7 +257,7 @@ enum NameSuggester {
 
     /// What Vision can say about a picture: the text written in it, then what
     /// it seems to show. Both on this Mac, with no model download of their own.
-    static func describe(_ picture: SendableImage) -> String? {
+    static func describe(_ picture: SendableImage, length: Int = defaultExcerptLength) -> String? {
         let handler = VNImageRequestHandler(cgImage: picture.image)
 
         let reading = VNRecognizeTextRequest()
@@ -200,7 +280,7 @@ enum NameSuggester {
         var parts: [String] = []
         if !labels.isEmpty { parts.append("A picture showing: " + labels.joined(separator: ", ") + ".") }
         if !text.isEmpty { parts.append("Text in the picture: " + text) }
-        let description = excerpt(of: parts.joined(separator: "\n"))
+        let description = excerpt(of: parts.joined(separator: "\n"), length: length)
         return description.isEmpty ? nil : description
     }
 
@@ -218,12 +298,22 @@ enum NameSuggester {
     /// back is therefore treated like any other untrusted string: no path
     /// separators, no control characters, no leading dot to hide the file, no
     /// extension of its own, and nothing longer than a name should be.
-    static func tidy(_ raw: String) -> String? {
+    ///
+    /// The style is applied around that. Spelling in plain letters comes first,
+    /// so that every check after it sees the name as it will be written -- a
+    /// conversion can turn a character that looks harmless into one that is
+    /// not. The separator comes last, once the name is otherwise final, so it
+    /// cannot be mistaken for anything by the checks.
+    static func tidy(_ raw: String, style: Style = Style()) -> String? {
         var name = raw.unicodeScalars
             .filter { !CharacterSet.controlCharacters.contains($0) }
             .map(String.init).joined()
 
-        for unwanted in ["/", ":", "\\", "\"", "\u{201C}", "\u{201D}", "`", "*", "?", "<", ">", "|"] {
+        if !style.unicode {
+            name = plainLetters(name, germanSpelling: style.germanSpelling)
+        }
+
+        for unwanted in unwantedInNames {
             name = name.replacingOccurrences(of: unwanted, with: " ")
         }
         // Underscores are the model's habit, not a person's: asked for a plain
@@ -251,7 +341,70 @@ enum NameSuggester {
             name = cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? String(cut)
             name = name.trimmingCharacters(in: CharacterSet(charactersIn: " .-_"))
         }
-        return name.isEmpty ? nil : name
+        guard !name.isEmpty else { return nil }
+
+        if let separator = style.separator,
+           isUsableSeparator(separator, unicode: style.unicode) {
+            name = name.replacingOccurrences(of: " ", with: String(separator))
+        }
+        return name
+    }
+
+    /// Characters that have no place in a suggested name: path separators, and
+    /// the ones that mean something to a shell or to another operating system.
+    static let unwantedInNames: [String] =
+        ["/", ":", "\\", "\"", "\u{201C}", "\u{201D}", "`", "*", "?", "<", ">", "|"]
+
+    /// Whether a character can stand between the words of a name.
+    ///
+    /// Not white space, which is what it replaces; nothing that is refused in
+    /// a name anyway; and plain ASCII when names are to be plain ASCII, since
+    /// a separator is in every name and would break that promise every time.
+    static func isUsableSeparator(_ character: Character, unicode: Bool) -> Bool {
+        guard !character.isWhitespace, !character.isNewline,
+              !unwantedInNames.contains(String(character)),
+              !character.unicodeScalars.contains(where: {
+                  CharacterSet.controlCharacters.contains($0) }) else { return false }
+        return unicode || character.isASCII
+    }
+
+    /// The name in plain ASCII letters.
+    ///
+    /// Accents are dropped (ő and ó become o) and other alphabets are spelt in
+    /// Latin ones (Москва becomes Moskva), by the same ICU transliteration the
+    /// system uses. Anything with no spelling in ASCII at all -- an emoji -- is
+    /// left out. German spelling, when asked for, goes first: the transliterator
+    /// alone would write Übersicht as Ubersicht, which a German reader takes
+    /// for a misspelling rather than a plainer one.
+    static func plainLetters(_ text: String, germanSpelling: Bool) -> String {
+        // Composed, so that an ü typed as u plus a combining mark is found too.
+        var text = text.precomposedStringWithCanonicalMapping
+        if germanSpelling { text = spelledInGerman(text) }
+        text = text.applyingTransform(StringTransform("Any-Latin; Latin-ASCII"),
+                                      reverse: false) ?? text
+        return String(String.UnicodeScalarView(text.unicodeScalars.filter(\.isASCII)))
+    }
+
+    /// Ä, Ö and Ü written out, as German does without them.
+    ///
+    /// Capital as the word is: Über becomes Ueber but ÜBER becomes UEBER.
+    static func spelledInGerman(_ text: String) -> String {
+        let spelled: [Character: String] = ["ä": "ae", "ö": "oe", "ü": "ue",
+                                             "Ä": "Ae", "Ö": "Oe", "Ü": "Ue"]
+        let characters = Array(text)
+        var result = ""
+        for (index, character) in characters.enumerated() {
+            guard let spelling = spelled[character] else {
+                result.append(character)
+                continue
+            }
+            let neighbours = [index - 1, index + 1]
+                .filter { characters.indices.contains($0) && characters[$0].isLetter }
+            let shouting = character.isUppercase && !neighbours.isEmpty
+                && neighbours.allSatisfy { characters[$0].isUppercase }
+            result += shouting ? spelling.uppercased() : spelling
+        }
+        return result
     }
 }
 
@@ -287,16 +440,27 @@ private enum Model {
     becomes Fibonacci function in Swift.
     """
 
-    static func name(for content: String) async throws -> String {
+    static func name(for content: String) async -> NameSuggester.Outcome {
         // The system model, by name. Never the Private Cloud Compute one.
         let session = LanguageModelSession(model: SystemLanguageModel.default,
                                            instructions: instructions)
-        let reply = try await session.respond(
-            to: "BEGIN CONTENT\n\(content)\nEND CONTENT",
-            generating: Suggestion.self,
-            // Greedy, so the same file is given the same name every time
-            // rather than a different guess on each press.
-            options: GenerationOptions(samplingMode: .greedy))
-        return reply.content.words.joined(separator: " ")
+        do {
+            let reply = try await session.respond(
+                to: "BEGIN CONTENT\n\(content)\nEND CONTENT",
+                generating: Suggestion.self,
+                // Greedy, so the same file is given the same name every time
+                // rather than a different guess on each press.
+                options: GenerationOptions(samplingMode: .greedy))
+            return .name(reply.content.words.joined(separator: " "))
+        } catch let error as LanguageModelSession.GenerationError {
+            switch error {
+            case .exceededContextWindowSize: return .tooLong
+            case .guardrailViolation, .refusal: return .declined
+            case .unsupportedLanguageOrLocale: return .unsupportedLanguage
+            default: return .failed(error.localizedDescription)
+            }
+        } catch {
+            return .failed(error.localizedDescription)
+        }
     }
 }

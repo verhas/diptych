@@ -182,12 +182,29 @@ struct Configuration: Codable, Equatable {
     /// folder again without restarting.
     var scriptsDeveloperMode = false
 
-    /// Suggest names for files from what is in them, using Apple Intelligence
-    /// on this Mac.
+    /// Use Apple Intelligence on this Mac -- for now, to suggest file names.
     ///
     /// Off by default like everything else that reads the contents of files on
-    /// its own initiative -- though nothing leaves the Mac.
-    var suggestNames = false
+    /// its own initiative -- though nothing leaves the Mac. One switch for the
+    /// whole of it rather than one per feature, since what someone is deciding
+    /// is whether the model reads their files at all.
+    var useAppleIntelligence = false
+
+    /// A suggested name with this between its words instead of spaces.
+    ///
+    /// Two settings rather than one optional character, so that switching it
+    /// off and on again brings back the character that was chosen.
+    var nameSeparatorEnabled = false
+    var nameSeparator = "_"
+
+    /// Suggested names may use any letter. Off, they keep to plain ASCII.
+    var nameUnicode = true
+
+    /// In plain ASCII, ä, ö, ü are written ae, oe, ue.
+    var nameGermanSpelling = false
+
+    /// How many characters from the start of a file the model is shown.
+    var nameExcerptLength = NameSuggester.defaultExcerptLength
 
     var gitCheckOnOpen = false
 
@@ -228,7 +245,8 @@ struct Configuration: Codable, Equatable {
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
-        case suggestNames
+        case useAppleIntelligence, nameSeparatorEnabled, nameSeparator, nameUnicode
+        case nameGermanSpelling, nameExcerptLength
     }
 
     init() {}
@@ -257,7 +275,18 @@ struct Configuration: Codable, Equatable {
         scriptsEnabled = (try? container.decode(Bool.self, forKey: .scriptsEnabled)) ?? false
         scriptsDeveloperMode =
             (try? container.decode(Bool.self, forKey: .scriptsDeveloperMode)) ?? false
-        suggestNames = (try? container.decode(Bool.self, forKey: .suggestNames)) ?? false
+        useAppleIntelligence =
+            (try? container.decode(Bool.self, forKey: .useAppleIntelligence)) ?? false
+        nameSeparatorEnabled =
+            (try? container.decode(Bool.self, forKey: .nameSeparatorEnabled)) ?? false
+        nameSeparator = (try? container.decode(String.self, forKey: .nameSeparator)) ?? "_"
+        nameUnicode = (try? container.decode(Bool.self, forKey: .nameUnicode)) ?? true
+        nameGermanSpelling =
+            (try? container.decode(Bool.self, forKey: .nameGermanSpelling)) ?? false
+        // At least one: config.json is hand-editable, and nothing useful can be
+        // named from none of a file.
+        nameExcerptLength = max(1, (try? container.decode(Int.self, forKey: .nameExcerptLength))
+                                   ?? NameSuggester.defaultExcerptLength)
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

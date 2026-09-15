@@ -18,6 +18,8 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
             BehaviourSettingsView()
                 .tabItem { Label("Behaviour", systemImage: "switch.2") }
+            IntelligenceSettingsView()
+                .tabItem { Label("Apple Intelligence", systemImage: "apple.intelligence") }
             GitSettingsView()
                 .tabItem { Label("Version Tracking",
                                  systemImage: "point.3.filled.connected.trianglepath.dotted") }
@@ -99,33 +101,6 @@ struct BehaviourSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            Divider()
-
-            Toggle("Suggest names with Apple Intelligence",
-                   isOn: $store.configuration.suggestNames)
-                .toggleStyle(.checkbox)
-            Text("Adds Rename with Suggested Name (\u{2303}\u{2318}R, or \u{2318}F2), and names "
-                 + "what New from Clipboard makes "
-                 + "from what is in it. The name always lands in the rename field for you to "
-                 + "accept, change or throw away.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("It runs on this Mac and nothing is sent anywhere \u{2014} Diptych uses only "
-                 + "the language model on the Mac itself, never Apple's cloud one.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            // Said here rather than leaving the command mysteriously absent.
-            if store.configuration.suggestNames {
-                let status = NameSuggester.status
-                Label(status.explanation,
-                      systemImage: status == .ready ? "checkmark.circle" : "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(status == .ready ? Color.secondary : Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
 
             Divider()
 
