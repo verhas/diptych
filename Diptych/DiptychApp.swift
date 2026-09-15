@@ -9,6 +9,7 @@ struct DiptychApp: App {
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
+    static let textWindowID = "diptych.text"
     static let diffWindowID = "diptych.diff"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -34,11 +35,19 @@ struct DiptychApp: App {
         // about nothing -- which the user then has to close.
         .restorationBehavior(.disabled)
 
-        // One binary view per file, for the same reason as the info window.
+        // One Bin Edit per file, for the same reason as the info window.
         WindowGroup(id: DiptychApp.binaryWindowID, for: URL.self) { $url in
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+        .restorationBehavior(.disabled)
+
+        // One Text Edit per file: asking again for the same file brings its
+        // window forward rather than opening a second editor on it.
+        WindowGroup(id: DiptychApp.textWindowID, for: URL.self) { $url in
+            if let url { TextEditView(url: url) }
+        }
+        .defaultSize(width: 780, height: 620)
         .restorationBehavior(.disabled)
 
         // One comparison per pair of files, so a second Cmd-D on two other

@@ -434,7 +434,8 @@ struct PaneView: View {
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent {
-                Button("Bin View") { act(ids) { model.showBinaryView() } }
+                Button("Text Edit") { act(ids) { model.showTextEditor() } }
+                Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
             scripts(for: targets(of: ids))
 

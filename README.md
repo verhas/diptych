@@ -294,10 +294,33 @@ tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
 
-## Bin View
+## Text Edit
 
-Right-click a file ▸ **Bin View** opens a hex editor in its own window, one per
-file. The entry is absent for folders rather than greyed out -- it would be
+Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own
+editor, one window per file, whatever application the file would normally open
+in. It is small on purpose — typing, undo, find and replace (⌘F), wrapping, and
+Save (⌘S) — and careful where general editors are not:
+
+* Nothing rewrites what is typed: no curly quotes, no dashes from double
+  hyphens, no spelling correction, no link detection. In a script or a CSV each
+  of those silently changes what the file means.
+* The file is saved with the line endings, final newline and encoding it came
+  with, the same way a comparison window saves: its permissions, owner and
+  extended attributes survive. Text that cannot be written in the file's
+  encoding is refused rather than mangled.
+* A file changed by something else since it was opened is not overwritten
+  without asking. A file that cannot be written to opens read-only and says so.
+* A binary file is not opened; the window points to Bin Edit.
+* A file open in a comparison is refused, and the other way round, because two
+  windows saving one file would each overwrite the other without a word.
+
+Files that are neither UTF-8 nor marked with their encoding are read as Windows
+Latin-1, then ISO Latin-1, and the window shows which.
+
+## Bin Edit
+
+Right-click a file ▸ **Bin Edit** opens a hex editor in its own window, one per
+file. (It was called Bin View; it has always been able to change the file.) The entry is absent for folders rather than greyed out -- it would be
 permanently disabled on half the rows of every listing -- and `showBinaryView()`
 refuses a directory again on the way through, because a context menu is not a
 security boundary.

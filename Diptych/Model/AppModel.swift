@@ -170,6 +170,7 @@ final class AppModel {
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
+    @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?, urls: [URL])?
 
     init() {
@@ -394,7 +395,8 @@ final class AppModel {
         // saves the whole file from its own copy, so whichever is saved second
         // quietly wins.
         if let clash = DiffWindows.shared.alreadyOpen(asked) {
-            flash("\(clash.lastPathComponent) is already open in a comparison", error: true)
+            flash("\(clash.lastPathComponent) is already open in a comparison or in Text Edit",
+                  error: true)
             return
         }
         openDiffWindow?(asked)
@@ -421,13 +423,31 @@ final class AppModel {
     }
 
     func showBinaryView() {
-        guard let item = singleSelection("open in the binary view",
+        guard let item = singleSelection("open in Bin Edit",
                                          includingParent: false) else { return }
         guard !item.isDirectory else {
-            flash("\(item.name) is a folder. The binary view opens files.", error: true)
+            flash("\(item.name) is a folder. Bin Edit opens files.", error: true)
             return
         }
         openBinaryWindow?(item.url)
+    }
+
+    /// Text Edit: the file as plain text, in Diptych's own editor, whatever
+    /// application the file would normally open in.
+    func showTextEditor() {
+        guard let item = singleSelection("open in Text Edit",
+                                         includingParent: false) else { return }
+        guard !item.isDirectory else {
+            flash("\(item.name) is a folder. Text Edit opens files.", error: true)
+            return
+        }
+        // A comparison that can save the same file would overwrite, or be
+        // overwritten by, this window without a word.
+        if DiffWindows.shared.isInComparison(item.url) {
+            flash("\(item.name) is already open in a comparison", error: true)
+            return
+        }
+        openTextWindow?(item.url)
     }
 
     /// Space, as in Finder.

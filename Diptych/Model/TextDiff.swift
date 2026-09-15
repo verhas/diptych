@@ -63,7 +63,7 @@ struct TextDiff: Sendable {
             switch self {
             case .notText(let name):
                 "\u{201C}\(name)\u{201D} is not text that Diptych can read. "
-                + "The binary view opens files like that."
+                + "Bin Edit opens files like that."
             case .tooBig(let name, let lines):
                 "\u{201C}\(name)\u{201D} has \(lines) lines, which is more than this "
                 + "window can compare."
@@ -351,6 +351,16 @@ struct TextDiff: Sendable {
             var guessed = String.Encoding.utf8
             text = try? String(contentsOf: url, usedEncoding: &guessed)
             encoding = guessed
+        }
+        // Then the two single-byte encodings most text that is not UTF-8 is in.
+        // The system's guess needs a byte-order mark or an attribute recording
+        // the encoding, and a plain Latin-1 file has neither -- so a file of
+        // European text written on an older system could not be opened at all.
+        // A NUL has already ruled out binary, and every byte means something in
+        // ISO Latin-1, so this cannot fail; the window shows which was assumed.
+        for fallback in [String.Encoding.windowsCP1252, .isoLatin1] where text == nil {
+            text = String(data: data, encoding: fallback)
+            encoding = fallback
         }
         guard let text else { throw Failure.notText(name: name) }
 
