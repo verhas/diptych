@@ -562,7 +562,9 @@ final class AppModel {
 
         case .text(let string):
             let data = Data(string.utf8)
-            guard namesCanBeSuggested else {
+            // Already waiting on the model for something else: this one gets
+            // the plain name at once rather than a second wait nobody can stop.
+            guard namesCanBeSuggested, !isSuggestingName else {
                 write(data, as: suggestedName("untitled.txt"))
                 return
             }
@@ -594,7 +596,7 @@ final class AppModel {
             dialog = .message("That picture could not be saved as \(format.title).")
             return
         }
-        guard namesCanBeSuggested,
+        guard namesCanBeSuggested, !isSuggestingName,
               let picture = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             write(data, as: suggestedName("untitled.\(format.fileExtension)"))
             return
@@ -616,9 +618,21 @@ final class AppModel {
     private func nameThenWrite(_ data: Data, extension suffix: String,
                                asking: @escaping () async -> String?) {
         let pane = active
-        flash("Thinking of a name\u{2026}", error: false)
-        Task {
-            let stem = await asking() ?? "untitled"
+        isSuggestingName = true
+        showWhileThinking()
+        suggestionTask = Task {
+            let answer = await asking()
+            // Stopped with Escape, the state was already cleared then -- and
+            // clearing it again here could wipe out a newer request's message.
+            // The clipboard still becomes a file, since that is what was asked
+            // for; it just keeps the plain name.
+            let stopped = Task.isCancelled
+            if !stopped {
+                suggestionTask = nil
+                isSuggestingName = false
+                stopShowingThinking()
+            }
+            let stem = stopped ? "untitled" : (answer ?? "untitled")
             let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
             let url = pane.directory.appendingPathComponent(name)
             do {
@@ -843,11 +857,37 @@ final class AppModel {
     /// A question to the model is in flight, so a second press does not start
     /// another one.
     private(set) var isSuggestingName = false
+    @ObservationIgnored private var suggestionTask: Task<Void, Never>?
+
+    /// Keep the message on screen for as long as the model takes.
+    ///
+    /// An ordinary flash lasts a couple of seconds, and a name takes several:
+    /// the message went away and the pane then did nothing visible for most of
+    /// the wait, which looks exactly like a command that failed.
+    private func showWhileThinking() {
+        toastTask?.cancel()
+        toastIsError = false
+        toast = "Thinking of a name\u{2026}  (Esc to stop)"
+    }
+
+    private func stopShowingThinking() {
+        if toast?.hasPrefix("Thinking of a name") ?? false { toast = nil }
+    }
+
+    /// Escape, while the model is thinking.
+    func cancelNameSuggestion() -> Bool {
+        guard let suggestionTask else { return false }
+        suggestionTask.cancel()
+        self.suggestionTask = nil
+        isSuggestingName = false
+        stopShowingThinking()
+        return true
+    }
 
     /// Rename, starting from a name worked out from what is in the file.
     ///
     /// Plain Rename stays exactly as it was and instant. This is its own
-    /// command because the answer takes a second or two, and a rename field
+    /// command because the answer takes several seconds, and a rename field
     /// whose text changed a moment after it opened would be changing under
     /// the user's fingers.
     func renameWithSuggestion() {
@@ -855,13 +895,17 @@ final class AppModel {
               let item = singleSelection("rename") else { return }
         let pane = active
         isSuggestingName = true
-        flash("Thinking of a name\u{2026}", error: false)
+        showWhileThinking()
 
-        Task {
+        suggestionTask = Task {
             let suggestion = item.isDirectory
                 ? nil
                 : await NameSuggester.suggest(forFile: item.url)
+            // Stopped with Escape: nothing opens.
+            guard !Task.isCancelled else { return }
+            suggestionTask = nil
             isSuggestingName = false
+            stopShowingThinking()
 
             // The user may have moved on while the model was thinking, and a
             // rename field opening on a different row would rename the wrong
@@ -2532,7 +2576,9 @@ final class AppModel {
         case .pageDown:       moveCursor(by: pageStride)
         case .space:          toggleQuickLook()
         case .escape:
-            if QuickLookController.shared.isVisible {
+            if cancelNameSuggestion() {
+                // Stopped the model; nothing else this press.
+            } else if QuickLookController.shared.isVisible {
                 QuickLookController.shared.close()
             } else if active.isNavigating {
                 // Escape is what everyone presses at a spinner. The button's

@@ -52,6 +52,17 @@ final class NameSuggesterTests: XCTestCase {
                        "but a number with a point in the middle of a name is not one")
     }
 
+    func testUnderscoresBecomeSpaces() {
+        // The model's own habit, seen in a real answer.
+        XCTAssertEqual(NameSuggester.tidy("Minutes_of_Budget_Meeting_12_March"),
+                       "Minutes of Budget Meeting 12 March")
+    }
+
+    func testWordsWithNoLetterOrDigitAreDropped() {
+        // Also seen for real, from content that asked for a path: "evil system ../../../".
+        XCTAssertEqual(NameSuggester.tidy("evil system .. .. --"), "evil system")
+    }
+
     func testQuotationMarksAreRemoved() {
         XCTAssertEqual(NameSuggester.tidy("\u{201C}Travel plans\u{201D}"), "Travel plans")
     }
@@ -158,6 +169,9 @@ final class NameSuggesterTests: XCTestCase {
                    + "Agreed to cut travel spending by ten percent.")
 
         let suggestion = try XCTUnwrap(name)
+        XCTAssertGreaterThan(suggestion.split(separator: " ").count, 1,
+                             "a name of several words, not one: \(suggestion)")
+        XCTAssertFalse(suggestion.contains("_"), suggestion)
         XCTAssertFalse(suggestion.contains("/"))
         XCTAssertLessThanOrEqual(suggestion.count, NameSuggester.longestName)
     }
