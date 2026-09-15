@@ -182,6 +182,13 @@ struct Configuration: Codable, Equatable {
     /// folder again without restarting.
     var scriptsDeveloperMode = false
 
+    /// Suggest names for files from what is in them, using Apple Intelligence
+    /// on this Mac.
+    ///
+    /// Off by default like everything else that reads the contents of files on
+    /// its own initiative -- though nothing leaves the Mac.
+    var suggestNames = false
+
     var gitCheckOnOpen = false
 
     /// When a send is refused for being behind, catch up and send anyway.
@@ -221,6 +228,7 @@ struct Configuration: Codable, Equatable {
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
+        case suggestNames
     }
 
     init() {}
@@ -249,6 +257,7 @@ struct Configuration: Codable, Equatable {
         scriptsEnabled = (try? container.decode(Bool.self, forKey: .scriptsEnabled)) ?? false
         scriptsDeveloperMode =
             (try? container.decode(Bool.self, forKey: .scriptsDeveloperMode)) ?? false
+        suggestNames = (try? container.decode(Bool.self, forKey: .suggestNames)) ?? false
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

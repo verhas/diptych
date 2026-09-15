@@ -34,6 +34,10 @@ struct BehaviourSettingsView: View {
     @Bindable private var store = ConfigStore.shared
 
     var body: some View {
+        // Scrolls, because this pane keeps gaining sections and the Settings
+        // window cannot be resized: text that does not fit is otherwise simply
+        // cut off, which has already happened once here.
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             Text("New from Clipboard").font(.headline)
 
@@ -98,6 +102,32 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Toggle("Suggest names with Apple Intelligence",
+                   isOn: $store.configuration.suggestNames)
+                .toggleStyle(.checkbox)
+            Text("Adds Rename with Suggested Name, and names what New from Clipboard makes "
+                 + "from what is in it. The name always lands in the rename field for you to "
+                 + "accept, change or throw away.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("It runs on this Mac and nothing is sent anywhere \u{2014} Diptych uses only "
+                 + "the language model on the Mac itself, never Apple's cloud one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // Said here rather than leaving the command mysteriously absent.
+            if store.configuration.suggestNames {
+                let status = NameSuggester.status
+                Label(status.explanation,
+                      systemImage: status == .ready ? "checkmark.circle" : "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(status == .ready ? Color.secondary : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
                 .toggleStyle(.checkbox)
             Text("Quit sits one key away from Close Window and Select All.")
@@ -109,6 +139,7 @@ struct BehaviourSettingsView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

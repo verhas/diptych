@@ -561,7 +561,14 @@ final class AppModel {
             flash("There is nothing on the clipboard", error: true)
 
         case .text(let string):
-            write(Data(string.utf8), as: suggestedName("untitled.txt"))
+            let data = Data(string.utf8)
+            guard namesCanBeSuggested else {
+                write(data, as: suggestedName("untitled.txt"))
+                return
+            }
+            nameThenWrite(data, extension: "txt") {
+                await NameSuggester.suggest(forText: string)
+            }
 
         case .image(let image, let pdf):
             let format = ConfigStore.shared.configuration.clipboardImageFormat
@@ -587,7 +594,41 @@ final class AppModel {
             dialog = .message("That picture could not be saved as \(format.title).")
             return
         }
-        write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+        guard namesCanBeSuggested,
+              let picture = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+            return
+        }
+        // Taken out of the NSImage here, on the main actor, since an NSImage
+        // may not cross to the queue that does the looking.
+        let sendable = NameSuggester.SendableImage(picture)
+        nameThenWrite(data, extension: format.fileExtension) {
+            await NameSuggester.suggest(forImage: sendable.image)
+        }
+    }
+
+    /// Ask for a name, write the file under it, and open the rename field on it.
+    ///
+    /// Written under the suggestion rather than as "untitled" and renamed
+    /// afterwards, so that a file which is kept as it comes has a good name from
+    /// the start -- and the rename field opens straight away, so the suggestion
+    /// is something to accept, not something that simply happened.
+    private func nameThenWrite(_ data: Data, extension suffix: String,
+                               asking: @escaping () async -> String?) {
+        let pane = active
+        flash("Thinking of a name\u{2026}", error: false)
+        Task {
+            let stem = await asking() ?? "untitled"
+            let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
+            let url = pane.directory.appendingPathComponent(name)
+            do {
+                try data.write(to: url, options: .withoutOverwriting)
+            } catch {
+                dialog = .message(error.localizedDescription)
+                return
+            }
+            await offerRename(of: url, in: pane)
+        }
     }
 
     private func write(_ data: Data, as name: String) {
@@ -723,8 +764,11 @@ final class AppModel {
     /// Finder's numbering rather than `FileOperations.uniqueURL`'s "-1", and
     /// deliberately: that one exists to stop a copy clobbering something, where
     /// this is a name a person is about to read and quite possibly keep.
-    private func suggestedName(_ base: String) -> String {
-        let directory = active.directory
+    private func suggestedName(_ base: String, in folder: URL? = nil) -> String {
+        // The folder is passed in when there has been a wait: by the time a
+        // suggested name comes back the user may be in the other pane, and
+        // numbering against that one would pick a name that clashes here.
+        let directory = folder ?? active.directory
         let stem = (base as NSString).deletingPathExtension
         let suffix = (base as NSString).pathExtension
         func name(_ number: Int) -> String {
@@ -786,6 +830,70 @@ final class AppModel {
         renameTable = currentTable
         active.renameText = item.name
         active.renamingID = item.id
+    }
+
+    // MARK: - Suggested names
+
+    /// Whether to offer suggestions at all: switched on in Settings, and the
+    /// model actually there to ask.
+    var namesCanBeSuggested: Bool {
+        ConfigStore.shared.configuration.suggestNames && NameSuggester.status == .ready
+    }
+
+    /// A question to the model is in flight, so a second press does not start
+    /// another one.
+    private(set) var isSuggestingName = false
+
+    /// Rename, starting from a name worked out from what is in the file.
+    ///
+    /// Plain Rename stays exactly as it was and instant. This is its own
+    /// command because the answer takes a second or two, and a rename field
+    /// whose text changed a moment after it opened would be changing under
+    /// the user's fingers.
+    func renameWithSuggestion() {
+        guard namesCanBeSuggested, !isSuggestingName,
+              let item = singleSelection("rename") else { return }
+        let pane = active
+        isSuggestingName = true
+        flash("Thinking of a name\u{2026}", error: false)
+
+        Task {
+            let suggestion = item.isDirectory
+                ? nil
+                : await NameSuggester.suggest(forFile: item.url)
+            isSuggestingName = false
+
+            // The user may have moved on while the model was thinking, and a
+            // rename field opening on a different row would rename the wrong
+            // thing.
+            guard pane === active, pane.selection == [item.id] else { return }
+
+            if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
+            renameTable = currentTable
+            if let suggestion {
+                let suffix = item.url.pathExtension
+                pane.renameText = suffix.isEmpty ? suggestion : "\(suggestion).\(suffix)"
+            } else {
+                // Nothing to go on -- a folder, a binary file, an empty one. The
+                // field still opens, since renaming is what was asked for.
+                pane.renameText = item.name
+                flash(item.isDirectory
+                      ? "Suggestions come from what is inside a file, not a folder"
+                      : "There was nothing in this file to suggest a name from")
+            }
+            pane.renamingID = item.id
+        }
+    }
+
+    /// Open the rename field on a file that has just been made, so a suggested
+    /// name can be accepted with Return or replaced by typing.
+    private func offerRename(of url: URL, in pane: PaneModel) async {
+        await pane.reloadAndWait()
+        guard let row = pane.rows.first(where: { $0.url.path == url.path }) else { return }
+        pane.selection = [row.id]
+        renameTable = currentTable
+        pane.renameText = row.name
+        pane.renamingID = row.id
     }
 
     func cancelInlineRename() {
