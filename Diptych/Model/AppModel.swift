@@ -569,7 +569,7 @@ final class AppModel {
                 return
             }
             nameThenWrite(data, extension: "txt") {
-                await NameSuggester.suggest(forText: string, style: self.nameStyle)
+                await NameSuggester.suggest(forText: string, style: $0)
             }
 
         case .image(let image, let pdf):
@@ -605,7 +605,7 @@ final class AppModel {
         // may not cross to the queue that does the looking.
         let sendable = NameSuggester.SendableImage(picture)
         nameThenWrite(data, extension: format.fileExtension) {
-            await NameSuggester.suggest(forImage: sendable.image, style: self.nameStyle)
+            await NameSuggester.suggest(forImage: sendable.image, style: $0)
         }
     }
 
@@ -616,12 +616,16 @@ final class AppModel {
     /// the start -- and the rename field opens straight away, so the suggestion
     /// is something to accept, not something that simply happened.
     private func nameThenWrite(_ data: Data, extension suffix: String,
-                               asking: @escaping () async -> NameSuggester.Outcome) {
+                               asking: @escaping (NameSuggester.Style) async -> NameSuggester.Outcome) {
         let pane = active
         isSuggestingName = true
         showWhileThinking()
+        var style = nameStyle
         suggestionTask = Task {
-            let answer = await asking()
+            let instructions = await namingInstructions(for: pane.directory)
+            if !Task.isCancelled { showWhileThinking(following: instructions) }
+            style.instructions = instructions.text
+            let answer = await asking(style)
             // Stopped with Escape, the state was already cleared then -- and
             // clearing it again here could wipe out a newer request's message.
             // The clipboard still becomes a file, since that is what was asked
@@ -877,10 +881,20 @@ final class AppModel {
     /// An ordinary flash lasts a couple of seconds, and a name takes several:
     /// the message went away and the pane then did nothing visible for most of
     /// the wait, which looks exactly like a command that failed.
-    private func showWhileThinking() {
+    private func showWhileThinking(following instructions: NamingInstructions.Instructions? = nil) {
         toastTask?.cancel()
         toastIsError = false
-        toast = "Thinking of a name\u{2026}  (Esc to stop)"
+        // Which instructions, when they are a folder's own: a name that looks
+        // wrong is otherwise a puzzle about which file was followed.
+        let whose = instructions?.folder.map {
+            " for \(NamingInstructions.tilde($0))"
+        } ?? ""
+        toast = "Thinking of a name\(whose)\u{2026}  (Esc to stop)"
+    }
+
+    /// The instructions for a folder, read afresh so an edit applies at once.
+    private func namingInstructions(for folder: URL) async -> NamingInstructions.Instructions {
+        await BlockingWork.run { NamingInstructions.read().instructions(for: folder) }
     }
 
     private func stopShowingThinking() {
@@ -900,7 +914,7 @@ final class AppModel {
     /// Rename, starting from a name worked out from what is in the file.
     ///
     /// Plain Rename stays exactly as it was and instant. This is its own
-    /// command because the answer takes several seconds, and a rename field
+    /// command because the answer takes a second or more, and a rename field
     /// whose text changed a moment after it opened would be changing under
     /// the user's fingers.
     func renameWithSuggestion() {
@@ -910,11 +924,17 @@ final class AppModel {
         isSuggestingName = true
         showWhileThinking()
 
-        let style = nameStyle
+        var style = nameStyle
         suggestionTask = Task {
-            let outcome: NameSuggester.Outcome? = item.isDirectory
-                ? nil
-                : await NameSuggester.suggest(forFile: item.url, style: style)
+            var outcome: NameSuggester.Outcome?
+            if !item.isDirectory {
+                let instructions = await namingInstructions(
+                    for: item.url.deletingLastPathComponent())
+                guard !Task.isCancelled else { return }
+                showWhileThinking(following: instructions)
+                style.instructions = instructions.text
+                outcome = await NameSuggester.suggest(forFile: item.url, style: style)
+            }
             // Stopped with Escape: nothing opens.
             guard !Task.isCancelled else { return }
             suggestionTask = nil

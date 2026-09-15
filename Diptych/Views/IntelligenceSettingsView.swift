@@ -22,6 +22,10 @@ struct IntelligenceSettingsView: View {
     /// this the choice would snap straight back to that preset.
     @State private var typingOwnLength = false
 
+    /// Read when the pane appears and on request -- not watched, since the
+    /// files are edited elsewhere and a pane is not the place to poll a disk.
+    @State private var instructions: NamingInstructions.Catalogue?
+
     var body: some View {
         // Scrolls, and every explanation may grow downwards, like the other
         // panes: the Settings window cannot be resized.
@@ -84,6 +88,10 @@ struct IntelligenceSettingsView: View {
             .disabled(configuration.nameUnicode)
 
             lengthRow(configuration)
+
+            Divider()
+
+            instructionsSection
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,6 +163,51 @@ struct IntelligenceSettingsView: View {
         }
 
         explanation(contextExplanation)
+    }
+
+    @ViewBuilder
+    private var instructionsSection: some View {
+        Text("Instructions").font(.headline)
+
+        explanation("What the model is told is plain text in files you can edit, in "
+                    + "\(NamingInstructions.tilde(PromptTemplate.directory.path)). "
+                    + "\(NamingInstructions.generalName) is used everywhere. A file in the "
+                    + "\u{201C}\(NamingInstructions.folderDirectoryName)\u{201D} folder beside "
+                    + "it that starts with a line such as \u{201C}# under: ~/Documents/"
+                    + "Scans\u{201D} is used in that folder and every folder inside it instead; "
+                    + "when several match, the nearest folder wins. An edit applies to the next "
+                    + "name, without restarting.")
+
+        if let instructions {
+            VStack(alignment: .leading, spacing: 4) {
+                instructionLine(folder: "Everywhere else",
+                                file: instructions.general.file ?? "Diptych's own")
+                ForEach(instructions.rules, id: \.folder) { rule in
+                    instructionLine(folder: NamingInstructions.tilde(rule.folder), file: rule.file)
+                }
+            }
+            ForEach(Array(instructions.problems.enumerated()), id: \.offset) { _, problem in
+                warning("\(problem.file): \(problem.message)")
+            }
+        }
+
+        Button("Read the Instructions Again") { readInstructions() }
+            .onAppear { readInstructions() }
+    }
+
+    private func instructionLine(folder: String, file: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(folder)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\u{2192}").foregroundStyle(.secondary)
+            Text(file).foregroundStyle(.secondary)
+        }
+        .font(.caption)
+        .textSelection(.enabled)
+    }
+
+    private func readInstructions() {
+        instructions = NamingInstructions.read()
     }
 
     /// The model's limit, as the model reports it rather than as remembered.
