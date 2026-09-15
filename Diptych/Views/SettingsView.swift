@@ -26,7 +26,11 @@ struct SettingsView: View {
             SoundSettingsView()
                 .tabItem { Label("Sounds", systemImage: "speaker.wave.2") }
         }
-        .frame(width: 500, height: 470)
+        // Wide enough for every tab in the toolbar. One too many for the width
+        // and macOS moves the last ones into a ">>" overflow menu -- where a
+        // Settings tab cannot be chosen at all: the items show, greyed out.
+        // Seven tabs need about 530 points.
+        .frame(width: 600, height: 470)
     }
 }
 
