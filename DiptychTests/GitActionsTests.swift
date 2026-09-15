@@ -17,7 +17,7 @@ final class GitActionsTests: XCTestCase {
     private let fm = FileManager.default
     private var settings: Configuration!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         try XCTSkipIf(GitTool.locate(override: nil) == nil, "no git on this machine")
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychGit-\(UUID().uuidString)")
@@ -52,7 +52,7 @@ final class GitActionsTests: XCTestCase {
         try XCTSkipIf(GitService.shared.tool == nil, "git could not be resolved")
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         if let settings { ConfigStore.shared.configuration = settings }
         GitService.shared.forgetEverything()
         try? fm.removeItem(at: root)
@@ -717,7 +717,7 @@ final class GitActionsTests: XCTestCase {
 
         try write("second.md", "mine too\n")
 
-        try await withUpdatingOn {
+        await withUpdatingOn {
             let result = await GitService.shared.send(paths: ["second.md"], newPaths: [],
                                                       message: "just the second",
                                                       inRepository: mine)

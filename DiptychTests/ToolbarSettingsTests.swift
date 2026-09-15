@@ -7,11 +7,11 @@ final class ToolbarSettingsTests: XCTestCase {
 
     private var original: [ToolbarSlot] = []
 
-    override func setUp() {
+    override func setUp() async throws {
         original = ConfigStore.shared.configuration.toolbar
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         ConfigStore.shared.configuration.toolbar = original
     }
 

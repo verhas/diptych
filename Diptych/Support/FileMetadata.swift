@@ -62,9 +62,10 @@ enum ExtendedAttributes {
         var buffer = [CChar](repeating: 0, count: size)
         guard listxattr(path, &buffer, size, 0) > 0 else { return [] }
 
-        // The kernel returns the names as one NUL-separated block.
-        return buffer.split(separator: 0).compactMap {
-            String(cString: Array($0) + [0])
+        // The kernel returns the names as one NUL-separated block, so each piece
+        // is already the name without its terminator.
+        return buffer.split(separator: 0).map { piece in
+            String(decoding: piece.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         }
     }
 
