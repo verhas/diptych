@@ -2539,8 +2539,18 @@ final class AppModel {
                 // command as Control-Command-R, reachable from the key people
                 // already use for renaming. A menu item can carry only one
                 // shortcut, which is why this one lives here.
-                guard dialog == nil, namesCanBeSuggested else { return false }
-                renameWithSuggestion()
+                guard dialog == nil else { return false }
+                // The menu item is hidden while the feature is unavailable, but
+                // a key press is a deliberate request, and a bare beep tells
+                // nobody that the command exists and is merely switched off.
+                if !ConfigStore.shared.configuration.suggestNames {
+                    flash("Suggested names are switched off. Turn them on in Settings, "
+                          + "under Behaviour.")
+                } else if NameSuggester.status != .ready {
+                    flash(NameSuggester.status.explanation)
+                } else {
+                    renameWithSuggestion()
+                }
                 return true
             default:
                 // Let the system keep its own shortcuts (Cmd-Q, Cmd-W, ...).
