@@ -1006,6 +1006,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
+                await GitService.shared.followMove(from: item.url, to: url)
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
                 pane.reload()
@@ -1379,6 +1380,9 @@ final class AppModel {
                 if monitor.isCancelled { cancelledTargets = outcome.succeeded; break }
                 outcome.failures.append((source, message))
             } else {
+                if kind == .move {
+                    await GitService.shared.followMove(from: source, to: target)
+                }
                 outcome.succeeded.append(target)
                 progress.finishedItem()
             }

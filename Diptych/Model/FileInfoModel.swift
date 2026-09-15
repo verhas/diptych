@@ -203,7 +203,9 @@ final class FileInfoModel {
 
         Task {
             do {
-                url = try await FileOperations.shared.rename(url, to: trimmed)
+                let renamed = try await FileOperations.shared.rename(url, to: trimmed)
+                await GitService.shared.followMove(from: url, to: renamed)
+                url = renamed
                 report(nil, success: "Renamed.")
             } catch {
                 report(error.localizedDescription, success: "")

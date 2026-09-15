@@ -1302,4 +1302,174 @@ final class GitActionsTests: XCTestCase {
         XCTAssertTrue(changes.sending.contains { $0.path == "chapter4.md" && $0.state == .added })
         XCTAssertFalse(changes.new.contains { $0.path == "chapter4.md" })
     }
+
+    // MARK: - Renaming and moving
+
+    /// What the shared copy holds, by exact name.
+    private func sharedFiles() throws -> [String] {
+        try run(["ls-tree", "-r", "--name-only", "main"], in: shared)
+            .split(separator: "\n").map(String.init).sorted()
+    }
+
+    private func renamed(_ from: String, to name: String) async throws -> URL {
+        let old = mine.appendingPathComponent(from)
+        let new = try await FileOperations.shared.rename(old, to: name)
+        await GitService.shared.followMove(from: old, to: new)
+        GitService.shared.invalidate(mine)
+        return new
+    }
+
+    func testARenamedTrackedFileStaysTrackedAndIsSentAsARename() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("notes.md", "notes\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "notes"], in: mine)
+        try run(["push"], in: mine)
+
+        _ = try await renamed("notes.md", to: "minutes.md")
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["minutes.md"])
+        XCTAssertEqual(changes.sending.first?.state, .renamed)
+        XCTAssertTrue(changes.new.isEmpty, "not brown, not waiting to be ticked: \(changes.new)")
+
+        let result = await GitService.shared.send(paths: ["minutes.md"], newPaths: [],
+                                                  message: "rename", inRepository: mine)
+        guard case .sent = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(try sharedFiles(), ["minutes.md", "readme.md"],
+                       "the old name is gone from the shared copy, not left beside the new one")
+    }
+
+    func testACaseOnlyRenameDoesNotLeaveBothNamesInTheSharedCopy() async throws {
+        // What happened for real: "Untitled.png" to "untitled.png" on a Mac.
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        let probe = mine.appendingPathComponent("README.MD")
+        try XCTSkipUnless(fm.fileExists(atPath: probe.path), "this disk tells case apart")
+        try write("Untitled.png", "picture\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "picture"], in: mine)
+        try run(["push"], in: mine)
+
+        _ = try await renamed("Untitled.png", to: "untitled.png")
+        try write("untitled.png", "picture, edited\n")
+        GitService.shared.invalidate(mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["untitled.png"])
+
+        let result = await GitService.shared.send(paths: ["untitled.png"], newPaths: [],
+                                                  message: "case", inRepository: mine)
+        guard case .sent = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(try sharedFiles(), ["readme.md", "untitled.png"])
+        GitService.shared.invalidate(mine)
+        let after = await GitService.shared.changes(inRepository: mine)
+        XCTAssertTrue(after.isEmpty, "nothing reported as changed afterwards: \(after)")
+    }
+
+    func testARenamedFolderTakesItsTrackedFilesAndLeavesTheOthersUntracked() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("drafts/one.md", "one\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "drafts"], in: mine)
+        try run(["push"], in: mine)
+        try write("drafts/scratch.txt", "not tracked\n")
+
+        _ = try await renamed("drafts", to: "chapters")
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["chapters/one.md"])
+        XCTAssertEqual(changes.new.map(\.path), ["chapters/scratch.txt"],
+                       "renaming a folder does not start tracking what was never tracked")
+    }
+
+    func testRenamingAnUntrackedFileLeavesItUntracked() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("scratch.txt", "mine\n")
+
+        _ = try await renamed("scratch.txt", to: "idea.txt")
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.new.map(\.path), ["idea.txt"])
+        XCTAssertTrue(changes.sending.isEmpty)
+    }
+
+    func testANameThatLooksLikeAPatternIsTakenLiterally() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("a[1].md", "one\n")
+        try write("a1.md", "other\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "patterns"], in: mine)
+
+        _ = try await renamed("a[1].md", to: "b.md")
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["b.md"],
+                       "a1.md, which [1] would match as a pattern, is untouched")
+    }
+
+    func testAMoveIntoAnotherFolderOfTheRepositoryIsFollowed() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("notes.md", "notes\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "notes"], in: mine)
+        let archive = mine.appendingPathComponent("archive")
+        try fm.createDirectory(at: archive, withIntermediateDirectories: true)
+
+        let old = mine.appendingPathComponent("notes.md")
+        let new = archive.appendingPathComponent("notes.md")
+        let failure = await FileOperations.shared.transferOne(old, to: new, kind: .move,
+                                                             overwrite: false)
+        XCTAssertNil(failure)
+        await GitService.shared.followMove(from: old, to: new)
+        GitService.shared.invalidate(mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["archive/notes.md"])
+        XCTAssertEqual(changes.sending.first?.state, .renamed)
+    }
+
+    func testNothingIsFollowedWhileVersionTrackingIsOff() async throws {
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = false
+        try write("notes.md", "notes\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "notes"], in: mine)
+
+        _ = try await renamed("notes.md", to: "minutes.md")
+
+        let index = try run(["ls-files"], in: mine)
+        XCTAssertTrue(index.contains("notes.md") && !index.contains("minutes.md"),
+                      "the index is not touched: \(index)")
+    }
+
+    func testARenameNotTickedSurvivesAnotherSend() async throws {
+        // The send empties the index and rebuilds it; a staged rename is two
+        // entries, and both have to come back.
+        try await readyGit()
+        ConfigStore.shared.configuration.gitEnabled = true
+        try write("notes.md", "notes\n")
+        try run(["add", "-A"], in: mine)
+        try run(["commit", "-m", "notes"], in: mine)
+        try run(["push"], in: mine)
+
+        _ = try await renamed("notes.md", to: "minutes.md")
+        try write("readme.md", "changed\n")
+        GitService.shared.invalidate(mine)
+
+        let result = await GitService.shared.send(paths: ["readme.md"], newPaths: [],
+                                                  message: "readme", inRepository: mine)
+        guard case .sent = result else { return XCTFail("\(result)") }
+        GitService.shared.invalidate(mine)
+
+        let changes = await GitService.shared.changes(inRepository: mine)
+        XCTAssertEqual(changes.sending.map(\.path), ["minutes.md"])
+        XCTAssertEqual(changes.sending.first?.state, .renamed)
+        XCTAssertEqual(try sharedFiles(), ["notes.md", "readme.md"], "and it was not sent")
+    }
 }

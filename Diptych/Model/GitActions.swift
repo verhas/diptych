@@ -21,6 +21,7 @@ extension GitService {
             case .untracked:  "new"
             case .added:      "new, tracked"
             case .changed:    "changed"
+            case .renamed:    "renamed"
             case .deleted:    "removed"
             case .keptCopy:   "kept copy"
             case .untracking: "no longer tracked"
@@ -52,7 +53,7 @@ extension GitService {
             // Nothing of the user's to send: out of date, or a copy Diptych
             // made and will never send.
             case .stale, .keptCopy:     break
-            case .added, .changed, .deleted, .untracking,
+            case .added, .changed, .renamed, .deleted, .untracking,
                  .contested:            changes.sending.append(Change(path: path, state: state))
             // Never offered. `git add` on a half-finished merge marks it
             // resolved and stages the file *with the conflict markers in it* --
@@ -138,6 +139,85 @@ extension GitService {
         await command(["add", "--"] + paths, in: root)
     }
 
+    /// Keep what was tracked tracked, when it is renamed or moved.
+    ///
+    /// Git has no notion of a rename in the folder: to Git the old name is
+    /// gone and the new one is a file it has never seen -- brown, and left out
+    /// of the next send unless someone thinks to tick it. Sent like that, the
+    /// removal of the old name went and the new name did not, and a file
+    /// vanished for everyone else. On a Mac it is worse: "Untitled.png" to
+    /// "untitled.png" is one file on disk, Git still finds the old name, so it
+    /// records no removal at all, and the shared copy ends up holding both.
+    ///
+    /// So the index follows the move: exactly the entries under the old name
+    /// are taken out, and the same entries under the new name put in. Only
+    /// those -- a folder that also held untracked files does not start
+    /// tracking them by being renamed. Nothing happens outside a repository,
+    /// across two repositories, or with version tracking switched off.
+    func followMove(from old: URL, to new: URL) async {
+        guard isEnabled,
+              let oldRoot = await root(for: old.deletingLastPathComponent()),
+              let newRoot = await root(for: new.deletingLastPathComponent()),
+              FileOperations.canonicalPath(oldRoot) == FileOperations.canonicalPath(newRoot),
+              let from = Self.pathInRepository(old, root: oldRoot),
+              let to = Self.pathInRepository(new, root: oldRoot),
+              from != to else { return }
+        let root = oldRoot
+
+        // Literal: a name with * or [ in it is a name, not a pattern.
+        guard case .ok(let listed) = await command(
+            ["--literal-pathspecs", "ls-files", "-z", "--", from], in: root) else { return }
+        let tracked = listed.split(separator: "\0").map(String.init)
+        guard !tracked.isEmpty else { return }
+
+        // Out first, then in. On a Mac the two names may differ only in case,
+        // and the old entry must be gone before the new one is added.
+        _ = await command(["--literal-pathspecs", "rm", "--cached", "-r", "-q", "--", from],
+                          in: root)
+        let moved = tracked.map { to + $0.dropFirst(from.count) }
+        // In batches, so a large folder cannot exceed the argument limit.
+        for start in stride(from: 0, to: moved.count, by: 500) {
+            let batch = Array(moved[start ..< min(start + 500, moved.count)])
+            _ = await command(["--literal-pathspecs", "add", "--"] + batch, in: root)
+        }
+        invalidate(root)
+    }
+
+    /// The path Git knows an item by, with its own name exactly as given.
+    ///
+    /// Only the folder is made canonical. Asking the disk about the item
+    /// itself answers with the spelling the disk has *now* -- so after
+    /// "Untitled.png" became "untitled.png", the old name came back as the new
+    /// one, the two looked identical, and the rename was not followed at all.
+    static func pathInRepository(_ url: URL, root: URL) -> String? {
+        guard let folder = GitStatus.relativePath(of: url.deletingLastPathComponent(), under: root)
+        else { return nil }
+        let name = url.lastPathComponent
+        guard !name.isEmpty, name != "/" else { return nil }
+        return folder.isEmpty ? name : folder + "/" + name
+    }
+
+    /// Renames staged now: the old name, by the new one.
+    func stagedRenames(in root: URL) async -> [String: String] {
+        guard case .ok(let text) = await command(
+            ["diff", "--cached", "--name-status", "-z", "-M", "HEAD"], in: root) else { return [:] }
+        let fields = text.split(separator: "\0").map(String.init)
+        var renames: [String: String] = [:]
+        var index = 0
+        while index < fields.count {
+            let status = fields[index]
+            if status.hasPrefix("R"), index + 2 < fields.count {
+                renames[fields[index + 2]] = fields[index + 1]
+                index += 3
+            } else if status.hasPrefix("C"), index + 2 < fields.count {
+                index += 3
+            } else {
+                index += 2
+            }
+        }
+        return renames
+    }
+
     /// Appends to `.gitignore`, which is a tracked file and therefore a change
     /// like any other -- it will show up in the next send, which is correct:
     /// everyone should get the same rules.
@@ -176,13 +256,16 @@ extension GitService {
     }
 
     func staged(in root: URL) async -> Staging {
-        guard case .ok(let text) = await command(["diff", "--name-only", "--cached", "HEAD"],
+        // No rename detection: a staged rename is two paths, and both have to
+        // be put back -- listed as one, the old name's removal was lost.
+        guard case .ok(let text) = await command(["diff", "--name-only", "--no-renames",
+                                                  "--cached", "HEAD"],
                                                  in: root) else { return Staging() }
         let all = text.split(separator: "\n").map(String.init)
         guard !all.isEmpty else { return Staging() }
 
         var removals: Set<String> = []
-        if case .ok(let text) = await command(["diff", "--name-only", "--cached",
+        if case .ok(let text) = await command(["diff", "--name-only", "--no-renames", "--cached",
                                                "--diff-filter=D", "HEAD"], in: root) {
             removals = Set(text.split(separator: "\n").map(String.init))
         }
@@ -209,11 +292,13 @@ extension GitService {
         // A file staged as deleted and gone from disk needs `add` to record the
         // deletion again, so those go through too.
         let deletions = staging.normal.filter { !surviving.contains($0) }
-        if !surviving.isEmpty { _ = await command(["add", "--"] + surviving, in: root) }
-        if !deletions.isEmpty { _ = await command(["add", "--"] + deletions, in: root) }
+        // Removals first: a rename that only changed case is an entry out and
+        // an entry in under a name the disk cannot tell apart from it.
         if !staging.untracking.isEmpty {
             _ = await command(["rm", "--cached", "-r", "--"] + staging.untracking, in: root)
         }
+        if !surviving.isEmpty { _ = await command(["add", "--"] + surviving, in: root) }
+        if !deletions.isEmpty { _ = await command(["add", "--"] + deletions, in: root) }
     }
 
     /// Stop tracking, but keep the file.
@@ -284,6 +369,11 @@ extension GitService {
         // so a file marked green by hand went brown again when the push failed.
         let before = await staged(in: root)
 
+        // A renamed file is ticked by its new name; the old name's removal
+        // goes with it, or the shared copy would keep both.
+        let renames = await stagedRenames(in: root)
+        let oldNames = all.compactMap { renames[$0] }.filter { !all.contains($0) }
+
         // Build the commit in the index rather than naming paths on `commit`.
         //
         // `git commit -- <paths>` takes the *working tree* for those paths and
@@ -296,11 +386,14 @@ extension GitService {
 
         let untracking = before.untracking.filter { all.contains($0) }
         let ordinary = all.filter { !untracking.contains($0) }
-        if !untracking.isEmpty {
+        let removals = untracking + oldNames
+        if !removals.isEmpty {
             // Not `add`, which would put the file straight back and undo the
-            // decision the user made from the menu.
-            if case .failed(_, let text) = await command(["rm", "--cached", "-r", "--"]
-                                                         + untracking, in: root) {
+            // decision the user made from the menu. `--ignore-unmatch` for an
+            // old name the index has already let go of.
+            if case .failed(_, let text) = await command(["rm", "--cached", "-r", "-q",
+                                                          "--ignore-unmatch", "--"]
+                                                         + removals, in: root) {
                 await restage(before, in: root)
                 return .notSent(reason: "Your changes could not be prepared.",
                                 details: text, conflicts: [])
@@ -324,7 +417,7 @@ extension GitService {
 
         // Emptying the index swept away staging that was nothing to do with
         // this send. What was ticked is in the commit now and needs nothing.
-        await restage(before.dropping(all), in: root)
+        await restage(before.dropping(all + oldNames), in: root)
 
         // But if the send has to be undone, *everything* that was staged goes
         // back, ticked or not -- tracking a file is a decision made before the
