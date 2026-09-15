@@ -671,6 +671,7 @@ final class AppModel {
                 dialog = .message(error.localizedDescription)
                 return
             }
+            FileHistory.shared.recordCreation("New from Clipboard", of: [url])
             await offerRename(of: url, in: pane)
             // The file is made either way; this says why it kept the plain name.
             if !stopped, let why = answer.explanation { flash(why) }
@@ -692,6 +693,7 @@ final class AppModel {
         let url = active.directory.appendingPathComponent(name)
         do {
             try data.write(to: url, options: .withoutOverwriting)
+            FileHistory.shared.recordCreation("New from Clipboard", of: [url])
             active.pendingSelection = [url]
             active.reload()
             flash("Created \(name)", error: false)
@@ -849,6 +851,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.createFile(named: name, in: parent)
+                FileHistory.shared.recordCreation("New File", of: [url])
                 active.pendingSelection = [url]
                 active.reload()
             } catch {
@@ -864,6 +867,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.createDirectory(named: name, in: parent)
+                FileHistory.shared.recordCreation("New Folder", of: [url])
                 active.pendingSelection = [url]
                 active.reload()
             } catch {
@@ -1061,6 +1065,7 @@ final class AppModel {
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
                 await GitService.shared.followMove(from: item.url, to: url)
+                FileHistory.shared.recordRelocation("Rename", [(item.url, url)])
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
                 pane.reload()
@@ -1272,25 +1277,45 @@ final class AppModel {
 
     /// After a cancelled transfer: keep what arrived, or clear it away.
     private func askAboutPartialTransfer(kind: FileOperations.Transfer,
-                                         landed: [URL], into pane: PaneModel) {
+                                         landed: [URL], into pane: PaneModel,
+                                         done: [(from: URL, to: URL)] = [],
+                                         replaced: Set<URL> = []) {
         guard !landed.isEmpty else {
             flash("Cancelled. Nothing was \(kind == .move ? "moved" : "copied").", error: false)
             return
         }
-        partialTransfer = PartialTransfer(kind: kind, targets: landed, pane: pane)
+        partialTransfer = PartialTransfer(kind: kind, targets: landed, pane: pane,
+                                          done: done, replaced: replaced)
     }
 
     struct PartialTransfer: Identifiable {
         let kind: FileOperations.Transfer
         let targets: [URL]
         let pane: PaneModel
+        var done: [(from: URL, to: URL)] = []
+        var replaced: Set<URL> = []
         var id: String { targets.first?.path ?? "" }
     }
 
     var partialTransfer: PartialTransfer?
 
+    /// A copy is undone by the Trash, a move by moving back.
+    private func recordTransfer(_ kind: FileOperations.Transfer, _ done: [(from: URL, to: URL)],
+                                replaced: Set<URL>) {
+        guard !done.isEmpty else { return }
+        switch kind {
+        case .copy: FileHistory.shared.recordCreation("Copy", of: done.map(\.to),
+                                                      replacing: replaced)
+        case .move: FileHistory.shared.recordRelocation("Move", done, replacing: replaced)
+        }
+    }
+
     func keepPartialTransfer() {
         let count = partialTransfer?.targets.count ?? 0
+        if let partial = partialTransfer {
+            // What was kept is as real as a transfer that finished.
+            recordTransfer(partial.kind, partial.done, replaced: partial.replaced)
+        }
         partialTransfer = nil
         flash("Cancelled. \(count) item\(count == 1 ? "" : "s") kept.", error: false)
     }
@@ -1352,6 +1377,9 @@ final class AppModel {
         /// Set once "apply to all" is ticked; every later clash takes it
         /// without asking.
         var standingAction: ConflictAction?
+        /// What went where, for Undo -- and which of those replaced something.
+        var done: [(from: URL, to: URL)] = []
+        var replaced: Set<URL> = []
 
         for (index, source) in urls.enumerated() {
             var target = destination.appendingPathComponent(source.lastPathComponent)
@@ -1437,6 +1465,8 @@ final class AppModel {
                 if kind == .move {
                     await GitService.shared.followMove(from: source, to: target)
                 }
+                done.append((source, target))
+                if overwrite { replaced.insert(target) }
                 outcome.succeeded.append(target)
                 progress.finishedItem()
             }
@@ -1456,9 +1486,14 @@ final class AppModel {
             // judgement -- a half-copied folder may be worth keeping or may be
             // clutter -- so it is asked rather than decided.
             askAboutPartialTransfer(kind: kind, landed: cancelledTargets,
-                                    into: destinationPane)
+                                    into: destinationPane,
+                                    done: done.filter { pair in
+                                        cancelledTargets.contains { $0 == pair.to } },
+                                    replaced: replaced)
             return
         }
+
+        recordTransfer(kind, done, replaced: replaced)
 
         if outcome.isCompleteSuccess {
             if !outcome.succeeded.isEmpty {
@@ -2134,6 +2169,8 @@ final class AppModel {
         let destination = active.directory
         Task {
             let outcome = await FileOperations.shared.createLinks(to: urls, in: destination)
+            FileHistory.shared.recordCreation(outcome.succeeded.count == 1 ? "Link" : "Links",
+                                              of: outcome.succeeded)
             active.reload()
             inactive.reload()
 
@@ -2209,6 +2246,76 @@ final class AppModel {
         guard editorHasKeyboardFocus else { return false }
         NSApp.sendAction(selector, to: nil, from: nil)
         return true
+    }
+
+    // MARK: - Undo
+
+    /// Command-Z in a pane window.
+    ///
+    /// Typing in the rename field or the path bar keeps its own undo: a menu
+    /// key equivalent is matched before the text field sees the key, so it is
+    /// handed back, exactly as Copy and Paste are.
+    func undoFromMenu() {
+        guard !forwardToTextEditor(Selector(("undo:"))) else { return }
+        stepHistory(.undo)
+    }
+
+    func redoFromMenu() {
+        guard !forwardToTextEditor(Selector(("redo:"))) else { return }
+        stepHistory(.redo)
+    }
+
+    private func stepHistory(_ direction: FileHistory.Direction) {
+        let history = FileHistory.shared
+        let word = direction == .undo ? "undo" : "redo"
+        guard history.plan(direction) != nil else {
+            flash("There is nothing to \(word)", error: true)
+            return
+        }
+        // A copy still running would be undone half-way, and its remainder
+        // would then arrive after the undo.
+        guard transferProgress == nil, queuedTransfers == 0, !history.isBusy else {
+            flash("Wait for the operation in progress to finish, then \(word)", error: true)
+            return
+        }
+
+        Task {
+            let touched = await history.perform(direction) { [weak self] plan in
+                await self?.confirmStep(plan) ?? false
+            }
+            // Selected where they are now, in whichever pane shows their folder.
+            for pane in [left, right] {
+                let here = touched.filter {
+                    FileOperations.samePath($0.deletingLastPathComponent(), pane.directory)
+                }
+                if !here.isEmpty { pane.pendingSelection = Set(here) }
+                pane.reload()
+            }
+        }
+    }
+
+    /// The question before an undo or redo, as a sheet on this window.
+    private func confirmStep(_ plan: FileHistory.Plan) async -> Bool {
+        let alert = NSAlert()
+        if plan.doable.isEmpty {
+            alert.messageText = "\u{201C}\(plan.entry.name)\u{201D} cannot be "
+                + "\(plan.direction == .undo ? "undone" : "redone") any more."
+            alert.informativeText = plan.explanation
+            alert.addButton(withTitle: "OK")
+            _ = await present(alert)
+            // Said, and dropped: it will not become possible later.
+            return true
+        }
+        alert.messageText = "\(plan.title)?"
+        alert.informativeText = plan.explanation
+        alert.addButton(withTitle: plan.title)
+        alert.addButton(withTitle: "Cancel")
+        return await present(alert) == .alertFirstButtonReturn
+    }
+
+    private func present(_ alert: NSAlert) async -> NSApplication.ModalResponse {
+        guard let window else { return alert.runModal() }
+        return await alert.beginSheetModal(for: window)
     }
 
     /// Cmd-Delete from the menu bar.
@@ -2467,8 +2574,17 @@ final class AppModel {
             // All twelve bits: the editor can now express setuid, setgid and
             // sticky, so it owns them rather than having them preserved behind
             // its back.
+            let before = await BlockingWork.run {
+                urls.map { (try? FileOperations.currentMode(of: $0)) ?? 0 }
+            }
             let outcome = await FileOperations.shared.setPermissions(mode, mask: 0o7777,
                                                                      for: urls)
+            let after = await BlockingWork.run {
+                outcome.succeeded.map { (try? FileOperations.currentMode(of: $0)) ?? 0 }
+            }
+            FileHistory.shared.recordPermissions(outcome.succeeded.enumerated().map { index, url in
+                (url, before[urls.firstIndex(of: url) ?? 0], after[index])
+            })
             pane.reload()
             report(outcome, verb: "change permissions for")
         }

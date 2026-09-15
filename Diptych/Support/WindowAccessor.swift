@@ -38,4 +38,24 @@ extension FocusedValues {
         get { self[AppModelFocusKey.self] }
         set { self[AppModelFocusKey.self] = newValue }
     }
+
+    var editingUndo: EditingUndo? {
+        get { self[EditingUndoFocusKey.self] }
+        set { self[EditingUndoFocusKey.self] = newValue }
+    }
+}
+
+/// A window with an undo of its own that is not the text system's -- the
+/// comparison window's -- handing it to the Edit menu.
+///
+/// Needed because the menu's Undo is Diptych's now. A menu key equivalent is
+/// matched before anything in a window, so the comparison window's own
+/// Command-Z button would otherwise never see the key.
+struct EditingUndo {
+    let undo: () -> Void
+    let redo: () -> Void
+}
+
+struct EditingUndoFocusKey: FocusedValueKey {
+    typealias Value = EditingUndo
 }

@@ -205,6 +205,7 @@ final class FileInfoModel {
             do {
                 let renamed = try await FileOperations.shared.rename(url, to: trimmed)
                 await GitService.shared.followMove(from: url, to: renamed)
+                FileHistory.shared.recordRelocation("Rename", [(url, renamed)])
                 url = renamed
                 report(nil, success: "Renamed.")
             } catch {
@@ -296,6 +297,7 @@ final class FileInfoModel {
         do {
             try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: updated)],
                                                   ofItemAtPath: target)
+            FileHistory.shared.recordPermissions([(url, mode, updated)])
             mode = updated
             report(nil, success: "Permissions updated.")
         } catch {

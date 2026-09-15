@@ -294,6 +294,35 @@ tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
 
+## Undo and Redo
+
+**Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
+did to files: a copy, a move (by F5/F6, paste or drag), a rename, a new file or
+folder, New from Clipboard, a link, and a permission change — from the panes or
+from the Info window. The menu names the step: *Undo Move*, *Redo Rename*.
+
+Every undo and redo **asks first**, saying what will happen, because undoing a
+copy puts files in the Trash and undoing a move moves them again, and a
+keystroke is too cheap a way to do either unseen. Cancel leaves the step where
+it was.
+
+* **Nothing is deleted.** Undoing a copy, a new item or a link moves it to the
+  Trash; redoing takes that same item back out of the Trash.
+* **Nothing is done to the wrong item.** Each step records which file it was,
+  not only its name. A file replaced since by another of the same name is left
+  alone and the question says so; so is a move back onto a name that is taken,
+  or into a folder that is gone. What can still be done is offered on its own.
+* **What cannot come back is said.** An item that a copy or move *replaced* is
+  gone, and a file changed since it was copied goes to the Trash as it is now —
+  both are mentioned before anything happens.
+* A renamed or moved file in a Git folder stays tracked when it goes back.
+
+One history for the whole application, as in Finder, fifty steps deep, kept in
+memory: after a restart the paths it holds may describe a world that has moved
+on. While a rename field or the path bar is being typed in, ⌘Z undoes the
+typing, and in a comparison window it is that window's own undo. Moving to the
+Trash is not in the history.
+
 ## Text Edit
 
 Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own

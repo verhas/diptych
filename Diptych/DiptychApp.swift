@@ -108,6 +108,7 @@ struct FileCommands: Commands {
     /// ContentView's `.focusedSceneValue`. Nil when no window is focused, which
     /// is what disables the menu items.
     @FocusedValue(\.appModel) private var model: AppModel?
+    @FocusedValue(\.editingUndo) private var editingUndo: EditingUndo?
 
     /// Run the pane command when a pane is focused, otherwise let AppKit send
     /// the standard action to whatever text view has focus.
@@ -231,6 +232,34 @@ struct FileCommands: Commands {
         // no pane has focus. Menu key equivalents are matched before the
         // responder chain, so without the fallback Cmd-V in the Info window
         // would hit a nil model and simply be swallowed.
+        // Undo and Redo for what was done to files, in a pane window. Anywhere
+        // else -- a text field, Text Edit, the Info window -- they are the
+        // ordinary text undo, and in a comparison that window's own.
+        CommandGroup(replacing: .undoRedo) {
+            Button(model.flatMap { _ in FileHistory.shared.undoName }
+                    .map { "Undo \($0)" } ?? "Undo") {
+                if let model {
+                    model.undoFromMenu()
+                } else if let editingUndo {
+                    editingUndo.undo()
+                } else {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                }
+            }
+            .keyboardShortcut("z")
+            Button(model.flatMap { _ in FileHistory.shared.redoName }
+                    .map { "Redo \($0)" } ?? "Redo") {
+                if let model {
+                    model.redoFromMenu()
+                } else if let editingUndo {
+                    editingUndo.redo()
+                } else {
+                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
+
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { dispatch(model?.cutSelectionToClipboard, #selector(NSText.cut(_:))) }
                 .keyboardShortcut("x")
