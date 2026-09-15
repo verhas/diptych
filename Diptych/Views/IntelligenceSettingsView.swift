@@ -24,7 +24,7 @@ struct IntelligenceSettingsView: View {
 
     /// Read when the pane appears and on request -- not watched, since the
     /// files are edited elsewhere and a pane is not the place to poll a disk.
-    @State private var instructions: NamingInstructions.Catalogue?
+    @State private var templates: NamingTemplate.Catalogue?
 
     var body: some View {
         // Scrolls, and every explanation may grow downwards, like the other
@@ -91,7 +91,7 @@ struct IntelligenceSettingsView: View {
 
             Divider()
 
-            instructionsSection
+            templatesSection
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -166,36 +166,54 @@ struct IntelligenceSettingsView: View {
     }
 
     @ViewBuilder
-    private var instructionsSection: some View {
-        Text("Instructions").font(.headline)
+    private var templatesSection: some View {
+        Text("Templates").font(.headline)
 
-        explanation("What the model is told is plain text in files you can edit, in "
-                    + "\(NamingInstructions.tilde(PromptTemplate.directory.path)). "
-                    + "\(NamingInstructions.generalName) is used everywhere. A file in the "
-                    + "\u{201C}\(NamingInstructions.folderDirectoryName)\u{201D} folder beside "
+        explanation("What the model is sent is a template you can edit, in "
+                    + "\(NamingTemplate.tilde(PromptTemplate.directory.path)). "
+                    + "\(NamingTemplate.generalName) is used everywhere. A template in the "
+                    + "\u{201C}\(NamingTemplate.folderDirectoryName)\u{201D} folder beside "
                     + "it that starts with a line such as \u{201C}# under: ~/Documents/"
                     + "Scans\u{201D} is used in that folder and every folder inside it instead; "
                     + "when several match, the nearest folder wins. An edit applies to the next "
                     + "name, without restarting.")
+        explanation("The paragraph with the first placeholder, and everything after it, is "
+                    + "sent as the prompt; everything above it as the model's instructions, "
+                    + "which it weighs more. Placeholders:")
 
-        if let instructions {
-            VStack(alignment: .leading, spacing: 4) {
-                instructionLine(folder: "Everywhere else",
-                                file: instructions.general.file ?? "Diptych's own")
-                ForEach(instructions.rules, id: \.folder) { rule in
-                    instructionLine(folder: NamingInstructions.tilde(rule.folder), file: rule.file)
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(NamingTemplate.placeholders, id: \.key) { entry in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("{{\(entry.key)}}")
+                        .font(.caption.monospaced())
+                        .frame(width: 110, alignment: .leading)
+                    Text(entry.meaning)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ForEach(Array(instructions.problems.enumerated()), id: \.offset) { _, problem in
+        }
+        .textSelection(.enabled)
+
+        if let templates {
+            VStack(alignment: .leading, spacing: 4) {
+                templateLine(folder: "Everywhere else",
+                             file: templates.general.file ?? "Diptych's own")
+                ForEach(templates.rules, id: \.folder) { rule in
+                    templateLine(folder: NamingTemplate.tilde(rule.folder), file: rule.file)
+                }
+            }
+            ForEach(Array(templates.problems.enumerated()), id: \.offset) { _, problem in
                 warning("\(problem.file): \(problem.message)")
             }
         }
 
-        Button("Read the Instructions Again") { readInstructions() }
-            .onAppear { readInstructions() }
+        Button("Read the Templates Again") { readTemplates() }
+            .onAppear { readTemplates() }
     }
 
-    private func instructionLine(folder: String, file: String) -> some View {
+    private func templateLine(folder: String, file: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(folder)
                 .fixedSize(horizontal: false, vertical: true)
@@ -206,8 +224,8 @@ struct IntelligenceSettingsView: View {
         .textSelection(.enabled)
     }
 
-    private func readInstructions() {
-        instructions = NamingInstructions.read()
+    private func readTemplates() {
+        templates = NamingTemplate.read()
     }
 
     /// The model's limit, as the model reports it rather than as remembered.

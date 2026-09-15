@@ -93,8 +93,8 @@ enum NameSuggester {
         var germanSpelling = false
         /// How much of the start of a file the model is shown.
         var excerptLength = NameSuggester.defaultExcerptLength
-        /// What the model is told, from names.tmpl or a file for the folder.
-        var instructions = NamingInstructions.builtIn
+        /// What the model is sent, from names.tmpl or a template for the folder.
+        var template = NamingTemplate.Template.builtIn
     }
 
     /// What came of asking.
@@ -152,30 +152,45 @@ enum NameSuggester {
     /// A name for this file, without its extension.
     static func suggest(forFile url: URL, style: Style = Style()) async -> Outcome {
         let length = style.excerptLength
-        let what = await BlockingWork.run { describe(url, length: length) }
-        guard let what else { return .nothingToGoOn }
-        return await ask(about: what, style: style)
+        // The file is not read at all when the template does not ask for it.
+        let reads = style.template.usesContent
+        let (content, details) = await BlockingWork.run { () -> (String?, [String: String]) in
+            (reads ? describe(url, length: length) : "", fileDetails(of: url))
+        }
+        guard let content else { return .nothingToGoOn }
+        return await ask(about: content, details: details, style: style)
     }
 
-    /// A name for what is on the clipboard.
-    static func suggest(forText text: String, style: Style = Style()) async -> Outcome {
-        let what = excerpt(of: text, length: style.excerptLength)
-        guard !what.isEmpty else { return .nothingToGoOn }
-        return await ask(about: what, style: style)
+    /// A name for what is on the clipboard. `details` describe the file it
+    /// will become, since there is no file yet to read them from.
+    static func suggest(forText text: String, details: [String: String] = [:],
+                        style: Style = Style()) async -> Outcome {
+        let content = excerpt(of: text, length: style.excerptLength)
+        guard !content.isEmpty || !style.template.usesContent else { return .nothingToGoOn }
+        return await ask(about: content, details: details, style: style)
     }
 
-    static func suggest(forImage image: CGImage, style: Style = Style()) async -> Outcome {
+    static func suggest(forImage image: CGImage, details: [String: String] = [:],
+                        style: Style = Style()) async -> Outcome {
         let length = style.excerptLength
-        let words = await BlockingWork.run { describe(SendableImage(image), length: length) }
+        let reads = style.template.usesContent
+        let words = await BlockingWork.run {
+            reads ? describe(SendableImage(image), length: length) : ""
+        }
         guard let words else { return .nothingToGoOn }
-        return await ask(about: words, style: style)
+        return await ask(about: words, details: details, style: style)
     }
 
-    private static func ask(about content: String, style: Style) async -> Outcome {
+    private static func ask(about content: String, details: [String: String],
+                            style: Style) async -> Outcome {
         let status = status
         guard status == .ready, #available(macOS 26, *) else { return .unavailable(status) }
+        let template = style.template
+        let prompt = template.render(content: content, details: details)
         let outcome = await withTaskGroup(of: Outcome.self) { group in
-            group.addTask { await Model.name(for: content, instructions: style.instructions) }
+            group.addTask {
+                await Model.name(instructions: template.instructions, prompt: prompt)
+            }
             group.addTask {
                 try? await Task.sleep(for: .seconds(patience))
                 return .tookTooLong
@@ -186,6 +201,74 @@ enum NameSuggester {
         }
         guard case .name(let raw) = outcome else { return outcome }
         return tidy(raw, style: style).map(Outcome.name) ?? .unusable
+    }
+
+    // MARK: - What is known about the file
+
+    /// The values for a template's placeholders, other than the content.
+    ///
+    /// Names, folders, owners and groups come from the file system, so they are
+    /// passed through the same sanitising as F1's prompt: a control character
+    /// or an invisible one in a file name could otherwise hide text from the
+    /// person reading the template while the model still reads it.
+    static func fileDetails(of url: URL, now: Date = Date()) -> [String: String] {
+        let attributes = (try? FileManager.default.attributesOfItem(atPath: url.path)) ?? [:]
+        let bytes = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        let mode = (attributes[.posixPermissions] as? NSNumber)?.uint16Value
+        var details = details(name: url.lastPathComponent,
+                              folder: url.deletingLastPathComponent(),
+                              bytes: bytes, kind: kind(of: url), now: now)
+        details["permissions"] = mode.map { FileOperations.rwxString(mode_t($0)) } ?? ""
+        details["owner"] = safe(attributes[.ownerAccountName] as? String ?? "")
+        details["group"] = safe(attributes[.groupOwnerAccountName] as? String ?? "")
+        if let created = attributes[.creationDate] as? Date { details["created"] = stamp(created) }
+        if let modified = attributes[.modificationDate] as? Date {
+            details["modified"] = stamp(modified)
+        }
+        return details
+    }
+
+    /// The details of a file that does not exist yet -- New from Clipboard's.
+    /// Its dates are now, and it has no permissions, owner or group to report.
+    static func details(name: String, folder: URL, bytes: Int64, kind: String,
+                        now: Date = Date()) -> [String: String] {
+        let suffix = (name as NSString).pathExtension
+        return [
+            "kind": kind,
+            "name": safe(name),
+            "stem": safe((name as NSString).deletingPathExtension),
+            "extension": safe(suffix),
+            "folder": safe(NamingTemplate.tilde(folder.path)),
+            "folderName": safe(folder.lastPathComponent),
+            "size": ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file),
+            "bytes": String(bytes),
+            "permissions": "",
+            "owner": "",
+            "group": "",
+            "created": stamp(now),
+            "modified": stamp(now),
+            "today": String(stamp(now).prefix(10)),
+        ]
+    }
+
+    /// What the content placeholder will hold, judged the way `describe` reads it.
+    static func kind(of url: URL) -> String {
+        let suffix = url.pathExtension.lowercased()
+        if suffix == "pdf" { return "PDF" }
+        return isPicture(suffix) ? "picture" : "text"
+    }
+
+    private static func safe(_ value: String) -> String {
+        PromptBuilder.sanitise(value).text
+    }
+
+    /// Local time, written the same everywhere: a template asking for a date in
+    /// a name should not get "15. 9. 2026" on one Mac and "9/15/26" on another.
+    static func stamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     // MARK: - What to show the model
@@ -440,16 +523,16 @@ private enum Model {
         var words: [String]
     }
 
-    /// The instructions are the user's, from NamingInstructions. The content
-    /// is fenced here rather than by them, so the fence is there even when
-    /// the instructions no longer mention it.
-    static func name(for content: String, instructions: String) async -> NameSuggester.Outcome {
+    /// Both halves are the user's template, filled in: nothing is added to
+    /// what they wrote, so what they read in the file is what the model gets.
+    static func name(instructions: String, prompt: String) async -> NameSuggester.Outcome {
         // The system model, by name. Never the Private Cloud Compute one.
-        let session = LanguageModelSession(model: SystemLanguageModel.default,
-                                           instructions: instructions)
+        let session = instructions.isEmpty
+            ? LanguageModelSession(model: SystemLanguageModel.default)
+            : LanguageModelSession(model: SystemLanguageModel.default, instructions: instructions)
         do {
             let reply = try await session.respond(
-                to: "BEGIN CONTENT\n\(content)\nEND CONTENT",
+                to: prompt,
                 generating: Suggestion.self,
                 // Greedy, so the same file is given the same name every time
                 // rather than a different guess on each press.

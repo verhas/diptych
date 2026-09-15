@@ -568,8 +568,8 @@ final class AppModel {
                 write(data, as: suggestedName("untitled.txt"))
                 return
             }
-            nameThenWrite(data, extension: "txt") {
-                await NameSuggester.suggest(forText: string, style: $0)
+            nameThenWrite(data, extension: "txt", kind: "text") {
+                await NameSuggester.suggest(forText: string, details: $1, style: $0)
             }
 
         case .image(let image, let pdf):
@@ -604,8 +604,8 @@ final class AppModel {
         // Taken out of the NSImage here, on the main actor, since an NSImage
         // may not cross to the queue that does the looking.
         let sendable = NameSuggester.SendableImage(picture)
-        nameThenWrite(data, extension: format.fileExtension) {
-            await NameSuggester.suggest(forImage: sendable.image, style: $0)
+        nameThenWrite(data, extension: format.fileExtension, kind: "picture") {
+            await NameSuggester.suggest(forImage: sendable.image, details: $1, style: $0)
         }
     }
 
@@ -615,17 +615,23 @@ final class AppModel {
     /// afterwards, so that a file which is kept as it comes has a good name from
     /// the start -- and the rename field opens straight away, so the suggestion
     /// is something to accept, not something that simply happened.
-    private func nameThenWrite(_ data: Data, extension suffix: String,
-                               asking: @escaping (NameSuggester.Style) async -> NameSuggester.Outcome) {
+    private func nameThenWrite(
+        _ data: Data, extension suffix: String, kind: String,
+        asking: @escaping (NameSuggester.Style, [String: String]) async -> NameSuggester.Outcome
+    ) {
         let pane = active
         isSuggestingName = true
         showWhileThinking()
         var style = nameStyle
+        // The file it will be, since there is no file yet to ask about.
+        let details = NameSuggester.details(
+            name: suggestedName("untitled.\(suffix)", in: pane.directory),
+            folder: pane.directory, bytes: Int64(data.count), kind: kind)
         suggestionTask = Task {
-            let instructions = await namingInstructions(for: pane.directory)
-            if !Task.isCancelled { showWhileThinking(following: instructions) }
-            style.instructions = instructions.text
-            let answer = await asking(style)
+            let template = await namingTemplate(for: pane.directory)
+            if !Task.isCancelled { showWhileThinking(following: template) }
+            style.template = template
+            let answer = await asking(style, details)
             // Stopped with Escape, the state was already cleared then -- and
             // clearing it again here could wipe out a newer request's message.
             // The clipboard still becomes a file, since that is what was asked
@@ -878,26 +884,54 @@ final class AppModel {
 
     /// Keep the message on screen for as long as the model takes.
     ///
-    /// An ordinary flash lasts a couple of seconds, and a name takes several:
-    /// the message went away and the pane then did nothing visible for most of
-    /// the wait, which looks exactly like a command that failed.
-    private func showWhileThinking(following instructions: NamingInstructions.Instructions? = nil) {
+    /// An ordinary flash lasts a couple of seconds, and a name can take
+    /// longer: the message went away and the pane then did nothing visible for
+    /// the rest of the wait, which looks exactly like a command that failed.
+    ///
+    /// With the seconds counting up, because how long cannot be predicted but
+    /// it can be shown -- and "it took eight seconds" is something a person can
+    /// act on, or report, where "it felt slow" is not.
+    private func showWhileThinking(following template: NamingTemplate.Template? = nil) {
         toastTask?.cancel()
         toastIsError = false
-        // Which instructions, when they are a folder's own: a name that looks
-        // wrong is otherwise a puzzle about which file was followed.
-        let whose = instructions?.folder.map {
-            " for \(NamingInstructions.tilde($0))"
-        } ?? ""
-        toast = "Thinking of a name\(whose)\u{2026}  (Esc to stop)"
+        // Whose template, when it is a folder's own: a name that looks wrong is
+        // otherwise a puzzle about which file was followed.
+        if let folder = template?.folder {
+            thinkingAbout = " for \(NamingTemplate.tilde(folder))"
+        }
+        let started = thinkingSince ?? Date()
+        thinkingSince = started
+        showThinking(since: started)
+
+        thinkingTicker?.cancel()
+        thinkingTicker = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                self.showThinking(since: started)
+            }
+        }
     }
 
-    /// The instructions for a folder, read afresh so an edit applies at once.
-    private func namingInstructions(for folder: URL) async -> NamingInstructions.Instructions {
-        await BlockingWork.run { NamingInstructions.read().instructions(for: folder) }
+    private func showThinking(since started: Date) {
+        let seconds = Int(Date().timeIntervalSince(started))
+        toast = "Thinking of a name\(thinkingAbout)\u{2026} \(seconds) s  (Esc to stop)"
+    }
+
+    @ObservationIgnored private var thinkingSince: Date?
+    @ObservationIgnored private var thinkingAbout = ""
+    @ObservationIgnored private var thinkingTicker: Task<Void, Never>?
+
+    /// The template for a folder, read afresh so an edit applies at once.
+    private func namingTemplate(for folder: URL) async -> NamingTemplate.Template {
+        await BlockingWork.run { NamingTemplate.read().template(for: folder) }
     }
 
     private func stopShowingThinking() {
+        thinkingTicker?.cancel()
+        thinkingTicker = nil
+        thinkingSince = nil
+        thinkingAbout = ""
         if toast?.hasPrefix("Thinking of a name") ?? false { toast = nil }
     }
 
@@ -928,11 +962,11 @@ final class AppModel {
         suggestionTask = Task {
             var outcome: NameSuggester.Outcome?
             if !item.isDirectory {
-                let instructions = await namingInstructions(
+                let template = await namingTemplate(
                     for: item.url.deletingLastPathComponent())
                 guard !Task.isCancelled else { return }
-                showWhileThinking(following: instructions)
-                style.instructions = instructions.text
+                showWhileThinking(following: template)
+                style.template = template
                 outcome = await NameSuggester.suggest(forFile: item.url, style: style)
             }
             // Stopped with Escape: nothing opens.
