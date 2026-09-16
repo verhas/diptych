@@ -330,6 +330,16 @@ read backwards, so the history's checks understand a chain: a name occupied now
 may be freed by an earlier step, and a file that stepped aside does not exist
 yet.
 
+## Quick Look keeps up
+
+Space previews the selection, and the panel follows the cursor. It also follows
+what happens to the file: **trashing or renaming the previewed file** used to
+leave the panel reading *No items selected* while the pane had already moved the
+cursor to the next file. Quick Look drops its data source when the item it was
+showing goes away, and `reloadData` alone does not bring it back — the source
+has to be asserted again and the *item* refreshed, not only the list. With
+nothing left to show, the panel closes rather than sitting there looking broken.
+
 ## Undo and Redo
 
 **Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
@@ -1273,6 +1283,42 @@ travel as hex so a binary property list survives the shell, and an ACL that
 cannot be translated into `chmod -E` syntax (a principal whose name contains a
 space) offers no escalation rather than risk applying an entry to the wrong
 principal.
+
+## Details — what a file says about itself
+
+The Info window's **Details** tab reads the attributes kept *inside* the file:
+
+* **Pictures** — pixel size, resolution, colour model, orientation, and every
+  dictionary ImageIO offers: EXIF, TIFF, IPTC, PNG, GIF, HEIC, and **GPS**, so a
+  photograph's location is visible rather than merely present.
+* **PDF** — page count, the first page's size in points and millimetres, the PDF
+  version, whether it is encrypted, whether printing and copying are allowed,
+  and the document's own title, author, producer and dates.
+* **Sound and film** — length, picture size, frame rate, the four-character
+  format codes, sample rate and channels per track, and the common metadata
+  written into the file.
+* **Everything else** — what Spotlight already knows: kind, title, authors,
+  page count, languages, where the file came from. That covers Word,
+  spreadsheets and presentations without unzipping anything, and it answers
+  nothing on an unindexed volume, which the tab says rather than implying the
+  file has no attributes.
+
+**Read only, deliberately.** Every one of these formats keeps its metadata
+inside the file, so changing a field means rewriting the file — re-encoding a
+JPEG, or unzipping and rezipping an Office document. A file manager that
+quietly re-encodes a photograph to fix a typo in a date has done more damage
+than the typo. The tab says so at the bottom.
+
+Values are made readable rather than shown raw: `ISOSpeedRatings` reads as *ISO
+speed ratings* (a run of capitals is an abbreviation and stays whole), booleans
+as Yes and No, dates in the local format, lists joined. Binary values — an EXIF
+maker note is kilobytes of it — and anything longer than 300 characters are
+left out. Reading is asked for when the tab is first opened, off the main
+thread, and gives up after five seconds, since a film's tracks can reach for
+the file itself.
+
+Seventh tab, so the window's minimum width is 880: at 620 macOS folded the
+whole tab bar into a "more toolbar items" pop-up where no tab could be chosen.
 
 ## Open By — what has a file open
 

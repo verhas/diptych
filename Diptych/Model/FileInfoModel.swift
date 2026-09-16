@@ -299,6 +299,23 @@ final class FileInfoModel {
         }
     }
 
+    // MARK: - What the file says about itself
+
+    private(set) var details: FormatDetails.Report?
+    private(set) var isReadingDetails = false
+
+    /// Asked when the tab is first shown. Cheap for a photograph, not always
+    /// cheap for a film, so it is not part of opening the window.
+    func readDetails() {
+        guard !isReadingDetails, details == nil else { return }
+        isReadingDetails = true
+        let url = url
+        Task {
+            details = await FormatDetails.read(url)
+            isReadingDetails = false
+        }
+    }
+
     // MARK: - What has it open
 
     private(set) var openBy: OpenFiles.Report?

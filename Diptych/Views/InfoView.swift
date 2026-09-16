@@ -22,6 +22,7 @@ struct InfoView: View {
                 tags.tabItem { Label("Tags", systemImage: "tag") }
                 attributes.tabItem { Label("Attributes", systemImage: "list.bullet.rectangle") }
                 access.tabItem { Label("Access", systemImage: "lock.shield") }
+                details.tabItem { Label("Details", systemImage: "text.magnifyingglass") }
                 openBy.tabItem { Label("Open By", systemImage: "bolt.horizontal.circle") }
             }
             .padding(14)
@@ -29,11 +30,12 @@ struct InfoView: View {
             Divider()
             statusBar
         }
-        // Wide enough for six tabs in the bar. One too many for the width and
-        // macOS moves the last ones into a ">>" menu, where a tab cannot be
-        // chosen at all -- which is exactly what happened to Settings when it
-        // gained its Apple Intelligence tab.
-        .frame(minWidth: 780, minHeight: 460)
+        // Wide enough for seven tabs in the bar. One too many for the width
+        // and macOS folds the *whole* bar into a "more toolbar items" pop-up
+        // where no tab can be chosen at all -- which is what 620 did to six
+        // tabs, and what happened to Settings when it gained one. Measured
+        // through accessibility rather than guessed at.
+        .frame(minWidth: 880, minHeight: 460)
         .navigationTitle(model.name)
         .onAppear(perform: seedDrafts)
     }
@@ -477,6 +479,65 @@ struct InfoView: View {
         for attribute in model.attributes where attribute.text != nil {
             attributeDrafts[attribute.name] = attribute.text
         }
+    }
+
+    // MARK: - Details
+
+    /// What is written inside the file about itself. Read-only: every one of
+    /// these formats keeps its metadata in the file, so writing a field means
+    /// rewriting the file.
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("What this file says about itself").font(.headline)
+                Spacer()
+                if model.isReadingDetails { ProgressView().controlSize(.small) }
+            }
+
+            if let report = model.details {
+                if let nothing = report.nothing {
+                    Text(nothing)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !report.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(report.sections) { section in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(section.title).font(.subheadline).bold()
+                                    ForEach(section.rows) { row in
+                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                            Text(row.name)
+                                                .frame(width: 210, alignment: .trailing)
+                                                .foregroundStyle(.secondary)
+                                            Text(row.value)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .font(.system(size: 11))
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    }
+                }
+            } else if !model.isReadingDetails {
+                Text("Nothing has been read yet.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+            Text("Read only. These attributes live inside the file, so changing one means "
+                 + "rewriting the file \u{2014} re-encoding a picture, or unzipping and "
+                 + "rezipping a document \u{2014} which Diptych will not do behind a field.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { model.readDetails() }
     }
 
     // MARK: - Open by
