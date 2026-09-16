@@ -338,17 +338,27 @@ actor FileOperations {
     /// Delete means *trash*, always. `removeItem` is unrecoverable and has no
     /// business being wired to a keystroke in a file manager.
     func trash(_ urls: [URL]) -> Outcome {
+        trashRecording(urls).outcome
+    }
+
+    /// Also where each item ended up, which is what makes trashing undoable:
+    /// the Trash may already hold something of that name, so macOS renames it
+    /// on the way in and only it knows what to.
+    func trashRecording(_ urls: [URL]) -> (outcome: Outcome, moved: [(original: URL, trashed: URL)]) {
         let fm = FileManager()
         var outcome = Outcome()
+        var moved: [(original: URL, trashed: URL)] = []
         for url in urls {
             do {
-                try fm.trashItem(at: url, resultingItemURL: nil)
+                var resulting: NSURL?
+                try fm.trashItem(at: url, resultingItemURL: &resulting)
                 outcome.succeeded.append(url)
+                if let trashed = resulting as URL? { moved.append((url, trashed)) }
             } catch {
                 outcome.failures.append((url, error.localizedDescription))
             }
         }
-        return outcome
+        return (outcome, moved)
     }
 
     /// Applies the nine rwx bits to every item, leaving everything above them

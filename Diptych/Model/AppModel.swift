@@ -38,6 +38,8 @@ final class AppModel {
         case clipboardFormat
         case scriptApproval
         case scriptProblems
+        case historyStep
+        case historyMany
 
         var id: String {
             switch self {
@@ -53,6 +55,8 @@ final class AppModel {
             case .clipboardFormat: return "clipboardFormat"
             case .scriptApproval: return "scriptApproval"
             case .scriptProblems: return "scriptProblems"
+            case .historyStep:    return "historyStep"
+            case .historyMany:    return "historyMany"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -171,7 +175,9 @@ final class AppModel {
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
-    @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?, urls: [URL])?
+    @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?,
+                                                         urls: [URL],
+                                                         before: [(String?, String?)])?
 
     init() {
         slot = Self.nextSlot
@@ -552,7 +558,8 @@ final class AppModel {
         }
 
         Task {
-            let outcome = await FileOperations.shared.trash(urls)
+            let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
+            FileHistory.shared.recordTrash(moved)
             if !outcome.succeeded.isEmpty {
                 Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
             }
@@ -671,7 +678,7 @@ final class AppModel {
                 dialog = .message(error.localizedDescription)
                 return
             }
-            FileHistory.shared.recordCreation("New from Clipboard", of: [url])
+            FileHistory.shared.recordCreation(.clipboard, of: [url])
             await offerRename(of: url, in: pane)
             // The file is made either way; this says why it kept the plain name.
             if !stopped, let why = answer.explanation { flash(why) }
@@ -693,7 +700,7 @@ final class AppModel {
         let url = active.directory.appendingPathComponent(name)
         do {
             try data.write(to: url, options: .withoutOverwriting)
-            FileHistory.shared.recordCreation("New from Clipboard", of: [url])
+            FileHistory.shared.recordCreation(.clipboard, of: [url])
             active.pendingSelection = [url]
             active.reload()
             flash("Created \(name)", error: false)
@@ -851,7 +858,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.createFile(named: name, in: parent)
-                FileHistory.shared.recordCreation("New File", of: [url])
+                FileHistory.shared.recordCreation(.newFile, of: [url])
                 active.pendingSelection = [url]
                 active.reload()
             } catch {
@@ -867,7 +874,7 @@ final class AppModel {
         Task {
             do {
                 let url = try await FileOperations.shared.createDirectory(named: name, in: parent)
-                FileHistory.shared.recordCreation("New Folder", of: [url])
+                FileHistory.shared.recordCreation(.newFolder, of: [url])
                 active.pendingSelection = [url]
                 active.reload()
             } catch {
@@ -1065,7 +1072,7 @@ final class AppModel {
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
                 await GitService.shared.followMove(from: item.url, to: url)
-                FileHistory.shared.recordRelocation("Rename", [(item.url, url)])
+                FileHistory.shared.recordRename(from: item.url, to: url)
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
                 pane.reload()
@@ -1304,9 +1311,8 @@ final class AppModel {
                                 replaced: Set<URL>) {
         guard !done.isEmpty else { return }
         switch kind {
-        case .copy: FileHistory.shared.recordCreation("Copy", of: done.map(\.to),
-                                                      replacing: replaced)
-        case .move: FileHistory.shared.recordRelocation("Move", done, replacing: replaced)
+        case .copy: FileHistory.shared.recordCopy(done, replacing: replaced)
+        case .move: FileHistory.shared.recordMove(done, replacing: replaced)
         }
     }
 
@@ -2169,8 +2175,7 @@ final class AppModel {
         let destination = active.directory
         Task {
             let outcome = await FileOperations.shared.createLinks(to: urls, in: destination)
-            FileHistory.shared.recordCreation(outcome.succeeded.count == 1 ? "Link" : "Links",
-                                              of: outcome.succeeded)
+            FileHistory.shared.recordCreation(.link, of: outcome.succeeded)
             active.reload()
             inactive.reload()
 
@@ -2280,42 +2285,105 @@ final class AppModel {
         }
 
         Task {
-            let touched = await history.perform(direction) { [weak self] plan in
+            let result = await history.perform(direction) { [weak self] plan in
                 await self?.confirmStep(plan) ?? false
             }
-            // Selected where they are now, in whichever pane shows their folder.
-            for pane in [left, right] {
-                let here = touched.filter {
-                    FileOperations.samePath($0.deletingLastPathComponent(), pane.directory)
-                }
-                if !here.isEmpty { pane.pendingSelection = Set(here) }
-                pane.reload()
+            finish(result, word: word)
+        }
+    }
+
+    /// Show where things ended up, and say what could not be done.
+    private func finish(_ result: FileHistory.Result, word: String) {
+        // Selected where they are now, in whichever pane shows their folder.
+        for pane in [left, right] {
+            let here = result.touched.filter {
+                FileOperations.samePath($0.deletingLastPathComponent(), pane.directory)
             }
+            if !here.isEmpty { pane.pendingSelection = Set(here) }
+            pane.reload()
         }
+
+        guard !result.failures.isEmpty else {
+            if !result.carriedOut.isEmpty {
+                flash("\(word.capitalized(with: nil))ne: "
+                      + result.carriedOut.joined(separator: ", "), error: false)
+            }
+            return
+        }
+        // Said, not swallowed -- and the rest of the history is untouched, so
+        // whatever else was chosen has already been done and the next undo
+        // still works.
+        let done = result.carriedOut.isEmpty
+            ? "" : "\(word.capitalized(with: nil))ne: "
+                   + result.carriedOut.joined(separator: ", ") + "\n\n"
+        dialog = .notice(title: result.carriedOut.isEmpty
+                             ? "Nothing could be \(word)ne"
+                             : "Some of it could not be \(word)ne",
+                         text: done + result.failures.map { "\u{2022} \($0)" }
+                             .joined(separator: "\n"))
     }
 
-    /// The question before an undo or redo, as a sheet on this window.
+    /// The question before an undo or redo.
+    ///
+    /// A sheet of Diptych's own rather than an `NSAlert`: an alert is narrow
+    /// and centres its text, which broke one sentence about two names over
+    /// several lines and made it read as two unrelated facts.
+    private(set) var historyPlan: FileHistory.Plan?
+
+    @ObservationIgnored private var historyAnswer: CheckedContinuation<Bool, Never>?
+
     private func confirmStep(_ plan: FileHistory.Plan) async -> Bool {
-        let alert = NSAlert()
-        if plan.doable.isEmpty {
-            alert.messageText = "\u{201C}\(plan.entry.name)\u{201D} cannot be "
-                + "\(plan.direction == .undo ? "undone" : "redone") any more."
-            alert.informativeText = plan.explanation
-            alert.addButton(withTitle: "OK")
-            _ = await present(alert)
-            // Said, and dropped: it will not become possible later.
-            return true
-        }
-        alert.messageText = "\(plan.title)?"
-        alert.informativeText = plan.explanation
-        alert.addButton(withTitle: plan.title)
-        alert.addButton(withTitle: "Cancel")
-        return await present(alert) == .alertFirstButtonReturn
+        historyPlan = plan
+        dialog = .historyStep
+        return await withCheckedContinuation { historyAnswer = $0 }
     }
 
-    private func present(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        guard let window else { return alert.runModal() }
-        return await alert.beginSheetModal(for: window)
+    /// Answered once, however the sheet went away -- Escape included, or the
+    /// waiting undo would never hear anything back.
+    func answerHistoryStep(_ yes: Bool) {
+        guard let answer = historyAnswer else { return }
+        historyAnswer = nil
+        historyPlan = nil
+        if dialog == .historyStep { dialog = nil }
+        answer.resume(returning: yes)
+    }
+
+    // MARK: - Several steps at once
+
+    /// Which steps are ticked, by identity: the lists shift as steps are done.
+    var historyUndoChoice: Set<UUID> = []
+    var historyRedoChoice: Set<UUID> = []
+
+    func requestHistoryMany() {
+        let history = FileHistory.shared
+        guard !history.undoable.isEmpty || !history.redoable.isEmpty else {
+            flash("There is nothing to undo yet", error: true)
+            return
+        }
+        guard transferProgress == nil, queuedTransfers == 0, !history.isBusy else {
+            flash("Wait for the operation in progress to finish", error: true)
+            return
+        }
+        historyUndoChoice = []
+        historyRedoChoice = []
+        dialog = .historyMany
+    }
+
+    func confirmHistoryMany() {
+        let history = FileHistory.shared
+        let undo = Set(history.undoable.indices.filter {
+            historyUndoChoice.contains(history.undoable[$0].id)
+        })
+        let redo = Set(history.redoable.indices.filter {
+            historyRedoChoice.contains(history.redoable[$0].id)
+        })
+        dialog = nil
+        guard !undo.isEmpty || !redo.isEmpty else { return }
+
+        Task {
+            let result = await history.performMany(undo: undo, redo: redo)
+            finish(result, word: undo.isEmpty ? "redo" : "undo")
+        }
     }
 
     /// Cmd-Delete from the menu bar.
@@ -2480,8 +2548,17 @@ final class AppModel {
         guard !urls.isEmpty else { return }
 
         Task {
+            let before = await BlockingWork.run {
+                urls.map { url -> (String?, String?) in
+                    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+                    return (attributes?[.ownerAccountName] as? String,
+                            attributes?[.groupOwnerAccountName] as? String)
+                }
+            }
             let outcome = await FileOperations.shared.setOwnership(owner: owner, group: group,
                                                                    for: urls)
+            recordOwnership(of: outcome.succeeded, among: urls, before: before,
+                            owner: owner, group: group)
             pane.reload()
             inactive.reload()
             guard !outcome.isCompleteSuccess else { return }
@@ -2489,12 +2566,23 @@ final class AppModel {
             // Changing an owner is refused for everyone but root, so offer the
             // authenticated route rather than just reporting a failure.
             if let owner {
-                pendingOwnerChange = (owner, group, urls)
+                pendingOwnerChange = (owner, group, urls, before)
                 dialog = .authorizeOwner
             } else {
                 report(outcome, verb: "change the group of")
             }
         }
+    }
+
+    /// Only for the items it worked on, and with each item's own former owner
+    /// -- one of several files may already have belonged to the new owner.
+    private func recordOwnership(of succeeded: [URL], among urls: [URL],
+                                 before: [(String?, String?)],
+                                 owner: String?, group: String?) {
+        FileHistory.shared.recordOwnership(succeeded.compactMap { url in
+            guard let index = urls.firstIndex(of: url) else { return nil }
+            return (url, before[index].0, before[index].1, owner, group)
+        })
     }
 
     func confirmPrivilegedOwnerChange() {
@@ -2503,6 +2591,8 @@ final class AppModel {
 
         switch Privileged.chown(owner: pending.owner, group: pending.group, urls: pending.urls) {
         case .succeeded:
+            recordOwnership(of: pending.urls, among: pending.urls, before: pending.before,
+                            owner: pending.owner, group: pending.group)
             flash("Owner changed for \(pending.urls.count) item"
                   + (pending.urls.count == 1 ? "" : "s"), error: false)
         case .cancelled:

@@ -67,7 +67,7 @@ final class FileHistoryTests: XCTestCase {
 
     func testUndoingACopyPutsTheCopyInTheTrashAndRedoTakesItBack() async throws {
         let copy = try file("copy.txt", "copied")
-        history.recordCreation("Copy", of: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)])
 
         let plan = await step(.undo)
 
@@ -86,7 +86,7 @@ final class FileHistoryTests: XCTestCase {
     func testANewFolderWithThingsAddedSinceStillGoesButSaysSo() async throws {
         let made = folder.appendingPathComponent("untitled folder")
         try manager.createDirectory(at: made, withIntermediateDirectories: false)
-        history.recordCreation("New Folder", of: [made])
+        history.recordCreation(.newFolder, of: [made])
         try manager.setAttributes([.modificationDate: Date().addingTimeInterval(120)],
                                   ofItemAtPath: made.path)
 
@@ -100,7 +100,7 @@ final class FileHistoryTests: XCTestCase {
 
     func testADifferentFileWithTheSameNameIsLeftAlone() async throws {
         let copy = try file("copy.txt", "copied")
-        history.recordCreation("Copy", of: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)])
         try manager.removeItem(at: copy)
         try file("copy.txt", "somebody else's")
 
@@ -114,7 +114,7 @@ final class FileHistoryTests: XCTestCase {
 
     func testReplacingSomethingIsSaidToBeBeyondUndoing() async throws {
         let copy = try file("copy.txt")
-        history.recordCreation("Copy", of: [copy], replacing: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)], replacing: [copy])
 
         let plan = history.plan(.undo)
 
@@ -129,11 +129,11 @@ final class FileHistoryTests: XCTestCase {
         try manager.createDirectory(at: elsewhere.deletingLastPathComponent(),
                                     withIntermediateDirectories: true)
         try manager.moveItem(at: original, to: elsewhere)
-        history.recordRelocation("Move", [(original, elsewhere)])
+        history.recordMove([(original, elsewhere)])
 
         let plan = await step(.undo)
 
-        XCTAssertTrue(plan?.explanation.contains("moves from") ?? false, plan?.explanation ?? "")
+        XCTAssertTrue(plan?.explanation.contains("was moved from") ?? false, plan?.explanation ?? "")
         XCTAssertTrue(exists(original))
         XCTAssertFalse(exists(elsewhere))
 
@@ -146,11 +146,11 @@ final class FileHistoryTests: XCTestCase {
         let old = try file("draft.txt")
         let new = folder.appendingPathComponent("final.txt")
         try manager.moveItem(at: old, to: new)
-        history.recordRelocation("Rename", [(old, new)])
+        history.recordRename(from: old, to: new)
 
         let plan = await step(.undo)
 
-        XCTAssertTrue(plan?.explanation.contains("is renamed") ?? false, plan?.explanation ?? "")
+        XCTAssertTrue(plan?.explanation.contains("was renamed to") ?? false, plan?.explanation ?? "")
         XCTAssertTrue(exists(old))
         XCTAssertFalse(exists(new))
     }
@@ -158,7 +158,7 @@ final class FileHistoryTests: XCTestCase {
     func testUndoingARenameThatOnlyChangedCase() async throws {
         let old = try file("Notes.txt")
         let new = try await FileOperations.shared.rename(old, to: "notes.txt")
-        history.recordRelocation("Rename", [(old, new)])
+        history.recordRename(from: old, to: new)
 
         let plan = await step(.undo)
 
@@ -172,7 +172,7 @@ final class FileHistoryTests: XCTestCase {
         try manager.createDirectory(at: elsewhere.deletingLastPathComponent(),
                                     withIntermediateDirectories: true)
         try manager.moveItem(at: original, to: elsewhere)
-        history.recordRelocation("Move", [(original, elsewhere)])
+        history.recordMove([(original, elsewhere)])
         try file("a/notes.txt", "a new one")
 
         let plan = await step(.undo)
@@ -187,7 +187,7 @@ final class FileHistoryTests: XCTestCase {
         let elsewhere = folder.appendingPathComponent("notes.txt")
         try manager.moveItem(at: original, to: elsewhere)
         try manager.removeItem(at: folder.appendingPathComponent("a"))
-        history.recordRelocation("Move", [(original, elsewhere)])
+        history.recordMove([(original, elsewhere)])
 
         let plan = await step(.undo)
 
@@ -204,7 +204,7 @@ final class FileHistoryTests: XCTestCase {
         let twoThere = folder.appendingPathComponent("b/two.txt")
         try manager.moveItem(at: one, to: oneThere)
         try manager.moveItem(at: two, to: twoThere)
-        history.recordRelocation("Move", [(one, oneThere), (two, twoThere)])
+        history.recordMove([(one, oneThere), (two, twoThere)])
         try manager.removeItem(at: twoThere)
 
         let plan = await step(.undo)
@@ -247,11 +247,169 @@ final class FileHistoryTests: XCTestCase {
         XCTAssertNil(history.undoName)
     }
 
+    // MARK: - The Trash
+
+    func testUndoingATrashTakesItBackOutAndRedoPutsItThere() async throws {
+        let url = try file("wanted.txt", "keep me")
+        let (_, moved) = await FileOperations.shared.trashRecording([url])
+        trashed += moved.map(\.trashed)
+        history.recordTrash(moved)
+
+        let plan = await step(.undo)
+
+        XCTAssertEqual(plan?.title, "Undo Move to Trash")
+        XCTAssertTrue(plan?.entry.told.contains("was moved to the Trash") ?? false,
+                      plan?.entry.told ?? "")
+        XCTAssertTrue(exists(url))
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "keep me")
+
+        await step(.redo)
+        XCTAssertFalse(exists(url), "back in the Trash")
+    }
+
+    func testATrashedItemEmptiedFromTheTrashCannotComeBack() async throws {
+        let url = try file("gone.txt")
+        let (_, moved) = await FileOperations.shared.trashRecording([url])
+        history.recordTrash(moved)
+        // As emptying the Trash would leave it.
+        for item in moved { try manager.removeItem(at: item.trashed) }
+
+        let plan = await step(.undo)
+
+        XCTAssertTrue(plan?.doable.isEmpty ?? false)
+        XCTAssertTrue(plan?.problems.first?.contains("Trash") ?? false,
+                      plan?.problems.first ?? "")
+    }
+
+    // MARK: - Owner and group
+
+    func testUndoingAGroupChangePutsTheOldGroupBack() async throws {
+        let mine = AccountLookup.ownGroups()
+        let url = try file("owned.txt")
+        let was = try XCTUnwrap(manager.attributesOfItem(atPath: url.path)[.groupOwnerAccountName]
+                                    as? String)
+        guard let other = mine.first(where: { $0 != was }) else {
+            throw XCTSkip("this account is in only one group, so there is nothing to change to")
+        }
+
+        let outcome = await FileOperations.shared.setOwnership(owner: nil, group: other,
+                                                              for: [url])
+        try XCTSkipUnless(outcome.isCompleteSuccess, "the group could not be changed here")
+        history.recordOwnership([(url, was, was, nil, other)])
+
+        let plan = await step(.undo)
+
+        XCTAssertEqual(plan?.title, "Undo Group Change")
+        XCTAssertEqual(try manager.attributesOfItem(atPath: url.path)[.groupOwnerAccountName]
+                           as? String, was)
+
+        await step(.redo)
+        XCTAssertEqual(try manager.attributesOfItem(atPath: url.path)[.groupOwnerAccountName]
+                           as? String, other)
+    }
+
+    func testAnOwnerChangeThatCannotBeUndoneIsReportedNotHidden() async throws {
+        // Giving a file to root is refused for an ordinary user, which is
+        // exactly the shape of "the change put it beyond reach".
+        let url = try file("owned.txt")
+        history.recordOwnership([(url, "root", nil, NSUserName(), nil)])
+
+        let result = await history.perform(.undo) { _ in true }
+
+        XCTAssertEqual(result.failures.count, 1, "\(result.failures)")
+        XCTAssertTrue(result.failures[0].contains("administrator"), result.failures[0])
+        XCTAssertTrue(result.carriedOut.isEmpty)
+        XCTAssertNil(history.undoName, "and it does not sit there blocking the next undo")
+    }
+
+    // MARK: - Several at once
+
+    func testSeveralStepsCanBeUndoneAtOnce() async throws {
+        let one = try file("one.txt")
+        let two = try file("two.txt")
+        history.recordCreation(.newFile, of: [one])
+        history.recordCreation(.newFile, of: [two])
+
+        let result = await history.performMany(undo: [0, 1], redo: [])
+        noteTrash()
+
+        XCTAssertEqual(result.carriedOut.count, 2)
+        XCTAssertFalse(exists(one))
+        XCTAssertFalse(exists(two))
+        XCTAssertTrue(history.undoable.isEmpty)
+        XCTAssertEqual(history.redoable.count, 2)
+
+        let back = await history.performMany(undo: [], redo: [0, 1])
+        XCTAssertEqual(back.carriedOut.count, 2)
+        XCTAssertTrue(exists(one))
+        XCTAssertTrue(exists(two))
+    }
+
+    func testOneStepThatFailsDoesNotStopTheOthers() async throws {
+        let created = try file("new.txt")
+        history.recordCreation(.newFile, of: [created])
+
+        // A move whose way back leads into a folder nothing may be written to.
+        let locked = folder.appendingPathComponent("locked")
+        try manager.createDirectory(at: locked, withIntermediateDirectories: true)
+        let source = locked.appendingPathComponent("moved.txt")
+        try Data("x".utf8).write(to: source)
+        let target = folder.appendingPathComponent("moved.txt")
+        try manager.moveItem(at: source, to: target)
+        history.recordMove([(source, target)])
+        try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: locked.path)
+        defer { try? manager.setAttributes([.posixPermissions: 0o700],
+                                           ofItemAtPath: locked.path) }
+
+        let result = await history.performMany(undo: [0, 1], redo: [])
+        noteTrash()
+
+        XCTAssertEqual(result.failures.count, 1, "\(result.failures)")
+        XCTAssertEqual(result.carriedOut, ["New File"], "the other one still went ahead")
+        XCTAssertFalse(exists(created))
+        XCTAssertTrue(history.undoable.isEmpty, "neither step is left blocking the way")
+    }
+
+    // MARK: - What the question says
+
+    func testARenameIsToldInOneSentenceInTheRightOrder() throws {
+        let old = try file("draft.txt")
+        let new = folder.appendingPathComponent("final.txt")
+        try manager.moveItem(at: old, to: new)
+        history.recordRename(from: old, to: new)
+
+        let told = try XCTUnwrap(history.plan(.undo)?.explanation)
+
+        XCTAssertEqual(told, "\u{201C}draft.txt\u{201D} was renamed to \u{201C}final.txt\u{201D} "
+                       + "in \u{201C}\(NamingTemplate.tilde(folder.path))\u{201D}.")
+        XCTAssertFalse(told.contains("\""), "one kind of quotation mark only")
+    }
+
+    func testARedoSaysThatItWasUndone() async throws {
+        let url = try file("one.txt")
+        history.recordCreation(.newFile, of: [url])
+        await step(.undo)
+
+        let told = try XCTUnwrap(history.plan(.redo)?.explanation)
+
+        XCTAssertTrue(told.hasSuffix("That was undone."), told)
+        XCTAssertEqual(history.plan(.redo)?.title, "Redo New File")
+    }
+
+    func testAPermissionChangeIsToldWithBothModes() throws {
+        let url = try file("run.sh")
+        history.recordPermissions([(url, 0o644, 0o755)])
+
+        let told = try XCTUnwrap(history.plan(.undo)?.entry.told)
+
+        XCTAssertTrue(told.contains("from rw-r--r-- to rwxr-xr-x"), told)
+    }
+
     // MARK: - The history itself
 
     func testCancellingLeavesTheStepWhereItWas() async throws {
         let copy = try file("copy.txt")
-        history.recordCreation("Copy", of: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)])
 
         await step(.undo, answer: false)
 
@@ -263,18 +421,18 @@ final class FileHistoryTests: XCTestCase {
     func testTheTestsCleanUpTheTrash() async throws {
         // The cleanup itself is what is checked, in tearDown.
         let copy = try file("copy.txt")
-        history.recordCreation("Copy", of: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)])
         await step(.undo)
         XCTAssertFalse(trashed.isEmpty, "the trashed copy is known, so it can be removed")
     }
 
     func testANewOperationEndsWhatCouldBeRedone() async throws {
         let copy = try file("copy.txt")
-        history.recordCreation("Copy", of: [copy])
+        history.recordCopy([(folder.appendingPathComponent("from/copy.txt"), copy)])
         await step(.undo)
         XCTAssertEqual(history.redoName, "Copy")
 
-        history.recordCreation("New File", of: [try file("new.txt")])
+        history.recordCreation(.newFile, of: [try file("new.txt")])
 
         XCTAssertNil(history.redoName)
         XCTAssertEqual(history.undoName, "New File")
@@ -283,7 +441,7 @@ final class FileHistoryTests: XCTestCase {
     func testOnlySoManyStepsAreKept() throws {
         let url = try file("a.txt")
         for _ in 0 ..< FileHistory.depth + 10 {
-            history.recordCreation("New File", of: [url])
+            history.recordCreation(.newFile, of: [url])
         }
         XCTAssertEqual(history.undoable.count, FileHistory.depth)
     }

@@ -439,6 +439,10 @@ struct DialogSheet: View {
     /// type straight away instead of clicking first.
     @FocusState private var fieldFocused: Bool
 
+    /// Where a Shift-click measures its run from, in each history list.
+    @State private var undoAnchor: Int?
+    @State private var redoAnchor: Int?
+
     /// A review step, not a confirmation: both lists are editable, so a partial
     /// send is a normal thing to do rather than something to work around.
     @ViewBuilder
@@ -743,10 +747,153 @@ struct DialogSheet: View {
                              confirm: "OK",
                              destructive: false,
                              showsCancel: false) { }
+
+            case .historyStep:
+                historyStep
+
+            case .historyMany:
+                historyMany
             }
         }
         .padding(20)
-        .frame(width: 470)
+        // Wider for the history sheets: their sentences name two files and a
+        // folder, and at 470 a rename was broken over three lines.
+        .frame(width: dialog == .historyStep || dialog == .historyMany ? 600 : 470)
+    }
+
+    /// One step, before it is undone or redone.
+    ///
+    /// The sentence says what *was done*, in the past tense, and the button
+    /// says what pressing it does -- "Undo Rename". Describing the reversal
+    /// instead read backwards, and left the reader working out which of two
+    /// names came first.
+    @ViewBuilder
+    private var historyStep: some View {
+        let plan = model.historyPlan
+        Text(plan.map { $0.doable.isEmpty
+                ? "\($0.entry.name) cannot be \($0.direction == .undo ? "undone" : "redone")"
+                : "\($0.title)?" } ?? "")
+            .font(.headline)
+
+        Text(plan?.explanation ?? "")
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+
+        HStack {
+            Spacer()
+            if let plan, !plan.doable.isEmpty {
+                Button("Cancel") { model.answerHistoryStep(false) }
+                    .keyboardShortcut(.cancelAction)
+                Button(plan.title) { model.answerHistoryStep(true) }
+                    .keyboardShortcut(.defaultAction)
+            } else {
+                Button("OK") { model.answerHistoryStep(true) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+    }
+
+    /// Several steps at once, chosen with checkboxes.
+    @ViewBuilder
+    private var historyMany: some View {
+        let history = FileHistory.shared
+        Text("Undo or Redo Many").font(.headline)
+        Text("Tick the steps to undo, and any undone steps to do again. They are "
+             + "carried out newest first. A step that can no longer be carried out is "
+             + "reported and the rest still are.")
+            .font(.subheadline).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if !history.undoable.isEmpty {
+                    historyList(title: "Undo \u{2014} newest first",
+                                entries: history.undoable.reversed(),
+                                selection: $model.historyUndoChoice,
+                                anchor: $undoAnchor)
+                }
+                if !history.redoable.isEmpty {
+                    historyList(title: "Do again \u{2014} most recently undone first",
+                                entries: history.redoable.reversed(),
+                                selection: $model.historyRedoChoice,
+                                anchor: $redoAnchor)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .frame(maxHeight: 320)
+
+        HStack {
+            Text(chosenSummary).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Cancel") { model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Carry Out") { model.confirmHistoryMany() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.historyUndoChoice.isEmpty && model.historyRedoChoice.isEmpty)
+        }
+    }
+
+    private var chosenSummary: String {
+        let undo = model.historyUndoChoice.count
+        let redo = model.historyRedoChoice.count
+        var parts: [String] = []
+        if undo > 0 { parts.append("\(undo) to undo") }
+        if redo > 0 { parts.append("\(redo) to do again") }
+        return parts.isEmpty ? "Nothing ticked" : parts.joined(separator: ", ")
+    }
+
+    /// Rows with checkboxes, and Shift-click for a run of them -- the same
+    /// gesture that picks a run of files in a pane.
+    @ViewBuilder
+    private func historyList(title: String, entries: [FileHistory.Entry],
+                             selection: Binding<Set<UUID>>,
+                             anchor: Binding<Int?>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline).bold()
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                Button {
+                    choose(index, in: entries, selection: selection, anchor: anchor)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: selection.wrappedValue.contains(entry.id)
+                                  ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(selection.wrappedValue.contains(entry.id)
+                                                 ? Color.accentColor : .secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(entry.name).font(.system(size: 12, weight: .medium))
+                            Text(entry.told)
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func choose(_ index: Int, in entries: [FileHistory.Entry],
+                        selection: Binding<Set<UUID>>, anchor: Binding<Int?>) {
+        // Read from the event rather than from a SwiftUI gesture: a plain
+        // Button gives no modifiers, and this is the same check the panes make.
+        let shift = NSEvent.modifierFlags.contains(.shift)
+        if shift, let from = anchor.wrappedValue, entries.indices.contains(from) {
+            for step in min(from, index) ... max(from, index) {
+                selection.wrappedValue.insert(entries[step].id)
+            }
+            return
+        }
+        let id = entries[index].id
+        if selection.wrappedValue.contains(id) {
+            selection.wrappedValue.remove(id)
+        } else {
+            selection.wrappedValue.insert(id)
+        }
+        anchor.wrappedValue = index
     }
 
     /// The clash sheet.

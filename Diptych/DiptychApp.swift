@@ -258,6 +258,13 @@ struct FileCommands: Commands {
                 }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
+
+            // Several at once, chosen from a list: the way back out of a
+            // sequence of operations without pressing Command-Z five times and
+            // answering five questions.
+            Button("Undo or Redo Many\u{2026}") { model?.requestHistoryMany() }
+                .keyboardShortcut("z", modifiers: [.command, .control])
+                .disabled(model == nil)
         }
 
         CommandGroup(replacing: .pasteboard) {

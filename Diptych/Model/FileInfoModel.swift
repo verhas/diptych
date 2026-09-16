@@ -205,7 +205,7 @@ final class FileInfoModel {
             do {
                 let renamed = try await FileOperations.shared.rename(url, to: trimmed)
                 await GitService.shared.followMove(from: url, to: renamed)
-                FileHistory.shared.recordRelocation("Rename", [(url, renamed)])
+                FileHistory.shared.recordRename(from: url, to: renamed)
                 url = renamed
                 report(nil, success: "Renamed.")
             } catch {
@@ -267,9 +267,18 @@ final class FileInfoModel {
 
     func applyOwnership() {
         Task {
+            let before = await BlockingWork.run { [url] in
+                let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+                return (attributes?[.ownerAccountName] as? String,
+                        attributes?[.groupOwnerAccountName] as? String)
+            }
             let outcome = await FileOperations.shared.setOwnership(owner: owner, group: group,
                                                                    for: [url])
+            @MainActor func remember() {
+                FileHistory.shared.recordOwnership([(url, before.0, before.1, owner, group)])
+            }
             if outcome.isCompleteSuccess {
+                remember()
                 report(nil, success: "Owner and group updated.")
                 return
             }
@@ -280,6 +289,7 @@ final class FileInfoModel {
             // exists because owner *and* group were refused together.
             switch Privileged.chown(owner: owner, group: group, urls: [url]) {
             case .succeeded:
+                remember()
                 report(nil, success: "Owner and group updated.")
             case .cancelled:
                 report("Cancelled. Nothing was changed.", success: "")

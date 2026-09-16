@@ -298,13 +298,27 @@ it is reported as not being a `.DS_Store`, which is exactly what it is not.
 
 **Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
 did to files: a copy, a move (by F5/F6, paste or drag), a rename, a new file or
-folder, New from Clipboard, a link, and a permission change — from the panes or
-from the Info window. The menu names the step: *Undo Move*, *Redo Rename*.
+folder, New from Clipboard, a link, **Move to Trash**, a permission change, and
+an **owner or group change** — from the panes or from the Info window. The menu
+names the step: *Undo Move*, *Redo Rename*.
 
-Every undo and redo **asks first**, saying what will happen, because undoing a
-copy puts files in the Trash and undoing a move moves them again, and a
-keystroke is too cheap a way to do either unseen. Cancel leaves the step where
-it was.
+**Edit ▸ Undo or Redo Many…** (⌃⌘Z) does several at once: a scrollable list of
+steps with checkboxes, Shift-click for a run of them as in a pane, and any
+undone steps listed separately to do again. They are carried out newest first.
+
+Every undo and redo **asks first**, because undoing a copy puts files in the
+Trash and undoing a move moves them again, and a keystroke is too cheap a way
+to do either unseen. Cancel leaves the step where it was.
+
+The question says what **was done**, in the past tense, and the button says
+what pressing it does:
+
+> "draft.txt" was renamed to "final.txt" in "~/Documents".  [Cancel] [Undo Rename]
+
+Written as the reversal it read backwards, and split one rename over two lines
+with nothing to say which name came first. One kind of quotation mark, around
+names and folders alike, and a sheet wide enough for the sentence to stay on
+one line.
 
 * **Nothing is deleted.** Undoing a copy, a new item or a link moves it to the
   Trash; redoing takes that same item back out of the Trash.
@@ -314,14 +328,19 @@ it was.
   or into a folder that is gone. What can still be done is offered on its own.
 * **What cannot come back is said.** An item that a copy or move *replaced* is
   gone, and a file changed since it was copied goes to the Trash as it is now —
-  both are mentioned before anything happens.
+  both are mentioned before anything happens. An item emptied from the Trash
+  cannot come out of it again.
+* **A step that fails is reported and dropped, not left in the way.** Handing a
+  file to another user can put it beyond your own reach, so putting it back may
+  be refused — and undoing an owner change asks for no password. It says which
+  item, why, and that Change Owner… can do it with authorisation. Everything
+  else in that same undo still goes ahead, and the next undo still works.
 * A renamed or moved file in a Git folder stays tracked when it goes back.
 
 One history for the whole application, as in Finder, fifty steps deep, kept in
 memory: after a restart the paths it holds may describe a world that has moved
 on. While a rename field or the path bar is being typed in, ⌘Z undoes the
-typing, and in a comparison window it is that window's own undo. Moving to the
-Trash is not in the history.
+typing, and in a comparison window it is that window's own undo.
 
 ## Text Edit
 
