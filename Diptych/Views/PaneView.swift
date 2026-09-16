@@ -461,6 +461,7 @@ struct PaneView: View {
             Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
             Button("Rename...") { act(ids) { model.requestRename() } }
+            Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
             if ids.count == 1, model.namesCanBeSuggested {
                 Button("Rename with Suggested Name...") {
                     act(ids) { model.renameWithSuggestion() }

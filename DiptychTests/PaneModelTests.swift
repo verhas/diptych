@@ -71,12 +71,55 @@ final class PaneModelTests: XCTestCase {
         XCTAssertTrue(pane.matchesFilter(text))
         XCTAssertFalse(pane.matchesFilter(markdown))
 
-        // Anchored, so a fragment does not match the way a search would.
+        // A regular expression stays anchored, so a fragment does not match
+        // the way a search would; plain text without the regex box does.
         pane.filterText = "txt"
         XCTAssertFalse(pane.matchesFilter(text))
+        pane.filterIsRegex = false
+        XCTAssertTrue(pane.matchesFilter(text))
+        pane.filterIsRegex = true
 
         pane.filterText = "[unclosed"
         XCTAssertFalse(pane.filterIsValid)
+    }
+
+    func testAPlainFilterFindsAFragmentAnywhereInTheName() throws {
+        // What everyday use asked for: "inv" lists the invoices, without two
+        // stars around it.
+        let pane = PaneModel(directory: root)
+        func item(_ name: String) -> FileItem {
+            FileItem(isParent: false, url: root.appendingPathComponent(name), name: name,
+                     isDirectory: false, isPackage: false, isSymlink: false,
+                     isExecutable: false, byteSize: 0, modified: .now)
+        }
+
+        pane.filterText = "inv"
+
+        XCTAssertTrue(pane.matchesFilter(item("2024-invoice.pdf")), "in the middle")
+        XCTAssertTrue(pane.matchesFilter(item("Invoice 7.pdf")), "and case does not matter")
+        XCTAssertFalse(pane.matchesFilter(item("receipt.pdf")))
+    }
+
+    func testAPatternIsStillAPattern() throws {
+        let pane = PaneModel(directory: root)
+        func item(_ name: String) -> FileItem {
+            FileItem(isParent: false, url: root.appendingPathComponent(name), name: name,
+                     isDirectory: false, isPackage: false, isSymlink: false,
+                     isExecutable: false, byteSize: 0, modified: .now)
+        }
+
+        // A glob keeps its old meaning: anchored at both ends.
+        pane.filterText = "inv*"
+        XCTAssertTrue(pane.matchesFilter(item("invoice.pdf")))
+        XCTAssertFalse(pane.matchesFilter(item("2024-invoice.pdf")), "inv* starts with inv")
+
+        pane.filterText = "*.txt"
+        XCTAssertTrue(pane.matchesFilter(item("notes.txt")))
+        XCTAssertFalse(pane.matchesFilter(item("notes.txt.gz")))
+
+        XCTAssertTrue(PaneModel.isGlob("a?b"))
+        XCTAssertTrue(PaneModel.isGlob("[abc]"))
+        XCTAssertFalse(PaneModel.isGlob("plain name"))
     }
 
     // MARK: - Slow directories

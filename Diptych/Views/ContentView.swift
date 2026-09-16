@@ -120,6 +120,7 @@ struct ContentView: View {
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
+            model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
             model.openDiffWindow = { openWindow(id: DiptychApp.diffWindowID, value: $0) }
             model.start()
             columnVisibility = model.sidebarVisible ? .all : .detailOnly

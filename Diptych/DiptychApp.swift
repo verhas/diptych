@@ -10,6 +10,7 @@ struct DiptychApp: App {
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
     static let textWindowID = "diptych.text"
+    static let renameWindowID = "diptych.rename"
     static let diffWindowID = "diptych.diff"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -48,6 +49,13 @@ struct DiptychApp: App {
             if let url { TextEditView(url: url) }
         }
         .defaultSize(width: 780, height: 620)
+        .restorationBehavior(.disabled)
+
+        // One Rename Many per folder.
+        WindowGroup(id: DiptychApp.renameWindowID, for: URL.self) { $folder in
+            if let folder { RenameManyView(folder: folder) }
+        }
+        .defaultSize(width: 720, height: 620)
         .restorationBehavior(.disabled)
 
         // One comparison per pair of files, so a second Cmd-D on two other
@@ -160,12 +168,20 @@ struct FileCommands: Commands {
             Button("Compare Two Files") { model?.showDiff() }
                 .keyboardShortcut("d", modifiers: .command)
             Button("Rename...") { model?.requestRename() }
+            Button("Rename Many\u{2026}") { model?.requestRenameMany() }
+                .keyboardShortcut("r", modifiers: [.command, .control])
+                .disabled(model == nil)
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             // Absent unless it can work: switched on, and Apple Intelligence
             // ready on this Mac. Settings says which of the two is missing.
             if model?.namesCanBeSuggested ?? false {
+                // Command-F2 only: Control-Command-R now belongs to Rename
+                // Many, and one shortcut cannot mean two things. F2 is the
+                // rename key people already use, and the model takes the
+                // Command form of it.
                 Button("Rename with Suggested Name...") { model?.renameWithSuggestion() }
-                    .keyboardShortcut("r", modifiers: [.command, .control])
+                    // F2's own code point; SwiftUI has no name for it.
+                    .keyboardShortcut(KeyEquivalent("\u{F705}"), modifiers: .command)
                     .disabled(model?.isSuggestingName ?? true)
             }
 

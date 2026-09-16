@@ -175,6 +175,7 @@ final class AppModel {
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
+    @ObservationIgnored var openRenameWindow: ((URL) -> Void)?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?,
                                                          urls: [URL],
                                                          before: [(String?, String?)])?
@@ -247,6 +248,16 @@ final class AppModel {
         // has just changed what the rows should be coloured.
         NotificationCenter.default.addObserver(
             forName: GitService.checkCompleted, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.left.reload()
+                self?.right.reload()
+            }
+        }
+        // A Rename Many window has renamed files in some folder -- possibly
+        // the one a pane is showing, since that is where it was opened from.
+        NotificationCenter.default.addObserver(
+            forName: RenameManyModel.renamed, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.left.reload()
@@ -436,6 +447,12 @@ final class AppModel {
             return
         }
         openBinaryWindow?(item.url)
+    }
+
+    /// Rename Many: one regular expression over a whole folder, in its own
+    /// window, showing what each file would be called before anything happens.
+    func requestRenameMany() {
+        openRenameWindow?(active.directory)
     }
 
     /// Text Edit: the file as plain text, in Diptych's own editor, whatever

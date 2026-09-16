@@ -142,6 +142,22 @@ final class FileHistory {
                relocations(pairs, replacing: replacing))
     }
 
+    /// A folder's worth of renames as one step.
+    ///
+    /// The relocations are the applied steps in reverse, each turned round, so
+    /// undoing runs them in an order where every name is free when it is
+    /// wanted -- which is the same ordering problem the rename itself solved,
+    /// read backwards.
+    func recordRenames(_ applied: [(from: URL, to: URL)], in folder: URL, renames: Int) {
+        guard !applied.isEmpty else { return }
+        record("Rename Many",
+               told: "\(renames) item\(renames == 1 ? "" : "s") in \(Self.folder(of: applied[0].to)) "
+                   + "\(renames == 1 ? "was" : "were") renamed.",
+               .relocate(applied.reversed().map {
+                   Relocation(from: $0.to, to: $0.from, identity: Self.identity(of: $0.to))
+               }))
+    }
+
     func recordRename(from old: URL, to new: URL) {
         record("Rename",
                told: "\(quoted(old.lastPathComponent)) was renamed to "
@@ -395,24 +411,40 @@ final class FileHistory {
         switch entry.action {
         case .relocate(let moves):
             var ok: [Relocation] = []
+            // The steps run in the order they are listed, so each is checked
+            // against what the ones before it will have done: reversing a
+            // folder's worth of renames is a chain, where the name a step
+            // wants is occupied right now and free by the time it runs, and
+            // where a file that has stepped aside does not exist yet.
+            var freedEarlier: Set<String> = []
+            var arrivesEarlier: Set<String> = []
+
             for move in moves {
                 let name = quoted(move.from.lastPathComponent)
-                if !exists(move.from) {
+                let from = FileOperations.canonicalPath(move.from)
+                let to = FileOperations.canonicalPath(move.to)
+                let comesFirst = arrivesEarlier.contains(from)
+
+                if !exists(move.from), !comesFirst {
                     problems.append(isInTrash(move.from)
                                     ? "\(name) is no longer in the Trash."
                                     : "\(name) is no longer in \(folder(of: move.from)).")
-                } else if let expected = move.identity, identity(of: move.from) != expected {
+                } else if let expected = move.identity, !comesFirst, exists(move.from),
+                          identity(of: move.from) != expected {
                     problems.append("\(name) in \(folder(of: move.from)) is a different item "
                                     + "now, so it is left alone.")
                 } else if !exists(move.to.deletingLastPathComponent()) {
                     problems.append("\(folder(of: move.to)) no longer exists, so \(name) has "
                                     + "nowhere to go back to.")
-                } else if exists(move.to), !FileOperations.samePath(move.from, move.to),
+                } else if exists(move.to), !freedEarlier.contains(to),
+                          !FileOperations.samePath(move.from, move.to),
                           identity(of: move.to) != identity(of: move.from) {
                     problems.append("\(folder(of: move.to)) already has an item named "
                                     + "\(quoted(move.to.lastPathComponent)).")
                 } else {
                     ok.append(move)
+                    freedEarlier.insert(from)
+                    arrivesEarlier.insert(to)
                     if move.replacedSomething {
                         warnings.append("\(name) had replaced an item of the same name. "
                                         + "That item cannot be brought back.")

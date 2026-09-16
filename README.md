@@ -227,7 +227,10 @@ a filter on the right.
 directories. Going somewhere new after going back discards the forward trail,
 as a browser does. History is per-session; it is not saved.
 
-**The filter** takes a shell pattern by default -- `*.txt`, matched by `fnmatch`,
+**The filter** matches a fragment of the name by default: `inv` lists every
+invoice, because typing two stars around every word was the common case and the
+fiddly one. A filter with `*`, `?` or `[` in it is a shell pattern instead --
+`*.txt`, matched by `fnmatch`,
 the same routine the shell uses -- or a regular expression when **RegEx** is
 ticked, where the equivalent is `.*\.txt`. The expression is anchored, so it
 filters the way a glob does rather than finding a fragment anywhere in the name.
@@ -293,6 +296,39 @@ format found in the wild, and a file manager that crashed on a file it merely
 tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
+
+## Rename Many
+
+**⌃⌘R**, or File ▸ Rename Many…, or the right-click menu: one regular
+expression over a whole folder, in a window of its own. Search and Replace at
+the top, the folder's files below, each shown with the name it would get. The
+search is **always** a regular expression and **always** matches the whole name
+— half a name matched is half a name replaced, which in a bulk rename is a
+folder full of damage — so there is no RegEx box to tick. The replacement uses
+`$1`, `$2` … for the capturing groups. Non-matching files are dimmed as the
+pane filter dims them, or hidden with a checkbox. ↑ and a double-click on a
+folder navigate.
+
+**Nothing is renamed until the whole plan is sound.** `RenamePlan` works it all
+out first and refuses, naming the files:
+
+- two files that would end up with the same name — compared case-insensitively,
+  since this disk does not tell `Notes` from `notes`;
+- a name already taken by a file that is *not* being renamed;
+- a replacement that cannot be a file name at all.
+
+**A chain is ordered, not refused.** `A`→`B` while `B`→`C` is sensible: `B`
+moves first. That is a topological sort over "my new name is somebody's old
+name". A **cycle** cannot be ordered — `a-b` and `b-a` with `(.*)-(.*)` → `$2-$1`
+swap — so one file steps aside under a `.diptych-rename-…` name and comes back
+at the end, which the window says out loud. A step that fails stops the run,
+because the steps after it were ordered on the assumption that it had happened;
+what was done is reported and can be undone.
+
+The whole rename is **one** undo step. Reversing it is the same ordering problem
+read backwards, so the history's checks understand a chain: a name occupied now
+may be freed by an earlier step, and a file that stepped aside does not exist
+yet.
 
 ## Undo and Redo
 

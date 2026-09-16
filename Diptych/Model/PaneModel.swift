@@ -87,10 +87,15 @@ final class PaneModel {
 
     // MARK: - Filter
 
-    /// A glob by default -- `*.txt`, matched by fnmatch, the same routine the
-    /// shell uses -- or a regular expression when `filterIsRegex` is on, where
-    /// the equivalent is `.*\.txt`. Matching is case-insensitive, because the
-    /// file system is.
+    /// Plain text finds a fragment anywhere in the name: `inv` lists every
+    /// invoice. A pattern with `*`, `?` or `[` in it is a glob instead, matched
+    /// by fnmatch, the same routine the shell uses -- so `*.txt` and `inv*`
+    /// mean what they always did. With `filterIsRegex` on it is a regular
+    /// expression, matched against the whole name.
+    ///
+    /// Typing two stars around every word was the common case and the fiddly
+    /// one, which is the wrong way round: the plain thing people type should be
+    /// the thing they mean.
     var filterText = "" { didSet { rebuildFilter() } }
     var filterIsRegex = false { didSet { rebuildFilter() } }
     /// Off: non-matching rows are greyed out and cannot be selected.
@@ -146,7 +151,17 @@ final class PaneModel {
         }
 
         let pattern = filterText.trimmingCharacters(in: .whitespaces)
+        guard Self.isGlob(pattern) else {
+            return item.name.range(of: pattern, options: [.caseInsensitive]) != nil
+        }
         return fnmatch(pattern, item.name, FNM_CASEFOLD) == 0
+    }
+
+    /// Whether to read the filter as a shell pattern rather than as a fragment
+    /// of a name. `[` counts because that is fnmatch's character class, and a
+    /// name with a bracket in it is rare next to somebody meaning one.
+    static func isGlob(_ pattern: String) -> Bool {
+        pattern.contains(where: { $0 == "*" || $0 == "?" || $0 == "[" })
     }
 
     // MARK: - History
