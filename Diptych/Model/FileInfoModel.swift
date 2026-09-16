@@ -299,6 +299,25 @@ final class FileInfoModel {
         }
     }
 
+    // MARK: - What has it open
+
+    private(set) var openBy: OpenFiles.Report?
+    private(set) var isLookingForOpenBy = false
+
+    /// Asked for, not watched: what has a file open changes from moment to
+    /// moment, so an answer is a snapshot with the time on it and a button to
+    /// ask again -- the same honesty the version-tracking check needs.
+    func lookForOpenBy() {
+        guard !isLookingForOpenBy else { return }
+        isLookingForOpenBy = true
+        let url = url
+        Task {
+            let report = await BlockingWork.run { OpenFiles.holders(of: url) }
+            openBy = report
+            isLookingForOpenBy = false
+        }
+    }
+
     func isSet(_ bit: mode_t) -> Bool { mode & bit != 0 }
 
     func toggle(_ bit: mode_t) {

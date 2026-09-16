@@ -1238,6 +1238,43 @@ cannot be translated into `chmod -E` syntax (a principal whose name contains a
 space) offers no escalation rather than risk applying an entry to the wrong
 principal.
 
+## Open By — what has a file open
+
+The Info window's sixth tab lists the programs that have the file open, and for
+a folder, what is open **inside** it plus any program whose current folder it
+is — which is what actually stops a folder being moved or trashed.
+
+Through **libproc** (`proc_listallpids`, `proc_pidinfo`, `proc_pidfdinfo`),
+which is what `lsof` itself calls: `nm -u /usr/sbin/lsof` shows exactly those
+symbols. No subprocess, no output to parse, and nothing that can hang on a
+stale network mount, because it asks the kernel about processes rather than
+walking the file system. Each holder shows the program, its process number,
+whether the file is open for **writing** (listed first, in orange) or only for
+reading, and for a folder which file it is.
+
+Two limits, neither of them Diptych's to lift, both said on screen:
+
+* **Other users' programs cannot be looked inside.** That needs root, and Full
+  Disk Access does not change it. The footer gives all three numbers — "218 of
+  284 programs could be looked inside. 66 belong to other users…" — so the
+  answer reads as *your* programs, never as "nobody has it open".
+* **Open is not locked.** Most programs holding a file open are only reading
+  it. Advisory locks are a different mechanism whose holders cannot be listed
+  at all, and the user-immutable flag is a third thing again.
+
+It is asked for, not watched: a program can open or close a file between two
+blinks, so the answer carries the time it was taken and a **Look Again**
+button, and it is only asked when the tab is first shown. The search is bounded
+by a three-second deadline and by 200 holders, and says when either cut it
+short. The structures come from `<sys/proc_info.h>`, which ships in the SDK but
+belongs to the kernel, so every call checks its own return value and anything
+unreadable is left out rather than reported as an error.
+
+Sixth tab, so the window's minimum width went from 520 to 780: at 620 macOS put
+the **whole tab bar** into a "more toolbar items" pop-up, the same trap the
+Settings window fell into when it gained a tab. Verified through accessibility:
+six tab buttons in the bar, not one pop-up.
+
 ## Changing owner and group
 
 Click the Owner or Group cell of an already-selected row (or use the Files
