@@ -100,6 +100,17 @@ final class KeyRouter {
                     return true
                 }
 
+                // Control-Command-Z, for Undo or Redo Many. The menu item
+                // carries the same shortcut and shows it, but the key never
+                // arrived there: something between the keyboard and the menu
+                // bar takes Control-Command-Z. Here it is seen first, and by
+                // the same route Command-= already takes.
+                if flags.contains(.command), flags.contains(.control),
+                   !flags.contains(.option), characters.lowercased() == "z" {
+                    model.requestHistoryMany()
+                    return true
+                }
+
                 // Anything else printable is type-select. Modifier combinations
                 // are left alone so menu shortcuts still reach the menu bar.
                 guard !flags.contains(.command),

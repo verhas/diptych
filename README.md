@@ -302,7 +302,9 @@ folder, New from Clipboard, a link, **Move to Trash**, a permission change, and
 an **owner or group change** — from the panes or from the Info window. The menu
 names the step: *Undo Move*, *Redo Rename*.
 
-**Edit ▸ Undo or Redo Many…** (⌃⌘Z) does several at once: a scrollable list of
+**Edit ▸ Undo or Redo Many…** (⌃⌘Z, caught in `KeyRouter` because the menu
+never receives that combination — something between the keyboard and the menu
+bar takes it, exactly as it takes ⌘=) does several at once: a scrollable list of
 steps with checkboxes, Shift-click for a run of them as in a pane, and any
 undone steps listed separately to do again. They are carried out newest first.
 
