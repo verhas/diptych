@@ -100,6 +100,26 @@ final class KeyRouter {
                     return true
                 }
 
+                // Control-Command-Z for Undo or Redo Many, Control-Command-R
+                // for Rename Many. Both menu items carry these shortcuts and
+                // show them, but Control-Command-Z never arrived at the menu
+                // bar -- something between the keyboard and the menu takes it,
+                // while plain Command-Z arrives. So both are taken here, where
+                // keys are seen first, by the route Command-= already needed.
+                if flags.contains(.command), flags.contains(.control),
+                   !flags.contains(.option) {
+                    switch characters.lowercased() {
+                    case "z":
+                        model.requestHistoryMany()
+                        return true
+                    case "r":
+                        model.requestRenameMany()
+                        return true
+                    default:
+                        break
+                    }
+                }
+
                 // Anything else printable is type-select. Modifier combinations
                 // are left alone so menu shortcuts still reach the menu bar.
                 guard !flags.contains(.command),

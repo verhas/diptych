@@ -22,13 +22,20 @@ struct InfoView: View {
                 tags.tabItem { Label("Tags", systemImage: "tag") }
                 attributes.tabItem { Label("Attributes", systemImage: "list.bullet.rectangle") }
                 access.tabItem { Label("Access", systemImage: "lock.shield") }
+                details.tabItem { Label("Details", systemImage: "text.magnifyingglass") }
+                openBy.tabItem { Label("Open By", systemImage: "bolt.horizontal.circle") }
             }
             .padding(14)
 
             Divider()
             statusBar
         }
-        .frame(minWidth: 520, minHeight: 460)
+        // Wide enough for seven tabs in the bar. One too many for the width
+        // and macOS folds the *whole* bar into a "more toolbar items" pop-up
+        // where no tab can be chosen at all -- which is what 620 did to six
+        // tabs, and what happened to Settings when it gained one. Measured
+        // through accessibility rather than guessed at.
+        .frame(minWidth: 880, minHeight: 460)
         .navigationTitle(model.name)
         .onAppear(perform: seedDrafts)
     }
@@ -472,6 +479,175 @@ struct InfoView: View {
         for attribute in model.attributes where attribute.text != nil {
             attributeDrafts[attribute.name] = attribute.text
         }
+    }
+
+    // MARK: - Details
+
+    /// What is written inside the file about itself. Read-only: every one of
+    /// these formats keeps its metadata in the file, so writing a field means
+    /// rewriting the file.
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("What this file says about itself").font(.headline)
+                Spacer()
+                if model.isReadingDetails { ProgressView().controlSize(.small) }
+            }
+
+            if let report = model.details {
+                if let nothing = report.nothing {
+                    Text(nothing)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !report.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(report.sections) { section in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(section.title).font(.subheadline).bold()
+                                    ForEach(section.rows) { row in
+                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                            Text(row.name)
+                                                .frame(width: 210, alignment: .trailing)
+                                                .foregroundStyle(.secondary)
+                                            Text(row.value)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .font(.system(size: 11))
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    }
+                }
+            } else if !model.isReadingDetails {
+                Text("Nothing has been read yet.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+            Text("Read only. These attributes live inside the file, so changing one means "
+                 + "rewriting the file \u{2014} re-encoding a picture, or unzipping and "
+                 + "rezipping a document \u{2014} which Diptych will not do behind a field.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { model.readDetails() }
+    }
+
+    // MARK: - Open by
+
+    /// What has this file open, or this folder as its current one.
+    ///
+    /// A snapshot with the time on it, not a live list: a program can open or
+    /// close a file between two blinks, so a list that looked live would be
+    /// making a promise it cannot keep.
+    private var openBy: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(model.isDirectory ? "Programs using this folder"
+                                       : "Programs with this file open")
+                    .font(.headline)
+                Spacer()
+                if model.isLookingForOpenBy { ProgressView().controlSize(.small) }
+                Button("Look Again") { model.lookForOpenBy() }
+                    .disabled(model.isLookingForOpenBy)
+            }
+
+            if let report = model.openBy {
+                if let failure = report.failure {
+                    Label(failure, systemImage: "exclamationmark.circle")
+                        .font(.caption).foregroundStyle(.orange)
+                } else if report.isEmpty {
+                    Text(model.isDirectory
+                         ? "No program of yours has this folder, or anything in it, open."
+                         : "No program of yours has this file open.")
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if !report.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(report.holders) { holder in
+                                holderRow(holder)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+
+                Spacer(minLength: 0)
+                Text(summary(of: report))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            } else if !model.isLookingForOpenBy {
+                Text("Nothing has been looked at yet.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Asked when the tab is first shown, not when the window opens: this
+        // walks every process on the Mac, and most visits to this window are
+        // not about that.
+        .onAppear { if model.openBy == nil { model.lookForOpenBy() } }
+    }
+
+    private func holderRow(_ holder: OpenFiles.Holder) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: holder.isWriting ? "pencil.circle" : "eye.circle")
+                .foregroundStyle(holder.isWriting ? Color.orange : .secondary)
+                .help(holder.isWriting ? "Has it open for writing" : "Has it open for reading")
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(holder.program).font(.system(size: 12, weight: .medium))
+                    Text("\u{2014} \(holder.kind.describes)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                // Which file, when this is something inside the folder asked
+                // about; otherwise where the program itself came from.
+                Text(holder.path.map { "process \(holder.pid) \u{2022} "
+                                       + PromptBuilder.abbreviate($0) }
+                     ?? "process \(holder.pid)\(holder.executable.isEmpty ? "" : " \u{2022} ")"
+                        + PromptBuilder.abbreviate(holder.executable))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .textSelection(.enabled)
+    }
+
+    /// The three numbers that keep the answer honest, and the two things it
+    /// does not mean.
+    private func summary(of report: OpenFiles.Report) -> String {
+        let when = report.at.formatted(date: .omitted, time: .standard)
+        var lines = ["As of \(when). \(report.looked) of \(report.processes) programs could be "
+                     + "looked inside."]
+        if report.refused > 0 {
+            lines.append("\(report.refused) belong to other users, and macOS does not let "
+                         + "Diptych see what they have open \u{2014} so this is what your own "
+                         + "programs are doing, not everything on this Mac.")
+        }
+        if report.incomplete {
+            lines.append("The search was stopped before it had been through every program.")
+        }
+        if report.truncated {
+            lines.append("Only the first \(OpenFiles.mostHolders) are listed.")
+        }
+        lines.append("Having a file open is not the same as locking it: most programs that "
+                     + "hold one open are only reading it.")
+        return lines.joined(separator: " ")
     }
 
     // MARK: - Access control

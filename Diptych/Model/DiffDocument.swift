@@ -555,7 +555,8 @@ final class DiffDocument {
     /// attribute the file had. The cost is that a crash halfway through leaves
     /// a half-written file, which is why it is the second choice and not the
     /// first.
-    private nonisolated static func write(_ data: Data, to url: URL) throws {
+    /// Shared with Text Edit, which saves the same way for the same reasons.
+    nonisolated static func write(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent()
             .appendingPathComponent(".diptych-save-\(UUID().uuidString)")
         do {

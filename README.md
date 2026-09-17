@@ -227,7 +227,10 @@ a filter on the right.
 directories. Going somewhere new after going back discards the forward trail,
 as a browser does. History is per-session; it is not saved.
 
-**The filter** takes a shell pattern by default -- `*.txt`, matched by `fnmatch`,
+**The filter** matches a fragment of the name by default: `inv` lists every
+invoice, because typing two stars around every word was the common case and the
+fiddly one. A filter with `*`, `?` or `[` in it is a shell pattern instead --
+`*.txt`, matched by `fnmatch`,
 the same routine the shell uses -- or a regular expression when **RegEx** is
 ticked, where the equivalent is `.*\.txt`. The expression is anchored, so it
 filters the way a glob does rather than finding a fragment anywhere in the name.
@@ -294,10 +297,126 @@ tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
 
-## Bin View
+## Rename Many
 
-Right-click a file ▸ **Bin View** opens a hex editor in its own window, one per
-file. The entry is absent for folders rather than greyed out -- it would be
+**⌃⌘R**, or File ▸ Rename Many…, or the right-click menu: one regular
+expression over a whole folder, in a window of its own. Search and Replace at
+the top, the folder's files below, each shown with the name it would get. The
+search is **always** a regular expression and **always** matches the whole name
+— half a name matched is half a name replaced, which in a bulk rename is a
+folder full of damage — so there is no RegEx box to tick. The replacement uses
+`$1`, `$2` … for the capturing groups. Non-matching files are dimmed as the
+pane filter dims them, or hidden with a checkbox. ↑ and a double-click on a
+folder navigate.
+
+**Nothing is renamed until the whole plan is sound.** `RenamePlan` works it all
+out first and refuses, naming the files:
+
+- two files that would end up with the same name — compared case-insensitively,
+  since this disk does not tell `Notes` from `notes`;
+- a name already taken by a file that is *not* being renamed;
+- a replacement that cannot be a file name at all.
+
+**A chain is ordered, not refused.** `A`→`B` while `B`→`C` is sensible: `B`
+moves first. That is a topological sort over "my new name is somebody's old
+name". A **cycle** cannot be ordered — `a-b` and `b-a` with `(.*)-(.*)` → `$2-$1`
+swap — so one file steps aside under a `.diptych-rename-…` name and comes back
+at the end, which the window says out loud. A step that fails stops the run,
+because the steps after it were ordered on the assumption that it had happened;
+what was done is reported and can be undone.
+
+The whole rename is **one** undo step. Reversing it is the same ordering problem
+read backwards, so the history's checks understand a chain: a name occupied now
+may be freed by an earlier step, and a file that stepped aside does not exist
+yet.
+
+## Quick Look keeps up
+
+Space previews the selection, and the panel follows the cursor. It also follows
+what happens to the file: **trashing or renaming the previewed file** used to
+leave the panel reading *No items selected* while the pane had already moved the
+cursor to the next file. Quick Look drops its data source when the item it was
+showing goes away, and `reloadData` alone does not bring it back — the source
+has to be asserted again and the *item* refreshed, not only the list. With
+nothing left to show, the panel closes rather than sitting there looking broken.
+
+## Undo and Redo
+
+**Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
+did to files: a copy, a move (by F5/F6, paste or drag), a rename, a new file or
+folder, New from Clipboard, a link, **Move to Trash**, a permission change, and
+an **owner or group change** — from the panes or from the Info window. The menu
+names the step: *Undo Move*, *Redo Rename*.
+
+**Edit ▸ Undo or Redo Many…** (⌃⌘Z, caught in `KeyRouter` because the menu
+never receives that combination — something between the keyboard and the menu
+bar takes it, exactly as it takes ⌘=) does several at once: a scrollable list of
+steps with checkboxes, Shift-click for a run of them as in a pane, and any
+undone steps listed separately to do again. They are carried out newest first.
+
+Every undo and redo **asks first**, because undoing a copy puts files in the
+Trash and undoing a move moves them again, and a keystroke is too cheap a way
+to do either unseen. Cancel leaves the step where it was.
+
+The question says what **was done**, in the past tense, and the button says
+what pressing it does:
+
+> "draft.txt" was renamed to "final.txt" in "~/Documents".  [Cancel] [Undo Rename]
+
+Written as the reversal it read backwards, and split one rename over two lines
+with nothing to say which name came first. One kind of quotation mark, around
+names and folders alike, and a sheet wide enough for the sentence to stay on
+one line.
+
+* **Nothing is deleted.** Undoing a copy, a new item or a link moves it to the
+  Trash; redoing takes that same item back out of the Trash.
+* **Nothing is done to the wrong item.** Each step records which file it was,
+  not only its name. A file replaced since by another of the same name is left
+  alone and the question says so; so is a move back onto a name that is taken,
+  or into a folder that is gone. What can still be done is offered on its own.
+* **What cannot come back is said.** An item that a copy or move *replaced* is
+  gone, and a file changed since it was copied goes to the Trash as it is now —
+  both are mentioned before anything happens. An item emptied from the Trash
+  cannot come out of it again.
+* **A step that fails is reported and dropped, not left in the way.** Handing a
+  file to another user can put it beyond your own reach, so putting it back may
+  be refused — and undoing an owner change asks for no password. It says which
+  item, why, and that Change Owner… can do it with authorisation. Everything
+  else in that same undo still goes ahead, and the next undo still works.
+* A renamed or moved file in a Git folder stays tracked when it goes back.
+
+One history for the whole application, as in Finder, fifty steps deep, kept in
+memory: after a restart the paths it holds may describe a world that has moved
+on. While a rename field or the path bar is being typed in, ⌘Z undoes the
+typing, and in a comparison window it is that window's own undo.
+
+## Text Edit
+
+Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own
+editor, one window per file, whatever application the file would normally open
+in. It is small on purpose — typing, undo, find and replace (⌘F), wrapping, and
+Save (⌘S) — and careful where general editors are not:
+
+* Nothing rewrites what is typed: no curly quotes, no dashes from double
+  hyphens, no spelling correction, no link detection. In a script or a CSV each
+  of those silently changes what the file means.
+* The file is saved with the line endings, final newline and encoding it came
+  with, the same way a comparison window saves: its permissions, owner and
+  extended attributes survive. Text that cannot be written in the file's
+  encoding is refused rather than mangled.
+* A file changed by something else since it was opened is not overwritten
+  without asking. A file that cannot be written to opens read-only and says so.
+* A binary file is not opened; the window points to Bin Edit.
+* A file open in a comparison is refused, and the other way round, because two
+  windows saving one file would each overwrite the other without a word.
+
+Files that are neither UTF-8 nor marked with their encoding are read as Windows
+Latin-1, then ISO Latin-1, and the window shows which.
+
+## Bin Edit
+
+Right-click a file ▸ **Bin Edit** opens a hex editor in its own window, one per
+file. (It was called Bin View; it has always been able to change the file.) The entry is absent for folders rather than greyed out -- it would be
 permanently disabled on half the rows of every listing -- and `showBinaryView()`
 refuses a directory again on the way through, because a context menu is not a
 security boundary.
@@ -1165,6 +1284,79 @@ cannot be translated into `chmod -E` syntax (a principal whose name contains a
 space) offers no escalation rather than risk applying an entry to the wrong
 principal.
 
+## Details — what a file says about itself
+
+The Info window's **Details** tab reads the attributes kept *inside* the file:
+
+* **Pictures** — pixel size, resolution, colour model, orientation, and every
+  dictionary ImageIO offers: EXIF, TIFF, IPTC, PNG, GIF, HEIC, and **GPS**, so a
+  photograph's location is visible rather than merely present.
+* **PDF** — page count, the first page's size in points and millimetres, the PDF
+  version, whether it is encrypted, whether printing and copying are allowed,
+  and the document's own title, author, producer and dates.
+* **Sound and film** — length, picture size, frame rate, the four-character
+  format codes, sample rate and channels per track, and the common metadata
+  written into the file.
+* **Everything else** — what Spotlight already knows: kind, title, authors,
+  page count, languages, where the file came from. That covers Word,
+  spreadsheets and presentations without unzipping anything, and it answers
+  nothing on an unindexed volume, which the tab says rather than implying the
+  file has no attributes.
+
+**Read only, deliberately.** Every one of these formats keeps its metadata
+inside the file, so changing a field means rewriting the file — re-encoding a
+JPEG, or unzipping and rezipping an Office document. A file manager that
+quietly re-encodes a photograph to fix a typo in a date has done more damage
+than the typo. The tab says so at the bottom.
+
+Values are made readable rather than shown raw: `ISOSpeedRatings` reads as *ISO
+speed ratings* (a run of capitals is an abbreviation and stays whole), booleans
+as Yes and No, dates in the local format, lists joined. Binary values — an EXIF
+maker note is kilobytes of it — and anything longer than 300 characters are
+left out. Reading is asked for when the tab is first opened, off the main
+thread, and gives up after five seconds, since a film's tracks can reach for
+the file itself.
+
+Seventh tab, so the window's minimum width is 880: at 620 macOS folded the
+whole tab bar into a "more toolbar items" pop-up where no tab could be chosen.
+
+## Open By — what has a file open
+
+The Info window's sixth tab lists the programs that have the file open, and for
+a folder, what is open **inside** it plus any program whose current folder it
+is — which is what actually stops a folder being moved or trashed.
+
+Through **libproc** (`proc_listallpids`, `proc_pidinfo`, `proc_pidfdinfo`),
+which is what `lsof` itself calls: `nm -u /usr/sbin/lsof` shows exactly those
+symbols. No subprocess, no output to parse, and nothing that can hang on a
+stale network mount, because it asks the kernel about processes rather than
+walking the file system. Each holder shows the program, its process number,
+whether the file is open for **writing** (listed first, in orange) or only for
+reading, and for a folder which file it is.
+
+Two limits, neither of them Diptych's to lift, both said on screen:
+
+* **Other users' programs cannot be looked inside.** That needs root, and Full
+  Disk Access does not change it. The footer gives all three numbers — "218 of
+  284 programs could be looked inside. 66 belong to other users…" — so the
+  answer reads as *your* programs, never as "nobody has it open".
+* **Open is not locked.** Most programs holding a file open are only reading
+  it. Advisory locks are a different mechanism whose holders cannot be listed
+  at all, and the user-immutable flag is a third thing again.
+
+It is asked for, not watched: a program can open or close a file between two
+blinks, so the answer carries the time it was taken and a **Look Again**
+button, and it is only asked when the tab is first shown. The search is bounded
+by a three-second deadline and by 200 holders, and says when either cut it
+short. The structures come from `<sys/proc_info.h>`, which ships in the SDK but
+belongs to the kernel, so every call checks its own return value and anything
+unreadable is left out rather than reported as an error.
+
+Sixth tab, so the window's minimum width went from 520 to 780: at 620 macOS put
+the **whole tab bar** into a "more toolbar items" pop-up, the same trap the
+Settings window fell into when it gained a tab. Verified through accessibility:
+six tab buttons in the bar, not one pop-up.
+
 ## Changing owner and group
 
 Click the Owner or Group cell of an already-selected row (or use the Files
@@ -1257,6 +1449,21 @@ first time it runs.
 | `./build.sh test` | run the unit tests |
 | `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete, `awkward names/read-only.txt`, a 444 file for the unlock-change-restore ladder, and `tinted folder/`, which carries all three pieces of a custom folder icon |
 | `swift make-icon.swift` | redraws the app icon into `Diptych/Assets.xcassets` |
+
+### The icon
+
+Two hinged panels on navy, with an orange hinge in the gutter, drawn by
+`make-icon.swift` at every size the Dock and the menu bar ask for. The panels
+are large high-contrast blocks so they survive 16pt; the ruled lines standing in
+for a file listing are allowed to disappear below 64.
+
+In the bottom-right corner it wears the same **Swiss badge** as Tychedit — a red
+rounded square with the flag's cross — in that icon's own geometry: the badge is
+20.5% of the canvas, 14% in from the right and 15% up from the bottom, its
+corners rounded by 8.6% of its width, and the cross to the flag's official
+proportions, where the cross is 20 units long and its arms 6 thick in a field of
+32. Below 32pt the badge is left out: the arms come to less than a pixel there
+and it turns into a pink smudge, which signals nothing.
 
 ## Layout
 

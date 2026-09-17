@@ -16,6 +16,9 @@ let panelLeft  = NSColor(srgbRed: 0.98, green: 0.97, blue: 0.94, alpha: 1)
 let panelRight = NSColor(srgbRed: 0.88, green: 0.87, blue: 0.83, alpha: 1)
 let accent     = NSColor(srgbRed: 0.98, green: 0.72, blue: 0.28, alpha: 1)
 let rule       = NSColor(srgbRed: 0.55, green: 0.57, blue: 0.66, alpha: 1)
+// The Swiss badge, in the flag's own colours.
+let swissRed   = NSColor(srgbRed: 1.00, green: 0.00, blue: 0.00, alpha: 1)
+let swissWhite = NSColor(srgbRed: 1.00, green: 1.00, blue: 1.00, alpha: 1)
 
 func icon(size: Int) -> NSBitmapImageRep {
     let s = CGFloat(size)
@@ -74,6 +77,36 @@ func icon(size: Int) -> NSBitmapImageRep {
                        width: gap * 0.32, height: panelH * 0.40)
     accent.setFill()
     NSBezierPath(roundedRect: hinge, xRadius: hinge.width / 2, yRadius: hinge.width / 2).fill()
+
+    // The Swiss badge Tychedit wears, in the same place and the same
+    // proportions: a red rounded square in the bottom-right corner with the
+    // flag's cross on it. Taken from that icon's own geometry -- badge 20.5%
+    // of the canvas, 14% in from the right and 15% up from the bottom, corner
+    // radius 8.6% of the badge -- and the cross to the flag's official shape,
+    // where an arm is six units thick and the whole cross twenty long.
+    //
+    // Left out below 32pt: the arms come to less than a pixel there and the
+    // badge turns into a pink smudge, which says nothing at all. The ruled
+    // lines disappear at small sizes for the same reason.
+    if size >= 32 {
+        let badge = s * 0.205
+        let frame = NSRect(x: s - s * 0.14 - badge, y: s * 0.15, width: badge, height: badge)
+        swissRed.setFill()
+        NSBezierPath(roundedRect: frame, xRadius: badge * 0.086,
+                     yRadius: badge * 0.086).fill()
+
+        // The flag's own proportions: in a field of 32, the cross is 20 long
+        // and its arms 6 thick.
+        let arm = max(1, (badge * 6 / 32).rounded())
+        let length = max(3, (badge * 20 / 32).rounded())
+        swissWhite.setFill()
+        NSBezierPath(rect: NSRect(x: (frame.midX - length / 2).rounded(),
+                                  y: (frame.midY - arm / 2).rounded(),
+                                  width: length, height: arm)).fill()
+        NSBezierPath(rect: NSRect(x: (frame.midX - arm / 2).rounded(),
+                                  y: (frame.midY - length / 2).rounded(),
+                                  width: arm, height: length)).fill()
+    }
 
     NSGraphicsContext.restoreGraphicsState()
     return rep

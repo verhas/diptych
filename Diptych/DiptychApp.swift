@@ -9,6 +9,8 @@ struct DiptychApp: App {
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
+    static let textWindowID = "diptych.text"
+    static let renameWindowID = "diptych.rename"
     static let diffWindowID = "diptych.diff"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -28,17 +30,32 @@ struct DiptychApp: App {
         WindowGroup(id: DiptychApp.infoWindowID, for: URL.self) { $url in
             if let url { InfoView(url: url) }
         }
-        .defaultSize(width: 560, height: 540)
+        .defaultSize(width: 900, height: 600)
         // Not restored at launch. macOS brings a window group back without the
         // value it was opened with, so what reappeared was an empty window
         // about nothing -- which the user then has to close.
         .restorationBehavior(.disabled)
 
-        // One binary view per file, for the same reason as the info window.
+        // One Bin Edit per file, for the same reason as the info window.
         WindowGroup(id: DiptychApp.binaryWindowID, for: URL.self) { $url in
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+        .restorationBehavior(.disabled)
+
+        // One Text Edit per file: asking again for the same file brings its
+        // window forward rather than opening a second editor on it.
+        WindowGroup(id: DiptychApp.textWindowID, for: URL.self) { $url in
+            if let url { TextEditView(url: url) }
+        }
+        .defaultSize(width: 780, height: 620)
+        .restorationBehavior(.disabled)
+
+        // One Rename Many per folder.
+        WindowGroup(id: DiptychApp.renameWindowID, for: URL.self) { $folder in
+            if let folder { RenameManyView(folder: folder) }
+        }
+        .defaultSize(width: 720, height: 620)
         .restorationBehavior(.disabled)
 
         // One comparison per pair of files, so a second Cmd-D on two other
@@ -99,6 +116,7 @@ struct FileCommands: Commands {
     /// ContentView's `.focusedSceneValue`. Nil when no window is focused, which
     /// is what disables the menu items.
     @FocusedValue(\.appModel) private var model: AppModel?
+    @FocusedValue(\.editingUndo) private var editingUndo: EditingUndo?
 
     /// Run the pane command when a pane is focused, otherwise let AppKit send
     /// the standard action to whatever text view has focus.
@@ -150,12 +168,20 @@ struct FileCommands: Commands {
             Button("Compare Two Files") { model?.showDiff() }
                 .keyboardShortcut("d", modifiers: .command)
             Button("Rename...") { model?.requestRename() }
+            Button("Rename Many\u{2026}") { model?.requestRenameMany() }
+                .keyboardShortcut("r", modifiers: [.command, .control])
+                .disabled(model == nil)
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             // Absent unless it can work: switched on, and Apple Intelligence
             // ready on this Mac. Settings says which of the two is missing.
             if model?.namesCanBeSuggested ?? false {
+                // Command-F2 only: Control-Command-R now belongs to Rename
+                // Many, and one shortcut cannot mean two things. F2 is the
+                // rename key people already use, and the model takes the
+                // Command form of it.
                 Button("Rename with Suggested Name...") { model?.renameWithSuggestion() }
-                    .keyboardShortcut("r", modifiers: [.command, .control])
+                    // F2's own code point; SwiftUI has no name for it.
+                    .keyboardShortcut(KeyEquivalent("\u{F705}"), modifiers: .command)
                     .disabled(model?.isSuggestingName ?? true)
             }
 
@@ -222,6 +248,41 @@ struct FileCommands: Commands {
         // no pane has focus. Menu key equivalents are matched before the
         // responder chain, so without the fallback Cmd-V in the Info window
         // would hit a nil model and simply be swallowed.
+        // Undo and Redo for what was done to files, in a pane window. Anywhere
+        // else -- a text field, Text Edit, the Info window -- they are the
+        // ordinary text undo, and in a comparison that window's own.
+        CommandGroup(replacing: .undoRedo) {
+            Button(model.flatMap { _ in FileHistory.shared.undoName }
+                    .map { "Undo \($0)" } ?? "Undo") {
+                if let model {
+                    model.undoFromMenu()
+                } else if let editingUndo {
+                    editingUndo.undo()
+                } else {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                }
+            }
+            .keyboardShortcut("z")
+            Button(model.flatMap { _ in FileHistory.shared.redoName }
+                    .map { "Redo \($0)" } ?? "Redo") {
+                if let model {
+                    model.redoFromMenu()
+                } else if let editingUndo {
+                    editingUndo.redo()
+                } else {
+                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+
+            // Several at once, chosen from a list: the way back out of a
+            // sequence of operations without pressing Command-Z five times and
+            // answering five questions.
+            Button("Undo or Redo Many\u{2026}") { model?.requestHistoryMany() }
+                .keyboardShortcut("z", modifiers: [.command, .control])
+                .disabled(model == nil)
+        }
+
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { dispatch(model?.cutSelectionToClipboard, #selector(NSText.cut(_:))) }
                 .keyboardShortcut("x")

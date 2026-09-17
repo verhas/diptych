@@ -434,7 +434,8 @@ struct PaneView: View {
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent {
-                Button("Bin View") { act(ids) { model.showBinaryView() } }
+                Button("Text Edit") { act(ids) { model.showTextEditor() } }
+                Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
             scripts(for: targets(of: ids))
 
@@ -460,6 +461,7 @@ struct PaneView: View {
             Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
             Button("Rename...") { act(ids) { model.requestRename() } }
+            Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
             if ids.count == 1, model.namesCanBeSuggested {
                 Button("Rename with Suggested Name...") {
                     act(ids) { model.renameWithSuggestion() }

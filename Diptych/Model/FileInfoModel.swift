@@ -205,6 +205,7 @@ final class FileInfoModel {
             do {
                 let renamed = try await FileOperations.shared.rename(url, to: trimmed)
                 await GitService.shared.followMove(from: url, to: renamed)
+                FileHistory.shared.recordRename(from: url, to: renamed)
                 url = renamed
                 report(nil, success: "Renamed.")
             } catch {
@@ -266,9 +267,18 @@ final class FileInfoModel {
 
     func applyOwnership() {
         Task {
+            let before = await BlockingWork.run { [url] in
+                let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+                return (attributes?[.ownerAccountName] as? String,
+                        attributes?[.groupOwnerAccountName] as? String)
+            }
             let outcome = await FileOperations.shared.setOwnership(owner: owner, group: group,
                                                                    for: [url])
+            @MainActor func remember() {
+                FileHistory.shared.recordOwnership([(url, before.0, before.1, owner, group)])
+            }
             if outcome.isCompleteSuccess {
+                remember()
                 report(nil, success: "Owner and group updated.")
                 return
             }
@@ -279,12 +289,49 @@ final class FileInfoModel {
             // exists because owner *and* group were refused together.
             switch Privileged.chown(owner: owner, group: group, urls: [url]) {
             case .succeeded:
+                remember()
                 report(nil, success: "Owner and group updated.")
             case .cancelled:
                 report("Cancelled. Nothing was changed.", success: "")
             case .failed(let message):
                 report(message, success: "")
             }
+        }
+    }
+
+    // MARK: - What the file says about itself
+
+    private(set) var details: FormatDetails.Report?
+    private(set) var isReadingDetails = false
+
+    /// Asked when the tab is first shown. Cheap for a photograph, not always
+    /// cheap for a film, so it is not part of opening the window.
+    func readDetails() {
+        guard !isReadingDetails, details == nil else { return }
+        isReadingDetails = true
+        let url = url
+        Task {
+            details = await FormatDetails.read(url)
+            isReadingDetails = false
+        }
+    }
+
+    // MARK: - What has it open
+
+    private(set) var openBy: OpenFiles.Report?
+    private(set) var isLookingForOpenBy = false
+
+    /// Asked for, not watched: what has a file open changes from moment to
+    /// moment, so an answer is a snapshot with the time on it and a button to
+    /// ask again -- the same honesty the version-tracking check needs.
+    func lookForOpenBy() {
+        guard !isLookingForOpenBy else { return }
+        isLookingForOpenBy = true
+        let url = url
+        Task {
+            let report = await BlockingWork.run { OpenFiles.holders(of: url) }
+            openBy = report
+            isLookingForOpenBy = false
         }
     }
 
@@ -296,6 +343,7 @@ final class FileInfoModel {
         do {
             try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: updated)],
                                                   ofItemAtPath: target)
+            FileHistory.shared.recordPermissions([(url, mode, updated)])
             mode = updated
             report(nil, success: "Permissions updated.")
         } catch {

@@ -57,10 +57,29 @@ final class QuickLookController: NSObject {
 
     /// Keep the panel in step while the cursor moves, rather than making the
     /// user close and reopen it.
+    ///
+    /// Also after the previewed file *goes away* -- trashed, or renamed, which
+    /// to Quick Look is the same thing. The panel then dropped to "No items
+    /// selected" and stayed there while the pane had already moved the cursor
+    /// to the next file: `reloadData` alone does not bring a panel back once
+    /// the item it was showing has vanished. Asserting the data source again
+    /// and refreshing the *item*, not only the list, does.
     func update(_ urls: [URL]) {
-        guard isVisible else { return }
+        guard isVisible, let panel = QLPreviewPanel.shared() else { return }
+
+        // Nothing left to show -- the last file in the folder was just
+        // deleted. Closing is honest; a panel reading "No items selected"
+        // looks like a fault.
+        guard !urls.isEmpty else {
+            close()
+            return
+        }
+
         items = urls.map(previewable)
-        QLPreviewPanel.shared().reloadData()
+        panel.dataSource = self
+        panel.delegate = self
+        panel.reloadData()
+        panel.refreshCurrentPreviewItem()
     }
 
     // MARK: - Text fallback

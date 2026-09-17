@@ -48,6 +48,9 @@ struct DiffView: View {
             }
         }
         .navigationTitle(pair.title)
+        .focusedSceneValue(\.editingUndo, document.editable == nil ? nil : EditingUndo(
+            undo: { act { document.undo() } },
+            redo: { act { document.redo() } }))
         .task { await document.load() }
         // SwiftUI cannot refuse a window close and this window needs to:
         // closing with unsaved edits must ask rather than discard.
