@@ -1450,6 +1450,21 @@ first time it runs.
 | `./make-testdata.sh` | wipes `test/` and rebuilds a playground: deep nesting, awkward names, symlinks (including a broken one), hidden files, executables, a bundle, a 240-file directory for scroll tests, files from 1 byte to 10 MB, and `test/acl/` where files and a folder carry real access control lists and editable extended attributes -- including `locked-by-acl.txt`, which an ACL `deny` makes impossible to rename or delete, `awkward names/read-only.txt`, a 444 file for the unlock-change-restore ladder, and `tinted folder/`, which carries all three pieces of a custom folder icon |
 | `swift make-icon.swift` | redraws the app icon into `Diptych/Assets.xcassets` |
 
+### The icon
+
+Two hinged panels on navy, with an orange hinge in the gutter, drawn by
+`make-icon.swift` at every size the Dock and the menu bar ask for. The panels
+are large high-contrast blocks so they survive 16pt; the ruled lines standing in
+for a file listing are allowed to disappear below 64.
+
+In the bottom-right corner it wears the same **Swiss badge** as Tychedit — a red
+rounded square with the flag's cross — in that icon's own geometry: the badge is
+20.5% of the canvas, 14% in from the right and 15% up from the bottom, its
+corners rounded by 8.6% of its width, and the cross to the flag's official
+proportions, where the cross is 20 units long and its arms 6 thick in a field of
+32. Below 32pt the badge is left out: the arms come to less than a pixel there
+and it turns into a pink smudge, which signals nothing.
+
 ## Layout
 
 ```
