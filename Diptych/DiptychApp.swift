@@ -151,6 +151,13 @@ struct FileCommands: Commands {
                 .keyboardShortcut("d", modifiers: .command)
             Button("Rename...") { model?.requestRename() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+            // Absent unless it can work: switched on, and Apple Intelligence
+            // ready on this Mac. Settings says which of the two is missing.
+            if model?.namesCanBeSuggested ?? false {
+                Button("Rename with Suggested Name...") { model?.renameWithSuggestion() }
+                    .keyboardShortcut("r", modifiers: [.command, .control])
+                    .disabled(model?.isSuggestingName ?? true)
+            }
 
             Divider()
 

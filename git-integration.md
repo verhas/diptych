@@ -367,6 +367,36 @@ each kind back by its own route: `add` for an ordinary staged change,
 latter silently re-tracks it, which is how the decision would disappear without
 a word.
 
+### Renaming and moving
+
+Git has no notion of a rename in the folder. Renaming a tracked file made the
+old name a removal and the new name a brown file nobody had ticked, so a send
+took the removal and not the file — and everyone else lost it. On a Mac it was
+worse, and it happened for real: `Untitled.png` → `untitled.png` is one file on
+a case-insensitive disk, so Git still found the old name, recorded no removal,
+added the new name beside it, and the shared copy ended up holding both. From
+then on the old name was permanently "changed", its folder blue, and no row on
+screen was.
+
+So every rename, and every move within one repository (the rename field, the
+Info window, F6 and drag), makes the index follow: `ls-files` lists exactly
+what was tracked under the old name, `rm --cached` takes those out, and `add`
+puts the same entries in under the new name. Only those — renaming a folder
+does not start tracking the untracked files inside it. Removal comes first,
+because the two names may differ only in case. Pathspecs are literal, since a
+name with `[1]` in it is a name. The old path is made canonical by its folder
+only: asking the disk about the item itself returns the spelling it has *now*,
+which made the old and new names identical and the rename silently unfollowed.
+
+Git then reports the pair as one rename record (`2 R.`), shown as its own
+state, *"renamed"*, blue, listed once, by its new name. Ticking it sends the old
+name's removal too (read from `git diff --cached -M`). Staging is saved and put
+back with `--no-renames`, so a rename not ticked survives someone else's send
+as both of its halves.
+
+A repository that already holds both spellings needs `git rm --cached` on the
+one that is not on disk; Diptych does not detect that state.
+
 ### Send my work
 
 **Commit and push are one action.** "Saved here but not shared" is a state with

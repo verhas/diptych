@@ -460,6 +460,12 @@ struct PaneView: View {
             Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
             Button("Rename...") { act(ids) { model.requestRename() } }
+            if ids.count == 1, model.namesCanBeSuggested {
+                Button("Rename with Suggested Name...") {
+                    act(ids) { model.renameWithSuggestion() }
+                }
+                .disabled(model.isSuggestingName)
+            }
 
             Divider()
 

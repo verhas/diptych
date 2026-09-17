@@ -18,13 +18,19 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
             BehaviourSettingsView()
                 .tabItem { Label("Behaviour", systemImage: "switch.2") }
+            IntelligenceSettingsView()
+                .tabItem { Label("Apple Intelligence", systemImage: "apple.intelligence") }
             GitSettingsView()
                 .tabItem { Label("Version Tracking",
                                  systemImage: "point.3.filled.connected.trianglepath.dotted") }
             SoundSettingsView()
                 .tabItem { Label("Sounds", systemImage: "speaker.wave.2") }
         }
-        .frame(width: 500, height: 470)
+        // Wide enough for every tab in the toolbar. One too many for the width
+        // and macOS moves the last ones into a ">>" overflow menu -- where a
+        // Settings tab cannot be chosen at all: the items show, greyed out.
+        // Seven tabs need about 530 points.
+        .frame(width: 600, height: 470)
     }
 }
 
@@ -34,6 +40,10 @@ struct BehaviourSettingsView: View {
     @Bindable private var store = ConfigStore.shared
 
     var body: some View {
+        // Scrolls, because this pane keeps gaining sections and the Settings
+        // window cannot be resized: text that does not fit is otherwise simply
+        // cut off, which has already happened once here.
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             Text("New from Clipboard").font(.headline)
 
@@ -109,6 +119,7 @@ struct BehaviourSettingsView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -190,6 +201,7 @@ struct AppearanceSettingsView: View {
             Text("The font the file listings are drawn with. Row heights and icons "
                  + "follow the size.")
                 .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             Toggle("List folders before files", isOn: $store.configuration.foldersFirst)
@@ -198,6 +210,7 @@ struct AppearanceSettingsView: View {
                  + "header says \u{2014} which is what you want when sorting by size or "
                  + "date. \u{201C}..\u{201D} stays on top either way.")
                 .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -229,6 +242,7 @@ struct AppearanceSettingsView: View {
             Text("Also \u{2318}+ and \u{2318}\u{2212} from anywhere, and \u{2318}0 to "
                  + "return to \(Int(Configuration.defaultFontSize)) pt.")
                 .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             sample
@@ -280,6 +294,7 @@ struct ToolbarSettingsView: View {
             Text("Drag to change the order. A button appears in the group you choose, "
                  + "in the order it has here.")
                 .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             List {
@@ -297,6 +312,7 @@ struct ToolbarSettingsView: View {
                  + "folder that is tracked, and only while version tracking is "
                  + "switched on.")
                 .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             HStack {
@@ -355,6 +371,11 @@ struct GitSettingsView: View {
         + "Without this, use Check for Changes when you want to know."
 
     var body: some View {
+        // Scrolls, and every explanation may grow downwards: the Settings window
+        // cannot be resized, and this pane holds more words than fit. Without
+        // both, the text was clipped at the right edge instead of wrapping --
+        // as the Behaviour pane's was before it got the same treatment.
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             Toggle("Show version tracking (Git)", isOn: $store.configuration.gitEnabled)
                 .toggleStyle(.checkbox)
@@ -362,6 +383,7 @@ struct GitSettingsView: View {
             Text("Diptych uses the \u{201C}git\u{201D} program already on your Mac. "
                  + "It does not include one.")
                 .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
             found
 
@@ -380,6 +402,7 @@ struct GitSettingsView: View {
                  + "means newer versions of other files arrive. With it off, the send "
                  + "stops and offers to update instead of doing it for you.")
                 .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
@@ -392,13 +415,16 @@ struct GitSettingsView: View {
                  + "is tracked and you have changes in it. Files that someone else has "
                  + "changed as well turn red, with no interruption.")
                 .font(.subheadline).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
             Text(Self.talksToTheServer)
                 .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Text("Use a different program\u{2026}")
                     .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 Button("Choose\u{2026}") { choose() }
                 if !store.configuration.gitPath.isEmpty {
                     Button("Use the one found automatically") {
@@ -413,6 +439,7 @@ struct GitSettingsView: View {
                  + "the wrong file by accident. It is not a security check \u{2014} a "
                  + "harmful program can be named \u{201C}git\u{201D} too.")
                 .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
 
@@ -424,6 +451,8 @@ struct GitSettingsView: View {
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .task { await git.locateIfNeeded() }
         // Both directions: switching it off has to take the colours away, not
         // merely stop refreshing them.
@@ -458,9 +487,11 @@ struct GitSettingsView: View {
             Text(git.toolError
                  ?? "No Git program was found on this Mac, so version tracking stays off.")
                 .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
             Text("Git is normally installed by developers. If you need it, ask whoever set "
                  + "up your repository.")
                 .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -474,6 +505,7 @@ struct GitSettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Diptych cannot check that this really is Git.")
                         .font(.subheadline).bold()
+                            .fixedSize(horizontal: false, vertical: true)
                     Text("It confirms the file is named \u{201C}git\u{201D} and that it "
                          + "answers the way Git does, but a harmful program could do both "
                          + "of those things.\n\nWhatever this program is, it will be able "
@@ -483,6 +515,7 @@ struct GitSettingsView: View {
                          + "from. If you did not install it yourself, ask whoever set up "
                          + "your Mac.")
                         .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -543,6 +576,7 @@ struct SoundSettingsView: View {
             Text("Played when an operation finishes. Choose \u{201C}None\u{201D} to silence "
                  + "one of them.")
                 .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
             Group {

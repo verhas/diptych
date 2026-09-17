@@ -10,13 +10,13 @@ final class DiffDocumentTests: XCTestCase {
     private var root: URL!
     private let fm = FileManager.default
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychEdit-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? fm.removeItem(at: root)
     }
 
@@ -761,13 +761,13 @@ final class WriteTroubleTests: XCTestCase {
     private var root: URL!
     private let fm = FileManager.default
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychTrouble-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
         try? fm.removeItem(at: root)
     }

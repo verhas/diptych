@@ -7,11 +7,11 @@ final class PaneFontTests: XCTestCase {
 
     private var original = Configuration()
 
-    override func setUp() {
+    override func setUp() async throws {
         original = ConfigStore.shared.configuration
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         ConfigStore.shared.configuration = original
     }
 

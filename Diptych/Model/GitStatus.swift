@@ -14,6 +14,15 @@ enum GitState: Sendable, Equatable, Hashable {
     case added
     /// Tracked and changed: it will be sent.
     case changed
+    /// Tracked, and renamed or moved inside the folder: sent as a rename.
+    ///
+    /// Its own state because the rename is two changes Git has to be told
+    /// about together -- the new name, and the old name going away. Sent as
+    /// only the first, everyone else would end up with the file twice; and on
+    /// a Mac, where "Notes" and "notes" are one file, the old name would stay
+    /// in the shared copy for good, reported as changed with nothing on screen
+    /// to show for it.
+    case renamed
     /// Tracked and no longer here: the removal will be sent.
     ///
     /// Its own case only because of what it is *called*. A removed file is
@@ -70,6 +79,7 @@ extension GitState {
         case .untracked:  "not tracked"
         case .added:      "new"
         case .changed:    "changed"
+        case .renamed:    "renamed"
         case .deleted:    "removed"
         case .keptCopy:   "kept copy"
         case .untracking: "no longer tracked"
@@ -89,6 +99,7 @@ extension GitState {
         case .untracked:  "New. This will not be sent unless you track it."
         case .added:      "New, and will be sent."
         case .changed:    "Changed, and will be sent."
+        case .renamed:    "Renamed or moved, and will be sent that way."
         case .deleted:    "Removed. The removal will be sent."
         case .keptCopy:   "A copy Diptych kept of your version. It is never sent and "
                           + "cannot be tracked. Delete it once you have taken what "
@@ -111,6 +122,8 @@ extension GitState {
 struct GitStatus: Sendable {
     /// Keyed by path relative to the repository root.
     var states: [String: GitState] = [:]
+    /// The name a renamed file had, by its new name.
+    var renamedFrom: [String: String] = [:]
     var branch: String?
     var upstream: String?
     /// Commits this side has that the shared side does not, and the reverse.
@@ -149,6 +162,7 @@ struct GitStatus: Sendable {
             // done. Red, then purple, then blue, then green.
             case .stale:      4
             case .changed:    3
+            case .renamed:    3
             case .deleted:    3
             case .untracking: 3
             case .added:      2
@@ -243,7 +257,14 @@ struct GitStatus: Sendable {
                 // 2 adds <X><score> before the path, and eats the next field.
                 let columns = kind == "1" ? 8 : 9
                 if let path = pathAfter(fields: columns, in: field) {
-                    status.states[path] = state(fromXY: field.dropFirst(2).prefix(2))
+                    let state = state(fromXY: field.dropFirst(2).prefix(2))
+                    if kind == "2", index < fields.count, field.dropFirst(2).first == "R",
+                       state != .deleted {
+                        status.states[path] = .renamed
+                        status.renamedFrom[path] = fields[index]
+                    } else {
+                        status.states[path] = state
+                    }
                 }
                 if kind == "2" { index += 1 }   // the original path of a rename
 
