@@ -296,11 +296,6 @@ struct PaneView: View {
         // The supported way to get a double-click out of a Table:
         // `primaryAction` fires for the whole row, anywhere in it, and the menu
         // closure gives the right-click menu for free.
-        // The empty space below the rows. SwiftUI's selection-based menu is
-        // never asked about it -- right-clicking there produced no menu at all
-        // -- so the folder's own commands hang on the table itself, where the
-        // row menu takes precedence over them on a row.
-        .contextMenu { rowMenu(for: []) }
         .contextMenu(forSelectionType: FileItem.ID.self) { ids in
             rowMenu(for: ids)
         } primaryAction: { ids in

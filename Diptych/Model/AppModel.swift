@@ -1185,7 +1185,9 @@ final class AppModel {
         }
     }
 
-    private func activate(_ pane: PaneModel) {
+    /// Not private: the folder menu, which AppKit puts up for a right-click in
+    /// a pane's empty space, acts on the pane that was clicked.
+    func activate(_ pane: PaneModel) {
         activeSide = (pane === left) ? .left : .right
     }
 

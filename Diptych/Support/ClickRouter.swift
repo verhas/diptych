@@ -33,7 +33,9 @@ final class ClickRouter {
     private func install() {
         guard monitor == nil else { return }
 
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .rightMouseDown]
+        ) { [weak self] event in
             // A drag begins with a mouse-down on a row that is usually already
             // selected -- which is exactly the gesture that starts a rename.
             // Dragging must cancel that, or the row is left in an editor that
@@ -41,6 +43,18 @@ final class ClickRouter {
             if event.type == .leftMouseDragged {
                 MainActor.assumeIsolated { self?.cancelPendingEdits() }
                 return event
+            }
+
+            // A right-click below the last row: the pane's own menu, which
+            // SwiftUI never offers there. Consumed, so nothing else answers
+            // the same click.
+            if event.type == .rightMouseDown {
+                let location = event.locationInWindow
+                let number = event.windowNumber
+                let handled = MainActor.assumeIsolated {
+                    self?.offerFolderMenu(windowNumber: number, location: location) ?? false
+                }
+                return handled ? nil : event
             }
             // Only Sendable values cross the boundary; NSEvent itself cannot.
             let location = event.locationInWindow
@@ -52,6 +66,26 @@ final class ClickRouter {
             }
             return event   // never consumed
         }
+    }
+
+    /// True when the click was in a pane's empty space and a menu was shown.
+    private func offerFolderMenu(windowNumber: Int, location: NSPoint) -> Bool {
+        guard let window = NSApp.window(withWindowNumber: windowNumber),
+              let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
+              let content = window.contentView,
+              let hit = content.hitTest(content.convert(location, from: nil)),
+              !isInsideEditor(hit),
+              let table = enclosingTable(of: hit),
+              let index = TableFinder.tables(in: window).firstIndex(of: table)
+        else { return false }
+
+        // Below the last row. On a row, SwiftUI's own menu answers.
+        guard table.row(at: table.convert(location, from: nil)) < 0 else { return false }
+
+        let tables = TableFinder.tables(in: window)
+        let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+        FolderMenu.shared.show(for: model, pane: pane)
+        return true
     }
 
     private func cancelPendingEdits() {
