@@ -114,10 +114,25 @@ run_tests() {
 }
 
 # The first Developer ID Application certificate in the keychain, if any.
+# The certificate's SHA-1 hash, not its name.
+#
+# codesign takes either, and the name is the one that breaks: this one reads
+# "Peter Verhás", and by the time the name had been through the shell codesign
+# was looking for "Peter Verh√°s" -- the UTF-8 bytes read as MacRoman -- and
+# answered "no identity found" on a Mac that has the certificate installed.
+# The hash is ASCII and means exactly one certificate.
 developer_id() {
     # `|| true`: grep exits non-zero when there is no such certificate, and
     # under `set -e` that would abort the whole build rather than simply
     # meaning "no Developer ID here".
+    security find-identity -v -p codesigning 2>/dev/null \
+        | grep "Developer ID Application" \
+        | head -1 \
+        | awk '{print $2}' || true
+}
+
+# The certificate as a person reads it, for saying what is being signed.
+developer_id_name() {
     security find-identity -v -p codesigning 2>/dev/null \
         | grep "Developer ID Application" \
         | head -1 \
@@ -250,7 +265,7 @@ make_dmg() {
     local identity
     identity=$(developer_id || true)
     if [ -n "$identity" ]; then
-        info "Signing the app as $identity"
+        info "Signing the app as $(developer_id_name)"
 
         # Xcode injects com.apple.security.get-task-allow -- the "a debugger may
         # attach to me" entitlement -- into every build it signs, and Apple
@@ -345,7 +360,7 @@ PLIST
     # Sign the image itself too, so Gatekeeper has something to check before the
     # app is ever copied out of it.
     if [ -n "$identity" ]; then
-        info "Signing the image as $identity"
+        info "Signing the image as $(developer_id_name)"
         codesign --sign "$identity" --timestamp "$dmg" || true
     else
         printf '%s==> No Developer ID found: the image is unsigned.%s\n' "$YELLOW" "$OFF"
