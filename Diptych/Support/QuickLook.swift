@@ -43,6 +43,10 @@ final class QuickLookController: NSObject {
         // arrow keys back into the pane. Our window's first responder stays the
         // table throughout, so focus returns to it when the panel closes.
         panel.orderFront(nil)
+
+        // The panel takes the keyboard, as a preview panel does: it closes
+        // when it stops being key, so it cannot be persuaded to float.
+        // `previewPanel(_:handle:)` pushes its arrow keys back into the pane.
     }
 
     var isVisible: Bool {

@@ -546,6 +546,19 @@ private enum Model {
             default: return .failed(error.localizedDescription)
             }
         } catch {
+            // macOS 27 reports the same refusals through a new error type:
+            // asking for more than the model can read now arrives as
+            // LanguageModelError.contextSizeExceeded, and without this it was
+            // shown as an unexplained failure with Apple's wording instead of
+            // "set fewer characters in Settings".
+            if #available(macOS 27, *), let error = error as? LanguageModelError {
+                switch error {
+                case .contextSizeExceeded: return .tooLong
+                case .guardrailViolation, .refusal: return .declined
+                case .unsupportedLanguageOrLocale: return .unsupportedLanguage
+                default: return .failed(error.localizedDescription)
+                }
+            }
             return .failed(error.localizedDescription)
         }
     }

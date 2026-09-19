@@ -66,8 +66,13 @@ final class PaneModel {
             }
             // Keep an open Quick Look panel in step with the cursor, so arrowing
             // through a directory previews each file as Finder does.
+            //
+            // `selectedRows`, not `selectedItems`: the latter leaves out `..`,
+            // so arrowing onto it emptied the panel and shut it. `..` is a
+            // folder like any other, and Diptych previews a folder by listing
+            // it -- which is exactly what somebody about to go up wants to see.
             guard QuickLookController.shared.isVisible else { return }
-            QuickLookController.shared.update(selectedItems.map(\.url))
+            QuickLookController.shared.update(selectedRows.map(\.url))
         }
     }
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
@@ -669,6 +674,22 @@ final class PaneModel {
             }
         }
         selection = selection.filter { id in loaded.contains { $0.id == id } }
+        landOnSomethingToPreview()
+    }
+
+    /// With the preview open, a folder that arrives with nothing selected puts
+    /// the cursor on its first item.
+    ///
+    /// Otherwise walking into a folder emptied the panel: the preview is meant
+    /// to follow you through the tree, not stop at the door. Only while the
+    /// panel is open -- selecting a row by itself is not something navigation
+    /// should do behind the user's back.
+    private func landOnSomethingToPreview() {
+        guard QuickLookController.shared.isVisible, selection.isEmpty else { return }
+        let first = rows.first { !$0.isParent } ?? rows.first
+        guard let first else { return }
+        selection = [first.id]
+        owner?.scrollSelectionIntoView()
     }
 
     private func fail(_ error: Error, for target: URL) {

@@ -65,6 +65,18 @@ final class ClickRouter {
               let hit = content.hitTest(content.convert(location, from: nil))
         else { return }
 
+        // While the Quick Look panel is up it is the key window, so a click in
+        // here is a click into a *background* window: AppKit spends it on
+        // making the window key and only delivers it to views that take a
+        // first mouse. A table row does; a SwiftUI button does not -- which is
+        // why selecting a file still worked while Up, Back, Forward and the
+        // path bar needed two clicks and looked broken.
+        //
+        // This monitor runs before the event is dispatched, so making the
+        // window key here happens in time for the click itself to land. The
+        // preview stays open, exactly as it does when a row is clicked.
+        if !window.isKeyWindow { window.makeKey() }
+
         // A click inside an open editor belongs to that editor.
         if isInsideEditor(hit) { return }
 

@@ -475,7 +475,8 @@ final class AppModel {
 
     /// Space, as in Finder.
     func toggleQuickLook() {
-        QuickLookController.shared.toggle(active.selectedItems.map(\.url), owner: self)
+        // Rows rather than items: `..` is previewable, as the folder it is.
+        QuickLookController.shared.toggle(active.selectedRows.map(\.url), owner: self)
     }
 
     /// Move the cursor one row, keeping any open preview in step. Used when the
