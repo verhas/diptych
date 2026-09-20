@@ -43,7 +43,8 @@ struct PathField: NSViewRepresentable {
             field.currentEditor()?.selectedRange = selectsAll
                 ? NSRange(location: 0, length: length)
                 : NSRange(location: length, length: 0)
-            context.coordinator.styleEditor(of: field)
+            // What the path bar opens with is the user's own selection.
+            context.coordinator.styleEditor(of: field, asSuggestion: false)
             context.coordinator.recolour(field)
         }
         return field
@@ -74,14 +75,24 @@ struct PathField: NSViewRepresentable {
             self.parent = parent
         }
 
-        /// Grey on a soft background rather than white on blue: a pending
-        /// completion is a suggestion, not a selection the user made.
-        func styleEditor(of field: NSTextField) {
+        /// Whether what is selected right now is a suggestion or a selection.
+        ///
+        /// A pending completion is drawn grey on a soft background rather than
+        /// white on blue: it is something Tab would take, not something the
+        /// user has chosen. But the grey was set on the editor once and never
+        /// taken off, so selecting the whole path -- by clicking the bar, or
+        /// with Go to Folder -- was grey too, which reads as a field that is
+        /// not really focused.
+        var showingSuggestion = false
+
+        func styleEditor(of field: NSTextField, asSuggestion: Bool? = nil) {
+            if let asSuggestion { showingSuggestion = asSuggestion }
             guard let editor = field.currentEditor() as? NSTextView else { return }
-            editor.selectedTextAttributes = [
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .backgroundColor: NSColor.quaternaryLabelColor,
-            ]
+            editor.selectedTextAttributes = showingSuggestion
+                ? [.foregroundColor: NSColor.secondaryLabelColor,
+                   .backgroundColor: NSColor.quaternaryLabelColor]
+                : [.foregroundColor: NSColor.selectedTextColor,
+                   .backgroundColor: NSColor.selectedTextBackgroundColor]
         }
 
         /// Red while the text does not name a directory that exists, so a typo
@@ -99,7 +110,7 @@ struct PathField: NSViewRepresentable {
             field.textColor = colour
             if let editor = field.currentEditor() as? NSTextView {
                 editor.textColor = colour
-                // The suggestion keeps its own colour whatever the rest is.
+                // The selection keeps whichever of the two it is.
                 styleEditor(of: field)
             }
         }
@@ -135,6 +146,8 @@ struct PathField: NSViewRepresentable {
 
             field.stringValue = completed
             parent.text = completed
+            // Taken, so it is no longer a suggestion.
+            styleEditor(of: field, asSuggestion: false)
             if let editor = field.currentEditor() {
                 editor.selectedRange = NSRange(location: (completed as NSString).length, length: 0)
             }
@@ -146,6 +159,7 @@ struct PathField: NSViewRepresentable {
             let typed = committedText(of: field)
             let suffix = PathCompletion.suffix(for: typed, base: parent.base)
             guard !suffix.isEmpty else {
+                styleEditor(of: field, asSuggestion: false)
                 if field.stringValue != typed {
                     field.stringValue = typed
                     if let editor = field.currentEditor() {
@@ -161,7 +175,7 @@ struct PathField: NSViewRepresentable {
                 editor.selectedRange = NSRange(location: (typed as NSString).length,
                                                length: (suffix as NSString).length)
             }
-            styleEditor(of: field)
+            styleEditor(of: field, asSuggestion: true)
             // The suggestion usually makes the path valid, so the colour has to
             // be reconsidered after it lands, not before.
             recolour(field)

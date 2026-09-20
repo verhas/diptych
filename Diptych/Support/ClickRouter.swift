@@ -123,6 +123,24 @@ final class ClickRouter {
         }
 
         let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+
+        // The keyboard follows the click into the list.
+        //
+        // Typing in the filter box leaves it first responder, and clicking a
+        // row did not take that back: the row went grey rather than blue --
+        // the selection of a list nothing is typing into -- and F5, F6 and
+        // every other key still belonged to the text field, which is where
+        // the key router deliberately leaves them. Clicking the other pane
+        // and back was the only way out.
+        if window.firstResponder !== table { window.makeFirstResponder(table) }
+
+        // And the pane you clicked in is the one commands act on. Which pane
+        // is active follows SwiftUI's own focus state, and that does not
+        // notice a first responder set from AppKit -- so the row went blue
+        // while F5 still copied from the other pane, which had nothing
+        // selected and so did nothing at all.
+        model.activate(pane)
+
         let point = table.convert(location, from: nil)
         let row = table.row(at: point)
         let columnIndex = table.column(at: point)

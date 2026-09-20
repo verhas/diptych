@@ -369,6 +369,13 @@ final class AppModel {
             return
         }
         guard let item = pane.rows.first(where: { $0.id == id }) else { return }
+        // A greyed-out row is not a row you can act on: it cannot be selected,
+        // copied or moved, so it must not open either. Double-clicking one
+        // opened it, which made the greying look like decoration.
+        guard pane.matchesFilter(item) else {
+            flash("\u{201C}\(item.name)\u{201D} does not match the filter", error: true)
+            return
+        }
         pane.open(item)
     }
 

@@ -54,13 +54,25 @@ final class PaneModel {
         didSet {
             // A greyed-out row is not selectable. Correcting here catches every
             // route into the selection -- clicking, arrow keys, Select All.
+            //
+            // Next turn of the run loop, never from inside this `didSet`:
+            // writing the selection back while SwiftUI is delivering a change
+            // to it left the table and the model disagreeing from then on.
+            // AppKit went on highlighting whatever was clicked while the model
+            // held nothing, so the status line said no selection, F5 and F6
+            // had nothing to act on, and the only way out was to click the
+            // other pane. Deferring keeps the correction and loses the fight.
             if !isCorrectingSelection, hasFilter, filterIsValid, !filterHidesOthers {
                 let allowed = rows.filter { selection.contains($0.id) && matchesFilter($0) }
                     .map(\.id)
                 if allowed.count != selection.count {
-                    isCorrectingSelection = true
-                    selection = Set(allowed)
-                    isCorrectingSelection = false
+                    let wanted = Set(allowed)
+                    Task { @MainActor [weak self] in
+                        guard let self, self.selection != wanted else { return }
+                        self.isCorrectingSelection = true
+                        self.selection = wanted
+                        self.isCorrectingSelection = false
+                    }
                     return
                 }
             }
@@ -140,9 +152,16 @@ final class PaneModel {
         let allowed = rows.filter { selection.contains($0.id) && matchesFilter($0) }.map(\.id)
         guard allowed.count != selection.count else { return }
 
-        isCorrectingSelection = true
-        selection = Set(allowed)
-        isCorrectingSelection = false
+        // Deferred for the same reason as the correction in `selection`'s own
+        // `didSet`: this runs while the filter text is being set, which is
+        // also while SwiftUI is reading it.
+        let wanted = Set(allowed)
+        Task { @MainActor [weak self] in
+            guard let self, self.selection != wanted else { return }
+            self.isCorrectingSelection = true
+            self.selection = wanted
+            self.isCorrectingSelection = false
+        }
     }
 
     /// `..` always matches: it is navigation, not content.
