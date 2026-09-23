@@ -33,6 +33,12 @@ struct DiffView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Not text, so none of the text machinery: find, wrap, ignore
+            // spacing and the padlocks are all about lines, and a JPEG has
+            // none. One question, one answer, one button.
+            if document.binary != nil || document.isComparingBytes {
+                bytes
+            } else {
             header
             Divider()
             content
@@ -45,6 +51,7 @@ struct DiffView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
+            }
             }
         }
         .navigationTitle(pair.title)
@@ -80,6 +87,66 @@ struct DiffView: View {
             DiffWindows.shared.release(pair)
             wheel.stop()
         }
+    }
+
+    // MARK: - Two files that are not text
+
+    @ViewBuilder
+    private var bytes: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Compared byte by byte").font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                fileLine(pair.left)
+                fileLine(pair.right)
+            }
+
+            if let comparison = document.binary {
+                Text(comparison.verdict(left: pair.left.lastPathComponent,
+                                        right: pair.right.lastPathComponent))
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                Text(comparison.isIdentical
+                     ? "Nothing to show side by side: there is no difference."
+                     : "Bin Edit opens either of them byte by byte.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Comparing\u{2026}").font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+
+            if let failure = document.failure {
+                Label(failure, systemImage: "exclamationmark.circle")
+                    .font(.subheadline).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                Spacer()
+                Button("OK") { window?.performClose(nil) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func fileLine(_ url: URL) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "doc").foregroundStyle(.secondary)
+            Text(url.lastPathComponent).bold()
+            Text(NamingTemplate.tilde(url.deletingLastPathComponent().path))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.head)
+        }
+        .font(.subheadline)
+        .textSelection(.enabled)
     }
 
     // MARK: - Chrome

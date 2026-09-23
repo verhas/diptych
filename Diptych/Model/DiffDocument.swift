@@ -60,6 +60,13 @@ final class DiffDocument {
     private(set) var right: SourceFile?
     private(set) var failure: String?
 
+    /// The byte-by-byte answer, when one of the two is not text.
+    ///
+    /// A line comparison has nothing to say about a JPEG, so the window shows
+    /// this instead -- and shows none of the text machinery with it.
+    private(set) var binary: BinaryComparison?
+    private(set) var isComparingBytes = false
+
     /// Which side the user has unlocked, and nil while the window is read only.
     private(set) var editable: Side?
     /// Whether anything has actually been written yet.
@@ -139,7 +146,31 @@ final class DiffDocument {
             forgetHistory()
             recompute()
         case .failure(let error):
+            // Not text? Then the question is a different one, and it has an
+            // answer: compare the bytes.
+            if let trouble = error as? TextDiff.Failure, case .notText = trouble {
+                await compareBytes()
+                return
+            }
             failure = (error as? TextDiff.Failure)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func compareBytes() async {
+        isComparingBytes = true
+        defer { isComparingBytes = false }
+
+        let pair = pair
+        let outcome: Result<BinaryComparison, Error> = await BlockingWork.run {
+            do { return .success(try BinaryComparison.compare(pair.left, pair.right)) }
+            catch { return .failure(error) }
+        }
+        switch outcome {
+        case .success(let comparison):
+            binary = comparison
+            failure = nil
+        case .failure(let error):
+            failure = "These files could not be compared: \(error.localizedDescription)"
         }
     }
 

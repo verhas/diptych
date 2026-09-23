@@ -390,6 +390,25 @@ memory: after a restart the paths it holds may describe a world that has moved
 on. While a rename field or the path bar is being typed in, ⌘Z undoes the
 typing, and in a comparison window it is that window's own undo.
 
+## Comparing two files that are not text
+
+⌘D on two files opens the comparison window. When either of them is **not
+text**, a line-by-line comparison has nothing to say and the machinery around
+it — find, wrap, ignore spacing, the padlocks — is all about lines. So the
+window shows the one thing worth knowing, and an OK button:
+
+* **the files are exactly the same**, byte for byte;
+* **they differ from the very first byte**;
+* **they differ, but their first N bytes are identical** — with where they part,
+  in decimal and in hex;
+* or **one is exactly the beginning of the other**, which is the truncated-file
+  case and worth its own sentence.
+
+Sizes are given twice, rounded and exact: "5 KB (5'120 bytes)". The files are
+read a megabyte at a time and the comparison stops at the first difference —
+two disk images are not going into memory to answer a question usually settled
+by the first kilobyte.
+
 ## Text Edit
 
 Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own
