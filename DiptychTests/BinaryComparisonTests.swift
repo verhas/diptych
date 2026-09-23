@@ -73,6 +73,30 @@ final class BinaryComparisonTests: XCTestCase {
         XCTAssertTrue(verdict.contains("0x3"), verdict)
     }
 
+    func testTwoFilesOfOneSizeAreSaidToBeBothThatSize() throws {
+        // Not "a is 35 KB, b is 35 KB", which makes a reader check whether the
+        // two numbers really are the same.
+        let left = try file("a.zip", [1, 2, 3, 4])
+        let right = try file("b.zip", [1, 2, 9, 4])
+
+        let verdict = try BinaryComparison.compare(left, right)
+            .verdict(left: "a.zip", right: "b.zip")
+
+        XCTAssertTrue(verdict.hasSuffix("\u{201C}a.zip\u{201D} and \u{201C}b.zip\u{201D} "
+                                        + "are both 4 bytes."), verdict)
+    }
+
+    func testTwoFilesOfDifferentSizesAreGivenSeparately() throws {
+        let left = try file("a.zip", [1, 9])
+        let right = try file("b.zip", [2, 2, 2])
+
+        let verdict = try BinaryComparison.compare(left, right)
+            .verdict(left: "a.zip", right: "b.zip")
+
+        XCTAssertTrue(verdict.contains("\u{201C}a.zip\u{201D} is 2 bytes, "
+                                       + "\u{201C}b.zip\u{201D} is 3 bytes."), verdict)
+    }
+
     // MARK: - One is the start of the other
 
     func testAFileThatIsTheBeginningOfTheOtherIsSaidToBe() throws {

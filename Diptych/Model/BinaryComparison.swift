@@ -123,8 +123,14 @@ struct BinaryComparison: Sendable, Equatable {
             : "The two files differ, but their first \(Self.bytes(commonPrefix)) are identical "
               + "\u{2014} they part at byte \(commonPrefix + 1) (offset "
               + String(format: "0x%llX", commonPrefix) + ")."
-        return where_ + " \u{201C}\(left)\u{201D} is \(Self.bytes(leftBytes)), "
-            + "\u{201C}\(right)\u{201D} is \(Self.bytes(rightBytes))."
+        // One size when there is one size: reading the same number twice
+        // makes a reader check whether it really is the same number.
+        let sizes = leftBytes == rightBytes
+            ? "\u{201C}\(left)\u{201D} and \u{201C}\(right)\u{201D} are both "
+              + "\(Self.bytes(leftBytes))."
+            : "\u{201C}\(left)\u{201D} is \(Self.bytes(leftBytes)), "
+              + "\u{201C}\(right)\u{201D} is \(Self.bytes(rightBytes))."
+        return where_ + " " + sizes
     }
 
     /// "12 bytes", or "1.2 MB (1,234,567 bytes)" -- the round number to read
