@@ -5,14 +5,12 @@ import XCTest
 @MainActor
 final class PaneFontTests: XCTestCase {
 
-    private var original = Configuration()
-
     override func setUp() async throws {
-        original = ConfigStore.shared.configuration
+        LiveSettings.protect()
     }
 
     override func tearDown() async throws {
-        ConfigStore.shared.configuration = original
+        LiveSettings.putBack()
     }
 
     func testZoomingStopsAtTheEnds() {

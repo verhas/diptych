@@ -7,17 +7,16 @@ final class LinkAndSortTests: XCTestCase {
 
     private var root: URL!
     private let fm = FileManager.default
-    private var originalFoldersFirst = true
 
     override func setUp() async throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychLinks-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        originalFoldersFirst = ConfigStore.shared.configuration.foldersFirst
+        LiveSettings.protect()
     }
 
     override func tearDown() async throws {
-        ConfigStore.shared.configuration.foldersFirst = originalFoldersFirst
+        LiveSettings.putBack()
         try? fm.removeItem(at: root)
     }
 

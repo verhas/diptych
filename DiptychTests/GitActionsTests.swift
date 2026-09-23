@@ -15,7 +15,6 @@ final class GitActionsTests: XCTestCase {
     private var mine: URL!
     private var shared: URL!
     private let fm = FileManager.default
-    private var settings: Configuration!
 
     override func setUp() async throws {
         try XCTSkipIf(GitTool.locate(override: nil) == nil, "no git on this machine")
@@ -40,9 +39,14 @@ final class GitActionsTests: XCTestCase {
         // is set here rather than inherited from the machine it runs on. One
         // test assumed a default this way and started failing the day the
         // setting began persisting properly.
-        settings = ConfigStore.shared.configuration
+        LiveSettings.protect()
         ConfigStore.shared.configuration.gitUpdateWhenSending = true
         ConfigStore.shared.configuration.gitCheckOnOpen = false
+        // Pinned like the rest: these tests ask GitService about real
+        // repositories, and it answers nothing at all while version tracking
+        // is switched off -- so seven of them failed the day the setting was
+        // turned off in Settings, for a reason nothing in the test said.
+        ConfigStore.shared.configuration.gitEnabled = true
     }
 
     /// Resolving Git is asynchronous now, so every test that uses it waits
@@ -53,7 +57,7 @@ final class GitActionsTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        if let settings { ConfigStore.shared.configuration = settings }
+        LiveSettings.putBack()
         GitService.shared.forgetEverything()
         try? fm.removeItem(at: root)
     }

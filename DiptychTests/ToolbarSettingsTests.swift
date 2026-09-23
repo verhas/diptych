@@ -5,14 +5,12 @@ import XCTest
 @MainActor
 final class ToolbarSettingsTests: XCTestCase {
 
-    private var original: [ToolbarSlot] = []
-
     override func setUp() async throws {
-        original = ConfigStore.shared.configuration.toolbar
+        LiveSettings.protect()
     }
 
     override func tearDown() async throws {
-        ConfigStore.shared.configuration.toolbar = original
+        LiveSettings.putBack()
     }
 
     func testTheDefaultsAreASmallSetOfEverythingAvailable() {
