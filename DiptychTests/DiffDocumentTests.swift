@@ -689,6 +689,44 @@ extension DiffDocumentTests {
 
         XCTAssertEqual(read("chapter3.md"), "my settled version\n")
     }
+
+    // MARK: - Watching the files
+
+    /// The reported bug: a window left open (or reopened) across an edit made
+    /// somewhere else went on showing what it read the first time, forever.
+    /// `reload()` already existed; nothing was calling it.
+    func testAChangeOnDiskIsPickedUpWhileTheWindowIsOpen() async throws {
+        let document = try await document("same\n", "same\n")
+        XCTAssertTrue(document.diff.isIdentical)
+
+        document.startWatching()
+        defer { document.stopWatching() }
+
+        try Data("changed\n".utf8).write(to: root.appendingPathComponent("theirs.md"))
+        try await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertFalse(document.diff.isIdentical, "the edit on disk should have reached the window")
+    }
+
+    /// Reloading is exactly what `save()`'s own "changed underneath" check is
+    /// for -- an automatic reload that fired anyway would throw typing away
+    /// without ever asking.
+    func testAChangeOnDiskDoesNotDiscardUnsavedTyping() async throws {
+        let document = try await document("mine\n", "theirs\n")
+        _ = document.unlock(.left)
+        document.setLine(0, to: "typed but not saved")
+        XCTAssertTrue(document.isDirty)
+
+        document.startWatching()
+        defer { document.stopWatching() }
+
+        try Data("changed elsewhere\n".utf8).write(to: root.appendingPathComponent("theirs.md"))
+        try await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertEqual(document.lines[.left], ["typed but not saved"],
+                       "the unsaved line must survive an external change elsewhere")
+        XCTAssertTrue(document.isDirty)
+    }
 }
 
 /// How far sideways the two columns are allowed to go.

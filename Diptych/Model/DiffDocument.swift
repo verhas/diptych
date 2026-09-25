@@ -121,6 +121,81 @@ final class DiffDocument {
         self.pair = pair
     }
 
+    deinit {
+        leftWatcher?.cancel()
+        rightWatcher?.cancel()
+    }
+
+    // MARK: - Watching the files
+
+    /// A window left open across an edit made somewhere else -- in Text Edit,
+    /// in another app, from the command line -- used to go on showing
+    /// whatever it read when it opened, forever: nothing ever told it to look
+    /// again. `reload()` already existed for exactly this; nothing called it.
+    @ObservationIgnored private var leftWatcher: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var rightWatcher: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+
+    func startWatching() {
+        stopWatching()
+        leftWatcher = watch(pair.left)
+        rightWatcher = watch(pair.right)
+    }
+
+    func stopWatching() {
+        leftWatcher?.cancel()
+        rightWatcher?.cancel()
+        leftWatcher = nil
+        rightWatcher = nil
+        reloadTask?.cancel()
+    }
+
+    private func watch(_ url: URL) -> DispatchSourceFileSystemObject? {
+        let fd = Darwin.open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .delete, .rename, .extend], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.diskChanged(url) }
+        }
+        // The cancel handler owns closing the descriptor; closing it anywhere
+        // else races the source and can shut down an unrelated file.
+        source.setCancelHandler { Darwin.close(fd) }
+        source.resume()
+        return source
+    }
+
+    private func diskChanged(_ url: URL) {
+        // A save that replaces the file -- write-to-a-temporary-name and
+        // rename over the original, which is how this app's own `save()`
+        // writes, and how many editors do -- swaps in a new inode at this
+        // path. The descriptor above was watching the old one, and having
+        // seen it renamed or deleted will not see anything at this path
+        // again, so the watch is re-established on whatever is there now.
+        if url == pair.left {
+            leftWatcher?.cancel()
+            leftWatcher = watch(url)
+        } else {
+            rightWatcher?.cancel()
+            rightWatcher = watch(url)
+        }
+
+        // Never discard unsaved typing to reflect a change made elsewhere --
+        // `save()` already refuses to save over a file changed underneath it,
+        // which is the moment this conflict actually needs deciding.
+        guard !isDirty else { return }
+
+        // Coalesced: a save is often more than one filesystem event, and
+        // reloading on each would re-run the comparison for nothing.
+        reloadTask?.cancel()
+        reloadTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            await self?.reload()
+        }
+    }
+
     // MARK: - Reading
 
     func load() async {

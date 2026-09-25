@@ -63,7 +63,11 @@ struct DiffView: View {
         // runs again on reopening the same pair -- which showed whatever was
         // on disk the *first* time, forever, however the files changed
         // afterwards. `.onAppear` fires on every reappearance regardless.
-        .onAppear { Task { await document.load() } }
+        .onAppear {
+            Task { await document.load() }
+            document.startWatching()
+        }
+        .onDisappear { document.stopWatching() }
         // SwiftUI cannot refuse a window close and this window needs to:
         // closing with unsaved edits must ask rather than discard.
         .background(WindowAccessor { found in
@@ -77,6 +81,7 @@ struct DiffView: View {
             guard_.shouldClose = { closeIsAllowed() }
             guard_.willClose = {
                 DiffWindows.shared.release(pair)
+                document.stopWatching()
                 wheel.stop()
             }
             found.delegate = guard_
