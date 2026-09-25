@@ -136,6 +136,24 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Toggle("Compare modification dates",
+                   isOn: $store.configuration.directoryDiffCompareModificationDate)
+                .toggleStyle(.checkbox)
+            Toggle("Compare creation dates",
+                   isOn: $store.configuration.directoryDiffCompareCreationDate)
+                .toggleStyle(.checkbox)
+            Toggle("Compare owner and group",
+                   isOn: $store.configuration.directoryDiffCompareOwnership)
+                .toggleStyle(.checkbox)
+            Text("All three off by default: a fresh copy commonly gets a new creation date, "
+                 + "sometimes a new modification date, and often belongs to whoever made the "
+                 + "copy rather than whoever made the original -- none of which is usually "
+                 + "what \u{201C}the same\u{201D} is meant to ask about. Access time is left out "
+                 + "altogether, since comparing a file is itself a read that would change it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Toggle("Recurse into hidden folders (starting with a dot, like .git)",
                    isOn: $store.configuration.directoryDiffRecurseHiddenDirectories)
                 .toggleStyle(.checkbox)

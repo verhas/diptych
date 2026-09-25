@@ -113,12 +113,15 @@ final class DirectoryDiffModel {
     init(left: URL, right: URL) {
         self.left = left
         self.right = right
+        let settings = ConfigStore.shared.configuration
         let defaults = DirectoryComparison.Options(
-            comparePermissions: ConfigStore.shared.configuration.directoryDiffComparePermissions,
-            compareAttributes: ConfigStore.shared.configuration.directoryDiffCompareAttributes,
-            compareACL: ConfigStore.shared.configuration.directoryDiffCompareACL,
-            recurseHiddenDirectories:
-                ConfigStore.shared.configuration.directoryDiffRecurseHiddenDirectories)
+            comparePermissions: settings.directoryDiffComparePermissions,
+            compareAttributes: settings.directoryDiffCompareAttributes,
+            compareACL: settings.directoryDiffCompareACL,
+            compareModificationDate: settings.directoryDiffCompareModificationDate,
+            compareCreationDate: settings.directoryDiffCompareCreationDate,
+            compareOwnership: settings.directoryDiffCompareOwnership,
+            recurseHiddenDirectories: settings.directoryDiffRecurseHiddenDirectories)
         options = defaults
         appliedOptions = defaults
     }

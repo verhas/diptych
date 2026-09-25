@@ -28,6 +28,8 @@ struct DirectoryDiffView: View {
             header
             Divider()
             content
+            Divider()
+            legend
             if let notice {
                 Divider()
                 HStack {
@@ -88,6 +90,11 @@ struct DirectoryDiffView: View {
             Toggle("Permissions", isOn: $model.options.comparePermissions)
             Toggle("Extended attributes", isOn: $model.options.compareAttributes)
             Toggle("ACL", isOn: $model.options.compareACL)
+            Toggle("Modified", isOn: $model.options.compareModificationDate)
+                .help("Modification date")
+            Toggle("Created", isOn: $model.options.compareCreationDate)
+                .help("Creation date")
+            Toggle("Owner/group", isOn: $model.options.compareOwnership)
             Divider().frame(height: 12)
             Toggle("Recurse into hidden folders", isOn: $model.options.recurseHiddenDirectories)
                 .help("Look inside folders whose name starts with a dot, such as .git, "
@@ -263,28 +270,35 @@ struct DirectoryDiffView: View {
 
     // MARK: - What differs, in colour
 
-    /// Letter, colour and tooltip for each kind of difference, in the order
-    /// badges are shown. A small, high-contrast letter reads at a glance
-    /// across a hundred rows in a way that a shared wash of one colour cannot:
-    /// "these two differ" was already visible, "in what" was not.
-    private static let badgeSpecs: [(DirectoryComparison.Difference, String, Color, String)] = [
-        (.kind, "F", .brown, "one is a file, the other a folder"),
-        (.name, "N", .indigo, "matched by content -- the name or the location differs"),
-        (.size, "S", .blue, "size differs"),
-        (.content, "C", .red, "content differs"),
-        (.permissions, "P", .orange, "permissions differ"),
-        (.attributes, "X", .teal, "extended attributes differ"),
-        (.acl, "A", .purple, "access control list differs"),
+    /// Letter, colour, tooltip and short label for each kind of difference, in
+    /// the order badges are shown. A small, high-contrast letter reads at a
+    /// glance across a hundred rows in a way that a shared wash of one colour
+    /// cannot: "these two differ" was already visible, "in what" was not --
+    /// and the same list, spelt out, is the legend at the foot of the window
+    /// for whoever has not memorised the letters yet.
+    private static let badgeSpecs:
+        [(kind: DirectoryComparison.Difference, letter: String, color: Color,
+          help: String, label: String)] = [
+        (.kind, "F", .brown, "one is a file, the other a folder", "File vs. folder"),
+        (.name, "N", .indigo, "matched by content -- the name or the location differs", "Name"),
+        (.size, "S", .blue, "size differs", "Size"),
+        (.content, "C", .red, "content differs", "Content"),
+        (.permissions, "P", .orange, "permissions differ", "Permissions"),
+        (.attributes, "X", .teal, "extended attributes differ", "Extended attributes"),
+        (.acl, "A", .purple, "access control list differs", "Access control list"),
+        (.modified, "M", .mint, "modification date differs", "Modified"),
+        (.created, "B", .yellow, "creation date differs", "Created"),
+        (.ownership, "O", .pink, "owner or group differs", "Owner / group"),
     ]
 
     private func badgeColumn(_ pair: DirectoryComparison.Pair) -> some View {
-        let badges = Self.badgeSpecs.filter { pair.differences.contains($0.0) }
+        let badges = Self.badgeSpecs.filter { pair.differences.contains($0.kind) }
         return ZStack {
             Divider()
             if !badges.isEmpty {
                 HStack(spacing: 2) {
-                    ForEach(badges, id: \.1) { _, letter, color, help in
-                        badge(letter, color: color, help: help)
+                    ForEach(badges, id: \.letter) { spec in
+                        badge(spec.letter, color: spec.color, help: spec.help)
                     }
                 }
             }
@@ -300,6 +314,24 @@ struct DirectoryDiffView: View {
             .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .help(help)
+    }
+
+    /// What every badge means, always on screen: the letters are only mnemonic
+    /// once they are familiar, and a comparison run once a month never gets
+    /// the chance.
+    private var legend: some View {
+        FlowLayout(spacing: 12) {
+            ForEach(Self.badgeSpecs, id: \.letter) { spec in
+                HStack(spacing: 4) {
+                    badge(spec.letter, color: spec.color, help: spec.help)
+                    Text(spec.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Opening a closer look
@@ -334,5 +366,48 @@ struct DirectoryDiffView: View {
         guard let pair else { return }
         if let left = pair.left { openWindow(id: DiptychApp.infoWindowID, value: left.url) }
         if let right = pair.right { openWindow(id: DiptychApp.infoWindowID, value: right.url) }
+    }
+}
+
+/// Lays its children out left to right, wrapping to a new line when the next
+/// one would not fit -- what the legend needs, and what an `HStack` cannot do.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
+                     cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var origin = CGPoint.zero
+        var lineHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if origin.x > 0, origin.x + size.width > width {
+                origin.x = 0
+                origin.y += lineHeight + spacing
+                lineHeight = 0
+            }
+            origin.x += size.width + spacing
+            maxX = max(maxX, origin.x - spacing)
+            lineHeight = max(lineHeight, size.height)
+        }
+        return CGSize(width: maxX, height: origin.y + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {
+        var origin = bounds.origin
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if origin.x > bounds.minX, origin.x + size.width > bounds.maxX {
+                origin.x = bounds.minX
+                origin.y += lineHeight + spacing
+                lineHeight = 0
+            }
+            subview.place(at: origin, anchor: .topLeading, proposal: .unspecified)
+            origin.x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }

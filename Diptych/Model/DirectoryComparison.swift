@@ -22,6 +22,14 @@ enum DirectoryComparison {
         var comparePermissions = true
         var compareAttributes = true
         var compareACL = true
+        /// Off by default: a fresh copy commonly gets a new creation date and
+        /// sometimes a new modification date depending on how it was made, so
+        /// these are noise more often than they are signal.
+        var compareModificationDate = false
+        var compareCreationDate = false
+        /// One switch for both, not two: an owner is meaningless without its
+        /// group, and nothing here has ever asked about one without the other.
+        var compareOwnership = false
         /// Off: a hidden folder (its name starts with a dot, such as `.git`)
         /// still appears in the list, but its contents are not walked.
         var recurseHiddenDirectories = false
@@ -37,6 +45,10 @@ enum DirectoryComparison {
         var isSymlink: Bool
         var byteSize: Int64
         var mode: mode_t
+        var owner: String
+        var group: String
+        var modified: Date
+        var created: Date
         /// Where a symlink points, exactly as stored. Empty for everything
         /// else.
         var linkTarget: String
@@ -131,6 +143,10 @@ enum DirectoryComparison {
         static let permissions = Difference(rawValue: 1 << 4)
         static let attributes = Difference(rawValue: 1 << 5)
         static let acl = Difference(rawValue: 1 << 6)
+        static let modified = Difference(rawValue: 1 << 7)
+        static let created = Difference(rawValue: 1 << 8)
+        /// Owner and group together -- see `Options.compareOwnership`.
+        static let ownership = Difference(rawValue: 1 << 9)
 
         var summary: String {
             if contains(.kind) { return "one is a file, the other a folder" }
@@ -141,6 +157,9 @@ enum DirectoryComparison {
             if contains(.permissions) { parts.append("permissions") }
             if contains(.attributes) { parts.append("extended attributes") }
             if contains(.acl) { parts.append("access control list") }
+            if contains(.modified) { parts.append("modification date") }
+            if contains(.created) { parts.append("creation date") }
+            if contains(.ownership) { parts.append("owner or group") }
             return parts.joined(separator: ", ")
         }
     }
@@ -272,6 +291,13 @@ enum DirectoryComparison {
         // than needing its own guard.
         if left.attributes != right.attributes { diff.insert(.attributes) }
         if (left.acl ?? "") != (right.acl ?? "") { diff.insert(.acl) }
+        if options.compareModificationDate, left.modified != right.modified {
+            diff.insert(.modified)
+        }
+        if options.compareCreationDate, left.created != right.created { diff.insert(.created) }
+        if options.compareOwnership, left.owner != right.owner || left.group != right.group {
+            diff.insert(.ownership)
+        }
 
         if left.isSymlink || right.isSymlink {
             if options.compareContent, left.linkTarget != right.linkTarget { diff.insert(.content) }
@@ -279,13 +305,18 @@ enum DirectoryComparison {
         }
         guard !left.isDirectory else { return diff }
 
-        if left.byteSize != right.byteSize {
-            diff.insert(.size)
-            if options.compareContent { diff.insert(.content) }
-            return diff
-        }
+        // Size is treated as part of content rather than checked on its own:
+        // a size that came from a byte comparison nobody asked for would be
+        // exactly that comparison in a smaller disguise, and somebody who
+        // switched content off to ignore two files that differ would still
+        // see them flagged as different.
         guard options.compareContent else { return diff }
 
+        if left.byteSize != right.byteSize {
+            diff.insert(.size)
+            diff.insert(.content)
+            return diff
+        }
         // Sizes agree, so the bytes are worth reading. A file that could not
         // be opened counts as differing rather than as silently the same.
         let identical = (try? BinaryComparison.compare(left.url, right.url).isIdentical) ?? false
@@ -300,6 +331,7 @@ enum DirectoryComparison {
         var result: [String: Entry] = [:]
         let keys: Set<URLResourceKey> = [
             .nameKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .fileSecurityKey,
+            .contentModificationDateKey, .creationDateKey,
         ]
         // The path-based enumerator, not the URL-based one: it hands back each
         // entry's path already relative to `root`, sidestepping `/var` versus
@@ -329,8 +361,19 @@ enum DirectoryComparison {
             }
 
             var mode: mode_t = 0
+            var owner = ""
+            var group = ""
             if let security = v?.fileSecurity {
-                _ = CFFileSecurityGetMode(security as CFFileSecurity, &mode)
+                let cf = security as CFFileSecurity
+                _ = CFFileSecurityGetMode(cf, &mode)
+                var uid: uid_t = 0
+                if CFFileSecurityGetOwner(cf, &uid), let pw = getpwuid(uid) {
+                    owner = String(cString: pw.pointee.pw_name)
+                }
+                var gid: gid_t = 0
+                if CFFileSecurityGetGroup(cf, &gid), let gr = getgrgid(gid) {
+                    group = String(cString: gr.pointee.gr_name)
+                }
             }
 
             let linkTarget = isSymlink
@@ -344,6 +387,10 @@ enum DirectoryComparison {
                 isSymlink: isSymlink,
                 byteSize: Int64(v?.fileSize ?? 0),
                 mode: mode,
+                owner: owner,
+                group: group,
+                modified: v?.contentModificationDate ?? .distantPast,
+                created: v?.creationDate ?? .distantPast,
                 linkTarget: linkTarget,
                 attributes: options.compareAttributes
                     ? (isSymlink ? .readNoFollow(at: url.path) : .read(at: url.path))

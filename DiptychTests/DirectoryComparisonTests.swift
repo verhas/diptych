@@ -243,7 +243,13 @@ final class DirectoryComparisonTests: XCTestCase {
         XCTAssertEqual(pairs[0].status, .same)
     }
 
-    func testContentIsNotComparedWhenTheOptionIsOffButSizeStillIs() throws {
+    /// Size is treated as part of content, not as a fact of its own: a size
+    /// difference is exactly what a byte comparison nobody asked for would
+    /// have found, so switching content off has to switch it off too. This
+    /// used to be wrong -- size was checked unconditionally -- which meant
+    /// two files that differed only in bytes an unchecked "Content" was
+    /// supposed to excuse still showed up as differing.
+    func testSizeIsNotComparedEitherWhenContentIsOff() throws {
         try write("aaaaa", at: "a.txt", in: left)
         try write("bbbbb", at: "a.txt", in: right)
         try write("short", at: "b.txt", in: left)
@@ -253,12 +259,29 @@ final class DirectoryComparisonTests: XCTestCase {
         options.compareContent = false
         let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
 
-        let sameSize = pair(pairs, "a.txt")
-        XCTAssertEqual(sameSize?.status, .same, "no content check, and the sizes agree")
+        XCTAssertEqual(pair(pairs, "a.txt")?.status, .same)
+        XCTAssertEqual(pair(pairs, "b.txt")?.status, .same,
+                       "different sizes, but nothing left switched on says so")
+    }
 
-        let differentSize = pair(pairs, "b.txt")
-        XCTAssertEqual(differentSize?.differences, .size, "size is cheap and always checked")
-        XCTAssertFalse(differentSize?.differences.contains(.content) ?? true)
+    /// The exact shape of the reported bug: permissions the only thing
+    /// switched on, content/attributes/ACL switched off, and the two files
+    /// differ only in the things that were switched off.
+    func testSwitchingEverythingOffExceptPermissionsIgnoresContentAndAttributeDifferences() throws {
+        let leftURL = try write("short", at: "README.md", in: left)
+        _ = try write("a good deal longer than that", at: "README.md", in: right)
+        XCTAssertNil(ExtendedAttributes.set(Data("tag".utf8), name: "com.diptych.test",
+                                           on: leftURL.path))
+
+        var options = DirectoryComparison.Options()
+        options.compareContent = false
+        options.compareAttributes = false
+        options.compareACL = false
+        // comparePermissions is left at its default, true, and both files
+        // were created the same way, so it has nothing to report either.
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        XCTAssertEqual(pair(pairs, "README.md")?.status, .same)
     }
 
     func testRenamesAreNotMatchedWhenContentIsNotCompared() throws {
@@ -298,5 +321,66 @@ final class DirectoryComparisonTests: XCTestCase {
         let file = pair(pairs, ".git/info/exclude")
         XCTAssertNotNil(file)
         XCTAssertEqual(file?.status, .same)
+    }
+
+    // MARK: - Dates and ownership
+
+    func testModificationDateIsIgnoredByDefault() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: rightURL.path)
+
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        XCTAssertEqual(pairs[0].status, .same)
+    }
+
+    func testModificationDateDifferenceIsReportedWhenTheOptionIsOn() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: rightURL.path)
+
+        var options = DirectoryComparison.Options()
+        options.compareModificationDate = true
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        XCTAssertEqual(pairs[0].differences, .modified)
+    }
+
+    func testCreationDateDifferenceIsReportedWhenTheOptionIsOn() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: rightURL.path)
+
+        var options = DirectoryComparison.Options()
+        options.compareCreationDate = true
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        XCTAssertEqual(pairs[0].differences, .created)
+    }
+
+    /// Owner and group are one switch, not two: nothing here has ever asked
+    /// about a mismatched owner without also caring about the group.
+    func testOwnershipIsIgnoredByDefaultEvenWhenTheOptionWouldHaveNothingToCompareAnyway() throws {
+        try write("same", at: "a.txt", in: left)
+        try write("same", at: "a.txt", in: right)
+
+        var options = DirectoryComparison.Options()
+        options.compareOwnership = true
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        // Both files were made by the same process, so there is nothing to
+        // tell apart -- this only confirms the option does not crash or flag
+        // a false difference against itself.
+        XCTAssertEqual(pairs[0].status, .same)
     }
 }

@@ -233,6 +233,13 @@ struct Configuration: Codable, Equatable {
     var directoryDiffComparePermissions = true
     var directoryDiffCompareAttributes = true
     var directoryDiffCompareACL = true
+    /// Off by default: a fresh copy commonly gets a new creation date and
+    /// sometimes a new modification date depending on how it was made, so
+    /// these are noise more often than they are signal.
+    var directoryDiffCompareModificationDate = false
+    var directoryDiffCompareCreationDate = false
+    /// One switch for both, not two -- see `DirectoryComparison.Options`.
+    var directoryDiffCompareOwnership = false
     /// Off by default: a version-controlled folder's `.git` is usually noise
     /// in a comparison, not something to compare.
     var directoryDiffRecurseHiddenDirectories = false
@@ -260,6 +267,8 @@ struct Configuration: Codable, Equatable {
         case nameGermanSpelling, nameExcerptLength
         case directoryDiffComparePermissions, directoryDiffCompareAttributes
         case directoryDiffCompareACL, directoryDiffRecurseHiddenDirectories
+        case directoryDiffCompareModificationDate, directoryDiffCompareCreationDate
+        case directoryDiffCompareOwnership
     }
 
     init() {}
@@ -319,6 +328,12 @@ struct Configuration: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .directoryDiffCompareACL)) ?? true
         directoryDiffRecurseHiddenDirectories = (try? container.decode(
             Bool.self, forKey: .directoryDiffRecurseHiddenDirectories)) ?? false
+        directoryDiffCompareModificationDate = (try? container.decode(
+            Bool.self, forKey: .directoryDiffCompareModificationDate)) ?? false
+        directoryDiffCompareCreationDate = (try? container.decode(
+            Bool.self, forKey: .directoryDiffCompareCreationDate)) ?? false
+        directoryDiffCompareOwnership = (try? container.decode(
+            Bool.self, forKey: .directoryDiffCompareOwnership)) ?? false
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left
