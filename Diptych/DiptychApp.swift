@@ -12,6 +12,7 @@ struct DiptychApp: App {
     static let textWindowID = "diptych.text"
     static let renameWindowID = "diptych.rename"
     static let diffWindowID = "diptych.diff"
+    static let directoryDiffWindowID = "diptych.directoryDiff"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -64,6 +65,13 @@ struct DiptychApp: App {
             if let pair { DiffView(pair: pair) }
         }
         .defaultSize(width: 1000, height: 640)
+        .restorationBehavior(.disabled)
+
+        // One comparison per pair of folders, for the same reason.
+        WindowGroup(id: DiptychApp.directoryDiffWindowID, for: DirectoryDiffPair.self) { $pair in
+            if let pair { DirectoryDiffView(pair: pair) }
+        }
+        .defaultSize(width: 900, height: 600)
         .restorationBehavior(.disabled)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
@@ -165,7 +173,7 @@ struct FileCommands: Commands {
             .keyboardShortcut(.downArrow, modifiers: .command)
             Button("Get Info") { model?.showInfo() }
                 .keyboardShortcut("i")
-            Button("Compare Two Files") { model?.showDiff() }
+            Button("Compare") { model?.showDiff() }
                 .keyboardShortcut("d", modifiers: .command)
             Button("Rename...") { model?.requestRename() }
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }

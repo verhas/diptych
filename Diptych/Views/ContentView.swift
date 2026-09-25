@@ -122,6 +122,9 @@ struct ContentView: View {
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
             model.openDiffWindow = { openWindow(id: DiptychApp.diffWindowID, value: $0) }
+            model.openDirectoryDiffWindow = {
+                openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
+            }
             model.start()
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment

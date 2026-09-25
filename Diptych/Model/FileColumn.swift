@@ -226,6 +226,17 @@ struct Configuration: Codable, Equatable {
     /// size or date is more useful when the two kinds are not separated.
     var foldersFirst = true
 
+    /// Defaults for a new Compare Folders window. Each has its own checkbox
+    /// there too, so these only decide where that checkbox starts -- content
+    /// has no setting here because it is never optional by default, only from
+    /// the window itself.
+    var directoryDiffComparePermissions = true
+    var directoryDiffCompareAttributes = true
+    var directoryDiffCompareACL = true
+    /// Off by default: a version-controlled folder's `.git` is usually noise
+    /// in a comparison, not something to compare.
+    var directoryDiffRecurseHiddenDirectories = false
+
     /// One switch for all of them, on top of the per-event choices.
     var soundsEnabled = true
 
@@ -247,6 +258,8 @@ struct Configuration: Codable, Equatable {
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
         case useAppleIntelligence, nameSeparatorEnabled, nameSeparator, nameUnicode
         case nameGermanSpelling, nameExcerptLength
+        case directoryDiffComparePermissions, directoryDiffCompareAttributes
+        case directoryDiffCompareACL, directoryDiffRecurseHiddenDirectories
     }
 
     init() {}
@@ -298,6 +311,14 @@ struct Configuration: Codable, Equatable {
         copySound = (try? container.decode(String.self, forKey: .copySound)) ?? "Pop"
         moveSound = (try? container.decode(String.self, forKey: .moveSound)) ?? "Tink"
         trashSound = (try? container.decode(String.self, forKey: .trashSound)) ?? "Glass"
+        directoryDiffComparePermissions =
+            (try? container.decode(Bool.self, forKey: .directoryDiffComparePermissions)) ?? true
+        directoryDiffCompareAttributes =
+            (try? container.decode(Bool.self, forKey: .directoryDiffCompareAttributes)) ?? true
+        directoryDiffCompareACL =
+            (try? container.decode(Bool.self, forKey: .directoryDiffCompareACL)) ?? true
+        directoryDiffRecurseHiddenDirectories = (try? container.decode(
+            Bool.self, forKey: .directoryDiffRecurseHiddenDirectories)) ?? false
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

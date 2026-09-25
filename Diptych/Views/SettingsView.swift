@@ -115,6 +115,37 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Divider()
+
+            Text("Comparing Folders").font(.headline)
+
+            Toggle("Compare permissions",
+                   isOn: $store.configuration.directoryDiffComparePermissions)
+                .toggleStyle(.checkbox)
+            Toggle("Compare extended attributes",
+                   isOn: $store.configuration.directoryDiffCompareAttributes)
+                .toggleStyle(.checkbox)
+            Toggle("Compare access control lists",
+                   isOn: $store.configuration.directoryDiffCompareACL)
+                .toggleStyle(.checkbox)
+            Text("Content is always compared and has no setting of its own. A Compare "
+                 + "Folders window carries its own checkbox for all four, so a single "
+                 + "comparison can leave any of them out without changing what the next "
+                 + "one starts with.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Recurse into hidden folders (starting with a dot, like .git)",
+                   isOn: $store.configuration.directoryDiffRecurseHiddenDirectories)
+                .toggleStyle(.checkbox)
+            Text("Off by default: a folder like .git is usually noise in a comparison, not "
+                 + "something to compare. It still appears in the list either way -- this "
+                 + "only decides whether its contents are looked at too.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Spacer()
         }
         .padding(20)

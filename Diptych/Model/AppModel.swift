@@ -390,8 +390,10 @@ final class AppModel {
     /// system's own bookkeeping, and on APFS opening one for update is not
     /// something a file manager should offer to do.
     @ObservationIgnored var openDiffWindow: ((DiffPair) -> Void)?
+    /// Two folders, in their own window: see `showDiff()`.
+    @ObservationIgnored var openDirectoryDiffWindow: ((DirectoryDiffPair) -> Void)?
 
-    /// Two files, side by side.
+    /// Two files, or two folders, side by side.
     ///
     /// Either two ticked in one pane, or one in each -- both are natural in a
     /// two-pane file manager and guessing wrongly between them would be worse
@@ -400,20 +402,29 @@ final class AppModel {
     /// surprise anybody.
     func showDiff() {
         guard let pair = pairToCompare() else { return }
-        guard !pair.hasFolder else {
-            flash("Comparing folders is not built yet", error: true)
+        // A file and a folder have nothing in common to compare -- refused
+        // rather than guessing which one was meant.
+        guard pair.leftIsDirectory == pair.rightIsDirectory else {
+            flash("A file and a folder cannot be compared", error: true)
             return
         }
-        // Refused rather than answered. Comparing a file with itself has one
+        // Refused rather than answered. Comparing an item with itself has one
         // possible outcome, and somebody who asks for it has almost certainly
-        // ticked the same file twice -- telling them so is more use than a
+        // ticked the same item twice -- telling them so is more use than a
         // window that says "these are the same" and means nothing by it.
-        // Canonical, so a symlink or an alias to the same file is caught too.
+        // Canonical, so a symlink or an alias to the same item is caught too.
         guard FileOperations.canonicalPath(pair.left)
                 != FileOperations.canonicalPath(pair.right) else {
-            flash("That is the same file on both sides", error: true)
+            flash(pair.leftIsDirectory ? "That is the same folder on both sides"
+                                       : "That is the same file on both sides", error: true)
             return
         }
+
+        if pair.leftIsDirectory {
+            openDirectoryDiffWindow?(DirectoryDiffPair(left: pair.left, right: pair.right))
+            return
+        }
+
         let asked = DiffPair(left: pair.left, right: pair.right)
         // Two windows on one file is a way to lose work with no warning: each
         // saves the whole file from its own copy, so whichever is saved second
@@ -426,14 +437,15 @@ final class AppModel {
         openDiffWindow?(asked)
     }
 
-    private func pairToCompare() -> (left: URL, right: URL, hasFolder: Bool)? {
+    private func pairToCompare() -> (left: URL, right: URL,
+                                     leftIsDirectory: Bool, rightIsDirectory: Bool)? {
         let here = active.selectedItems.filter { !$0.isParent }
         if here.count == 2 {
             // Row order, not selection order: what the user sees top to bottom.
             let ordered = active.rows.filter { item in here.contains { $0.id == item.id } }
             guard ordered.count == 2 else { return nil }
             return (ordered[0].url, ordered[1].url,
-                    ordered.contains { $0.isDirectory })
+                    ordered[0].isDirectory, ordered[1].isDirectory)
         }
 
         let other = (active === left ? right : self.left).selectedItems.filter { !$0.isParent }
@@ -443,7 +455,7 @@ final class AppModel {
         }
         let leftItem = active === left ? here[0] : other[0]
         let rightItem = active === left ? other[0] : here[0]
-        return (leftItem.url, rightItem.url, leftItem.isDirectory || rightItem.isDirectory)
+        return (leftItem.url, rightItem.url, leftItem.isDirectory, rightItem.isDirectory)
     }
 
     func showBinaryView() {
