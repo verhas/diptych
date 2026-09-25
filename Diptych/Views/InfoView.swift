@@ -50,10 +50,15 @@ struct InfoView: View {
                 Text(status).lineLimit(2)
             }
             Spacer()
-            Text(model.url.deletingLastPathComponent().path)
+            // The full path, name included -- not just the enclosing folder.
+            // Every other tab hides the name the General tab shows, and with
+            // more than one Info window open there is nothing else on screen
+            // saying which file this one is.
+            Text(model.url.path)
                 .lineLimit(1)
                 .truncationMode(.head)
                 .foregroundStyle(.tertiary)
+                .help(model.url.path)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

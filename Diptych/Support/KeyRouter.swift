@@ -150,11 +150,11 @@ final class KeyRouter {
         }
     }
 
-    /// Brings the next Diptych window forward, cycling front to back and
-    /// wrapping around -- every kind of window Diptych opens, not only the
-    /// browser windows a per-window `AppModel` tracks. With only one window
-    /// open, and that one a browser window, it falls back to swapping that
-    /// window's own panes instead, so the key still does something.
+    /// Brings the next Diptych window forward, in a fixed rotation through
+    /// every kind of window Diptych opens -- not only the browser windows a
+    /// per-window `AppModel` tracks. With only one window open, and that one
+    /// a browser window, it falls back to swapping that window's own panes
+    /// instead, so the key still does something.
     private func cycleWindows() -> Bool {
         let live = AppWindows.shared.live
         guard live.count > 1 else {
@@ -165,15 +165,18 @@ final class KeyRouter {
             return true
         }
 
-        let windows = Set(live)
-        let ordered = NSApp.orderedWindows.filter { windows.contains($0) }
-        guard !ordered.isEmpty else { return false }
-
-        guard let current = NSApp.keyWindow, let index = ordered.firstIndex(of: current) else {
-            ordered[0].makeKeyAndOrderFront(nil)
+        // `AppWindows.live`, not `NSApp.orderedWindows`: the latter is
+        // front-to-back order, which changes every time a window comes
+        // forward -- so "the next one" kept meaning "the window that was in
+        // front before this one", and pressing the key a second time went
+        // straight back where it started instead of on to a third window.
+        // Advancing through a list that does not reshuffle itself is what
+        // makes this an actual round trip through all of them.
+        guard let current = NSApp.keyWindow, let index = live.firstIndex(of: current) else {
+            live[0].makeKeyAndOrderFront(nil)
             return true
         }
-        ordered[(index + 1) % ordered.count].makeKeyAndOrderFront(nil)
+        live[(index + 1) % live.count].makeKeyAndOrderFront(nil)
         return true
     }
 }

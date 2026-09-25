@@ -48,9 +48,15 @@ struct DirectoryDiffView: View {
         }
         .navigationTitle(pair.title)
         .background(WindowAccessor { window in if let window { AppWindows.shared.register(window) } })
-        .task {
+        // `.onAppear`, not `.task`: a `WindowGroup(for:)` scene can keep this
+        // view's state across the window being closed, and `.task` then never
+        // runs again on reopening the same pair of folders -- which kept
+        // showing the comparison as it stood the *first* time it was run,
+        // however the folders changed afterwards. `.onAppear` fires on every
+        // reappearance regardless.
+        .onAppear {
             origin = DirectoryDiffOrigins.shared.origin(for: pair)
-            await model.load()
+            Task { await model.load() }
         }
     }
 

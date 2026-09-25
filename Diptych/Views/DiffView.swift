@@ -58,7 +58,12 @@ struct DiffView: View {
         .focusedSceneValue(\.editingUndo, document.editable == nil ? nil : EditingUndo(
             undo: { act { document.undo() } },
             redo: { act { document.redo() } }))
-        .task { await document.load() }
+        // `.onAppear`, not `.task`: a `WindowGroup(for:)` scene can keep this
+        // view's state across the window being closed, and `.task` then never
+        // runs again on reopening the same pair -- which showed whatever was
+        // on disk the *first* time, forever, however the files changed
+        // afterwards. `.onAppear` fires on every reappearance regardless.
+        .onAppear { Task { await document.load() } }
         // SwiftUI cannot refuse a window close and this window needs to:
         // closing with unsaved edits must ask rather than discard.
         .background(WindowAccessor { found in

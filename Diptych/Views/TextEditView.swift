@@ -212,7 +212,14 @@ struct PlainTextEditor: NSViewRepresentable {
             context.coordinator.shownRevision = document.revision
             text.string = document.saved
             text.undoManager?.removeAllActions()
-            text.setSelectedRange(NSRange(location: 0, length: 0))
+            let end = (text.string as NSString).length
+            text.setSelectedRange(NSRange(location: end, length: 0))
+            // Without this, an empty file opened with nothing else in the
+            // window able to take first responder left the caret nowhere:
+            // the very first keystroke reached no text view at all and rang
+            // the system bell instead of typing. Deferred a turn because the
+            // window may not be key yet the instant this view is installed.
+            DispatchQueue.main.async { text.window?.makeFirstResponder(text) }
         }
         text.isEditable = !document.isReadOnly
         apply(wraps: wraps, to: scroll, text: text)

@@ -17,8 +17,15 @@ final class AppWindows {
     private struct WeakWindow { weak var window: NSWindow? }
     private var windows: [WeakWindow] = []
 
+    /// Kept in the order each window first opened, not most-recently-used:
+    /// `register` is called again on every SwiftUI update of a window already
+    /// registered, and moving it to the end each time would make Option-Tab's
+    /// cycle reshuffle under it mid-use. A fixed order is what makes cycling
+    /// *through all of them* mean something, rather than just "the next one
+    /// AppKit happens to remember".
     func register(_ window: NSWindow) {
-        windows.removeAll { $0.window == nil || $0.window === window }
+        windows.removeAll { $0.window == nil }
+        guard !windows.contains(where: { $0.window === window }) else { return }
         windows.append(WeakWindow(window: window))
     }
 
