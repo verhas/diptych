@@ -61,6 +61,16 @@ final class KeyRouter {
             // too, which is why this yields Bool and the event is returned
             // outside the closure.
             let consumed = MainActor.assumeIsolated { () -> Bool in
+                // Option-Tab moves between Diptych's own windows, the same way
+                // plain Tab moves between the two panes of one -- independent
+                // of whatever has keyboard focus, a text field included, since
+                // switching windows is not something typing should be able to
+                // block.
+                if code == Key.tab.rawValue, flags.contains(.option),
+                   !flags.contains(.command), !flags.contains(.control) {
+                    return self?.cycleWindows() ?? false
+                }
+
                 guard let self, let window = NSApp.keyWindow else { return false }
 
                 // A sheet owns the keyboard while it is up.
@@ -138,5 +148,32 @@ final class KeyRouter {
             // responder chain.
             return consumed ? nil : event
         }
+    }
+
+    /// Brings the next Diptych window forward, cycling front to back and
+    /// wrapping around -- every kind of window Diptych opens, not only the
+    /// browser windows a per-window `AppModel` tracks. With only one window
+    /// open, and that one a browser window, it falls back to swapping that
+    /// window's own panes instead, so the key still does something.
+    private func cycleWindows() -> Bool {
+        let live = AppWindows.shared.live
+        guard live.count > 1 else {
+            guard let only = live.first,
+                  let model = models.compactMap(\.model).first(where: { $0.window === only })
+            else { return false }
+            model.toggleActiveSide()
+            return true
+        }
+
+        let windows = Set(live)
+        let ordered = NSApp.orderedWindows.filter { windows.contains($0) }
+        guard !ordered.isEmpty else { return false }
+
+        guard let current = NSApp.keyWindow, let index = ordered.firstIndex(of: current) else {
+            ordered[0].makeKeyAndOrderFront(nil)
+            return true
+        }
+        ordered[(index + 1) % ordered.count].makeKeyAndOrderFront(nil)
+        return true
     }
 }

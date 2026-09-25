@@ -12,6 +12,7 @@ final class DirectoryDiffModelTests: XCTestCase {
     private let fm = FileManager.default
 
     override func setUpWithError() throws {
+        LiveSettings.protect()
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychDirDiffModel-\(UUID().uuidString)")
         left = root.appendingPathComponent("left")
@@ -22,6 +23,7 @@ final class DirectoryDiffModelTests: XCTestCase {
 
     override func tearDownWithError() throws {
         try? fm.removeItem(at: root)
+        LiveSettings.putBack()
     }
 
     private func write(_ text: String, at relative: String, in base: URL) throws {
@@ -79,6 +81,36 @@ final class DirectoryDiffModelTests: XCTestCase {
         model.onlyShowDifferences = true
         XCTAssertEqual(model.displayedPairs.count, 1)
         XCTAssertEqual(model.displayedPairs.first?.status, .onlyLeft)
+    }
+
+    func testIgnoreMissingHidesPairsThatExistOnOnlyOneSide() async throws {
+        try write("same", at: "same.txt", in: left)
+        try write("same", at: "same.txt", in: right)
+        try write("only here", at: "only-left.txt", in: left)
+        try write("only there", at: "only-right.txt", in: right)
+        let model = DirectoryDiffModel(left: left, right: right)
+        await model.load()
+
+        XCTAssertEqual(model.displayedPairs.count, 3)
+        model.ignoreMissing = true
+        XCTAssertEqual(model.displayedPairs.map(\.id), ["same.txt"])
+    }
+
+    /// The two checkboxes ask different questions and can be combined: a pair
+    /// missing its partner is not "the same", so `onlyShowDifferences` alone
+    /// would still show it.
+    func testIgnoreMissingAndOnlyDifferencesCombine() async throws {
+        try write("same", at: "same.txt", in: left)
+        try write("same", at: "same.txt", in: right)
+        try write("a", at: "differs.txt", in: left)
+        try write("b", at: "differs.txt", in: right)
+        try write("only here", at: "only-left.txt", in: left)
+        let model = DirectoryDiffModel(left: left, right: right)
+        await model.load()
+
+        model.onlyShowDifferences = true
+        model.ignoreMissing = true
+        XCTAssertEqual(model.displayedPairs.map(\.id), ["differs.txt"])
     }
 
     func testSelectingAMatchingPairIsClearedWhenOnlyDifferencesIsSwitchedOn() async throws {
@@ -152,5 +184,44 @@ final class DirectoryDiffModelTests: XCTestCase {
         // An invalid filter matches everything rather than nothing -- the
         // same rule a pane's own filter follows.
         XCTAssertTrue(model.matchesFilter(model.pairs[0]))
+    }
+
+    // MARK: - Defaults
+
+    /// The setting is read once, at the moment the window opens.
+    func testTheWindowStartsFromWhateverTheSettingsSay() {
+        ConfigStore.shared.configuration.directoryDiffComparePermissions = true
+        let model = DirectoryDiffModel(left: left, right: right)
+
+        XCTAssertTrue(model.options.comparePermissions)
+        XCTAssertFalse(model.options.compareAttributes, "left at its own, separate, default")
+    }
+
+    /// A comparison of two dot-folders -- two `.git`s, say -- is a comparison
+    /// of hidden folders on purpose. Recursing into whatever dot-folders turn
+    /// up *inside* one is exactly the point, regardless of what the setting
+    /// says for an ordinary project folder that merely happens to contain one.
+    func testComparingTwoDotFoldersRecursesIntoHiddenFoldersByDefault() {
+        ConfigStore.shared.configuration.directoryDiffRecurseHiddenDirectories = false
+        let dotLeft = root.appendingPathComponent(".config-left")
+        let dotRight = root.appendingPathComponent(".config-right")
+
+        let model = DirectoryDiffModel(left: dotLeft, right: dotRight)
+
+        XCTAssertTrue(model.options.recurseHiddenDirectories)
+    }
+
+    /// The exception must stay an exception: an ordinary pair of folders still
+    /// follows the setting, dot-folder inside or not.
+    func testOrdinaryFoldersStillFollowTheSettingEvenWithADotFolderInsideThem() throws {
+        ConfigStore.shared.configuration.directoryDiffRecurseHiddenDirectories = false
+        try fm.createDirectory(at: left.appendingPathComponent(".git"),
+                               withIntermediateDirectories: true)
+        try fm.createDirectory(at: right.appendingPathComponent(".git"),
+                               withIntermediateDirectories: true)
+
+        let model = DirectoryDiffModel(left: left, right: right)
+
+        XCTAssertFalse(model.options.recurseHiddenDirectories)
     }
 }

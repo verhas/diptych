@@ -34,6 +34,12 @@ final class DirectoryDiffModel {
     var onlyShowDifferences = false {
         didSet { correctSelectionForFilter() }
     }
+    /// Hides a pair that exists on only one side. Independent of
+    /// `onlyShowDifferences`: a pair missing its partner is not "the same",
+    /// so the two checkboxes would otherwise disagree about it.
+    var ignoreMissing = false {
+        didSet { correctSelectionForFilter() }
+    }
 
     /// Plain text finds a fragment anywhere in the name: `inv` lists every
     /// invoice. With `filterIsRegex` on it is a regular expression instead,
@@ -87,6 +93,7 @@ final class DirectoryDiffModel {
 
     private func passesHardFilters(_ pair: DirectoryComparison.Pair) -> Bool {
         if onlyShowDifferences, pair.status == .same { return false }
+        if ignoreMissing, pair.status == .onlyLeft || pair.status == .onlyRight { return false }
         if filterHidesOthers, !matchesFilter(pair) { return false }
         return true
     }
@@ -114,7 +121,7 @@ final class DirectoryDiffModel {
         self.left = left
         self.right = right
         let settings = ConfigStore.shared.configuration
-        let defaults = DirectoryComparison.Options(
+        var defaults = DirectoryComparison.Options(
             comparePermissions: settings.directoryDiffComparePermissions,
             compareAttributes: settings.directoryDiffCompareAttributes,
             compareACL: settings.directoryDiffCompareACL,
@@ -122,6 +129,15 @@ final class DirectoryDiffModel {
             compareCreationDate: settings.directoryDiffCompareCreationDate,
             compareOwnership: settings.directoryDiffCompareOwnership,
             recurseHiddenDirectories: settings.directoryDiffRecurseHiddenDirectories)
+        // A comparison of two dot-folders -- two `.git`s, say -- is a
+        // comparison of hidden folders on purpose, whatever the setting says:
+        // the setting is about not wading into `.git` while comparing an
+        // ordinary project folder, which is a different question from one
+        // asked about `.git` directly. Still just a starting point -- the
+        // checkbox on the window can turn it off again.
+        if left.lastPathComponent.hasPrefix(".") || right.lastPathComponent.hasPrefix(".") {
+            defaults.recurseHiddenDirectories = true
+        }
         options = defaults
         appliedOptions = defaults
     }

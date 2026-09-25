@@ -66,6 +66,7 @@ struct DiffView: View {
             // Held, rather than looked up later: `NSApp.keyWindow` is whichever
             // window happens to be in front, which is not necessarily this one.
             if window !== found { window = found }
+            AppWindows.shared.register(found)
             wheel.watch(found) { [sideways] delta in sideways.move(by: delta) }
             guard found.delegate !== guard_ else { return }
             guard_.shouldClose = { closeIsAllowed() }

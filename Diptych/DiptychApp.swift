@@ -110,6 +110,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let icon = NSImage(named: "AppIcon") {
             NSApplication.shared.applicationIconImage = icon
         }
+
+        // AppKit's tooltip delay has no public API, only this long-standing
+        // undocumented default -- roughly 1.5 seconds otherwise, which reads
+        // as broken rather than deliberate on something meant to be skimmed
+        // one after another, like the letter badges on a folder comparison.
+        // `register`, not `set`: a fallback for this process, not a change
+        // written to the user's real preferences.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 150])
+
+        // macOS appends Start Dictation and Emoji & Symbols to the bottom of
+        // any Edit menu it recognises as one -- which the Files menu's own
+        // Cut/Copy/Paste group (`CommandGroup(replacing: .pasteboard)`) is
+        // enough to trigger. Neither means anything here: nothing in Diptych
+        // is a text view they could act on, so both items sat there able to
+        // be clicked and unable to do anything. These two keys are the
+        // documented way to ask AppKit not to add them.
+        UserDefaults.standard.register(defaults: [
+            "NSDisabledDictationMenuItem": true,
+            "NSDisabledCharacterPaletteMenuItem": true,
+        ])
     }
 }
 

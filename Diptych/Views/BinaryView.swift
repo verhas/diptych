@@ -40,7 +40,10 @@ struct BinaryView: View {
         .navigationTitle(model.url.lastPathComponent)
         // The window is needed so the monitor can tell its own keystrokes from
         // another binary view's.
-        .background(WindowAccessor { keys.start(window: $0, model: model) })
+        .background(WindowAccessor { window in
+            keys.start(window: window, model: model)
+            if let window { AppWindows.shared.register(window) }
+        })
         .onDisappear { keys.stop() }
         .background {
             // A zero-size button is the only way to give a plain shortcut to

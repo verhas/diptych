@@ -178,6 +178,11 @@ enum DirectoryComparison {
         var differences: Difference
         /// Matched by content rather than by relative path -- a rename.
         var isRename: Bool
+        /// Other files, either side, holding exactly the same bytes as this
+        /// side's -- not this pair's own partner, which is already shown
+        /// beside it. Relative paths, sorted; empty when there are none.
+        var leftContentSiblings: [String] = []
+        var rightContentSiblings: [String] = []
 
         var isDirectory: Bool { (left ?? right)?.isDirectory ?? false }
 
@@ -189,6 +194,23 @@ enum DirectoryComparison {
         var canOpenComparison: Bool {
             guard let left, let right else { return false }
             return !left.isSymlink && !right.isSymlink && left.isDirectory == right.isDirectory
+        }
+
+        enum NewerSide: Sendable, Equatable { case left, right }
+
+        /// Which side has the later date, when a date is among what differs.
+        /// Modification takes precedence over creation when both do -- it is
+        /// the date that answers "which one was actually touched last", and
+        /// the more useful of the two to lead with.
+        var newerSide: NewerSide? {
+            guard let left, let right else { return nil }
+            if differences.contains(.modified), left.modified != right.modified {
+                return left.modified > right.modified ? .left : .right
+            }
+            if differences.contains(.created), left.created != right.created {
+                return left.created > right.created ? .left : .right
+            }
+            return nil
         }
     }
 
@@ -226,7 +248,95 @@ enum DirectoryComparison {
         pairs.sort {
             sortKey($0).localizedStandardCompare(sortKey($1)) == .orderedAscending
         }
-        return pairs
+
+        try Task.checkCancellation()
+        return withContentSiblings(pairs)
+    }
+
+    /// Fills in `leftContentSiblings`/`rightContentSiblings`: for every file
+    /// in the comparison, every *other* file, on either side, that holds
+    /// exactly the same bytes.
+    ///
+    /// A rename match only ever accounts for one such duplicate. Building a
+    /// copy of a folder often leaves more than one -- a template re-saved
+    /// under a new name, an empty scaffold reused for several files -- and
+    /// without this the second one just looks like an ordinary, unrelated
+    /// pair, or an ordinary, unrelated single, with nothing to say they are
+    /// the same file in every way that matters.
+    private static func withContentSiblings(_ pairs: [Pair]) -> [Pair] {
+        let bySlot = contentSiblingSlots(of: pairs)
+        guard !bySlot.isEmpty else { return pairs }
+
+        return pairs.map { pair in
+            var pair = pair
+            if let left = pair.left {
+                let partner = pair.right.map { "R:" + $0.relativePath }
+                pair.leftContentSiblings = (bySlot["L:" + left.relativePath] ?? [])
+                    .filter { $0.key != partner }
+                    .map(\.relativePath).sorted()
+            }
+            if let right = pair.right {
+                let partner = pair.left.map { "L:" + $0.relativePath }
+                pair.rightContentSiblings = (bySlot["R:" + right.relativePath] ?? [])
+                    .filter { $0.key != partner }
+                    .map(\.relativePath).sorted()
+            }
+            return pair
+        }
+    }
+
+    /// One file, wherever it sits in either tree, worth naming in a "same
+    /// content" hint -- keyed the same way `Pair.id` keys a single, so a
+    /// pair's own partner can be excluded from its own list by the same key.
+    private struct ContentSlot {
+        let key: String
+        let relativePath: String
+        let entry: Entry
+    }
+
+    /// Groups every non-empty, non-folder, non-symlink file across both
+    /// trees by identical content, by size first -- cheap, and it keeps the
+    /// byte comparisons that follow down to files that could actually match
+    /// -- then by bytes within a size. Empty files are left out entirely:
+    /// every empty file matches every other one, and a hint that says so
+    /// would say nothing.
+    private static func contentSiblingSlots(of pairs: [Pair]) -> [String: [ContentSlot]] {
+        var slots: [ContentSlot] = []
+        for pair in pairs {
+            if let left = pair.left, !left.isDirectory, !left.isSymlink, left.byteSize > 0 {
+                slots.append(ContentSlot(key: "L:" + left.relativePath,
+                                        relativePath: left.relativePath, entry: left))
+            }
+            if let right = pair.right, !right.isDirectory, !right.isSymlink, right.byteSize > 0 {
+                slots.append(ContentSlot(key: "R:" + right.relativePath,
+                                        relativePath: right.relativePath, entry: right))
+            }
+        }
+
+        var bySize: [Int64: [ContentSlot]] = [:]
+        for slot in slots { bySize[slot.entry.byteSize, default: []].append(slot) }
+
+        var result: [String: [ContentSlot]] = [:]
+        for group in bySize.values where group.count > 1 {
+            var clusters: [[ContentSlot]] = []
+            for slot in group {
+                if let index = clusters.firstIndex(where: { cluster in
+                    guard let first = cluster.first else { return false }
+                    return (try? BinaryComparison.compare(first.entry.url, slot.entry.url)
+                        .isIdentical) == true
+                }) {
+                    clusters[index].append(slot)
+                } else {
+                    clusters.append([slot])
+                }
+            }
+            for cluster in clusters where cluster.count > 1 {
+                for slot in cluster {
+                    result[slot.key] = cluster.filter { $0.key != slot.key }
+                }
+            }
+        }
+        return result
     }
 
     private static func sortKey(_ pair: Pair) -> String {

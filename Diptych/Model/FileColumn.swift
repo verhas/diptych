@@ -230,9 +230,14 @@ struct Configuration: Codable, Equatable {
     /// there too, so these only decide where that checkbox starts -- content
     /// has no setting here because it is never optional by default, only from
     /// the window itself.
-    var directoryDiffComparePermissions = true
-    var directoryDiffCompareAttributes = true
-    var directoryDiffCompareACL = true
+    ///
+    /// All off out of the box: a fresh install compares content alone --
+    /// which, by way of the rename match, is names too -- and nothing else,
+    /// so the first folder anybody compares is not already full of
+    /// permission and attribute noise they never asked to see.
+    var directoryDiffComparePermissions = false
+    var directoryDiffCompareAttributes = false
+    var directoryDiffCompareACL = false
     /// Off by default: a fresh copy commonly gets a new creation date and
     /// sometimes a new modification date depending on how it was made, so
     /// these are noise more often than they are signal.
@@ -321,11 +326,11 @@ struct Configuration: Codable, Equatable {
         moveSound = (try? container.decode(String.self, forKey: .moveSound)) ?? "Tink"
         trashSound = (try? container.decode(String.self, forKey: .trashSound)) ?? "Glass"
         directoryDiffComparePermissions =
-            (try? container.decode(Bool.self, forKey: .directoryDiffComparePermissions)) ?? true
+            (try? container.decode(Bool.self, forKey: .directoryDiffComparePermissions)) ?? false
         directoryDiffCompareAttributes =
-            (try? container.decode(Bool.self, forKey: .directoryDiffCompareAttributes)) ?? true
+            (try? container.decode(Bool.self, forKey: .directoryDiffCompareAttributes)) ?? false
         directoryDiffCompareACL =
-            (try? container.decode(Bool.self, forKey: .directoryDiffCompareACL)) ?? true
+            (try? container.decode(Bool.self, forKey: .directoryDiffCompareACL)) ?? false
         directoryDiffRecurseHiddenDirectories = (try? container.decode(
             Bool.self, forKey: .directoryDiffRecurseHiddenDirectories)) ?? false
         directoryDiffCompareModificationDate = (try? container.decode(

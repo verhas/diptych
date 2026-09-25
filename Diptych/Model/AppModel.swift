@@ -421,7 +421,10 @@ final class AppModel {
         }
 
         if pair.leftIsDirectory {
-            openDirectoryDiffWindow?(DirectoryDiffPair(left: pair.left, right: pair.right))
+            let directoryPair = DirectoryDiffPair(left: pair.left, right: pair.right)
+            // So Cmd-G in that window knows which tab to send the files back to.
+            DirectoryDiffOrigins.shared.register(directoryPair, from: self)
+            openDirectoryDiffWindow?(directoryPair)
             return
         }
 
@@ -2469,7 +2472,7 @@ final class AppModel {
         // Dropping on the sidebar adds a favourite; nothing is moved.
         if pointerIsOverSidebar() { return false }
         let pane = paneUnderPointer() ?? active
-        return shouldMove(dragPasteboardURLs(), to: pane.directory)
+        return shouldMove(dragPasteboardURLs(), to: dropDestination(in: pane))
     }
 
     @discardableResult
@@ -2481,7 +2484,10 @@ final class AppModel {
             addFavourites(urls)
             return true
         }
-        drop(urls, into: paneUnderPointer() ?? active)
+        let pane = paneUnderPointer() ?? active
+        let destination = dropDestination(in: pane)
+        cancelSpringLoad()
+        drop(urls, into: pane, destination: destination)
         return true
     }
 
@@ -2500,20 +2506,125 @@ final class AppModel {
 
         let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         for (index, table) in tables.enumerated() {
-            if table.convert(table.bounds, to: nil).contains(point) {
+            // `visibleRect`, not `bounds`: a table's bounds are the size of
+            // all its rows and columns, which for a scrolled table -- one
+            // with more columns than fit, or simply more rows than the pane
+            // is tall -- extends well past what is actually on screen. That
+            // oversized rect, converted to window coordinates, reached clean
+            // across the divider and into the other pane's half of the
+            // window, so a drop meant for the right pane was tested against
+            // the left one first and matched it by sheer size.
+            if table.convert(table.visibleRect, to: nil).contains(point) {
                 return index == 0 ? left : right
             }
         }
         // Dropped on a pane's chrome rather than its list: fall back to which
         // side of the divider the pointer is on.
-        let divider = tables[1].convert(tables[1].bounds, to: nil).minX
+        let divider = tables[1].convert(tables[1].visibleRect, to: nil).minX
         return point.x < divider ? left : right
+    }
+
+    // MARK: - Spring-loaded folders
+
+    /// The row a drag is hovering over, and since when -- Finder calls this a
+    /// spring-loaded folder: stay long enough over a folder mid-drag and it
+    /// opens on its own, so a drop three levels down never needs the pane
+    /// navigated there by hand first.
+    private(set) var springLoadPane: PaneModel?
+    private(set) var springLoadTarget: FileItem?
+    private var springLoadSince: Date?
+    /// When a folder last opened this way, so the next one can be made to
+    /// wait longer -- see `dragHovered`.
+    private var lastSpringLoadOpen: Date?
+
+    /// Long enough that passing over a row on the way to another is not read
+    /// as a request to open it, short enough not to feel stuck.
+    private static let springLoadDelay: TimeInterval = 0.8
+    /// Added to the delay for a row that appears within this long of the
+    /// previous folder opening. A folder that has just opened often puts a
+    /// new row exactly where the old one's icon was, under a pointer that has
+    /// not moved at all -- without this, that row would start counting down
+    /// immediately and the drag could drill down several folders while the
+    /// pointer sat still.
+    private static let springLoadCooldown: TimeInterval = 0.6
+
+    /// Called from `dropUpdated`, on every change of drag position: finds the
+    /// row under the pointer and, once the pointer has stayed there long
+    /// enough, opens it -- exactly as a double-click would.
+    func dragHovered() {
+        guard let (pane, item) = rowUnderPointer(), item.isEnterable else {
+            cancelSpringLoad()
+            return
+        }
+        guard springLoadPane === pane, springLoadTarget?.id == item.id else {
+            springLoadPane = pane
+            springLoadTarget = item
+            springLoadSince = Date()
+            return
+        }
+        guard let since = springLoadSince else { return }
+
+        var required = Self.springLoadDelay
+        if let lastOpen = lastSpringLoadOpen,
+           since.timeIntervalSince(lastOpen) < Self.springLoadCooldown {
+            required += Self.springLoadCooldown
+        }
+        guard Date().timeIntervalSince(since) >= required else { return }
+
+        pane.open(item)
+        lastSpringLoadOpen = Date()
+        springLoadPane = nil
+        springLoadTarget = nil
+        springLoadSince = nil
+    }
+
+    func cancelSpringLoad() {
+        springLoadPane = nil
+        springLoadTarget = nil
+        springLoadSince = nil
+    }
+
+    /// Where a drop landing on `pane` right now would actually go: the row
+    /// spring-load is sitting on, if the pointer has not been there long
+    /// enough to have opened it yet, otherwise the pane's own directory --
+    /// which, once spring-load has opened a folder, *is* that folder.
+    private func dropDestination(in pane: PaneModel) -> URL {
+        guard springLoadPane === pane, let target = springLoadTarget else { return pane.directory }
+        return target.isSymlink ? target.url.resolvingSymlinksInPath() : target.url
+    }
+
+    /// The specific row under the pointer, in whichever pane's table it falls
+    /// over -- not just which pane, the way `paneUnderPointer` answers, but
+    /// which of its rows, for spring-loading to open.
+    private func rowUnderPointer() -> (pane: PaneModel, item: FileItem)? {
+        guard let window else { return nil }
+        let tables = TableFinder.tables(in: window)
+        guard !tables.isEmpty else { return nil }
+
+        let pane: PaneModel
+        let table: NSTableView
+        if tables.count > 1 {
+            guard let matched = paneUnderPointer() else { return nil }
+            pane = matched
+            table = matched === left ? tables[0] : tables[1]
+        } else {
+            pane = active
+            table = tables[0]
+        }
+
+        let point = table.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        let row = table.row(at: point)
+        guard row >= 0, pane.rows.indices.contains(row) else { return nil }
+        return (pane, pane.rows[row])
     }
 
     /// Files dropped onto a pane, from the other pane, from Finder, from another
     /// Diptych window, or from any app that vends file URLs.
-    func drop(_ urls: [URL], into pane: PaneModel) {
-        let destination = pane.directory
+    ///
+    /// `destination` is the specific folder within `pane` the drop landed on --
+    /// spring-loading's doing -- or, when nil, the pane's own directory.
+    func drop(_ urls: [URL], into pane: PaneModel, destination: URL? = nil) {
+        let destination = destination ?? pane.directory
         // Dropping something back into the folder it already lives in.
         let sources = urls.filter { $0.deletingLastPathComponent().path != destination.path }
         guard !sources.isEmpty else {

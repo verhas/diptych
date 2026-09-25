@@ -383,4 +383,114 @@ final class DirectoryComparisonTests: XCTestCase {
         // a false difference against itself.
         XCTAssertEqual(pairs[0].status, .same)
     }
+
+    // MARK: - Which side is newer
+
+    func testNewerSideFollowsTheModificationDateWhenItDiffers() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: rightURL.path)
+
+        var options = DirectoryComparison.Options()
+        options.compareModificationDate = true
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        XCTAssertEqual(pairs[0].newerSide, .left)
+    }
+
+    /// When both dates differ, modification wins -- it is the date that
+    /// answers "which one was actually touched last".
+    func testNewerSideFavoursModificationOverCreationWhenBothDiffer() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        // Modification says right is newer; creation says left is -- the
+        // disagreement is deliberate, so the precedence rule has something to
+        // pick between.
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000),
+                              .creationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000),
+                              .creationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: rightURL.path)
+
+        var options = DirectoryComparison.Options()
+        options.compareModificationDate = true
+        options.compareCreationDate = true
+        let pairs = try DirectoryComparison.compare(left: left, right: right, options: options)
+
+        XCTAssertEqual(pairs[0].newerSide, .right, "modification, not creation, decides")
+    }
+
+    func testNewerSideIsNilWhenNoDateIsBeingCompared() throws {
+        let leftURL = try write("same", at: "a.txt", in: left)
+        let rightURL = try write("same", at: "a.txt", in: right)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)],
+                             ofItemAtPath: leftURL.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)],
+                             ofItemAtPath: rightURL.path)
+
+        // Default options: modification date is not compared at all.
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        XCTAssertNil(pairs[0].newerSide)
+    }
+
+    // MARK: - Same-content siblings
+
+    func testAThirdFileWithTheSameContentIsReportedAsASibling() throws {
+        try write("shared text", at: "README.md", in: left)
+        try write("shared text", at: "README.md", in: right)
+        try write("shared text", at: "notes.txt", in: left)
+
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        let readme = try XCTUnwrap(pair(pairs, "README.md"))
+        XCTAssertEqual(readme.leftContentSiblings, ["notes.txt"])
+        XCTAssertEqual(readme.rightContentSiblings, ["notes.txt"])
+    }
+
+    func testAPairsOwnPartnerIsNotListedAsItsOwnSibling() throws {
+        try write("shared text", at: "README.md", in: left)
+        try write("shared text", at: "README.md", in: right)
+
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        let readme = try XCTUnwrap(pair(pairs, "README.md"))
+        XCTAssertEqual(readme.leftContentSiblings, [])
+        XCTAssertEqual(readme.rightContentSiblings, [])
+    }
+
+    func testEmptyFilesAreNeverReportedAsContentSiblings() throws {
+        try write("", at: "a.txt", in: left)
+        try write("", at: "b.txt", in: left)
+        try write("", at: "a.txt", in: right)
+
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        for pair in pairs {
+            XCTAssertEqual(pair.leftContentSiblings, [])
+            XCTAssertEqual(pair.rightContentSiblings, [])
+        }
+    }
+
+    /// Three files share one set of bytes; the rename match only accounts for
+    /// two of them. The one left over should still point at both of the
+    /// others -- including the one that became the "official" match -- since
+    /// from its own point of view neither is more of a match than the other.
+    func testALeftoverInAContentClusterListsAllTheOthers() throws {
+        try write("identical", at: "a.txt", in: left)
+        try write("identical", at: "b.txt", in: left)
+        try write("identical", at: "c.txt", in: right)
+
+        let pairs = try DirectoryComparison.compare(left: left, right: right)
+
+        let rename = try XCTUnwrap(pairs.first { $0.isRename })
+        let leftover = try XCTUnwrap(pairs.first { $0.status == .onlyLeft })
+
+        XCTAssertEqual(Set(leftover.leftContentSiblings),
+                       Set([rename.left?.relativePath, rename.right?.relativePath].compactMap { $0 }))
+    }
 }

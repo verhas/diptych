@@ -15,6 +15,11 @@ struct DirectoryDiffView: View {
     @State private var model: DirectoryDiffModel
     @Environment(\.openWindow) private var openWindow
     @State private var notice: String?
+    /// The Diptych tab this comparison was opened from, if it is still open --
+    /// nil for a window restored across a relaunch, or one whose tab has since
+    /// closed, in which case Cmd-G has nowhere to send anything.
+    @State private var origin: AppModel?
+    @FocusState private var filterIsFocused: Bool
 
     private let pair: DirectoryDiffPair
 
@@ -42,7 +47,11 @@ struct DirectoryDiffView: View {
             }
         }
         .navigationTitle(pair.title)
-        .task { await model.load() }
+        .background(WindowAccessor { window in if let window { AppWindows.shared.register(window) } })
+        .task {
+            origin = DirectoryDiffOrigins.shared.origin(for: pair)
+            await model.load()
+        }
     }
 
     // MARK: - Chrome
@@ -60,16 +69,16 @@ struct DirectoryDiffView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
-                if model.needsRefresh {
-                    Button("Refresh") { Task { await model.load() } }
-                        .help("The checkboxes have changed since this comparison ran. "
-                              + "Compare again with what they say now.")
-                }
+                refreshButton
                 Button("Get Info") { showInfo(model.selectedPair) }
                     .keyboardShortcut("i", modifiers: .command)
                     .disabled(model.selectedPair == nil)
                     .help("Open Get Info on whichever side or sides exist, to compare them "
                           + "side by side")
+                Button("Go to") { goToOrigin(model.selectedPair) }
+                    .keyboardShortcut("g", modifiers: .command)
+                    .disabled(origin == nil || model.selectedPair == nil)
+                    .help("Select these files in the window this comparison was opened from")
                 Button("Compare") { openComparison(model.selectedPair) }
                     .keyboardShortcut("d", modifiers: .command)
                     .disabled(model.selectedPair?.canOpenComparison != true)
@@ -81,6 +90,33 @@ struct DirectoryDiffView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Always available, not only when a checkbox has changed: the folders
+    /// themselves can have changed too, and there is no other way to ask for
+    /// a fresh look. Prominent exactly when a checkbox is the reason, so the
+    /// two reasons to press it -- "the settings changed" and "the files might
+    /// have" -- read differently without needing separate buttons.
+    @ViewBuilder
+    private var refreshButton: some View {
+        if model.needsRefresh {
+            Button("Refresh") { Task { await model.load() } }
+                .buttonStyle(.borderedProminent)
+                .help(refreshHelp)
+        } else {
+            Button("Refresh") { Task { await model.load() } }
+                .buttonStyle(.bordered)
+                .help(refreshHelp)
+        }
+    }
+
+    private var refreshHelp: String {
+        guard model.needsRefresh else {
+            return "Already reflects the current checkboxes. Refreshing again only helps if "
+                 + "the folders themselves have changed since."
+        }
+        return "The checkboxes have changed since this comparison ran. Refresh to compare "
+             + "again with what they say now."
     }
 
     private var optionsRow: some View {
@@ -111,6 +147,7 @@ struct DirectoryDiffView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
                 .frame(minWidth: 70, idealWidth: 160, maxWidth: 220)
+                .focused($filterIsFocused)
                 .foregroundStyle(model.filterIsValid ? Color.primary : Color.red)
                 .help(model.filterIsRegex
                       ? "Regular expression, anchored: .*\\.txt"
@@ -141,6 +178,8 @@ struct DirectoryDiffView: View {
 
             Toggle("Only differences", isOn: $model.onlyShowDifferences)
                 .help("List only pairs that are not the same")
+            Toggle("Ignore missing", isOn: $model.ignoreMissing)
+                .help("Leave out anything that exists on only one side")
 
             Spacer()
         }
@@ -181,8 +220,9 @@ struct DirectoryDiffView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(model.displayedPairs) { pair in
-                        row(pair)
+                    ForEach(Array(model.displayedPairs.enumerated()), id: \.element.id) {
+                        index, pair in
+                        row(pair, striped: !index.isMultiple(of: 2))
                         Divider()
                     }
                 }
@@ -199,26 +239,58 @@ struct DirectoryDiffView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func row(_ pair: DirectoryComparison.Pair) -> some View {
+    private func row(_ pair: DirectoryComparison.Pair, striped: Bool) -> some View {
         HStack(spacing: 0) {
-            cell(pair.left, isMissing: pair.left == nil)
+            cell(pair.left, other: pair.right, isMissing: pair.left == nil,
+                sameContent: pair.leftContentSiblings)
             badgeColumn(pair)
-            cell(pair.right, isMissing: pair.right == nil)
+            cell(pair.right, other: pair.left, isMissing: pair.right == nil,
+                sameContent: pair.rightContentSiblings)
         }
         .opacity(model.hasFilter && !model.filterHidesOthers && !model.matchesFilter(pair)
                  ? 0.35 : 1)
-        .background(model.selection == pair.id ? Color.accentColor.opacity(0.25) : .clear)
+        .background(model.selection == pair.id ? Color.accentColor.opacity(0.25)
+                    : (striped ? Color(nsColor: .alternatingContentBackgroundColors[1])
+                              : Color.clear))
         .contentShape(Rectangle())
-        .help(pair.differences.isEmpty ? "" : "These differ in \(pair.differences.summary)")
+        .help(helpText(for: pair))
         // Stacked rather than replaced: a double click completes as a second
         // single click first, and selecting the pair it is about to open
         // reads as one action rather than a selection that changes and then
         // reverts.
         .onTapGesture(count: 2) { openComparison(pair) }
-        .onTapGesture(count: 1) { model.selection = pair.id }
+        .onTapGesture(count: 1) {
+            model.selection = pair.id
+            // A click in the list is "somewhere else" as far as the filter
+            // field is concerned -- it should not go on blinking there.
+            filterIsFocused = false
+        }
     }
 
-    private func cell(_ entry: DirectoryComparison.Entry?, isMissing: Bool) -> some View {
+    /// What the row's tooltip says: what differs, which side is newer when a
+    /// date is one of those differences, or that the two are simply the same
+    /// -- silence read as a missing tooltip, not as "nothing to say".
+    private func helpText(for pair: DirectoryComparison.Pair) -> String {
+        switch pair.status {
+        case .same: "These are the same."
+        case .onlyLeft: "Only on the left."
+        case .onlyRight: "Only on the right."
+        case .differs:
+            "These differ in \(pair.differences.summary)."
+                + (newerSideNote(pair).map { " (\($0).)" } ?? "")
+        }
+    }
+
+    private func newerSideNote(_ pair: DirectoryComparison.Pair) -> String? {
+        switch pair.newerSide {
+        case .left: "the left one is newer"
+        case .right: "the right one is newer"
+        case nil: nil
+        }
+    }
+
+    private func cell(_ entry: DirectoryComparison.Entry?, other: DirectoryComparison.Entry?,
+                      isMissing: Bool, sameContent: [String]) -> some View {
         HStack(spacing: 6) {
             if let entry {
                 Image(systemName: entry.isDirectory ? "folder" : "doc")
@@ -234,9 +306,17 @@ struct DirectoryDiffView: View {
                             .lineLimit(1)
                             .truncationMode(.head)
                     }
-                    Text(detailText(entry))
+                    Text(detailText(entry, other: other))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let sameContentText = Self.sameContentText(sameContent) {
+                        Text(sameContentText)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(sameContentText)
+                    }
                 }
             } else {
                 Image(systemName: "minus")
@@ -263,9 +343,101 @@ struct DirectoryDiffView: View {
         return directory.isEmpty ? nil : directory
     }
 
-    private func detailText(_ entry: DirectoryComparison.Entry) -> String {
+    private func detailText(_ entry: DirectoryComparison.Entry,
+                            other: DirectoryComparison.Entry?) -> String {
         let size = entry.isDirectory ? "--" : BinaryComparison.bytes(entry.byteSize)
-        return "\(size)  \u{2022}  \(entry.permissions)"
+        var parts = ["\(size)", entry.permissions]
+        if let ownership = ownershipDetail(entry, other) { parts.append(ownership) }
+        if let attributes = attributesSummary(entry, other) { parts.append(attributes) }
+        if let acl = aclSummary(entry, other) { parts.append(acl) }
+        return parts.joined(separator: "  \u{2022}  ")
+    }
+
+    /// Owner, group, or both -- whichever actually differs from the other
+    /// side, and only when ownership is being compared at all. Showing the
+    /// one that agrees as well as the one that does not would bury the answer
+    /// in the question.
+    ///
+    /// Checked against `appliedOptions`, the settings the loaded pairs were
+    /// actually compared with, not `options`, what the checkboxes currently
+    /// say: a box just ticked but not yet refreshed has no data behind it yet
+    /// to show.
+    private func ownershipDetail(_ entry: DirectoryComparison.Entry,
+                                 _ other: DirectoryComparison.Entry?) -> String? {
+        guard model.appliedOptions.compareOwnership, let other else { return nil }
+        var parts: [String] = []
+        if entry.owner != other.owner { parts.append("owner: \(entry.owner)") }
+        if entry.group != other.group { parts.append("group: \(entry.group)") }
+        return parts.isEmpty ? nil : parts.joined(separator: "  ")
+    }
+
+    /// Not a full diff, just enough to say where to look: attribute names that
+    /// are missing on one side, or present on both but holding a different
+    /// value.
+    private func attributesSummary(_ entry: DirectoryComparison.Entry,
+                                   _ other: DirectoryComparison.Entry?) -> String? {
+        guard model.appliedOptions.compareAttributes, let other else { return nil }
+        let mine = Set(entry.attributes.readable.keys).union(entry.attributes.unreadableNames)
+        let theirs = Set(other.attributes.readable.keys).union(other.attributes.unreadableNames)
+        var changed = mine.symmetricDifference(theirs)
+        for name in mine.intersection(theirs)
+        where entry.attributes.readable[name] != other.attributes.readable[name] {
+            changed.insert(name)
+        }
+        guard !changed.isEmpty else { return nil }
+        return "xattr: " + Self.shortList(changed)
+    }
+
+    /// The same idea for the access control list: which principals' entries
+    /// do not match, named rather than spelled out in full.
+    private func aclSummary(_ entry: DirectoryComparison.Entry,
+                            _ other: DirectoryComparison.Entry?) -> String? {
+        guard model.appliedOptions.compareACL, let other else { return nil }
+        let mine = Self.aclEntries(entry.acl)
+        let theirs = Self.aclEntries(other.acl)
+        var changed = Set(mine.keys).symmetricDifference(theirs.keys)
+        for name in Set(mine.keys).intersection(theirs.keys) where mine[name] != theirs[name] {
+            changed.insert(name)
+        }
+        guard !changed.isEmpty else { return nil }
+        return "acl: " + Self.shortList(changed)
+    }
+
+    /// One ACL entry's principal name mapped to its permissions, parsed just
+    /// well enough to notice a change -- `AccessControl`'s own text format is
+    /// `tag:uuid:name:id:allow|deny:permissions`, and only the name and the
+    /// last two fields matter here.
+    private static func aclEntries(_ text: String?) -> [String: String] {
+        guard let text else { return [:] }
+        var entries: [String: String] = [:]
+        for line in text.split(separator: "\n") where !line.hasPrefix("!#acl") {
+            let fields = line.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 6 else { continue }
+            let name = fields[2].isEmpty ? String(fields[1]) : String(fields[2])
+            entries[name] = "\(fields[4]):\(fields[5])"
+        }
+        return entries
+    }
+
+    private static func shortList(_ names: Set<String>) -> String {
+        shortList(names.sorted())
+    }
+
+    /// Up to three names, then a count of the rest -- a hint of what changed,
+    /// not an inventory of it.
+    private static func shortList(_ names: [String]) -> String {
+        let shown = names.prefix(3).joined(separator: ", ")
+        let remainder = names.count > 3 ? " (+\(names.count - 3) more)" : ""
+        return shown + remainder
+    }
+
+    /// "Same content as: ..." for a file that shares its bytes with another
+    /// one somewhere in the comparison, besides the pair it is already shown
+    /// next to. A rename match only ever accounts for one duplicate; this is
+    /// what says there were more.
+    private static func sameContentText(_ names: [String]) -> String? {
+        guard !names.isEmpty else { return nil }
+        return "Same content as: " + shortList(names)
     }
 
     // MARK: - What differs, in colour
@@ -341,13 +513,18 @@ struct DirectoryDiffView: View {
     /// the two of them -- the same window this one is, for people who want a
     /// more focused view of one part of a larger tree.
     private func openComparison(_ pair: DirectoryComparison.Pair?) {
+        filterIsFocused = false
         guard let pair, pair.canOpenComparison,
               let left = pair.left, let right = pair.right else { return }
         model.selection = pair.id
 
         if pair.isDirectory {
-            openWindow(id: DiptychApp.directoryDiffWindowID,
-                      value: DirectoryDiffPair(left: left.url, right: right.url))
+            let nested = DirectoryDiffPair(left: left.url, right: right.url)
+            // Forwarded from this window's own origin, not registered as this
+            // window: Cmd-G in the narrower view should still land in the
+            // same Diptych tab the whole comparison started from.
+            DirectoryDiffOrigins.shared.register(nested, from: origin)
+            openWindow(id: DiptychApp.directoryDiffWindowID, value: nested)
             return
         }
 
@@ -363,9 +540,42 @@ struct DirectoryDiffView: View {
     /// to each other and compared by eye -- tags, xattrs, ACL and all the rest
     /// a badge only says is there, not what it is.
     private func showInfo(_ pair: DirectoryComparison.Pair?) {
+        filterIsFocused = false
         guard let pair else { return }
         if let left = pair.left { openWindow(id: DiptychApp.infoWindowID, value: left.url) }
         if let right = pair.right { openWindow(id: DiptychApp.infoWindowID, value: right.url) }
+    }
+
+    /// Sends the pair back to the Diptych tab this comparison was opened
+    /// from: the left pane to the left file, the right pane to the right one.
+    /// When only one side exists, only that pane moves, and it becomes the
+    /// active one; otherwise the left pane becomes active and both files end
+    /// up selected, the right one in whatever style an unfocused pane's
+    /// selection already takes.
+    private func goToOrigin(_ pair: DirectoryComparison.Pair?) {
+        filterIsFocused = false
+        guard let pair, let origin else { return }
+
+        switch (pair.left, pair.right) {
+        case let (left?, right?):
+            select(right.url, in: origin.right)
+            select(left.url, in: origin.left)
+            origin.focus(.left)
+        case let (left?, nil):
+            select(left.url, in: origin.left)
+            origin.focus(.left)
+        case let (nil, right?):
+            select(right.url, in: origin.right)
+            origin.focus(.right)
+        case (nil, nil):
+            return
+        }
+        origin.window?.makeKeyAndOrderFront(nil)
+    }
+
+    private func select(_ url: URL, in pane: PaneModel) {
+        pane.pendingSelection = [url]
+        pane.navigate(to: url.deletingLastPathComponent())
     }
 }
 

@@ -40,6 +40,7 @@ struct TextEditView: View {
         }
         .navigationTitle(title)
         .background(WindowAccessor { window in
+            if let window { AppWindows.shared.register(window) }
             // Resolved on every update; set once, so a closure is not rebuilt
             // and a delegate not reassigned on each keystroke's redraw.
             guard let found = window, found.delegate !== guard_ else { return }

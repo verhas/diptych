@@ -187,7 +187,10 @@ struct ContentView: View {
 
         // Learn which NSWindow we live in, so the shared key handler can route
         // keystrokes to the focused window's model only.
-        .background(WindowAccessor { model.window = $0 })
+        .background(WindowAccessor { window in
+            model.window = window
+            if let window { AppWindows.shared.register(window) }
+        })
 
         // ONE presentation modifier, driven by one optional. Stacking several
         // .alert modifiers on a single view is unreliable in SwiftUI -- only one
@@ -419,11 +422,18 @@ struct PaneDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) { isTargeted = true }
-    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func dropExited(info: DropInfo) {
+        isTargeted = false
+        // Leaving the window mid-drag abandons whatever row was about to
+        // spring open; coming back starts the wait over.
+        MainActor.assumeIsolated { model.cancelSpringLoad() }
+    }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         MainActor.assumeIsolated {
-            DropProposal(operation: model.dropWouldMove() ? .move : .copy)
+            model.dragHovered()
+            return DropProposal(operation: model.dropWouldMove() ? .move : .copy)
         }
     }
 

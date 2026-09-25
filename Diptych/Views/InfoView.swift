@@ -38,6 +38,7 @@ struct InfoView: View {
         .frame(minWidth: 880, minHeight: 460)
         .navigationTitle(model.name)
         .onAppear(perform: seedDrafts)
+        .background(WindowAccessor { window in if let window { AppWindows.shared.register(window) } })
     }
 
     private var statusBar: some View {
