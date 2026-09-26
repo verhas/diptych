@@ -249,6 +249,12 @@ struct Configuration: Codable, Equatable {
     /// in a comparison, not something to compare.
     var directoryDiffRecurseHiddenDirectories = false
 
+    /// A random tip shown once each time Diptych starts.
+    ///
+    /// On by default. The startup dialog's own checkbox is the quick way to
+    /// turn it off again; this is how it comes back on.
+    var showTipsAtStartup = true
+
     /// One switch for all of them, on top of the per-event choices.
     var soundsEnabled = true
 
@@ -274,6 +280,7 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareACL, directoryDiffRecurseHiddenDirectories
         case directoryDiffCompareModificationDate, directoryDiffCompareCreationDate
         case directoryDiffCompareOwnership
+        case showTipsAtStartup
     }
 
     init() {}
@@ -339,6 +346,8 @@ struct Configuration: Codable, Equatable {
             Bool.self, forKey: .directoryDiffCompareCreationDate)) ?? false
         directoryDiffCompareOwnership = (try? container.decode(
             Bool.self, forKey: .directoryDiffCompareOwnership)) ?? false
+        showTipsAtStartup =
+            (try? container.decode(Bool.self, forKey: .showTipsAtStartup)) ?? true
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

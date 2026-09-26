@@ -102,6 +102,23 @@ final class TextEditDocumentTests: XCTestCase {
         XCTAssertTrue(document.failure?.contains("Bin Edit") ?? false, document.failure ?? "")
     }
 
+    /// A file with no read permission at all used to fail the same way a
+    /// binary file does -- "not text... Bin Edit opens files like that" --
+    /// which sent somebody towards a tool that needs exactly the same
+    /// permission and would refuse it too. It must say what is actually
+    /// wrong, and it must not suggest Bin Edit as the way out.
+    func testAnUnreadableFileSaysSoRatherThanClaimingToBeBinary() throws {
+        let (document, url) = try open("a.txt", Data("plain text\n".utf8))
+        try manager.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
+        defer { try? manager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path) }
+
+        document.load()
+
+        XCTAssertNotNil(document.failure)
+        XCTAssertFalse(document.failure?.contains("Bin Edit") ?? true, document.failure ?? "")
+        XCTAssertTrue(document.failure?.contains("cannot be read") ?? false, document.failure ?? "")
+    }
+
     func testAFileThatCannotBeWrittenOpensReadOnly() throws {
         let (document, url) = try open("a.txt", Data("locked\n".utf8))
         try manager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)

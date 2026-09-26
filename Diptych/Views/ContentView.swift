@@ -126,6 +126,10 @@ struct ContentView: View {
                 openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
             }
             model.start()
+            ReleaseNotesPresenter.shared.presentIfNeeded {
+                openWindow(id: DiptychApp.releaseNotesWindowID)
+            }
+            StartupTips.shared.presentIfNeeded(on: model)
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
             // lands during the sleep below, and would otherwise have already
@@ -457,6 +461,12 @@ struct DialogSheet: View {
     @State private var undoAnchor: Int?
     @State private var redoAnchor: Int?
 
+    /// Which tip is showing, and whether to stop showing them -- both need to
+    /// survive "Next" without resetting, which a computed property alone
+    /// could not do.
+    @State private var tipIndex = Int.random(in: 0 ..< DiptychTips.all.count)
+    @State private var dontShowTipsAgain = false
+
     /// A review step, not a confirmation: both lists are editable, so a partial
     /// send is a normal thing to do rather than something to work around.
     @ViewBuilder
@@ -767,12 +777,46 @@ struct DialogSheet: View {
 
             case .historyMany:
                 historyMany
+
+            case .tips:
+                tips
             }
         }
         .padding(20)
         // Wider for the history sheets: their sentences name two files and a
         // folder, and at 470 a rename was broken over three lines.
         .frame(width: dialog == .historyStep || dialog == .historyMany ? 600 : 470)
+    }
+
+    /// One random fact, shown once at startup, with "Next" cycling through the
+    /// rest of the pool instead of picking again at random -- so pressing it
+    /// repeatedly works through everything there is to know rather than
+    /// risking the same one twice in a row.
+    @ViewBuilder
+    private var tips: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lightbulb").foregroundStyle(.yellow)
+            Text("Did You Know?").font(.headline)
+        }
+        Text(DiptychTips.all[tipIndex])
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(minHeight: 50, alignment: .top)
+
+        Divider()
+
+        Toggle("Do not show tips at startup", isOn: $dontShowTipsAgain)
+            .toggleStyle(.checkbox)
+
+        HStack {
+            Button("Next") { tipIndex = (tipIndex + 1) % DiptychTips.all.count }
+            Spacer()
+            Button("OK") {
+                if dontShowTipsAgain { ConfigStore.shared.configuration.showTipsAtStartup = false }
+                model.dialog = nil
+            }
+            .keyboardShortcut(.defaultAction)
+        }
     }
 
     /// One step, before it is undone or redone.

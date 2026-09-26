@@ -13,6 +13,7 @@ struct DiptychApp: App {
     static let renameWindowID = "diptych.rename"
     static let diffWindowID = "diptych.diff"
     static let directoryDiffWindowID = "diptych.directoryDiff"
+    static let releaseNotesWindowID = "diptych.releaseNotes"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -74,6 +75,14 @@ struct DiptychApp: App {
         .defaultSize(width: 900, height: 600)
         .restorationBehavior(.disabled)
 
+        // One window, shown once after an update -- not `WindowGroup(for:)`,
+        // since there is only ever one and it carries no value of its own.
+        Window("Release Notes", id: DiptychApp.releaseNotesWindowID) {
+            ReleaseNotesView()
+        }
+        .defaultSize(width: 700, height: 600)
+        .restorationBehavior(.disabled)
+
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
             SettingsView()
@@ -95,9 +104,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Quit Diptych?"
         alert.informativeText = "Anything you have not saved will be asked about separately."
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Do not ask anymore"
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        let response = alert.runModal()
+        // Applied whichever button was pressed: ticking the box is its own
+        // decision, not conditional on quitting actually going through.
+        if alert.suppressionButton?.state == .on {
+            MainActor.assumeIsolated { ConfigStore.shared.configuration.confirmQuit = false }
+        }
+        return response == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 
 

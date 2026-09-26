@@ -62,9 +62,19 @@ enum MarkdownReport {
             }
             open = wanted
 
-            body += inline(text, run: run, in: parsed, baseURL: baseURL,
-                           insideCode: wanted.contains { if case .codeBlock = $0.kind { return true }
-                                                         else { return false } })
+            // A thematic break's run carries a placeholder character of its
+            // own -- "⸻" -- purely so the block has *some* text to attach the
+            // intent to. `start(_:)` above already turned that intent into
+            // `<hr>`; emitting the run's actual text as well left that
+            // placeholder sitting right after every rule in the page.
+            let isThematicBreak = wanted.contains {
+                if case .thematicBreak = $0.kind { true } else { false }
+            }
+            if !isThematicBreak {
+                body += inline(text, run: run, in: parsed, baseURL: baseURL,
+                               insideCode: wanted.contains { if case .codeBlock = $0.kind { return true }
+                                                             else { return false } })
+            }
         }
         for intent in open.reversed() { body += close(intent, inHeaderRow: inHeaderRow) }
 

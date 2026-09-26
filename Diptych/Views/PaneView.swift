@@ -408,6 +408,15 @@ struct PaneView: View {
             }
             Button("Get Info") { act(ids) { model.showInfo() } }
 
+            // An application is enterable now, like any other folder, so
+            // opening it -- Return, double-click, "Open" above -- walks into
+            // its bundle instead of launching it. This is the deliberate way
+            // to launch one instead, offered only where it means something.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               item.isApplication {
+                Button("Run App") { act(ids) { NSWorkspaceOpener.open(item.url) } }
+            }
+
             // Only for files Git does not know about: for anything else the
             // two entries would be permanently meaningless.
             if pane.gitRoot != nil,

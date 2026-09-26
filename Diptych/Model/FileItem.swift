@@ -54,9 +54,19 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// so we get identity for free instead of inventing a synthetic key.
     var id: URL { url }
 
+    /// `.app` specifically, not every package: a `.rtfd` or a `.pages`
+    /// document still opens in its own app, as any other document does --
+    /// only an application itself is something to walk into rather than run.
+    var isApplication: Bool {
+        isPackage && url.pathExtension.caseInsensitiveCompare("app") == .orderedSame
+    }
+
     /// True when a double-click / Return should navigate *into* this row.
-    /// Packages are directories on disk but must behave like files in the UI.
-    var isEnterable: Bool { isParent || (isDirectory && !isPackage) }
+    /// Most packages are directories on disk that must behave like files in
+    /// the UI -- but an application is the one package people also want to
+    /// browse, and launching it is "Run App" in the row's own menu now,
+    /// deliberate rather than the default action.
+    var isEnterable: Bool { isParent || (isDirectory && (!isPackage || isApplication)) }
 
     var sizeText: String {
         if isParent { return "" }

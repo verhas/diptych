@@ -12,10 +12,23 @@ import AppKit
 final class AppWindows {
 
     static let shared = AppWindows()
-    private init() {}
 
     private struct WeakWindow { weak var window: NSWindow? }
     private var windows: [WeakWindow] = []
+
+    /// A `WindowGroup(for:)` scene can hold onto a "closed" window's state --
+    /// `NSWindow.willCloseNotification` still fires the moment AppKit closes
+    /// it, regardless of whatever SwiftUI keeps alive behind the scenes, so
+    /// pruning off that rather than waiting for the weak reference to go nil
+    /// is what keeps a closed window from being cycled back to.
+    private init() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated { self?.unregister(window) }
+        }
+    }
 
     /// Kept in the order each window first opened, not most-recently-used:
     /// `register` is called again on every SwiftUI update of a window already
@@ -27,6 +40,10 @@ final class AppWindows {
         windows.removeAll { $0.window == nil }
         guard !windows.contains(where: { $0.window === window }) else { return }
         windows.append(WeakWindow(window: window))
+    }
+
+    func unregister(_ window: NSWindow) {
+        windows.removeAll { $0.window == nil || $0.window === window }
     }
 
     /// Currently open windows, with anything closed since pruned away.

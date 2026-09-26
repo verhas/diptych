@@ -59,6 +59,8 @@ build() {
     # cleans up after itself.
     trap 'rm -f "$log"' RETURN
 
+    generate_release_notes
+
     info "Building $SCHEME ($CONFIG)..."
 
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
@@ -96,6 +98,8 @@ run_tests() {
     local log
     log=$(mktemp -t diptych-test)
     trap 'rm -f "$log"' RETURN
+
+    generate_release_notes
 
     info "Testing $SCHEME..."
 
@@ -149,19 +153,48 @@ developer_id_name() {
 # and there is no Info.plist to edit: GENERATE_INFOPLIST_FILE is on, so Xcode
 # synthesises one from these settings at build time.
 #
-# Setting it by hand is the kind of thing that is easy to half-do. Change only
-# the Release copy and a debug build reports a different version from the one
-# you shipped; forget CURRENT_PROJECT_VERSION and Apple rejects the second
-# upload of a version as a duplicate, because that number is what distinguishes
-# two builds of the same release.
+# sed rather than awk fields: the lines are tab-indented, so which field holds
+# the value depends on how the separator treats leading whitespace -- and
+# getting that wrong reads an empty string.
+current_marketing_version() {
+    sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' "$PROJECT/project.pbxproj" | head -1
+}
+
+RELEASE_NOTES_OUT="Diptych/ReleaseNotes.txt"
+
+# Concatenates every release-notes-*.md into one bundled resource, newest
+# version first. Diptych/ReleaseNotes.txt lives inside the Diptych group,
+# which Xcode's file-system-synchronized group copies straight into the app's
+# Resources on every build -- no project-file entry needed for it.
+generate_release_notes() {
+    shopt -s nullglob
+    local files=(release-notes-*.md)
+    shopt -u nullglob
+    [ "${#files[@]}" -gt 0 ] || die "no release-notes-*.md files found"
+
+    local versions
+    versions=$(for f in "${files[@]}"; do
+        [[ "$f" =~ ^release-notes-(.+)\.md$ ]] && printf '%s\n' "${BASH_REMATCH[1]}"
+    done | sort -rV)
+
+    : > "$RELEASE_NOTES_OUT"
+    local version first=1
+    while IFS= read -r version; do
+        [ "$first" = 1 ] || printf '\n\n' >> "$RELEASE_NOTES_OUT"
+        first=0
+        cat "release-notes-$version.md" >> "$RELEASE_NOTES_OUT"
+    done <<< "$versions"
+}
+
+# Setting the version by hand is the kind of thing that is easy to half-do.
+# Change only the Release copy and a debug build reports a different version
+# from the one you shipped; forget CURRENT_PROJECT_VERSION and Apple rejects
+# the second upload of a version as a duplicate, because that number is what
+# distinguishes two builds of the same release.
 show_or_set_version() {
     local wanted="${1:-}"
     local current build_number
-    # sed rather than awk fields: the lines are tab-indented, so which field
-    # holds the value depends on how the separator treats leading whitespace --
-    # and getting that wrong reads an empty string, which then silently sets the
-    # build number to 1 instead of incrementing it.
-    current=$(sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' "$PROJECT/project.pbxproj" | head -1)
+    current=$(current_marketing_version)
     build_number=$(sed -n 's/.*CURRENT_PROJECT_VERSION = \(.*\);/\1/p' \
                    "$PROJECT/project.pbxproj" | head -1)
     [ -n "$current" ] || die "no MARKETING_VERSION in $PROJECT/project.pbxproj"
@@ -248,6 +281,21 @@ notarize_dmg() {
 # Package the Release build as a disk image with an Applications shortcut, the
 # arrangement users expect: mount, drag across, eject.
 make_dmg() {
+    # Checked before spending time on a build and a signature: a version
+    # bumped without release notes to go with it is the one way this app
+    # could ship saying nothing about what changed.
+    local wanted_version
+    wanted_version=$(current_marketing_version)
+    [ -n "$wanted_version" ] || die "no MARKETING_VERSION in $PROJECT/project.pbxproj"
+    local notes_file="release-notes-$wanted_version.md"
+    [ -f "$notes_file" ] \
+        || die "$notes_file does not exist -- write this release's notes before packaging a dmg for it"
+    local heading expected_heading
+    heading=$(head -1 "$notes_file")
+    expected_heading="# Diptych $wanted_version"
+    [ "$heading" = "$expected_heading" ] \
+        || die "$notes_file's first line is '$heading', expected '$expected_heading'"
+
     CONFIG=Release
     build
 
@@ -255,6 +303,8 @@ make_dmg() {
     app=$(app_path)
     version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
               "$app/Contents/Info.plist")
+    [ "$version" = "$wanted_version" ] \
+        || die "built app reports version $version but project.pbxproj says $wanted_version"
     dmg="$PWD/build/Diptych-$version.dmg"
 
     staging=$(mktemp -d)

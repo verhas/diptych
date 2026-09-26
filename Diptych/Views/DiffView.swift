@@ -58,16 +58,6 @@ struct DiffView: View {
         .focusedSceneValue(\.editingUndo, document.editable == nil ? nil : EditingUndo(
             undo: { act { document.undo() } },
             redo: { act { document.redo() } }))
-        // `.onAppear`, not `.task`: a `WindowGroup(for:)` scene can keep this
-        // view's state across the window being closed, and `.task` then never
-        // runs again on reopening the same pair -- which showed whatever was
-        // on disk the *first* time, forever, however the files changed
-        // afterwards. `.onAppear` fires on every reappearance regardless.
-        .onAppear {
-            Task { await document.load() }
-            document.startWatching()
-        }
-        .onDisappear { document.stopWatching() }
         // SwiftUI cannot refuse a window close and this window needs to:
         // closing with unsaved edits must ask rather than discard.
         .background(WindowAccessor { found in
@@ -77,7 +67,21 @@ struct DiffView: View {
             if window !== found { window = found }
             AppWindows.shared.register(found)
             wheel.watch(found) { [sideways] delta in sideways.move(by: delta) }
+            // Registered on every update, not only the first: `AppModel`
+            // looks a document up here by pair to force a reload the moment
+            // the user asks to compare it again, which must work even if
+            // `WindowGroup(for:)` handed back a window whose delegate is
+            // already `guard_` -- see `OpenDiffDocuments`.
+            OpenDiffDocuments.shared.register(document, for: pair)
+            // The rest is guarded to run once per *real* window rather than
+            // on `.onAppear`: a `WindowGroup(for:)` scene can keep a closed
+            // window's state and never call `.onAppear` again when the same
+            // pair is reopened. This check is `true` exactly once per actual
+            // AppKit window, reopened or not.
             guard found.delegate !== guard_ else { return }
+            DiffWindows.shared.claim(pair)
+            Task { await document.load() }
+            document.startWatching()
             guard_.shouldClose = { closeIsAllowed() }
             guard_.willClose = {
                 DiffWindows.shared.release(pair)
@@ -91,11 +95,11 @@ struct DiffView: View {
             // macOS gives a window that is not an NSDocument.
             window?.isDocumentEdited = dirty
         }
-        .onAppear { DiffWindows.shared.claim(pair) }
         // Belt and braces: the window delegate is what actually frees it, but
         // this costs nothing and covers a view that goes away without one.
         .onDisappear {
             DiffWindows.shared.release(pair)
+            document.stopWatching()
             wheel.stop()
         }
     }

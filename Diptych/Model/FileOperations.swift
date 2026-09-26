@@ -352,6 +352,24 @@ actor FileOperations {
             do {
                 var resulting: NSURL?
                 try fm.trashItem(at: url, resultingItemURL: &resulting)
+
+                // `trashItem` can report success while the original is still
+                // exactly where it was -- observed for anything on the sealed
+                // system volume, such as one of the apps under
+                // `/System/Applications`. It copies the item into the Trash,
+                // then silently fails to remove the original, and never
+                // throws to say so. Believed at face value, that leaves a
+                // duplicate nobody asked for sitting in the Trash and no
+                // warning that nothing was actually removed.
+                guard !fm.fileExists(atPath: url.path) else {
+                    if let trashed = resulting as URL? { try? fm.removeItem(at: trashed) }
+                    outcome.failures.append((url,
+                        "\u{201C}\(url.lastPathComponent)\u{201D} was not moved to the Trash. "
+                        + "Its folder cannot be written to \u{2014} often macOS protecting one "
+                        + "of its own files, which nothing in Get Info can change."))
+                    continue
+                }
+
                 outcome.succeeded.append(url)
                 if let trashed = resulting as URL? { moved.append((url, trashed)) }
             } catch {

@@ -58,6 +58,10 @@ struct TextDiff: Sendable {
     enum Failure: Error, Sendable {
         case notText(name: String)
         case tooBig(name: String, lines: Int)
+        /// Distinct from `notText`: a file nobody can read is not a file Bin
+        /// Edit can open either, so it must never be offered as the way out
+        /// of this one.
+        case unreadable(name: String)
 
         var message: String {
             switch self {
@@ -67,6 +71,9 @@ struct TextDiff: Sendable {
             case .tooBig(let name, let lines):
                 "\u{201C}\(name)\u{201D} has \(lines) lines, which is more than this "
                 + "window can compare."
+            case .unreadable(let name):
+                "\u{201C}\(name)\u{201D} cannot be read. Change its permissions first, "
+                + "in Get Info."
             }
         }
     }
@@ -342,6 +349,12 @@ struct TextDiff: Sendable {
     /// Everything a file has to be given back when it is written.
     static func load(_ url: URL) throws -> SourceFile {
         let name = url.lastPathComponent
+        // Checked before the read is even attempted, and reported on its own:
+        // a file nobody can read is not "not text", and Bin Edit -- which
+        // needs the same permission -- is not a way out of it either.
+        guard FileManager.default.isReadableFile(atPath: url.path) else {
+            throw Failure.unreadable(name: name)
+        }
         guard let data = try? Data(contentsOf: url) else { throw Failure.notText(name: name) }
         if data.prefix(8000).contains(0) { throw Failure.notText(name: name) }
 

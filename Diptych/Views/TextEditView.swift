@@ -41,10 +41,21 @@ struct TextEditView: View {
         .navigationTitle(title)
         .background(WindowAccessor { window in
             if let window { AppWindows.shared.register(window) }
-            // Resolved on every update; set once, so a closure is not rebuilt
-            // and a delegate not reassigned on each keystroke's redraw.
+            // Registered on every update, not only the first: `AppModel`
+            // looks a document up here by URL to force a reload the moment
+            // the user asks to open this file again, which must work even if
+            // `WindowGroup(for:)` handed back a window whose delegate is
+            // already `guard_` -- see `OpenTextDocuments`.
+            OpenTextDocuments.shared.register(document, for: url)
+            // The rest is guarded to run once per *real* window rather than
+            // on `.onAppear`: a `WindowGroup(for:)` scene can keep a closed
+            // window's state and never call `.onAppear` again when the same
+            // URL is reopened. The delegate check below is `true` exactly
+            // once per actual AppKit window, reopened or not.
             guard let found = window, found.delegate !== guard_ else { return }
             self.window = found
+            document.load()
+            DiffWindows.shared.claimForEditing(url)
             guard_.shouldClose = { closeIsAllowed() }
             guard_.willClose = { DiffWindows.shared.releaseFromEditing(url) }
             found.delegate = guard_
@@ -53,10 +64,6 @@ struct TextEditView: View {
             // The dot in the close button: the unsaved-changes cue every Mac
             // window gives.
             window?.isDocumentEdited = edited
-        }
-        .onAppear {
-            DiffWindows.shared.claimForEditing(url)
-            document.load()
         }
     }
 

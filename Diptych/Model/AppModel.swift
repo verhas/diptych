@@ -40,6 +40,7 @@ final class AppModel {
         case scriptProblems
         case historyStep
         case historyMany
+        case tips
 
         var id: String {
             switch self {
@@ -57,6 +58,7 @@ final class AppModel {
             case .scriptProblems: return "scriptProblems"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
+            case .tips:           return "tips"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -424,6 +426,10 @@ final class AppModel {
             let directoryPair = DirectoryDiffPair(left: pair.left, right: pair.right)
             // So Cmd-G in that window knows which tab to send the files back to.
             DirectoryDiffOrigins.shared.register(directoryPair, from: self)
+            // Refreshes the comparison right now if it is already tracked --
+            // whether its window is genuinely still open or one `openWindow`
+            // is about to bring back with state SwiftUI never actually reset.
+            OpenDirectoryDiffModels.shared.refreshIfOpen(directoryPair)
             openDirectoryDiffWindow?(directoryPair)
             return
         }
@@ -437,6 +443,7 @@ final class AppModel {
                   error: true)
             return
         }
+        OpenDiffDocuments.shared.refreshIfOpen(asked)
         openDiffWindow?(asked)
     }
 
@@ -492,6 +499,10 @@ final class AppModel {
             flash("\(item.name) is already open in a comparison", error: true)
             return
         }
+        // Refreshes the document right now if it is already tracked --
+        // whether its window is genuinely still open or one `openWindow` is
+        // about to bring back with state SwiftUI never actually reset.
+        OpenTextDocuments.shared.refreshIfOpen(item.url)
         openTextWindow?(item.url)
     }
 

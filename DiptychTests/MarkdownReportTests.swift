@@ -68,6 +68,16 @@ final class MarkdownReportTests: XCTestCase {
         XCTAssertTrue(body("a\n\n---\n\nb").contains("<hr>"))
     }
 
+    /// Foundation's own parser gives a thematic break's run a placeholder
+    /// character -- "⸻" -- just so the block has some text to carry the
+    /// intent on. It is not part of the document and must never reach the
+    /// page: `<hr>` says "rule" on its own.
+    func testThematicBreakLeavesNoStrayCharacterBehind() {
+        let out = body("a\n\n---\n\nb")
+        XCTAssertEqual(out.components(separatedBy: "<hr>").count - 1, 1)
+        XCTAssertFalse(out.contains("\u{2E3B}"))
+    }
+
     func testTablesGetHeaderCellsAndAlignment() {
         let out = body("| l | c | r |\n| :- | :-: | -: |\n| 1 | 2 | 3 |")
         XCTAssertTrue(out.contains("<table>"))

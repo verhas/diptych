@@ -45,6 +45,16 @@ struct BehaviourSettingsView: View {
         // cut off, which has already happened once here.
         ScrollView {
         VStack(alignment: .leading, spacing: 14) {
+            Toggle("Show a tip at startup", isOn: $store.configuration.showTipsAtStartup)
+                .toggleStyle(.checkbox)
+            Text("A random fact about Diptych, once each time it starts. The dialog's own "
+                 + "checkbox is the quick way to turn this off; this is how it comes back on.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Text("New from Clipboard").font(.headline)
 
             Text("Makes a file in the current folder out of whatever has been copied. "

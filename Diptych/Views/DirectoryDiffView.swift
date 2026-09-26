@@ -20,6 +20,9 @@ struct DirectoryDiffView: View {
     /// closed, in which case Cmd-G has nowhere to send anything.
     @State private var origin: AppModel?
     @FocusState private var filterIsFocused: Bool
+    /// Tracks which real AppKit window has already been loaded for -- see the
+    /// comment on `WindowAccessor` below.
+    @State private var loadedWindow: NSWindow?
 
     private let pair: DirectoryDiffPair
 
@@ -47,17 +50,29 @@ struct DirectoryDiffView: View {
             }
         }
         .navigationTitle(pair.title)
-        .background(WindowAccessor { window in if let window { AppWindows.shared.register(window) } })
-        // `.onAppear`, not `.task`: a `WindowGroup(for:)` scene can keep this
-        // view's state across the window being closed, and `.task` then never
-        // runs again on reopening the same pair of folders -- which kept
-        // showing the comparison as it stood the *first* time it was run,
-        // however the folders changed afterwards. `.onAppear` fires on every
-        // reappearance regardless.
-        .onAppear {
+        // Guarded to run once per *real* window rather than on `.onAppear`
+        // or `.task`: a `WindowGroup(for:)` scene can keep a closed window's
+        // state and never call either again when the same pair of folders is
+        // reopened, which kept showing the comparison as it stood the first
+        // time it was run, however the folders changed afterwards. Keying on
+        // the actual AppKit window sidesteps that -- a closed window's isn't
+        // reused, reopened or not.
+        .background(WindowAccessor { window in
+            guard let window else { return }
+            // Registered on every update, not only the first: `AppModel` and
+            // this window's own "open a narrower comparison" action look a
+            // model up here by pair to force a reload the moment the user
+            // asks to compare it again, which must work even when
+            // `WindowGroup(for:)` hands back a window whose state -- this
+            // same `model` -- was never actually reset. See
+            // `OpenDirectoryDiffModels`.
+            OpenDirectoryDiffModels.shared.register(model, for: pair)
+            guard window !== loadedWindow else { return }
+            loadedWindow = window
+            AppWindows.shared.register(window)
             origin = DirectoryDiffOrigins.shared.origin(for: pair)
             Task { await model.load() }
-        }
+        })
     }
 
     // MARK: - Chrome
@@ -530,6 +545,7 @@ struct DirectoryDiffView: View {
             // window: Cmd-G in the narrower view should still land in the
             // same Diptych tab the whole comparison started from.
             DirectoryDiffOrigins.shared.register(nested, from: origin)
+            OpenDirectoryDiffModels.shared.refreshIfOpen(nested)
             openWindow(id: DiptychApp.directoryDiffWindowID, value: nested)
             return
         }
@@ -539,6 +555,7 @@ struct DirectoryDiffView: View {
             notice = "\(clash.lastPathComponent) is already open in a comparison or in Text Edit"
             return
         }
+        OpenDiffDocuments.shared.refreshIfOpen(asked)
         openWindow(id: DiptychApp.diffWindowID, value: asked)
     }
 
