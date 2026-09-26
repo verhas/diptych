@@ -50,7 +50,7 @@ private struct MarkdownWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decisionHandler: @MainActor @escaping (WKNavigationActionPolicy) -> Void) {
             // Anything but the page load itself -- a link inside the notes --
             // goes to the default browser rather than navigating this window
             // away from the notes it exists to show.
