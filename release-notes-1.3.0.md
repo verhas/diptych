@@ -19,16 +19,16 @@ own when it has none.
 A pair is made two ways: the same relative path on both sides, or — when a
 file has no match by path — the same bytes as an unmatched file elsewhere.
 The second is what a rename looks like after a folder is copied and a file
-in it renamed: nothing shares its old name any more, but something shares
+in it renamed: nothing shares its old name anymore, but something shares
 its bytes.
 
-### What differs, in colour
+### What differs, in color
 
 Each row carries small coloured letter badges for exactly what sets the two
 sides apart — **N**ame, **S**ize, **C**ontent, **P**ermissions, e**X**tended
 attributes, **A**CL, **M**odified, **B**orn (created), **O**wner/group, or
 **F** for a file matched against a folder. A legend at the foot of the
-window spells all ten out, so the letters don't have to be memorised between
+window spells all ten out, so the letters don't have to be memorized between
 one comparison and the next.
 
 Hovering a row's badges, or the row itself, says more: which side is newer
@@ -50,7 +50,7 @@ by way of the rename match means names too; the rest is there for when it
 matters and quiet when it doesn't.
 
 Owner, group, and access time were left out of the original plan and asked
-for afterwards: owner and group are one checkbox, not two — nothing here
+for afterward: owner and group are one checkbox, not two — nothing here
 ever cared about a mismatched owner without also caring about the group —
 and access time isn't offered at all, since comparing a file is itself a
 read that would change it.
@@ -116,7 +116,7 @@ does.
   Compare, Bin Edit, Text Edit and Rename Many window open alongside it —
   in a fixed rotation, wrapping around. With only one window open it swaps
   that window's own panes instead, the way plain Tab does.
-- **Tooltips appear sooner.** AppKit's own delay read as broken rather than
+- **Tooltips appear sooner.** AppKit's own delay reads as broken rather than
   deliberate on something meant to be skimmed one after another, like the
   comparison's letter badges.
 
@@ -143,18 +143,18 @@ does.
   every time the window appears.
 - **The filter box lets go of the keyboard.** Typing in a Compare window's
   filter and then clicking a row left the field focused and blinking; a
-  click anywhere in the list now moves the keyboard where the click was.
+  click anywhere in the list now moves the keyboard to where you clicked.
 - **Text Edit accepts the first keystroke on an empty file.** Nothing had
   ever asked the text view to become first responder; a non-empty file
-  happened to end up focused anyway, an empty one didn't, and the first
+  happened to end up focused anyway; an empty one didn't, and the first
   keystroke rang the system bell instead of typing. The caret now lands at
   the end of whatever loaded, empty or not, and is ready for it.
 - **Two stray items are gone from the Files menu.** macOS appends *Start
-  Dictation* and *Emoji & Symbols* to any menu it recognises as an Edit
+  Dictation* and *Emoji & Symbols* to any menu it recognizes as an Edit
   menu, which the Cut/Copy/Paste group is enough to trigger — neither meant
   anything here, since nothing in Diptych is a text view they could act on.
 - **The Info window's status line names the file, not just its folder.**
-  Every tab but General hid the name the folder path was shown next to;
+  Every tab but General hid the name; the folder path was shown next to;
   with more than one Info window open there was nothing on screen saying
   which file a given one was about.
 
