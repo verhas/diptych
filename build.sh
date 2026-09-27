@@ -1,19 +1,7 @@
 #!/bin/bash
 #
-# Build / run helper for Diptych.
-#
-#   ./build.sh           build (Debug)
-#   ./build.sh run       build, then relaunch the app
-#   ./build.sh release   build optimised (Release)
-#   ./build.sh clean     delete build products
-#   ./build.sh path      print the path of the built .app
-#   ./build.sh stop      quit a running instance
-#   ./build.sh test      run the unit tests
-#   ./build.sh dmg       build Release and package it as a mountable .dmg
-#   ./build.sh notarize  submit the .dmg to Apple and staple the ticket
-#   ./build.sh version [x.y.z]   show, or set, the version
-#
-# Everything Xcode does with Cmd-R, without opening Xcode.
+# Build / run helper for Diptych -- everything Xcode does with Cmd-R, without
+# opening Xcode. Run './build.sh --help' for the full command list.
 
 set -euo pipefail
 
@@ -39,6 +27,41 @@ fi
 
 info() { printf '%s==>%s %s\n' "$BOLD" "$OFF" "$*"; }
 die()  { printf '%s==> %s%s\n' "$RED" "$*" "$OFF" >&2; exit 1; }
+
+show_help() {
+    cat <<EOF
+${BOLD}Build / run helper for Diptych${OFF} -- everything Xcode does with Cmd-R,
+without opening Xcode.
+
+Usage: ./build.sh [command] [args]
+
+Everyday commands:
+  build              build (Debug) -- what runs with no command at all
+  run                build, quit any running copy, and relaunch it
+  test               run the unit tests
+  path               print the path of the built .app
+  stop               quit a running instance
+  clean              delete build products
+
+Release commands, in the order a release actually goes out:
+  version [x.y.z]    show the current version, or bump to a new one
+  dmg                build Release, sign it, and package
+                     build/Diptych-<version>.dmg
+  notarize           submit that .dmg to Apple and staple the ticket
+  publish            create the GitHub release for <version> from that
+                     .dmg, once it has checked it is notarized and no
+                     older than the source it was built from
+
+  release            a bare Release-configuration build, for trying one
+                     locally -- unsigned, no .dmg. Packaging one to ship
+                     is 'dmg', not this.
+
+Environment variables:
+  CONFIG             Debug or Release; build/run/clean read it, default Debug
+  NOTARY_PROFILE     the notarytool keychain profile to submit under,
+                     default Diptych
+EOF
+}
 
 # Ask xcodebuild where it puts the product rather than hardcoding a DerivedData
 # path -- that path contains a hash of the project location and will differ on
@@ -278,6 +301,46 @@ notarize_dmg() {
     printf '%s==> Notarized: %s%s\n' "$GREEN" "$dmg" "$OFF"
 }
 
+# Uploads the current version's .dmg to GitHub as a release, tagging it on
+# the way. Separate from `dmg` and `notarize` on purpose: those two produce
+# and vouch for one file on this Mac, entirely offline, and can be repeated
+# as often as a build needs fixing; this one is the single irreversible step
+# that tells the world -- creating a public tag and release nothing here
+# will quietly redo.
+publish_release() {
+    local version dmg
+    version=$(current_marketing_version)
+    [ -n "$version" ] || die "no MARKETING_VERSION in $PROJECT/project.pbxproj"
+    dmg="$PWD/build/Diptych-$version.dmg"
+    [ -f "$dmg" ] || die "$dmg does not exist -- run ./build.sh dmg first"
+
+    local notes="release-notes-$version.md"
+    [ -f "$notes" ] || die "$notes does not exist -- write this release's notes first"
+
+    # Recent: nothing the image was built from has changed since. `dmg` and
+    # `publish` are separate commands specifically so a build can be
+    # inspected before it ships -- which also means an edit made in between,
+    # however small, would otherwise go out silently unpackaged.
+    local newer
+    newer=$(find Diptych DiptychTests Diptych.xcodeproj "$notes" build.sh \
+                 -type f -newer "$dmg" 2>/dev/null)
+    if [ -n "$newer" ]; then
+        printf '%s\n' "$newer" | sed 's/^/    /'
+        die "$(basename "$dmg") is older than the file(s) above -- run ./build.sh dmg again"
+    fi
+
+    # Notarized: asked of the file itself, the same way Gatekeeper does,
+    # rather than assumed from having run `notarize` at some point.
+    xcrun stapler validate "$dmg" >/dev/null 2>&1 \
+        || die "$(basename "$dmg") is not notarized -- run ./build.sh notarize first"
+
+    command -v gh >/dev/null 2>&1 || die "the GitHub CLI ('gh') is not installed"
+
+    info "Publishing $(basename "$dmg") as the $version release on GitHub"
+    gh release create "$version" "$dmg" --title "$version" --notes-file "$notes"
+    printf '%s==> Released %s%s\n' "$GREEN" "$version" "$OFF"
+}
+
 # Package the Release build as a disk image with an Applications shortcut, the
 # arrangement users expect: mount, drag across, eject.
 make_dmg() {
@@ -424,6 +487,7 @@ PLIST
 }
 
 case "${1:-build}" in
+    -h|--help|help) show_help ;;
     build)   build ;;
     release) CONFIG=Release; build ;;
     run)
@@ -448,6 +512,11 @@ case "${1:-build}" in
     test)     run_tests ;;
     dmg)      make_dmg ;;
     notarize) notarize_dmg ;;
+    publish)  publish_release ;;
     version)  show_or_set_version "${2:-}" ;;
-    *)     die "unknown command '$1' (build | run | release | test | clean | path | stop | dmg | notarize | version)" ;;
+    *)
+        printf "unknown command '%s'\n\n" "$1" >&2
+        show_help >&2
+        exit 1
+        ;;
 esac
