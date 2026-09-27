@@ -308,6 +308,23 @@ notarize_dmg() {
 # that tells the world -- creating a public tag and release nothing here
 # will quietly redo.
 publish_release() {
+    # Published from what everyone else can also see, not from whatever this
+    # one checkout happens to be holding: nothing uncommitted, and nothing
+    # committed that has not actually reached the remote yet.
+    if [ -n "$(git status --porcelain)" ]; then
+        git status --short | sed 's/^/    /'
+        die "there are uncommitted changes -- commit or discard them before publishing"
+    fi
+    local upstream
+    upstream=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    [ -n "$upstream" ] || die "no upstream branch is configured for $(git branch --show-current)"
+    local ahead
+    ahead=$(git rev-list --count "$upstream"..HEAD)
+    if [ "$ahead" != 0 ]; then
+        git log --oneline "$upstream"..HEAD | sed 's/^/    /'
+        die "$ahead commit(s) are not pushed to $upstream -- push before publishing"
+    fi
+
     local version dmg
     version=$(current_marketing_version)
     [ -n "$version" ] || die "no MARKETING_VERSION in $PROJECT/project.pbxproj"
