@@ -79,8 +79,17 @@ final class ClickRouter {
               let index = TableFinder.tables(in: window).firstIndex(of: table)
         else { return false }
 
+        let point = table.convert(location, from: nil)
+        // `row(at:)` answers -1 for *any* point that is not exactly on a row --
+        // which is true below the last row, but just as true for a point in
+        // the path bar sitting above the table entirely: its background view
+        // is still what `hitTest` returns there. Only `visibleRect` actually
+        // distinguishes "inside the table, past the last row" from "nowhere
+        // near the table at all".
+        guard table.visibleRect.contains(point) else { return false }
+
         // Below the last row. On a row, SwiftUI's own menu answers.
-        guard table.row(at: table.convert(location, from: nil)) < 0 else { return false }
+        guard table.row(at: point) < 0 else { return false }
 
         let tables = TableFinder.tables(in: window)
         let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)

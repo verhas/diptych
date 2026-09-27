@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One half of the window: path bar, file table, status line.
 struct PaneView: View {
@@ -184,6 +185,17 @@ struct PaneView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Click to type a path (Cmd-Shift-G)")
+                // A plain button with no menu of its own passes a right-click
+                // straight through to whatever is behind it -- which, without
+                // this, was the pane's own empty-space menu. This is also the
+                // only way to favourite "/" itself: nothing about the root
+                // directory can be dragged into the sidebar the way a row
+                // inside a pane can.
+                .contextMenu {
+                    Button("Add to Favourites") { model.addFavourites([pane.directory]) }
+                        .disabled(ConfigStore.shared.configuration.favourites
+                                    .contains(pane.directory.path))
+                }
             }
 
             if pane.isLoading {
@@ -274,18 +286,49 @@ struct PaneView: View {
             ForEach(pane.rows) { item in
                 // Dragging is declared on the row, not on a cell. The table owns
                 // the drag, so it cannot interfere with click selection the way
-                // a gesture inside a cell does. NSItemProvider(contentsOf:)
-                // vends a real file reference, which is what Finder and other
-                // apps expect -- a plain URL would arrive as a link.
+                // a gesture inside a cell does.
                 TableRow(item)
                     .itemProvider {
-                        guard !item.isParent,
-                              let provider = NSItemProvider(contentsOf: item.url) else { return nil }
-                        // Without a suggested name the promise has none and
-                        // Finder invents one from the content type -- "text.log".
-                        // The extension is appended from that type, so this is
-                        // the stem only; passing the full name yields
-                        // "item-003.log.log".
+                        guard !item.isParent else { return nil }
+                        // Deliberately not `NSItemProvider(contentsOf:)`, and
+                        // not `registerFileRepresentation` either -- both set
+                        // up real file-*promise* machinery (visible on the
+                        // drag pasteboard as a pile of
+                        // com.apple.NSFilePromiseItemMetaData /
+                        // promised-file-* types), which exists for content
+                        // that does not exist as a file yet and has to be
+                        // produced on demand. This is an existing file with a
+                        // stable path, which is exactly what Finder drags:
+                        // measured with a throwaway pasteboard-sniffing tool,
+                        // Finder's own drag for an existing file carries none
+                        // of that -- just the URL and the POSIX path, nothing
+                        // promised. Whatever receives a promise-laden drag
+                        // seemingly takes a different path than it does for
+                        // Finder's plain one: a promise-free drag from here
+                        // landed in Terminal exactly as Finder's own does,
+                        // where every promise-based attempt before it landed
+                        // as the file's own file:// URL, stringified as-is.
+                        let provider = NSItemProvider()
+                        provider.registerObject(item.url.path as NSString, visibility: .all)
+                        // Not `registerObject(item.url as NSURL)`: `NSURL`'s
+                        // own conformance bundles "public.file-url" together
+                        // with the generic "public.url" -- a type Finder's own
+                        // drag never carries at all for an existing file, sniffed
+                        // the same way the file-promise metadata above was.
+                        // Something downstream treats the presence of a plain,
+                        // not-specifically-a-file URL type as "this is a link",
+                        // and a file already has a good deal more to say for
+                        // itself than that.
+                        provider.registerDataRepresentation(
+                            forTypeIdentifier: UTType.fileURL.identifier, visibility: .all
+                        ) { completion in
+                            completion(item.url.absoluteString.data(using: .utf8), nil)
+                            return nil
+                        }
+                        // Without a suggested name Finder invents one from
+                        // the content type -- "text.log". The extension is
+                        // appended from that type, so this is the stem only;
+                        // passing the full name yields "item-003.log.log".
                         provider.suggestedName = item.url.deletingPathExtension().lastPathComponent
                         return provider
                     }
