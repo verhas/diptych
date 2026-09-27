@@ -41,6 +41,8 @@ final class AppModel {
         case historyStep
         case historyMany
         case tips
+        case updateCheckConsent
+        case updateAvailable(version: String)
 
         var id: String {
             switch self {
@@ -59,6 +61,8 @@ final class AppModel {
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
+            case .updateCheckConsent: return "updateCheckConsent"
+            case .updateAvailable:    return "updateAvailable"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"

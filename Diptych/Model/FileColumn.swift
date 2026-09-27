@@ -255,6 +255,19 @@ struct Configuration: Codable, Equatable {
     /// turn it off again; this is how it comes back on.
     var showTipsAtStartup = true
 
+    /// Whether, and how often, Diptych looks at GitHub for a newer release.
+    /// `.ask` until the person has answered the startup prompt at least
+    /// once -- no network connection is made before then.
+    enum UpdateCheckPreference: String, Codable, Sendable, CaseIterable {
+        case ask, enabled, never
+    }
+    var updateCheckPreference: UpdateCheckPreference = .ask
+
+    /// When the update prompt was last shown, or the update check itself was
+    /// last actually made -- whichever of the two it was -- so neither
+    /// happens more than once a day.
+    var lastUpdateCheckAttempt: Date?
+
     /// One switch for all of them, on top of the per-event choices.
     var soundsEnabled = true
 
@@ -281,6 +294,7 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareModificationDate, directoryDiffCompareCreationDate
         case directoryDiffCompareOwnership
         case showTipsAtStartup
+        case updateCheckPreference, lastUpdateCheckAttempt
     }
 
     init() {}
@@ -348,6 +362,9 @@ struct Configuration: Codable, Equatable {
             Bool.self, forKey: .directoryDiffCompareOwnership)) ?? false
         showTipsAtStartup =
             (try? container.decode(Bool.self, forKey: .showTipsAtStartup)) ?? true
+        updateCheckPreference = (try? container.decode(
+            UpdateCheckPreference.self, forKey: .updateCheckPreference)) ?? .ask
+        lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

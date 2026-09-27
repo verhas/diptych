@@ -1,6 +1,28 @@
 # Diptych 1.3.3
 
-Two fixes, both found by using the app rather than by reading the code.
+A new feature, and two fixes, both found by using the app rather than by
+reading the code.
+
+---
+
+## Checking for updates
+
+Diptych can now check GitHub for a newer release — off by default, and
+asking first. The very first time it matters, a small window offers three
+choices: check whenever Diptych starts, at most once a day; not now; or
+don't ask again. Nothing is sent anywhere until one of those is chosen.
+
+With checking on, it looks at most once a day, and silently — nothing is
+shown unless there is genuinely something newer. If there is, a window
+names it and asks before doing anything. Saying no changes nothing; it asks
+again tomorrow.
+
+Saying yes downloads the new version's disk image to `~/Downloads` and opens
+it — mounting it and showing the Finder window it arrives in, ready to drag
+into Applications — then Diptych quits on its own. No window of its own is
+shown from the moment you say yes to the moment it quits, and the quit
+itself asks nobody, even with "Ask before quitting" switched on: this is the
+one case where that question would only be in the way.
 
 ---
 
@@ -43,8 +65,9 @@ what Finder puts on the pasteboard for an existing file.
 
 ## Upgrading
 
-Nothing to do.
+Nothing to do. Update checking starts switched off, the same as everything
+else that reaches the network without being asked first.
 
 ---
 
-*742 tests.*
+*747 tests.*

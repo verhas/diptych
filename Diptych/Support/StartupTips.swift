@@ -10,7 +10,12 @@ final class StartupTips {
     private init() {}
 
     func presentIfNeeded(on model: AppModel) {
-        guard !hasShown, ConfigStore.shared.configuration.showTipsAtStartup else { return }
+        guard !hasShown, ConfigStore.shared.configuration.showTipsAtStartup,
+              // Something else -- the update-check consent prompt, on the same
+              // launch -- may already have claimed the one sheet a window can
+              // show at a time. Tips are the lower priority of the two.
+              model.dialog == nil
+        else { return }
         hasShown = true
         model.dialog = .tips
     }

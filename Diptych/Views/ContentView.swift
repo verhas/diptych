@@ -129,6 +129,14 @@ struct ContentView: View {
             ReleaseNotesPresenter.shared.presentIfNeeded {
                 openWindow(id: DiptychApp.releaseNotesWindowID)
             }
+            // Checked before Tips: both show through this one window's single
+            // sheet, and asking about network access at all is the rarer,
+            // higher-priority question of the two.
+            UpdateChecker.shared.checkIfNeeded(
+                showConsent: { if model.dialog == nil { model.dialog = .updateCheckConsent } },
+                showUpdateAvailable: { version in
+                    if model.dialog == nil { model.dialog = .updateAvailable(version: version) }
+                })
             StartupTips.shared.presentIfNeeded(on: model)
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
@@ -780,6 +788,18 @@ struct DialogSheet: View {
 
             case .tips:
                 tips
+
+            case .updateCheckConsent:
+                updateCheckConsent
+
+            case .updateAvailable(let version):
+                confirmation(
+                    title: "Diptych \(version) Is Available",
+                    detail: "Download it and open the disk image it arrives in, ready to drag "
+                        + "into Applications. Diptych will quit on its own once that is done.",
+                    confirm: "Download and Install",
+                    destructive: false
+                ) { UpdateChecker.shared.installPendingRelease() }
             }
         }
         .padding(20)
@@ -816,6 +836,37 @@ struct DialogSheet: View {
                 model.dialog = nil
             }
             .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    /// Shown once, the first time nobody has yet said whether Diptych may
+    /// look at GitHub for a newer release -- and again, at most once a day,
+    /// for as long as the answer stays "not now".
+    private var updateCheckConsent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Check for Updates?").font(.headline)
+            Text("Diptych can check GitHub for a newer release. Nothing is sent but the check "
+                 + "itself, and nothing is ever downloaded without asking first.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Button("Check Whenever Diptych Starts, Once a Day at Most") {
+                    UpdateChecker.shared.userChose(.enabled)
+                    model.dialog = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Not Now") {
+                    UpdateChecker.shared.userChose(.ask)
+                    model.dialog = nil
+                }
+                Button("Don\u{2019}t Ask Again") {
+                    UpdateChecker.shared.userChose(.never)
+                    model.dialog = nil
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
