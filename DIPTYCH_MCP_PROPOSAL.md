@@ -8,6 +8,8 @@ The obvious first idea — wrap diptych's file-operation and diffing functions (
 
 The actual value is different: diptych is a **long-running GUI app with live, stateful, in-memory session data** that bash cannot see — which files are selected in the active pane right now, what directory-diff or text-diff window is open and what it shows, what path a pane is browsing. While diptych runs, it can expose an MCP server on a local port. The user works the GUI as normal (clicking, selecting, opening a diff view) and, separately in a terminal, asks an agent questions about what's currently on screen. This **extends** diptych rather than duplicating what's already scriptable from the shell.
 
+There's a second category of value beyond live-state introspection: batched, human-reviewed *mutations*. Bash can execute file operations, but it can't pause a multi-step batch for the user to visually review, edit, and approve before anything happens — diptych's GUI can. See Part 5.
+
 ## Part 1 — Sensible usages (scenarios)
 
 What a user, mid-session in the GUI, would plausibly type into an agent in another terminal window:
@@ -44,30 +46,37 @@ What a user, mid-session in the GUI, would plausibly type into an agent in anoth
 - "Show me the Info window for this file."
 - "Rename these by lowercasing everything and replacing spaces with underscores — preview it before you apply it." (agent turns the instruction into a bulk-rename plan the user reviews visually in diptych before committing)
 
+**G. Batch operations, reviewed before execution**
+- "Move all the orange-tagged files into /Archive, but let me check before anything happens."
+- "Delete the files matching `*.tmp` older than 30 days — show me the list first."
+- "Rename these 40 files by stripping the date prefix, set them all to read-only, and let me approve."
+
+This is the "please… orange… oh, good, I see you wanted that one too — let's exclude it before deleting" workflow: the agent collects operations instead of executing them one at a time, diptych shows the full list for review, and nothing happens until the user approves. See Part 5.
+
 ## Part 2 — Supporting data-oriented resources
 
 Each scenario above needs one of these; resources should stay **data-shaped, not question-shaped** — e.g. no bespoke "largest file" endpoint, just structured metadata the agent reasons over. None of these deliver diff/comparison *content* — that part is bash-reproducible once the agent knows what's being compared, so each resource below is scoped to context (paths, options, live-only state) instead.
 
-| Resource | Backing state | Feeds scenarios |
-|---|---|---|
-| `list_windows()` | `AppState.swift` | D |
-| `get_pane(paneId)` | `PaneModel`/`PaneState` | D, F |
-| `get_selection(paneId="active")` | `PaneState.selection` + `FileItem` metadata | A, F |
-| `get_active_directory_diff_context()` | `DirectoryDiffModel` — paths + active filter/exclude options only | B |
-| `get_directory_diff_renames()` | `DirectoryComparison` rename-detection results | B |
-| `get_active_text_diff_context()` | `DiffDocument` — file paths + saved/unsaved state (not diff content) | C |
-| `get_active_binary_diff_context()` | `BinaryComparison` — file paths only (not diff content) | (byte-diff scenarios, minor) |
-| `get_active_repo_context()` | active pane's repo root path (not git status) | E |
+| Resource                              | Backing state                                                        | Feeds scenarios              |
+| ------------------------------------- | -------------------------------------------------------------------- | ---------------------------- |
+| `list_windows()`                      | `AppState.swift`                                                     | D                            |
+| `get_pane(paneId)`                    | `PaneModel`/`PaneState`                                              | D, F                         |
+| `get_selection(paneId="active")`      | `PaneState.selection` + `FileItem` metadata                          | A, F                         |
+| `get_active_directory_diff_context()` | `DirectoryDiffModel` — paths + active filter/exclude options only    | B                            |
+| `get_directory_diff_renames()`        | `DirectoryComparison` rename-detection results                       | B                            |
+| `get_active_text_diff_context()`      | `DiffDocument` — file paths + saved/unsaved state (not diff content) | C                            |
+| `get_active_binary_diff_context()`    | `BinaryComparison` — file paths only (not diff content)              | (byte-diff scenarios, minor) |
+| `get_active_repo_context()`           | active pane's repo root path (not git status)                        | E                            |
 
 ## Part 3 — Round-trip tools (optional/secondary)
 
-| Tool | Backing state | Scenario |
-|---|---|---|
-| `select_items(paneId, paths)` | `PaneState.selection` | F |
-| `navigate_pane(paneId, path)` | `PaneModel` | F |
-| `open_diff(left, right)` | `AppModel.showDiff` | F |
-| `open_info_window(paneId, path)` | `AppModel` (Info window) | F |
-| `plan_bulk_rename(paneId, instructions)` | `RenameManyModel`/`RenamePlan` — turns a natural-language instruction into a regex-based rename plan for visual preview before the user applies it | F |
+| Tool                                     | Backing state                                                                                                                                      | Scenario |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `select_items(paneId, paths)`            | `PaneState.selection`                                                                                                                              | F        |
+| `navigate_pane(paneId, path)`            | `PaneModel`                                                                                                                                        | F        |
+| `open_diff(left, right)`                 | `AppModel.showDiff`                                                                                                                                | F        |
+| `open_info_window(paneId, path)`         | `AppModel` (Info window)                                                                                                                           | F        |
+| `plan_bulk_rename(paneId, instructions)` | `RenameManyModel`/`RenamePlan` — turns a natural-language instruction into a regex-based rename plan for visual preview before the user applies it | F        |
 
 ## Part 4 — Supporting app features required to make this usable
 
@@ -77,7 +86,7 @@ The MCP surface alone isn't usable without related changes elsewhere in the app.
 
 2. **Menu action: create/edit `.mcp.json`** — adds or merges a diptych entry into `.mcp.json` in a chosen directory (default: the active pane's current directory), so agent CLIs (Claude Code, Codex, etc.) auto-discover diptych's endpoint there. Must **merge**, not overwrite, since a directory may already have other MCP servers configured — needs the same care the app already applies to conflict-safe writes elsewhere (e.g. git conflict handling).
 
-3. **Single-instance enforcement** — diptych currently has no mechanism preventing multiple simultaneous instances (a regular macOS app can still be launched more than once via `open -n` or running the binary directly). With implicit session binding (below), there must be exactly one diptych process/MCP server to bind to, so this needs a startup check that detects an already-running instance. Rather than silently refusing to launch, the second instance should let the user choose: stop the prior instance and continue starting the new one, or quit the just-started second instance and activate/front the existing one. No current precedent for this in the codebase.
+3. **Single-instance enforcement** — diptych currently has no mechanism preventing multiple simultaneous instances (a regular macOS app can still be launched more than once via `open -n` or running the binary directly). With implicit session binding (below), exactly one diptych process/MCP server binding, so it needs a startup check that detects an already-running instance. Rather than silently refusing to launch, the second instance should let the user choose: stop the prior instance and continue starting the new one, or quit the just-started second instance and activate/front the existing one. No current precedent for this in the codebase.
 
 4. **Menu action: "Open Agent Terminal Here"** — opens a terminal in the relevant directory and starts the user's configured agent command, with **implicit session binding**: the launched terminal is bound (e.g. via an env var/session token) to the diptych window it was opened from, so unscoped queries ("largest of the selected files") default to that window's context without the user naming an id. Three implementation approaches:
 
@@ -89,13 +98,43 @@ The MCP surface alone isn't usable without related changes elsewhere in the app.
 
    - **C. Embedded terminal pane via SwiftTerm** (deferred): a real terminal view inside diptych's own window, built on [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (an existing, actively-maintained MIT-licensed Swift package providing PTY handling + VT100/xterm rendering as a native AppKit/SwiftUI view) rather than a homegrown emulator. Pros: genuine single-window integration, one title bar, no second app to manage. Cons: a new third-party dependency and a new view/subsystem in the codebase — moderate effort, though far less than writing a terminal emulator from scratch.
 
-5. **Configurable agent launch command** — which command starts the agent (`claude`, `codex`, or a custom command/args). For MVP the terminal app itself is fixed to Terminal.app (per Option A); making the terminal app choice configurable (iTerm, Ghostty) is a later enhancement, not required for MVP. Reuse the existing user-approved-command settings pattern (`ScriptCatalogue`/`ScriptDefinition`) rather than inventing a new config surface.
+5. **Configurable agent launch command** — which command starts the agent (`claude`, `codex`, or a custom command/args). For MVP, the terminal app itself is fixed to Terminal.app (per Option A); making the terminal app choice configurable (iTerm, Ghostty) is a later enhancement, not required for MVP. Reuse the existing user-approved-command settings pattern (`ScriptCatalogue`/`ScriptDefinition`) rather than inventing a new config surface.
 
 6. **Local auth for the MCP port** — even bound to localhost, a listening port is new attack surface for this app; needs a token/pairing mechanism (e.g. a token embedded in the `.mcp.json` entry written in item 2) so only intentionally-configured clients can query it.
 
+## Part 5 — Batch file operations with human confirmation
+
+Unlike the individually-executed shell equivalents, the value here isn't the operations themselves — it's that nothing happens until the user has seen the whole list and approved it. This is what makes "please move the orange files" safe to ask in one sentence: the agent proposes, diptych shows exactly what it understood, and the user catches the one file that shouldn't be included *before* it's touched, not after.
+
+### Tool: `propose_file_operations(operations)`
+
+Takes a list of individual file operations and returns a `batchId`; diptych opens a review window listing all of them and does not execute anything until the user approves.
+
+| Field    | Description                                                                                                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `op`     | One of: `copy`, `move`, `rename`, `delete` (to Trash), `delete_permanent`, `set_owner`, `set_group`, `set_permissions`, `set_extended_attribute`, `create_symlink`                |
+| `source` | Path(s) the operation applies to                                                                                                                                                  |
+| `target` | Destination path, new name, new owner/group, permission bits, symlink target, or attribute key/value — depending on `op`                                                          |
+| `reason` | Short agent-supplied rationale shown next to the item in the review list (e.g. "tagged orange"), so the user sees *why* each item was included, not just *what* will happen to it |
+
+Backing code: `Model/FileOperations.swift` already implements each of these operations atomically; `Model/RenameManyModel.swift`/`RenamePlan.swift` already implements exactly this plan-then-apply shape (including dependency-ordering and cycle detection for chained renames) for one operation type — this generalizes that existing pattern to a heterogeneous batch of operation types rather than introducing a new one. `set_extended_attribute` would be new: it has no current write path in `FileOperations`, though the Info window's existing Attributes tab already reads this data.
+
+### Review window behavior
+
+- Every operation is listed with its old state → new state (or, for delete, what will be removed and whether it's reversible via Trash), grouped and sortable.
+- Conflicts are pre-flight-checked and highlighted before the user has to notice them manually: destination already exists, permission would be denied, source has vanished since the batch was proposed, a rename cycle, etc.
+- Every item has a per-item exclude checkbox, checked (included) by default — the "oh, exclude that one" gesture from the motivating scenario. Excluding an item removes only that item; the rest of the batch is unaffected.
+- Irreversible operations (`delete_permanent`, and any operation that would silently overwrite an existing file) require a second, explicit acknowledgement beyond the general "Execute" action for the batch — mirroring the trash-vs-delete distinction diptych's own file operations already make.
+- On approval, diptych executes the batch in dependency order (reusing `RenamePlan`'s existing ordering/cycle-handling logic, generalized across operation types — e.g. a directory created earlier in the same batch that a later `move` targets) and registers the whole approved batch as a single undo group, so one undo reverts everything that was actually executed. Extending the existing per-verb undo system to group a heterogeneous batch this way is new work, not something it does today.
+- The Part 4.1 status LED gets a distinct color/state for "batch awaiting your review," so the user notices even when diptych isn't the focused window.
+
+### Reporting results back to the agent
+
+`propose_file_operations` returns the `batchId` immediately and does not block — most MCP clients time out on long-blocking calls, and review can take arbitrarily long. A second tool, `get_batch_status(batchId)`, lets the agent (or the user, via a follow-up question) see what happened: still pending review, rejected outright, approved with specific items excluded, or finished executing with a per-item success/failure/skipped result. This polling shape is the simplest fit for MCP's request/response model; a server-initiated push notification would let the agent report back proactively instead of the user having to ask "did you approve it yet?" — worth revisiting once that's reliably supported, not designed further here.
+
 ## Explicitly out of scope
 
-- Anything re-implementing filesystem ops already reachable via bash (copy/move/trash/rename/permissions/generic git status-of-a-named-path) — no added value over shell access.
+- Individual, silently-executed filesystem ops that just re-implement what's already reachable via bash (copy/move/trash/rename/permissions/generic git status-of-a-named-path) — no added value over shell access. The exception is Part 5's batched, human-reviewed operations: the value there isn't the operation itself, it's the GUI confirmation step bash has no equivalent for.
 - Raw/low-level git passthrough — consistent with the app's own git-integration design philosophy.
 - Server-side natural-language interpretation — MCP exposes structured state; the agent does the reasoning.
 - Options B and C for the agent terminal (Part 4.4) — deferred; MVP uses Option A with Terminal.app fixed (non-configurable). Making the terminal app configurable (iTerm, Ghostty) is left for a later revision.
