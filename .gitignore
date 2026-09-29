@@ -10,3 +10,7 @@ xcuserdata/
 /test/*
 /.idea
 .mcp.json
+/.github/prompts/ai-fix.prompt.md
+/.github/prompts/ai-placeholder.prompt.md
+/.github/prompts/ai-review.prompt.md
+/.github/prompts/mdship.prompt.md
