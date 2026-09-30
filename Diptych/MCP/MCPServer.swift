@@ -483,6 +483,44 @@ extension MCPServer {
                         ],
                         "required": ["left", "right"],
                      ])),
+                Tool(name: "open_info_window",
+                     description: "Opens the Info window (General/Ownership/Tags/Attributes/"
+                        + "Access/Details/Open By) for one explicit path.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "path": ["type": "string", "description": "Absolute path."],
+                        ],
+                        "required": ["path"],
+                     ])),
+                Tool(name: "list_settings",
+                     description: "Every setting an agent can read or change: a deliberately "
+                        + "curated, scalar subset of Diptych's own Settings window -- not "
+                        + "layout things like columns, toolbar arrangement or favourites, and "
+                        + "not MCP's own enable/port/token, since changing those over this very "
+                        + "connection could cut it off mid-request. Use this to find a setting's "
+                        + "exact key and current value before calling set_setting, rather than "
+                        + "guessing.",
+                     inputSchema: .object(["type": "object", "properties": [:]])),
+                Tool(name: "set_setting",
+                     description: "Changes one setting by key, from list_settings. A boolean "
+                        + "setting takes true/false; an enum setting takes one of its "
+                        + "allowedValues as a string.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "key": ["type": "string", "description": "From list_settings."],
+                            "value": [
+                                "type": ["boolean", "string"],
+                                "description": "A boolean, or a string for an enum setting.",
+                            ],
+                        ],
+                        "required": ["key", "value"],
+                     ])),
             ])
         }
 
@@ -565,6 +603,55 @@ extension MCPServer {
                     return .init(content: [.text(text: "Opened.", annotations: nil, _meta: nil)],
                                 isError: false)
                 }
+
+            case "open_info_window":
+                guard let path = params.arguments?["path"]?.stringValue else {
+                    return .init(content: [.text(text: "path is required.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let infoResult = await MainActor.run {
+                    MCPToolSupport.openInfoWindow(windowId: windowId, path: path)
+                }
+                switch infoResult {
+                case .windowNotFound:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .failed(let message):
+                    return .init(content: [.text(text: message, annotations: nil, _meta: nil)],
+                                isError: true)
+                case .opened:
+                    return .init(content: [.text(text: "Opened.", annotations: nil, _meta: nil)],
+                                isError: false)
+                }
+
+            case "list_settings":
+                let summaries = await MainActor.run {
+                    MCPSettings.items.map { item in
+                        MCPModels.SettingSummary(key: item.key, kind: item.kind,
+                                                 description: item.description,
+                                                 allowedValues: item.allowedValues, value: item.get())
+                    }
+                }
+                return try MCPModels.result(for: MCPModels.SettingsList(settings: summaries))
+
+            case "set_setting":
+                guard let key = params.arguments?["key"]?.stringValue,
+                      let value = params.arguments?["value"] else {
+                    return .init(content: [.text(text: "key and value are required.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let settingError: String? = await MainActor.run {
+                    guard let item = MCPSettings.item(for: key) else {
+                        return "No such setting: \(key). Call list_settings for the exact keys."
+                    }
+                    return item.set(value)
+                }
+                if let settingError {
+                    return .init(content: [.text(text: settingError, annotations: nil, _meta: nil)],
+                                isError: true)
+                }
+                return .init(content: [.text(text: "Set \(key).", annotations: nil, _meta: nil)],
+                            isError: false)
 
             case "select_items":
                 let paths = params.arguments?["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []

@@ -398,6 +398,16 @@ final class AppModel {
         openInfoWindow?(item.url)
     }
 
+    /// The MCP round-trip counterpart to `showInfo()`: an explicit path
+    /// rather than the current selection. `nil` means it opened.
+    func openInfo(for url: URL) -> String? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return "\(url.path) does not exist"
+        }
+        openInfoWindow?(url)
+        return nil
+    }
+
     /// The hex editor. Never for a directory: a directory's bytes are the file
     /// system's own bookkeeping, and on APFS opening one for update is not
     /// something a file manager should offer to do.

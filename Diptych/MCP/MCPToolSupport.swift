@@ -58,7 +58,9 @@ enum MCPToolSupport {
         return true
     }
 
-    enum OpenDiffResult { case windowNotFound, failed(String), opened }
+    /// Shared by every "open something in a window" tool: `open_diff`,
+    /// `open_info_window`.
+    enum OpenResult { case windowNotFound, failed(String), opened }
 
     /// Opens a comparison between two explicit paths in the given (or
     /// frontmost) window -- the round-trip counterpart to `get_text_diff`/
@@ -71,12 +73,22 @@ enum MCPToolSupport {
     /// options ever meant anything.
     static func openDiff(windowId: String?, left: String, right: String,
                          directoryOptions: DirectoryComparison.Options?,
-                         textOptions: TextDiffPresetOptions.Preset?) -> OpenDiffResult {
+                         textOptions: TextDiffPresetOptions.Preset?) -> OpenResult {
         guard let model = resolveModel(windowId: windowId) else { return .windowNotFound }
         if let error = model.openComparison(left: URL(fileURLWithPath: left),
                                             right: URL(fileURLWithPath: right),
                                             directoryOptions: directoryOptions,
                                             textOptions: textOptions) {
+            return .failed(error)
+        }
+        return .opened
+    }
+
+    /// Opens the Info window for an explicit path -- the round-trip
+    /// counterpart to `showInfo()` (Cmd-I), which acts on the selection.
+    static func openInfoWindow(windowId: String?, path: String) -> OpenResult {
+        guard let model = resolveModel(windowId: windowId) else { return .windowNotFound }
+        if let error = model.openInfo(for: URL(fileURLWithPath: path)) {
             return .failed(error)
         }
         return .opened

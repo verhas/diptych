@@ -119,6 +119,18 @@ enum MCPModels {
         var renames: [DirectoryDiffRename]
     }
 
+    struct SettingSummary: Codable, Sendable {
+        var key: String
+        var kind: String
+        var description: String
+        var allowedValues: [String]?
+        var value: Value
+    }
+
+    struct SettingsList: Codable, Sendable {
+        var settings: [SettingSummary]
+    }
+
     /// The MCP spec requires `structuredContent` to be a JSON object, not a
     /// bare array -- `list_windows` needed something to wrap its arrays in.
     struct WindowList: Codable, Sendable {

@@ -1093,7 +1093,10 @@ reconnecting whatever agent was already using the old token.
 | `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
 | `select_items` | Replaces a pane's selection with given paths, visibly, in the GUI |
 | `set_active_pane` | Makes a window's left or right pane the focused one |
-| `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly too |
+| `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly, and for two files, so can `ignoreWhitespace`/`wraps` -- reopening a pair already open updates that window instead of refusing |
+| `open_info_window` | Opens the Info window for one explicit path |
+| `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
+| `set_setting` | Changes one setting by key, from `list_settings` |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
 
 None of these read or write file *contents*, and none return diff content
