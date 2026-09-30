@@ -330,6 +330,7 @@ struct ContentView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             ForEach(shown(configuration.toolbarButtons(on: .right)), id: \.self, content: button)
+            MCPStatusIndicator()
         }
     }
 

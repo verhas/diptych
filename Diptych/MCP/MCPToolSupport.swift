@@ -63,17 +63,20 @@ enum MCPToolSupport {
     /// Opens a comparison between two explicit paths in the given (or
     /// frontmost) window -- the round-trip counterpart to `get_text_diff`/
     /// `get_directory_diff`, for "compare these two folders" rather than
-    /// just answering questions about one already open. `directoryOptions`
-    /// is `nil` when the call gave none of the option arguments at all --
-    /// meaning "no opinion," not "everything off" -- so a fresh window still
-    /// gets the application's own defaults and an already-open one is left
-    /// alone, exactly like calling with no options ever meant anything.
+    /// just answering questions about one already open. `directoryOptions`/
+    /// `textOptions` are `nil` when the call gave none of the matching
+    /// option arguments at all -- meaning "no opinion," not "everything
+    /// off" -- so a fresh window still gets the application's own defaults
+    /// and an already-open one is left alone, exactly like calling with no
+    /// options ever meant anything.
     static func openDiff(windowId: String?, left: String, right: String,
-                         directoryOptions: DirectoryComparison.Options?) -> OpenDiffResult {
+                         directoryOptions: DirectoryComparison.Options?,
+                         textOptions: TextDiffPresetOptions.Preset?) -> OpenDiffResult {
         guard let model = resolveModel(windowId: windowId) else { return .windowNotFound }
         if let error = model.openComparison(left: URL(fileURLWithPath: left),
                                             right: URL(fileURLWithPath: right),
-                                            directoryOptions: directoryOptions) {
+                                            directoryOptions: directoryOptions,
+                                            textOptions: textOptions) {
             return .failed(error)
         }
         return .opened
@@ -123,7 +126,9 @@ enum MCPToolSupport {
             isComparingBytes: document.isComparingBytes,
             editableSide: document.editable.map { $0 == .left ? "left" : "right" },
             hasUnsavedEdits: document.isDirty,
-            hasSaved: document.hasSaved)
+            hasSaved: document.hasSaved,
+            ignoreWhitespace: document.ignoreWhitespace,
+            wraps: document.wraps)
     }
 
     /// `windowNumber` unset resolves to the frontmost open Compare Folders

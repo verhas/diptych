@@ -48,6 +48,14 @@ final class OpenDiffDocuments {
         documents[pair] = WeakDocument(document: document)
     }
 
+    /// The live document for an already-open window on this pair, if there
+    /// is one -- for a caller that needs to change something about it
+    /// directly (e.g. an MCP `open_diff` call asked for different display
+    /// options) rather than only being able to ask it to reload.
+    func document(for pair: DiffPair) -> DiffDocument? {
+        documents[pair]?.document
+    }
+
     func refreshIfOpen(_ pair: DiffPair) {
         guard let document = documents[pair]?.document else {
             documents.removeValue(forKey: pair)

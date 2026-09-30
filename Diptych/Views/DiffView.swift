@@ -13,7 +13,6 @@ struct DiffView: View {
     @State private var document: DiffDocument
     @State private var atChange = 0
     @State private var notice: String?
-    @State private var wraps = true
     @State private var query = ""
     @State private var atMatch = 0
     /// How far sideways the text in *both* columns has been moved. One object,
@@ -181,7 +180,7 @@ struct DiffView: View {
                     .foregroundStyle(diff.isIdentical ? .secondary : .primary)
                 Spacer()
                 find
-                Toggle("Wrap", isOn: $wraps)
+                Toggle("Wrap", isOn: $document.wraps)
                     .toggleStyle(.checkbox)
                     .help("Wrap long lines on both sides")
                 Toggle("Ignore spacing", isOn: $document.ignoreWhitespace)
@@ -355,14 +354,14 @@ struct DiffView: View {
               // stay at their defaults until something changes, and nothing
               // can scroll until then.
               .onChange(of: text.viewport, initial: true) { _, _ in
-                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: document.wraps)
               }
               .onChange(of: text.content, initial: true) { _, _ in
-                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: document.wraps)
               }
-              .onChange(of: wraps) { _, _ in
+              .onChange(of: document.wraps) { _, _ in
                   sideways.offset = 0
-                  sideways.layout(viewport: text.viewport, content: text.content, wraps: wraps)
+                  sideways.layout(viewport: text.viewport, content: text.content, wraps: document.wraps)
               }
             }
         }
@@ -375,7 +374,7 @@ struct DiffView: View {
     /// rather than merely reachable.
     private func textWidths(in available: CGFloat) -> (viewport: CGFloat, content: CGFloat) {
         let viewport = max((available - Self.between) / 2 - Self.gutter, 1)
-        guard !wraps else { return (viewport, viewport) }
+        guard !document.wraps else { return (viewport, viewport) }
         let longest = CGFloat(document.longestLine) * DiffLineField.characterWidth + 8
         return (viewport, max(longest, viewport))
     }
@@ -470,7 +469,7 @@ struct DiffView: View {
                 // text field swallows the click that would put the caret where
                 // the user pointed.
                 DiffLineField(text: text ?? "",
-                              wraps: wraps,
+                              wraps: document.wraps,
                               width: widths.content,
                               onType: { document.typing(index, $0) },
                               onFinish: { document.endLine() },
@@ -482,9 +481,9 @@ struct DiffView: View {
             } else {
                 body(of: text ?? "", spans: spans, tint: tint, row: row.id)
                     .textSelection(.enabled)
-                    .lineLimit(wraps ? nil : 1)
-                    .fixedSize(horizontal: !wraps, vertical: false)
-                    .frame(maxWidth: wraps ? .infinity : nil, alignment: .leading)
+                    .lineLimit(document.wraps ? nil : 1)
+                    .fixedSize(horizontal: !document.wraps, vertical: false)
+                    .frame(maxWidth: document.wraps ? .infinity : nil, alignment: .leading)
             }
             }
             .frame(width: widths.content, alignment: .leading)

@@ -462,12 +462,12 @@ final class AppModel {
     /// folders" asked from outside the GUI entirely. Same rules `showDiff()`
     /// enforces (existence, same kind, not the same item twice), returned as
     /// a message instead of a toast since there is no window to flash it in.
-    /// `nil` means it opened. `directoryOptions`, when given, is only used
-    /// for a folder comparison -- there is nothing equivalent for two files --
-    /// and applies whether that means seeding a window not open yet or
-    /// changing one that already is.
+    /// `nil` means it opened. `directoryOptions`/`textOptions`, when given,
+    /// only apply to the matching kind of comparison, and either way to a
+    /// window not open yet or one that already is.
     func openComparison(left: URL, right: URL,
-                        directoryOptions: DirectoryComparison.Options? = nil) -> String? {
+                        directoryOptions: DirectoryComparison.Options? = nil,
+                        textOptions: TextDiffPresetOptions.Preset? = nil) -> String? {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: left.path, isDirectory: &isDirectory) else {
             return "\(left.path) does not exist"
@@ -502,10 +502,25 @@ final class AppModel {
         }
 
         let asked = DiffPair(left: left, right: right)
+        // Exactly this pair, already open as a comparison: change it
+        // directly and bring it forward, rather than refusing on the
+        // strength of the same "already open" check that (rightly) refuses
+        // a second, different window on one of these files.
+        if let existing = OpenDiffDocuments.shared.document(for: asked) {
+            if let textOptions {
+                existing.ignoreWhitespace = textOptions.ignoreWhitespace
+                existing.wraps = textOptions.wraps
+            }
+            OpenDiffDocuments.shared.refreshIfOpen(asked)
+            openDiffWindow?(asked)
+            return nil
+        }
         if let clash = DiffWindows.shared.alreadyOpen(asked) {
             return "\(clash.lastPathComponent) is already open in a comparison or in Text Edit"
         }
-        OpenDiffDocuments.shared.refreshIfOpen(asked)
+        if let textOptions {
+            TextDiffPresetOptions.shared.set(textOptions, for: asked)
+        }
         openDiffWindow?(asked)
         return nil
     }

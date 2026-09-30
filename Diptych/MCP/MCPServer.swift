@@ -136,6 +136,7 @@ actor MCPServer {
     /// nothing past this point should be reachable without it.
     fileprivate func handleHTTPRequest(_ request: HTTPRequest) async -> HTTPResponse {
         guard !token.isEmpty, request.header(HTTPHeaderName.authorization) == "Bearer \(token)" else {
+            await MainActor.run { MCPActivityLog.shared.record(.rejected, summary: "Unauthorized request") }
             return .error(statusCode: 401, .invalidRequest("Unauthorized"))
         }
 
@@ -416,9 +417,10 @@ extension MCPServer {
                 Tool(name: "get_text_diff",
                      description: "What an open Compare (file diff) window is comparing: the two "
                         + "paths, whether it's a byte comparison rather than text, which side (if "
-                        + "any) is unlocked for editing, and whether that side has unsaved edits. "
-                        + "Not the diff content itself -- diff already gives an agent that once it "
-                        + "has the two paths.",
+                        + "any) is unlocked for editing, whether that side has unsaved edits, and "
+                        + "the current ignoreWhitespace/wraps display settings. Not the diff "
+                        + "content itself -- diff already gives an agent that once it has the "
+                        + "two paths.",
                      inputSchema: .object([
                         "type": "object",
                         "properties": [
@@ -449,12 +451,15 @@ extension MCPServer {
                      description: "Opens a Compare (two files) or Compare Folders (two "
                         + "directories) window on two explicit paths -- both must exist and be "
                         + "the same kind (both files or both folders), and not the same item "
-                        + "twice. The user reviews the result visually; this doesn't return the "
-                        + "diff itself. The compare* / recurseHiddenDirectories options only "
-                        + "apply to a folder comparison; giving none of them leaves a fresh "
-                        + "window on the application's own defaults and an already-open one "
-                        + "unchanged, giving any of them replaces all of them (omitted ones are "
-                        + "off, except compareContent which is on) -- check get_directory_diff "
+                        + "twice. Reopening a pair already open updates that window (moving it "
+                        + "forward) instead of refusing. The user reviews the result visually; "
+                        + "this doesn't return the diff itself. The compare* / "
+                        + "recurseHiddenDirectories options only apply to a folder comparison; "
+                        + "ignoreWhitespace/wraps only to a file comparison. For each group, "
+                        + "giving none of its options leaves a fresh window on the application's "
+                        + "own defaults and an already-open one unchanged; giving any one "
+                        + "replaces the whole group (omitted ones are off, except compareContent "
+                        + "and wraps which are on) -- check get_directory_diff/get_text_diff "
                         + "first to preserve settings not being changed.",
                      inputSchema: .object([
                         "type": "object",
@@ -473,6 +478,8 @@ extension MCPServer {
                             "compareCreationDate": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
                             "compareOwnership": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
                             "recurseHiddenDirectories": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "ignoreWhitespace": ["type": "boolean", "description": "File comparisons only. Defaults to false."],
+                            "wraps": ["type": "boolean", "description": "File comparisons only. Defaults to true."],
                         ],
                         "required": ["left", "right"],
                      ])),
@@ -480,6 +487,15 @@ extension MCPServer {
         }
 
         await server.withMethodHandler(CallTool.self) { params in
+            let argsDetail = params.arguments?
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key)=\($0.value)" }
+                .joined(separator: ", ")
+            await MainActor.run {
+                MCPActivityLog.shared.record(.call, summary: params.name,
+                                             detail: argsDetail?.isEmpty == false ? argsDetail : nil)
+            }
+
             let windowId = params.arguments?["windowId"]?.stringValue
             let side = params.arguments?["side"]?.stringValue
 
@@ -526,9 +542,17 @@ extension MCPServer {
                         compareOwnership: params.arguments?["compareOwnership"]?.boolValue ?? false,
                         recurseHiddenDirectories: params.arguments?["recurseHiddenDirectories"]?.boolValue ?? false)
                     : nil
+                let textOptionKeys = ["ignoreWhitespace", "wraps"]
+                let textOptions: TextDiffPresetOptions.Preset? =
+                    textOptionKeys.contains(where: { params.arguments?[$0] != nil })
+                    ? TextDiffPresetOptions.Preset(
+                        ignoreWhitespace: params.arguments?["ignoreWhitespace"]?.boolValue ?? false,
+                        wraps: params.arguments?["wraps"]?.boolValue ?? true)
+                    : nil
                 let result = await MainActor.run {
                     MCPToolSupport.openDiff(windowId: windowId, left: left, right: right,
-                                            directoryOptions: directoryOptions)
+                                            directoryOptions: directoryOptions,
+                                            textOptions: textOptions)
                 }
                 switch result {
                 case .windowNotFound:

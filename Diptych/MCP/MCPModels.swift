@@ -78,6 +78,8 @@ enum MCPModels {
         var editableSide: String?
         var hasUnsavedEdits: Bool
         var hasSaved: Bool
+        var ignoreWhitespace: Bool
+        var wraps: Bool
     }
 
     /// The comparison options a Compare Folders window is actually showing

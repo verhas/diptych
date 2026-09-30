@@ -88,6 +88,10 @@ final class DiffDocument {
     var ignoreWhitespace = false {
         didSet { if ignoreWhitespace != oldValue { recompute() } }
     }
+    /// Layout only, no recompute -- on `DiffDocument` rather than `DiffView`'s
+    /// own state so an MCP `open_diff` call can set it before a window even
+    /// exists, the same way it can `ignoreWhitespace`.
+    var wraps = true
 
     private var undoStack: [Step] = []
     private var redoStack: [Step] = []
@@ -119,6 +123,10 @@ final class DiffDocument {
 
     init(pair: DiffPair) {
         self.pair = pair
+        if let preset = TextDiffPresetOptions.shared.take(for: pair) {
+            ignoreWhitespace = preset.ignoreWhitespace
+            wraps = preset.wraps
+        }
     }
 
     deinit {

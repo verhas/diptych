@@ -14,6 +14,7 @@ struct DiptychApp: App {
     static let diffWindowID = "diptych.diff"
     static let directoryDiffWindowID = "diptych.directoryDiff"
     static let releaseNotesWindowID = "diptych.releaseNotes"
+    static let mcpConsoleWindowID = "diptych.mcpConsole"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -81,6 +82,14 @@ struct DiptychApp: App {
             ReleaseNotesView()
         }
         .defaultSize(width: 700, height: 600)
+        .restorationBehavior(.disabled)
+
+        // One console, showing MCP activity for the whole process -- not
+        // per-window, since the server itself is one process-wide listener.
+        Window("MCP Activity", id: DiptychApp.mcpConsoleWindowID) {
+            MCPConsoleView()
+        }
+        .defaultSize(width: 560, height: 420)
         .restorationBehavior(.disabled)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
