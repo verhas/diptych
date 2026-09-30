@@ -1,5 +1,30 @@
+---
+checksum: 4fcf2b5500b0785e84dba2b883615ec2cf9ef6df50d6c687e744f6572a904d28
+checksum_algorithm: sha256
+number:
+  style: period
+  skip-title: true
+---
 # Diptych MCP Proposal
-
+<!--TOC
+min-level: 2
+max-level: 3
+_content_generated_: 904:md5:1ca48d25d55b29e0dc2fd602ad3d681b
+# ⚠️ MANAGED CONTENT: Edits will be lost.
+# danger zone: Delete _content_generated_ to override.
+-->
+- [Context](#context)
+- [Part 1 — Sensible usages (scenarios)](#part-1-sensible-usages-scenarios)
+- [Part 2 — Supporting data-oriented resources](#part-2-supporting-data-oriented-resources)
+- [Part 3 — Round-trip tools (optional/secondary)](#part-3-round-trip-tools-optionalsecondary)
+- [Part 4 — Supporting app features required to make this usable](#part-4-supporting-app-features-required-to-make-this-usable)
+- [Part 5 — Batch file operations with human confirmation](#part-5-batch-file-operations-with-human-confirmation)
+  - [Tool: `propose_file_operations(operations)`](#tool-propose-file-operationsoperations)
+  - [Review window behavior](#review-window-behavior)
+  - [Reporting results back to the agent](#reporting-results-back-to-the-agent)
+- [Explicitly out of scope](#explicitly-out-of-scope)
+- [Architecture note (flagged, not designed here)](#architecture-note-flagged-not-designed-here)
+<!--/TOC-->
 ## Context
 
 Diptych is a native macOS dual-pane file manager (Swift/SwiftUI). It currently has no MCP code, no CLI entry point, and no library surface — everything is UI-driven.

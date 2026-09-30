@@ -521,6 +521,62 @@ extension MCPServer {
                         ],
                         "required": ["key", "value"],
                      ])),
+                Tool(name: "propose_file_operations",
+                     description: "Proposes a batch of file operations for the person to review "
+                        + "and approve, rather than doing them: opens a window listing every "
+                        + "operation, ticked by default, individually editable (target name, "
+                        + "permissions, owner) and individually or all selectable/deselectable. "
+                        + "The batch is checked for internal consistency (e.g. two operations "
+                        + "landing on the same path, or a genuine ordering cycle) before it can "
+                        + "be run at all, and any operation that would overwrite something, plus "
+                        + "any delete_permanent, needs a further, separate confirmation beyond "
+                        + "the general Execute action. Returns immediately once the window is "
+                        + "open -- call get_batch_status afterwards to see what the person did "
+                        + "with it. op is one of: move, copy, rename, trash, delete_permanent, "
+                        + "set_permissions, set_owner, create_symlink, create_directory. source/"
+                        + "target/linkTarget meanings by op -- move/copy: source required, "
+                        + "target is the destination path. rename: source required, target is "
+                        + "the new leaf name (no slashes). trash/delete_permanent: source "
+                        + "required. set_permissions: source required, target is \"rwxr-xr-x\" "
+                        + "style or octal (\"755\"/\"0755\"). set_owner: source required, target "
+                        + "is \"owner:group\" (either half empty leaves it unchanged). "
+                        + "create_symlink: target is the new link's path, linkTarget is what it "
+                        + "points to. create_directory: target is the new folder's path.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window -- only used to open the review window.",
+                            ],
+                            "operations": [
+                                "type": "array",
+                                "items": [
+                                    "type": "object",
+                                    "properties": [
+                                        "op": ["type": "string"],
+                                        "source": ["type": "string", "description": "Absolute path."],
+                                        "target": ["type": "string"],
+                                        "linkTarget": ["type": "string", "description": "Absolute path."],
+                                        "reason": ["type": "string", "description": "Shown to the person, not enforced."],
+                                    ],
+                                    "required": ["op"],
+                                ],
+                            ],
+                        ],
+                        "required": ["operations"],
+                     ])),
+                Tool(name: "get_batch_status",
+                     description: "The status of a batch from propose_file_operations -- "
+                        + "reviewing, executing, finished or cancelled -- and, once it has run, "
+                        + "each row's outcome.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "batchId": ["type": "string", "description": "From propose_file_operations."],
+                        ],
+                        "required": ["batchId"],
+                     ])),
             ])
         }
 
@@ -652,6 +708,47 @@ extension MCPServer {
                 }
                 return .init(content: [.text(text: "Set \(key).", annotations: nil, _meta: nil)],
                             isError: false)
+
+            case "propose_file_operations":
+                guard let opsValue = params.arguments?["operations"]?.arrayValue, !opsValue.isEmpty else {
+                    return .init(content: [.text(text: "operations is required and must be non-empty.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let rawOps = opsValue.map { value -> MCPToolSupport.RawOperation in
+                    let object = value.objectValue ?? [:]
+                    return MCPToolSupport.RawOperation(
+                        op: object["op"]?.stringValue ?? "",
+                        source: object["source"]?.stringValue,
+                        target: object["target"]?.stringValue,
+                        linkTarget: object["linkTarget"]?.stringValue,
+                        reason: object["reason"]?.stringValue)
+                }
+                let proposeResult = await MainActor.run {
+                    MCPToolSupport.proposeFileOperations(windowId: windowId, operations: rawOps)
+                }
+                switch proposeResult {
+                case .unknownOp(let name):
+                    return .init(content: [.text(text: "Unknown op: \(name).",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .noWindow:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .proposed(let batchId):
+                    return try MCPModels.result(for: MCPModels.ProposedBatch(batchId: batchId.uuidString))
+                }
+
+            case "get_batch_status":
+                guard let batchIdString = params.arguments?["batchId"]?.stringValue,
+                      let batchId = UUID(uuidString: batchIdString) else {
+                    return .init(content: [.text(text: "batchId is required and must be a UUID.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                guard let status = await MainActor.run(body: { MCPToolSupport.batchStatus(batchId: batchId) })
+                else {
+                    return .init(content: [.text(text: "No such batch.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                return try MCPModels.result(for: status)
 
             case "select_items":
                 let paths = params.arguments?["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []

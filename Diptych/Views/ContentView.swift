@@ -125,6 +125,9 @@ struct ContentView: View {
             model.openDirectoryDiffWindow = {
                 openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
             }
+            model.openBatchOperationsWindow = {
+                openWindow(id: DiptychApp.batchOperationsWindowID, value: $0)
+            }
             model.start()
             ReleaseNotesPresenter.shared.presentIfNeeded {
                 openWindow(id: DiptychApp.releaseNotesWindowID)

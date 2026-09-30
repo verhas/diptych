@@ -38,13 +38,30 @@ enum Privileged {
     /// the group here would apply half of what was asked for and report all of
     /// it as done.
     static func chown(owner: String, group: String?, urls: [URL]) -> Result {
-        guard !urls.isEmpty else { return .succeeded }
+        chownMany([(owner: owner, group: group, urls: urls)])
+    }
 
-        let specification = group.map { "\(owner):\($0)" } ?? owner
-        let arguments = ([specification] + urls.map(\.path))
-            .map(Shell.quoted)
-            .joined(separator: " ")
-        return run("/usr/sbin/chown -- " + arguments)
+    /// Several owner/group changes -- each item possibly wanting a different
+    /// owner or group -- in **one** authentication prompt.
+    ///
+    /// A batch of proposed operations can contain more than one that needs
+    /// root, and asking separately for each would mean re-entering the
+    /// password once per item. Every change becomes its own `chown` line in
+    /// one shell script, so `run` still only ever shows the system's prompt
+    /// once for the whole set.
+    static func chownMany(_ changes: [(owner: String, group: String?, urls: [URL])]) -> Result {
+        let commands = changes.filter { !$0.urls.isEmpty }.map { change -> String in
+            let specification = change.group.map { "\(change.owner):\($0)" } ?? change.owner
+            let arguments = ([specification] + change.urls.map(\.path))
+                .map(Shell.quoted)
+                .joined(separator: " ")
+            return "/usr/sbin/chown -- " + arguments
+        }
+        guard !commands.isEmpty else { return .succeeded }
+        // `;`, not a raw newline: this string becomes one AppleScript string
+        // literal, and an embedded newline there is a parse error, not a
+        // line break in the shell script it runs.
+        return run(commands.joined(separator: "; "))
     }
 
     /// ...and then escaped again to sit inside an AppleScript string literal.

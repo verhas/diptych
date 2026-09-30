@@ -131,6 +131,35 @@ enum MCPModels {
         var settings: [SettingSummary]
     }
 
+    /// `propose_file_operations`' immediate reply -- the call returns as
+    /// soon as the review window is open, not once the person has answered
+    /// it, since nothing says how long that takes.
+    struct ProposedBatch: Codable, Sendable {
+        var batchId: String
+    }
+
+    struct BatchRowStatus: Codable, Sendable {
+        var kind: String
+        var description: String
+        var included: Bool
+        var problems: [String]
+        /// What happened to this row, once `status` is past "reviewing" --
+        /// nil while still being looked at.
+        var result: String?
+        /// Whether that was a failure (or a skip because a row it depended
+        /// on failed) -- nil until the row has run. `result` is the system's
+        /// own wording and not something to parse for this.
+        var failed: Bool?
+    }
+
+    /// `get_batch_status`'s answer: where a proposed batch stands, and once
+    /// it has run, what happened to each row.
+    struct BatchStatus: Codable, Sendable {
+        var batchId: String
+        var status: String
+        var rows: [BatchRowStatus]
+    }
+
     /// The MCP spec requires `structuredContent` to be a JSON object, not a
     /// bare array -- `list_windows` needed something to wrap its arrays in.
     struct WindowList: Codable, Sendable {

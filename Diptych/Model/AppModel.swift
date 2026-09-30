@@ -414,6 +414,9 @@ final class AppModel {
     @ObservationIgnored var openDiffWindow: ((DiffPair) -> Void)?
     /// Two folders, in their own window: see `showDiff()`.
     @ObservationIgnored var openDirectoryDiffWindow: ((DirectoryDiffPair) -> Void)?
+    /// A batch of proposed file operations, reviewed before anything runs --
+    /// opened only from MCP's `propose_file_operations`, never from the GUI.
+    @ObservationIgnored var openBatchOperationsWindow: ((UUID) -> Void)?
 
     /// Two files, or two folders, side by side.
     ///

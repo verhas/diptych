@@ -25,6 +25,10 @@ final class PermissionEditorView: NSView {
     var onCursorChange: ((Int) -> Void)?
     var onCommit: ((mode_t) -> Void)?
     var onCancel: (() -> Void)?
+    /// Every change the keyboard makes, as it happens -- for a host where the
+    /// grid stays on screen after editing (a batch review), so an edit is not
+    /// lost when the person moves on without pressing Return.
+    var onEdit: ((mode_t) -> Void)?
 
     /// Matches the font the non-editing cells use, so an edited row's columns
     /// of characters line up with the rows above and below it. Both sides read
@@ -52,6 +56,10 @@ final class PermissionEditorView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override func becomeFirstResponder() -> Bool { needsDisplay = true; return true }
+    /// The caret and group tint are drawn only while this is first responder,
+    /// so losing that has to redraw too -- otherwise, with several grids on
+    /// screen, every one ever clicked kept showing its caret.
+    override func resignFirstResponder() -> Bool { needsDisplay = true; return true }
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -113,6 +121,8 @@ final class PermissionEditorView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        let before = mode
+        defer { if mode != before { onEdit?(mode) } }
         let shift = event.modifierFlags.contains(.shift)
         // charactersIgnoringModifiers is why Option works here: Option-r would
         // otherwise arrive as "®".
@@ -189,6 +199,15 @@ struct PermissionField: NSViewRepresentable {
     let onCursor: (Int) -> Void
     let onCommit: (mode_t) -> Void
     let onCancel: () -> Void
+    /// True everywhere this has ever had exactly one editor on screen at a
+    /// time -- the pane's own F4/F9 in-place edit, where grabbing focus the
+    /// moment the grid appears is exactly the point. A batch review window
+    /// can show several of these at once, none of them "the one the user
+    /// just asked to edit," and stealing focus there just means whichever
+    /// row's grid is built last wins -- and the person's very next keystroke,
+    /// for something else entirely, lands on it as a bit toggle.
+    var autoFocus = true
+    var onEdit: ((mode_t) -> Void)? = nil
 
     func makeNSView(context: Context) -> PermissionEditorView {
         let view = PermissionEditorView()
@@ -196,9 +215,10 @@ struct PermissionField: NSViewRepresentable {
         view.onCursorChange = onCursor
         view.onCommit = onCommit
         view.onCancel = onCancel
+        view.onEdit = onEdit
 
         DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
+            if autoFocus { view.window?.makeFirstResponder(view) }
             onCursor(view.cursor)
         }
         return view
@@ -208,6 +228,7 @@ struct PermissionField: NSViewRepresentable {
         view.onCursorChange = onCursor
         view.onCommit = onCommit
         view.onCancel = onCancel
+        view.onEdit = onEdit
         // Never overwrite bits the user is in the middle of editing.
         if view.window?.firstResponder !== view {
             view.mode = mode

@@ -216,4 +216,60 @@ enum MCPToolSupport {
         default: return (model.active, model.activeSide == .left ? "left" : "right")
         }
     }
+
+    // MARK: - Batch file operations
+
+    /// One element of `propose_file_operations`' `operations` array, already
+    /// pulled out of the SDK's `Value` type by the caller in `MCPServer` --
+    /// this file otherwise never touches `Value` directly.
+    struct RawOperation {
+        let op: String
+        let source: String?
+        let target: String?
+        let linkTarget: String?
+        let reason: String?
+    }
+
+    enum ProposeResult { case unknownOp(String), noWindow, proposed(UUID) }
+
+    /// Builds a `BatchOperationsModel` from the call's raw operations,
+    /// registers it, and opens the review window -- the round-trip
+    /// counterpart to nothing in the GUI, since a batch only ever exists
+    /// because an agent proposed it.
+    static func proposeFileOperations(
+        windowId: String?, operations: [RawOperation]
+    ) -> ProposeResult {
+        var rows: [BatchOperationRow] = []
+        for entry in operations {
+            switch BatchOperationRow.build(op: entry.op, source: entry.source, target: entry.target,
+                                           linkTarget: entry.linkTarget, reason: entry.reason) {
+            case .unknownOp(let name): return .unknownOp(name)
+            case .row(let row): rows.append(row)
+            }
+        }
+        guard let model = resolveModel(windowId: windowId) else { return .noWindow }
+        let batch = BatchOperationsModel(rows: rows)
+        BatchOperationsStore.shared.register(batch)
+        model.openBatchOperationsWindow?(batch.batchId)
+        return .proposed(batch.batchId)
+    }
+
+    static func batchStatus(batchId: UUID) -> MCPModels.BatchStatus? {
+        guard let model = BatchOperationsStore.shared.model(for: batchId) else { return nil }
+        let statusName: String
+        switch model.status {
+        case .reviewing: statusName = "reviewing"
+        case .executing: statusName = "executing"
+        case .finished: statusName = "finished"
+        case .cancelled: statusName = "cancelled"
+        }
+        let rows = model.rows.map { row in
+            MCPModels.BatchRowStatus(kind: row.kind.rawValue, description: row.shortDescription,
+                                     included: row.included, problems: row.problems,
+                                     result: model.rowResults[row.id],
+                                     failed: model.rowResults[row.id] == nil
+                                         ? nil : model.failedRows.contains(row.id))
+        }
+        return MCPModels.BatchStatus(batchId: batchId.uuidString, status: statusName, rows: rows)
+    }
 }

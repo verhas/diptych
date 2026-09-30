@@ -15,6 +15,7 @@ struct DiptychApp: App {
     static let directoryDiffWindowID = "diptych.directoryDiff"
     static let releaseNotesWindowID = "diptych.releaseNotes"
     static let mcpConsoleWindowID = "diptych.mcpConsole"
+    static let batchOperationsWindowID = "diptych.batchOperations"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -90,6 +91,14 @@ struct DiptychApp: App {
             MCPConsoleView()
         }
         .defaultSize(width: 560, height: 420)
+        .restorationBehavior(.disabled)
+
+        // Opened only by MCP's propose_file_operations -- keyed by a batch
+        // id rather than by a file, since a batch isn't about any one path.
+        WindowGroup(id: DiptychApp.batchOperationsWindowID, for: UUID.self) { $batchId in
+            if let batchId { BatchOperationsView(batchId: batchId) }
+        }
+        .defaultSize(width: 760, height: 560)
         .restorationBehavior(.disabled)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.

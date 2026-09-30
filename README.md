@@ -1082,6 +1082,17 @@ once, not the next time the server happens to restart. Regenerating means
 re-running **Add Diptych to Agent Config** (or hand-editing `.mcp.json`) and
 reconnecting whatever agent was already using the old token.
 
+**The status light.** While the server is on, a small dot sits in the
+toolbar. It is dim when idle and pulses green on every call an agent makes --
+red when a request is rejected for a missing or wrong token. Clicking it opens
+**MCP Activity**, a log of every call with its arguments and every rejected
+request, so what an agent did in the window you are looking at is never a
+mystery.
+
+**One Diptych at a time.** A second launch brings the running one forward
+and quits, rather than the two quietly coexisting. Tool calls that name no
+window go to "the" Diptych, which only means something if there is one.
+
 **What it can see and do**, right now:
 
 | Tool | Does |
@@ -1098,6 +1109,8 @@ reconnecting whatever agent was already using the old token.
 | `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
 | `set_setting` | Changes one setting by key, from `list_settings` |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
+| `propose_file_operations` | Proposes a batch of file operations for you to review before anything happens -- see below. Returns as soon as the review window is open |
+| `get_batch_status` | Where a proposed batch stands -- reviewing, executing, finished or cancelled -- and, once it has run, each row's outcome and whether it failed |
 
 None of these read or write file *contents*, and none return diff content
 either -- deliberately: a shell already does `diff`/`cmp` better than an MCP
@@ -1108,13 +1121,52 @@ window is open showing what and with which options, whether an edit is
 unsaved, plus diptych's own rename-detection -- and being able to act back
 into the window the person is actually looking at.
 
+### Batch file operations, reviewed first
+
+The one exception to "no file operations": an agent can **propose** them, and
+nothing happens until you have seen the whole list. "Move the archives to the
+other folder, read-only" is safe to ask in one sentence because what the agent
+understood appears in a window, and the one file it should not have included
+gets unticked *before* it is touched.
+
+The operations are move, copy, rename, move to Trash, permanent delete,
+permissions, owner/group, symbolic link and new folder. In the review window:
+
+- **Every row is ticked**, and can be unticked -- one at a time, a run of them
+  with Shift-click, or all at once with Select All / Select None.
+- **Every row is editable**: a destination path, a new name, an owner and group
+  from a list, or the permissions in the same rwx grid the panes use. A
+  permission row shows what the item has now next to what it will get; set the
+  grid back to what it already is and the row dims and says **No change**,
+  still ticked, and running it does nothing.
+- **The batch is checked as a whole** before Execute is possible: two
+  operations landing on the same path, or operations that depend on each other
+  in a cycle, are reported and block it. Rows run in the order listed, except
+  that a row working on an item another row produces -- renaming a file a
+  move has just put in place, say -- waits for that row, and is skipped if
+  that row failed.
+- **Anything that overwrites an existing item, and any permanent delete, has a
+  tick of its own** -- *Overwrite existing item* or *Delete permanently* --
+  and Execute stays off until each is ticked or the row is deselected. The tick
+  is for that one path: edit the row to point somewhere else and it has to be
+  given again. A read-only item is not overwritten even then.
+- **More than ten operations** are confirmed once more before running.
+- **Owner changes that need an administrator** are collected and done together
+  after one password prompt, however many there are.
+- **Cancel closes the window** and changes nothing.
+
+Each row then says what happened to it, failures in red, and the footer
+counts successes and failures. What was done goes on the undo list, one step
+per kind of operation -- the undo list cannot hold a move and a permission
+change as one step.
+
 `DIPTYCH_MCP_PROPOSAL.md` at the repository root is the design document this
 was built from -- the reasoning behind what is and is not exposed, the
-scenarios each tool answers, and what is deliberately not built yet (batched,
-human-reviewed file operations; a terminal launched from a window and bound to
-it; a status indicator; bind-address configurability). Update it alongside
-this section when the tool set changes; this README section is the "how do I
-use it," the proposal is the "why does it work this way."
+scenarios each tool answers, and what is deliberately not built yet (a
+terminal launched from a window and bound to it; bind-address
+configurability; extended attributes as a batch operation). Update it alongside this section when the tool set changes;
+this README section is the "how do I use it," the proposal is the "why does
+it work this way."
 
 ## Copying, with progress
 
