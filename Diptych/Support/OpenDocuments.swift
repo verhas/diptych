@@ -69,6 +69,14 @@ final class OpenDirectoryDiffModels {
         models[pair] = WeakModel(model: model)
     }
 
+    /// The live model for an already-open window on this pair, if there is
+    /// one -- for a caller that needs to change something about it directly
+    /// (e.g. an MCP `open_diff` call asked for different comparison options)
+    /// rather than only being able to ask it to reload.
+    func model(for pair: DirectoryDiffPair) -> DirectoryDiffModel? {
+        models[pair]?.model
+    }
+
     func refreshIfOpen(_ pair: DirectoryDiffPair) {
         guard let model = models[pair]?.model else {
             models.removeValue(forKey: pair)

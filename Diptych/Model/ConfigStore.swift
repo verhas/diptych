@@ -29,7 +29,7 @@ final class ConfigStore {
                 || configuration.mcpServerPort != oldValue.mcpServerPort {
                 let enabled = configuration.mcpServerEnabled
                 let port = configuration.mcpServerPort
-                let token = configuration.mcpServerToken
+                let token = MCPTokenStore.shared.token
                 Task { await MCPServer.shared.applyConfiguration(
                     enabled: enabled, port: port, token: token) }
             }
@@ -113,17 +113,7 @@ final class ConfigStore {
         configuration = Configuration()
     }
 
-    /// Switches the MCP server on or off, generating and persisting a bearer
-    /// token first if one doesn't exist yet -- a config file written before
-    /// this feature existed carries no token, and an empty one would be no
-    /// token check at all. Generating it in a separate assignment, before
-    /// `mcpServerEnabled` changes, means the `didSet` above always sees the
-    /// real token on the one assignment that actually starts the server,
-    /// rather than racing a second, unobserved change against it.
     func setMCPServerEnabled(_ enabled: Bool) {
-        if enabled && configuration.mcpServerToken.isEmpty {
-            configuration.mcpServerToken = UUID().uuidString
-        }
         configuration.mcpServerEnabled = enabled
     }
 

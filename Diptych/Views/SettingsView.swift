@@ -144,10 +144,19 @@ struct BehaviourSettingsView: View {
                         .frame(width: 80)
                 }
                 LabeledContent("Token") {
-                    Text(store.configuration.mcpServerToken)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
+                    HStack {
+                        Text(MCPTokenStore.shared.token)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                        Button("Regenerate") { MCPTokenStore.shared.regenerate() }
+                    }
                 }
+                Text("Regenerating stops the old token working immediately. Any agent already "
+                     + "connected, and the .mcp.json entry it was given, needs the new one -- "
+                     + "run \u{201c}Add Diptych to Agent Config\u{201d} again to update it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()

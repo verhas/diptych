@@ -120,15 +120,25 @@ final class DirectoryDiffModel {
     init(left: URL, right: URL) {
         self.left = left
         self.right = right
-        let settings = ConfigStore.shared.configuration
-        var defaults = DirectoryComparison.Options(
-            comparePermissions: settings.directoryDiffComparePermissions,
-            compareAttributes: settings.directoryDiffCompareAttributes,
-            compareACL: settings.directoryDiffCompareACL,
-            compareModificationDate: settings.directoryDiffCompareModificationDate,
-            compareCreationDate: settings.directoryDiffCompareCreationDate,
-            compareOwnership: settings.directoryDiffCompareOwnership,
-            recurseHiddenDirectories: settings.directoryDiffRecurseHiddenDirectories)
+
+        var defaults: DirectoryComparison.Options
+        // An `open_diff` MCP call can ask a window that doesn't exist yet to
+        // start with specific options -- consumed here, once, rather than
+        // falling through to the application's own defaults below.
+        if let preset = DirectoryDiffPresetOptions.shared.take(
+            for: DirectoryDiffPair(left: left, right: right)) {
+            defaults = preset
+        } else {
+            let settings = ConfigStore.shared.configuration
+            defaults = DirectoryComparison.Options(
+                comparePermissions: settings.directoryDiffComparePermissions,
+                compareAttributes: settings.directoryDiffCompareAttributes,
+                compareACL: settings.directoryDiffCompareACL,
+                compareModificationDate: settings.directoryDiffCompareModificationDate,
+                compareCreationDate: settings.directoryDiffCompareCreationDate,
+                compareOwnership: settings.directoryDiffCompareOwnership,
+                recurseHiddenDirectories: settings.directoryDiffRecurseHiddenDirectories)
+        }
         // A comparison of two dot-folders -- two `.git`s, say -- is a
         // comparison of hidden folders on purpose, whatever the setting says:
         // the setting is about not wading into `.git` while comparing an

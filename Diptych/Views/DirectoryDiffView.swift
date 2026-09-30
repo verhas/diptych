@@ -71,7 +71,8 @@ struct DirectoryDiffView: View {
             loadedWindow = window
             AppWindows.shared.register(window)
             WindowSubjects.shared.register(window, kind: "directoryDiff",
-                                           description: "\(pair.left.path) \u{2194} \(pair.right.path)")
+                                           description: "\(pair.left.path) \u{2194} \(pair.right.path)",
+                                           model: model)
             origin = DirectoryDiffOrigins.shared.origin(for: pair)
             Task { await model.load() }
         })

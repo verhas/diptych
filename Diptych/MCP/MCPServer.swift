@@ -77,6 +77,13 @@ actor MCPServer {
         await stop()
     }
 
+    /// Swaps in a freshly-regenerated token without touching the listener --
+    /// a leaked token should stop working immediately, not wait for the
+    /// server to next restart.
+    func updateToken(_ token: String) async {
+        self.token = token
+    }
+
     private func start(port: Int) async throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         self.group = group
@@ -406,6 +413,69 @@ extension MCPServer {
                         ],
                         "required": ["paths"],
                      ])),
+                Tool(name: "get_text_diff",
+                     description: "What an open Compare (file diff) window is comparing: the two "
+                        + "paths, whether it's a byte comparison rather than text, which side (if "
+                        + "any) is unlocked for editing, and whether that side has unsaved edits. "
+                        + "Not the diff content itself -- diff already gives an agent that once it "
+                        + "has the two paths.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowNumber": [
+                                "type": "integer",
+                                "description": "From list_windows' toolWindows. Defaults to the frontmost Compare window.",
+                            ],
+                        ],
+                     ])),
+                Tool(name: "get_directory_diff",
+                     description: "What an open Compare Folders window is comparing: the two "
+                        + "roots, the comparison options results on screen were actually produced "
+                        + "with, whether the checkboxes have changed since (needsRefresh), and "
+                        + "the rename pairs diptych's own content-matching found -- not a plain "
+                        + "path match, which a shell diff can't do. Not the full added/removed/"
+                        + "changed list, which is bash-reproducible once the paths and options "
+                        + "are known.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowNumber": [
+                                "type": "integer",
+                                "description": "From list_windows' toolWindows. Defaults to the frontmost Compare Folders window.",
+                            ],
+                        ],
+                     ])),
+                Tool(name: "open_diff",
+                     description: "Opens a Compare (two files) or Compare Folders (two "
+                        + "directories) window on two explicit paths -- both must exist and be "
+                        + "the same kind (both files or both folders), and not the same item "
+                        + "twice. The user reviews the result visually; this doesn't return the "
+                        + "diff itself. The compare* / recurseHiddenDirectories options only "
+                        + "apply to a folder comparison; giving none of them leaves a fresh "
+                        + "window on the application's own defaults and an already-open one "
+                        + "unchanged, giving any of them replaces all of them (omitted ones are "
+                        + "off, except compareContent which is on) -- check get_directory_diff "
+                        + "first to preserve settings not being changed.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "left": ["type": "string", "description": "Absolute path."],
+                            "right": ["type": "string", "description": "Absolute path."],
+                            "compareContent": ["type": "boolean", "description": "Folder comparisons only. Defaults to true."],
+                            "comparePermissions": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "compareAttributes": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "compareACL": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "compareModificationDate": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "compareCreationDate": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "compareOwnership": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                            "recurseHiddenDirectories": ["type": "boolean", "description": "Folder comparisons only. Defaults to false."],
+                        ],
+                        "required": ["left", "right"],
+                     ])),
             ])
         }
 
@@ -414,6 +484,64 @@ extension MCPServer {
             let side = params.arguments?["side"]?.stringValue
 
             switch params.name {
+            case "get_text_diff":
+                guard let snapshot = await MainActor.run(body: {
+                    MCPToolSupport.textDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
+                }) else {
+                    return .init(content: [.text(text: "No matching Compare window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                return try MCPModels.result(for: snapshot)
+
+            case "get_directory_diff":
+                guard let snapshot = await MainActor.run(body: {
+                    MCPToolSupport.directoryDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
+                }) else {
+                    return .init(content: [.text(text: "No matching Compare Folders window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                return try MCPModels.result(for: snapshot)
+
+            case "open_diff":
+                guard let left = params.arguments?["left"]?.stringValue,
+                      let right = params.arguments?["right"]?.stringValue else {
+                    return .init(content: [.text(text: "left and right are required.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let optionKeys = ["compareContent", "comparePermissions", "compareAttributes",
+                                  "compareACL", "compareModificationDate", "compareCreationDate",
+                                  "compareOwnership", "recurseHiddenDirectories"]
+                // Present at all, not just present-and-true: giving any one of
+                // these is what switches from "no opinion" to "here is the
+                // whole set," per the tool's description.
+                let directoryOptions: DirectoryComparison.Options? =
+                    optionKeys.contains(where: { params.arguments?[$0] != nil })
+                    ? DirectoryComparison.Options(
+                        compareContent: params.arguments?["compareContent"]?.boolValue ?? true,
+                        comparePermissions: params.arguments?["comparePermissions"]?.boolValue ?? false,
+                        compareAttributes: params.arguments?["compareAttributes"]?.boolValue ?? false,
+                        compareACL: params.arguments?["compareACL"]?.boolValue ?? false,
+                        compareModificationDate: params.arguments?["compareModificationDate"]?.boolValue ?? false,
+                        compareCreationDate: params.arguments?["compareCreationDate"]?.boolValue ?? false,
+                        compareOwnership: params.arguments?["compareOwnership"]?.boolValue ?? false,
+                        recurseHiddenDirectories: params.arguments?["recurseHiddenDirectories"]?.boolValue ?? false)
+                    : nil
+                let result = await MainActor.run {
+                    MCPToolSupport.openDiff(windowId: windowId, left: left, right: right,
+                                            directoryOptions: directoryOptions)
+                }
+                switch result {
+                case .windowNotFound:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .failed(let message):
+                    return .init(content: [.text(text: message, annotations: nil, _meta: nil)],
+                                isError: true)
+                case .opened:
+                    return .init(content: [.text(text: "Opened.", annotations: nil, _meta: nil)],
+                                isError: false)
+                }
+
             case "select_items":
                 let paths = params.arguments?["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 let found = await MainActor.run {

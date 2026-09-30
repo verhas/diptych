@@ -1068,10 +1068,19 @@ That write **merges**, it never overwrites -- any other server already
 configured in that `.mcp.json` survives untouched. An agent CLI (Claude Code,
 Codex, ...) started in that directory picks the entry up automatically.
 
-**What it listens on:** `127.0.0.1` only, on the port shown in Settings, where
-the bearer token is also shown (and can be copied). Every request needs it;
-there is no bind-address or access-scope configurability yet -- localhost is
-the only option.
+**What it listens on:** `127.0.0.1` only, on the port shown in Settings. Every
+request needs the bearer token; there is no bind-address or access-scope
+configurability yet -- localhost is the only option.
+
+**The token** lives in `~/.diptych/.mcp.token`, not in `config.json` --
+config.json is meant to be readable and hand-editable, which is exactly what a
+credential should not be. The file is set owner-read-only immediately after
+every write. Settings ▸ Behaviour shows the current token (for pasting
+somewhere by hand) and a **Regenerate** button, which writes a fresh one and
+pushes it to the running server immediately -- the old one stops working at
+once, not the next time the server happens to restart. Regenerating means
+re-running **Add Diptych to Agent Config** (or hand-editing `.mcp.json`) and
+reconnecting whatever agent was already using the old token.
 
 **What it can see and do**, right now:
 
@@ -1080,15 +1089,21 @@ the only option.
 | `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / Settings windows with what each is showing |
 | `get_pane` | A pane's current directory and listing |
 | `get_selection` | The files currently selected in a pane |
+| `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
+| `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
 | `select_items` | Replaces a pane's selection with given paths, visibly, in the GUI |
 | `set_active_pane` | Makes a window's left or right pane the focused one |
+| `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly too |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
 
-None of these read or write file *contents* -- deliberately: a shell already
-does that better than an MCP round-trip could. The value is everything a
+None of these read or write file *contents*, and none return diff content
+either -- deliberately: a shell already does `diff`/`cmp` better than an MCP
+round-trip could, once it knows the two paths, which is exactly what
+`get_text_diff`/`get_directory_diff` supply. The value is everything a
 terminal has no way to see: what is selected, what a pane is browsing, what
-window is open showing what, and being able to act back into the window the
-person is actually looking at.
+window is open showing what and with which options, whether an edit is
+unsaved, plus diptych's own rename-detection -- and being able to act back
+into the window the person is actually looking at.
 
 `DIPTYCH_MCP_PROPOSAL.md` at the repository root is the design document this
 was built from -- the reasoning behind what is and is not exposed, the

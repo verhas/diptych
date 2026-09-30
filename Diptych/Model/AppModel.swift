@@ -457,6 +457,59 @@ final class AppModel {
         openDiffWindow?(asked)
     }
 
+    /// The MCP round-trip counterpart to `showDiff()`: two explicit paths
+    /// rather than whatever happens to be ticked, for "compare these two
+    /// folders" asked from outside the GUI entirely. Same rules `showDiff()`
+    /// enforces (existence, same kind, not the same item twice), returned as
+    /// a message instead of a toast since there is no window to flash it in.
+    /// `nil` means it opened. `directoryOptions`, when given, is only used
+    /// for a folder comparison -- there is nothing equivalent for two files --
+    /// and applies whether that means seeding a window not open yet or
+    /// changing one that already is.
+    func openComparison(left: URL, right: URL,
+                        directoryOptions: DirectoryComparison.Options? = nil) -> String? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: left.path, isDirectory: &isDirectory) else {
+            return "\(left.path) does not exist"
+        }
+        let leftIsDirectory = isDirectory.boolValue
+        guard FileManager.default.fileExists(atPath: right.path, isDirectory: &isDirectory) else {
+            return "\(right.path) does not exist"
+        }
+        guard leftIsDirectory == isDirectory.boolValue else {
+            return "A file and a folder cannot be compared"
+        }
+        guard FileOperations.canonicalPath(left) != FileOperations.canonicalPath(right) else {
+            return leftIsDirectory ? "That is the same folder on both sides"
+                                   : "That is the same file on both sides"
+        }
+
+        if leftIsDirectory {
+            let directoryPair = DirectoryDiffPair(left: left, right: right)
+            DirectoryDiffOrigins.shared.register(directoryPair, from: self)
+            if let directoryOptions {
+                if let existing = OpenDirectoryDiffModels.shared.model(for: directoryPair) {
+                    // Already open: change it directly rather than stashing a
+                    // preset nothing will ever construct a fresh model to read.
+                    existing.options = directoryOptions
+                } else {
+                    DirectoryDiffPresetOptions.shared.set(directoryOptions, for: directoryPair)
+                }
+            }
+            OpenDirectoryDiffModels.shared.refreshIfOpen(directoryPair)
+            openDirectoryDiffWindow?(directoryPair)
+            return nil
+        }
+
+        let asked = DiffPair(left: left, right: right)
+        if let clash = DiffWindows.shared.alreadyOpen(asked) {
+            return "\(clash.lastPathComponent) is already open in a comparison or in Text Edit"
+        }
+        OpenDiffDocuments.shared.refreshIfOpen(asked)
+        openDiffWindow?(asked)
+        return nil
+    }
+
     private func pairToCompare() -> (left: URL, right: URL,
                                      leftIsDirectory: Bool, rightIsDirectory: Bool)? {
         let here = active.selectedItems.filter { !$0.isParent }
@@ -2885,7 +2938,7 @@ final class AppModel {
     func requestAddMCPConfig() {
         ConfigStore.shared.setMCPServerEnabled(true)
         let port = ConfigStore.shared.configuration.mcpServerPort
-        let token = ConfigStore.shared.configuration.mcpServerToken
+        let token = MCPTokenStore.shared.token
         let directory = active.directory
         do {
             try MCPConfigWriter.merge(port: port, token: token, into: directory)

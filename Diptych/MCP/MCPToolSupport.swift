@@ -58,6 +58,27 @@ enum MCPToolSupport {
         return true
     }
 
+    enum OpenDiffResult { case windowNotFound, failed(String), opened }
+
+    /// Opens a comparison between two explicit paths in the given (or
+    /// frontmost) window -- the round-trip counterpart to `get_text_diff`/
+    /// `get_directory_diff`, for "compare these two folders" rather than
+    /// just answering questions about one already open. `directoryOptions`
+    /// is `nil` when the call gave none of the option arguments at all --
+    /// meaning "no opinion," not "everything off" -- so a fresh window still
+    /// gets the application's own defaults and an already-open one is left
+    /// alone, exactly like calling with no options ever meant anything.
+    static func openDiff(windowId: String?, left: String, right: String,
+                         directoryOptions: DirectoryComparison.Options?) -> OpenDiffResult {
+        guard let model = resolveModel(windowId: windowId) else { return .windowNotFound }
+        if let error = model.openComparison(left: URL(fileURLWithPath: left),
+                                            right: URL(fileURLWithPath: right),
+                                            directoryOptions: directoryOptions) {
+            return .failed(error)
+        }
+        return .opened
+    }
+
     /// `performClose`, not `close`: it runs the same "you have unsaved
     /// changes" prompt (Text Edit, Bin Edit) that Cmd-W does, rather than
     /// discarding edits an agent was never told about. Returns whether a
@@ -87,6 +108,73 @@ enum MCPToolSupport {
             windowId: model.id.uuidString,
             side: resolvedSide,
             entries: pane.selectedItems.map(MCPModels.FileEntry.init))
+    }
+
+    /// `windowNumber` unset resolves to the frontmost open Compare (text
+    /// diff) window, same resolution order as everything else here.
+    static func textDiff(windowNumber: Int?) -> MCPModels.TextDiffSnapshot? {
+        guard let (window, subject) = resolveToolWindow(windowNumber: windowNumber, kind: "textDiff"),
+              let document = subject.model as? DiffDocument
+        else { return nil }
+        return MCPModels.TextDiffSnapshot(
+            windowNumber: window.windowNumber,
+            leftPath: document.pair.left.path,
+            rightPath: document.pair.right.path,
+            isComparingBytes: document.isComparingBytes,
+            editableSide: document.editable.map { $0 == .left ? "left" : "right" },
+            hasUnsavedEdits: document.isDirty,
+            hasSaved: document.hasSaved)
+    }
+
+    /// `windowNumber` unset resolves to the frontmost open Compare Folders
+    /// window.
+    static func directoryDiff(windowNumber: Int?) -> MCPModels.DirectoryDiffSnapshot? {
+        guard let (window, subject) = resolveToolWindow(windowNumber: windowNumber, kind: "directoryDiff"),
+              let model = subject.model as? DirectoryDiffModel
+        else { return nil }
+        let applied = model.appliedOptions
+        let renames = model.pairs.filter(\.isRename).compactMap { pair in
+            (pair.left?.relativePath).flatMap { from in
+                (pair.right?.relativePath).map { to in
+                    MCPModels.DirectoryDiffRename(from: from, to: to)
+                }
+            }
+        }
+        return MCPModels.DirectoryDiffSnapshot(
+            windowNumber: window.windowNumber,
+            leftPath: model.left.path,
+            rightPath: model.right.path,
+            options: MCPModels.DirectoryDiffOptions(
+                compareContent: applied.compareContent,
+                comparePermissions: applied.comparePermissions,
+                compareAttributes: applied.compareAttributes,
+                compareACL: applied.compareACL,
+                compareModificationDate: applied.compareModificationDate,
+                compareCreationDate: applied.compareCreationDate,
+                compareOwnership: applied.compareOwnership,
+                recurseHiddenDirectories: applied.recurseHiddenDirectories),
+            needsRefresh: model.needsRefresh,
+            renames: renames)
+    }
+
+    /// Resolution order matches `resolveModel`: an explicit window number,
+    /// then the frontmost window of the right kind, then simply the first
+    /// one open.
+    private static func resolveToolWindow(
+        windowNumber: Int?, kind: String
+    ) -> (NSWindow, WindowSubjects.Subject)? {
+        let candidates = AppWindows.shared.live.compactMap { window -> (NSWindow, WindowSubjects.Subject)? in
+            guard let subject = WindowSubjects.shared.subject(for: window), subject.kind == kind
+            else { return nil }
+            return (window, subject)
+        }
+        if let windowNumber {
+            return candidates.first { $0.0.windowNumber == windowNumber }
+        }
+        if let key = NSApp.keyWindow, let match = candidates.first(where: { $0.0 === key }) {
+            return match
+        }
+        return candidates.first
     }
 
     /// Resolution order: an explicit id, then whichever Diptych window is

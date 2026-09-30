@@ -124,7 +124,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // running instance for that to mean anything. A second launch
         // activates the first and quits itself, rather than the two
         // silently coexisting as they would by default.
-        if let bundleID = Bundle.main.bundleIdentifier {
+        //
+        // Except when this process is itself an XCTest host: `xcodebuild
+        // test` launches the app under test the same way a real second
+        // launch would, and this must never fight with a manually-running
+        // instance for that -- it isn't a second instance of the app in any
+        // sense a person means, and the whole test run silently produces no
+        // test output at all if this quits it.
+        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        if !isRunningTests, let bundleID = Bundle.main.bundleIdentifier {
             let myPID = ProcessInfo.processInfo.processIdentifier
             let other = NSRunningApplication
                 .runningApplications(withBundleIdentifier: bundleID)
@@ -168,12 +176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             let store = ConfigStore.shared
             guard store.configuration.mcpServerEnabled else { return }
-            // Re-applying rather than reading the fields directly backfills
-            // a bearer token for a config file saved before this feature
-            // existed, where `mcpServerEnabled` could be true with no token.
-            store.setMCPServerEnabled(true)
             let port = store.configuration.mcpServerPort
-            let token = store.configuration.mcpServerToken
+            let token = MCPTokenStore.shared.token
             Task { await MCPServer.shared.applyConfiguration(enabled: true, port: port, token: token) }
         }
     }

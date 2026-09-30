@@ -136,10 +136,9 @@ struct Configuration: Codable, Equatable {
     var mcpServerEnabled = false
     /// Bound to 127.0.0.1 only; not itself configurable yet.
     var mcpServerPort = 8787
-    /// Bearer token required on every request. Generated lazily the first
-    /// time the server starts, not at first launch, so a config file from
-    /// before this feature existed doesn't carry an empty, guessable token.
-    var mcpServerToken = ""
+    /// The bearer token itself lives in `~/.diptych/.mcp.token` (see
+    /// `MCPTokenStore`), not here -- config.json is meant to be readable and
+    /// hand-editable, which is exactly what a credential should not be.
 
     /// Check with the server the first time a tracked folder with changes in it
     /// is opened after Diptych starts.
@@ -307,7 +306,7 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareOwnership
         case showTipsAtStartup
         case updateCheckPreference, lastUpdateCheckAttempt
-        case mcpServerEnabled, mcpServerPort, mcpServerToken
+        case mcpServerEnabled, mcpServerPort
     }
 
     init() {}
@@ -380,7 +379,6 @@ struct Configuration: Codable, Equatable {
         lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
         mcpServerEnabled = (try? container.decode(Bool.self, forKey: .mcpServerEnabled)) ?? false
         mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
-        mcpServerToken = (try? container.decode(String.self, forKey: .mcpServerToken)) ?? ""
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

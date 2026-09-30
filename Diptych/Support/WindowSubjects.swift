@@ -15,16 +15,26 @@ final class WindowSubjects {
 
     static let shared = WindowSubjects()
 
-    struct Subject { let kind: String; let description: String }
+    struct Subject {
+        let kind: String
+        let description: String
+        /// The live model behind this window -- `DiffDocument`,
+        /// `DirectoryDiffModel` -- for a caller that needs more than kind
+        /// and description can say (e.g. the MCP diff-query tools). Weak,
+        /// same as the window itself: this registry must never be what
+        /// keeps either alive.
+        weak var model: AnyObject?
+    }
 
     private struct WeakEntry { weak var window: NSWindow?; let subject: Subject }
     private var entries: [WeakEntry] = []
 
     private init() {}
 
-    func register(_ window: NSWindow, kind: String, description: String) {
+    func register(_ window: NSWindow, kind: String, description: String, model: AnyObject? = nil) {
         entries.removeAll { $0.window == nil || $0.window === window }
-        entries.append(WeakEntry(window: window, subject: Subject(kind: kind, description: description)))
+        entries.append(WeakEntry(window: window,
+                                 subject: Subject(kind: kind, description: description, model: model)))
     }
 
     func subject(for window: NSWindow) -> Subject? {

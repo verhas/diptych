@@ -67,7 +67,8 @@ struct DiffView: View {
             if window !== found { window = found }
             AppWindows.shared.register(found)
             WindowSubjects.shared.register(found, kind: "textDiff",
-                                           description: "\(pair.left.path) \u{2194} \(pair.right.path)")
+                                           description: "\(pair.left.path) \u{2194} \(pair.right.path)",
+                                           model: document)
             wheel.watch(found) { [sideways] delta in sideways.move(by: delta) }
             // Registered on every update, not only the first: `AppModel`
             // looks a document up here by pair to force a reload the moment
