@@ -40,7 +40,10 @@ struct TextEditView: View {
         }
         .navigationTitle(title)
         .background(WindowAccessor { window in
-            if let window { AppWindows.shared.register(window) }
+            if let window {
+                AppWindows.shared.register(window)
+                WindowSubjects.shared.register(window, kind: "textEdit", description: url.path)
+            }
             // Registered on every update, not only the first: `AppModel`
             // looks a document up here by URL to force a reload the moment
             // the user asks to open this file again, which must work even if

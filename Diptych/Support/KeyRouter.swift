@@ -42,6 +42,10 @@ final class KeyRouter {
         install()
     }
 
+    /// Every registered window's model, for code outside the view hierarchy
+    /// (the MCP server) that needs to enumerate or address open windows.
+    var allModels: [AppModel] { models.compactMap(\.model) }
+
     private func install() {
         guard monitor == nil else { return }
 

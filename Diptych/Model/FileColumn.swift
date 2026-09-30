@@ -129,6 +129,18 @@ struct Configuration: Codable, Equatable {
     /// "look in the usual places".
     var gitPath = ""
 
+    /// Lets a local AI agent query Diptych's live state (open windows, the
+    /// active selection) over MCP. Off by default, same reasoning as
+    /// `gitEnabled`: it opens a local network listener Diptych did not need
+    /// before, so switching it on is a decision the user makes.
+    var mcpServerEnabled = false
+    /// Bound to 127.0.0.1 only; not itself configurable yet.
+    var mcpServerPort = 8787
+    /// Bearer token required on every request. Generated lazily the first
+    /// time the server starts, not at first launch, so a config file from
+    /// before this feature existed doesn't carry an empty, guessable token.
+    var mcpServerToken = ""
+
     /// Check with the server the first time a tracked folder with changes in it
     /// is opened after Diptych starts.
     ///
@@ -295,6 +307,7 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareOwnership
         case showTipsAtStartup
         case updateCheckPreference, lastUpdateCheckAttempt
+        case mcpServerEnabled, mcpServerPort, mcpServerToken
     }
 
     init() {}
@@ -365,6 +378,9 @@ struct Configuration: Codable, Equatable {
         updateCheckPreference = (try? container.decode(
             UpdateCheckPreference.self, forKey: .updateCheckPreference)) ?? .ask
         lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
+        mcpServerEnabled = (try? container.decode(Bool.self, forKey: .mcpServerEnabled)) ?? false
+        mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
+        mcpServerToken = (try? container.decode(String.self, forKey: .mcpServerToken)) ?? ""
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

@@ -1038,6 +1038,66 @@ When anything is escaped, **both** parties are told: the status line says which
 kind was found, and the prompt itself carries a note, because whoever reads the
 model's answer needs to know the names were not as they appeared.
 
+## Local agent access (MCP)
+
+F1 is a one-shot formatter: it describes the selection once and puts that on
+the clipboard. This is the live counterpart -- while Diptych is running, it can
+answer an agent's questions about what is actually on screen right now, and act
+back into the GUI. It is **off by default**, same reasoning as version
+tracking: it opens a local network listener Diptych did not need before, so
+switching it on is a decision you make, not one made for you.
+
+**Turning it on:** Settings ▸ Behaviour ▸ *Allow a local AI agent to query
+Diptych*, or just run **File ▸ Add Diptych to Agent Config (.mcp.json)…**,
+which switches the server on for you and writes an entry into `.mcp.json` in
+the active pane's directory:
+
+```json
+{
+  "mcpServers": {
+    "diptych": {
+      "type": "http",
+      "url": "http://127.0.0.1:8787/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+That write **merges**, it never overwrites -- any other server already
+configured in that `.mcp.json` survives untouched. An agent CLI (Claude Code,
+Codex, ...) started in that directory picks the entry up automatically.
+
+**What it listens on:** `127.0.0.1` only, on the port shown in Settings, where
+the bearer token is also shown (and can be copied). Every request needs it;
+there is no bind-address or access-scope configurability yet -- localhost is
+the only option.
+
+**What it can see and do**, right now:
+
+| Tool | Does |
+| --- | --- |
+| `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / Settings windows with what each is showing |
+| `get_pane` | A pane's current directory and listing |
+| `get_selection` | The files currently selected in a pane |
+| `select_items` | Replaces a pane's selection with given paths, visibly, in the GUI |
+| `set_active_pane` | Makes a window's left or right pane the focused one |
+| `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
+
+None of these read or write file *contents* -- deliberately: a shell already
+does that better than an MCP round-trip could. The value is everything a
+terminal has no way to see: what is selected, what a pane is browsing, what
+window is open showing what, and being able to act back into the window the
+person is actually looking at.
+
+`DIPTYCH_MCP_PROPOSAL.md` at the repository root is the design document this
+was built from -- the reasoning behind what is and is not exposed, the
+scenarios each tool answers, and what is deliberately not built yet (batched,
+human-reviewed file operations; a terminal launched from a window and bound to
+it; a status indicator; bind-address configurability). Update it alongside
+this section when the tool set changes; this README section is the "how do I
+use it," the proposal is the "why does it work this way."
+
 ## Copying, with progress
 
 A copy to a slow disk used to be invisible: a sound at the end and nothing in

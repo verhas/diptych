@@ -42,7 +42,10 @@ struct BinaryView: View {
         // another binary view's.
         .background(WindowAccessor { window in
             keys.start(window: window, model: model)
-            if let window { AppWindows.shared.register(window) }
+            if let window {
+                AppWindows.shared.register(window)
+                WindowSubjects.shared.register(window, kind: "binEdit", description: model.url.path)
+            }
         })
         .onDisappear { keys.stop() }
         .background {

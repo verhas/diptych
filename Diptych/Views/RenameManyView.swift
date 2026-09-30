@@ -28,7 +28,12 @@ struct RenameManyView: View {
         }
         .navigationTitle("Rename Many \u{2014} \(NamingTemplate.tilde(model.folder.path))")
         .onAppear { model.load() }
-        .background(WindowAccessor { window in if let window { AppWindows.shared.register(window) } })
+        .background(WindowAccessor { window in
+            if let window {
+                AppWindows.shared.register(window)
+                WindowSubjects.shared.register(window, kind: "renameMany", description: folder.path)
+            }
+        })
     }
 
     // MARK: - Above the list

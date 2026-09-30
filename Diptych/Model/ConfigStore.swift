@@ -25,6 +25,14 @@ final class ConfigStore {
                 || configuration.fontName != oldValue.fontName {
                 RowHeights.applyEverywhere()
             }
+            if configuration.mcpServerEnabled != oldValue.mcpServerEnabled
+                || configuration.mcpServerPort != oldValue.mcpServerPort {
+                let enabled = configuration.mcpServerEnabled
+                let port = configuration.mcpServerPort
+                let token = configuration.mcpServerToken
+                Task { await MCPServer.shared.applyConfiguration(
+                    enabled: enabled, port: port, token: token) }
+            }
             scheduleSave()
         }
     }
@@ -41,9 +49,20 @@ final class ConfigStore {
             MainActor.assumeIsolated { ConfigStore.shared.saveNow() }
         }
 
-        var loaded = (try? Data(contentsOf: Self.url))
-            .flatMap { try? JSONDecoder().decode(Configuration.self, from: $0) }
-            ?? Configuration()
+        var loaded: Configuration
+        do {
+            let data = try Data(contentsOf: Self.url)
+            loaded = try JSONDecoder().decode(Configuration.self, from: data)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            loaded = Configuration()
+        } catch {
+            // Falling back to defaults either way -- a corrupt or
+            // incompatible config file must not keep the app from
+            // launching -- but silently is how this kind of thing goes
+            // unnoticed for a long time.
+            NSLog("Diptych: ~/.diptych/config.json failed to decode, using defaults: \(error)")
+            loaded = Configuration()
+        }
         loaded.normalise()
         configuration = loaded
     }
@@ -92,6 +111,20 @@ final class ConfigStore {
 
     func resetToDefaults() {
         configuration = Configuration()
+    }
+
+    /// Switches the MCP server on or off, generating and persisting a bearer
+    /// token first if one doesn't exist yet -- a config file written before
+    /// this feature existed carries no token, and an empty one would be no
+    /// token check at all. Generating it in a separate assignment, before
+    /// `mcpServerEnabled` changes, means the `didSet` above always sees the
+    /// real token on the one assignment that actually starts the server,
+    /// rather than racing a second, unobserved change against it.
+    func setMCPServerEnabled(_ enabled: Bool) {
+        if enabled && configuration.mcpServerToken.isEmpty {
+            configuration.mcpServerToken = UUID().uuidString
+        }
+        configuration.mcpServerEnabled = enabled
     }
 
     // MARK: - Saving

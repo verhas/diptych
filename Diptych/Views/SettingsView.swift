@@ -31,6 +31,12 @@ struct SettingsView: View {
         // Settings tab cannot be chosen at all: the items show, greyed out.
         // Seven tabs need about 530 points.
         .frame(width: 600, height: 470)
+        .background(WindowAccessor { window in
+            if let window {
+                AppWindows.shared.register(window)
+                WindowSubjects.shared.register(window, kind: "settings", description: "Settings")
+            }
+        })
     }
 }
 
@@ -115,6 +121,34 @@ struct BehaviourSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Text("Agent Access (MCP)").font(.headline)
+
+            Toggle("Allow a local AI agent to query Diptych", isOn: Binding(
+                get: { store.configuration.mcpServerEnabled },
+                set: { store.setMCPServerEnabled($0) }))
+                .toggleStyle(.checkbox)
+            Text("Listens on 127.0.0.1 only, and only while Diptych is running. An agent "
+                 + "needs the token below to ask it anything -- what's selected, what a "
+                 + "comparison window is showing -- nothing it can already do through the "
+                 + "shell.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if store.configuration.mcpServerEnabled {
+                LabeledContent("Port") {
+                    TextField("", value: $store.configuration.mcpServerPort, format: .number)
+                        .frame(width: 80)
+                }
+                LabeledContent("Token") {
+                    Text(store.configuration.mcpServerToken)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
 
             Divider()
 

@@ -410,10 +410,27 @@ make_dmg() {
 <plist version="1.0"><dict/></plist>
 PLIST
 
-        # No --deep: it is deprecated for signing, and there is nothing nested
-        # to sign anyway -- the bundle is one executable with no frameworks or
-        # helpers. --options runtime and --timestamp are both required before
-        # Apple will notarize.
+        # The bundle used to be one executable with no nested code at all,
+        # which was the case for --deep (deprecated, can silently skip or
+        # mis-sign things) not mattering either way. Adding the MCP server's
+        # Swift Package dependencies changed that: Xcode's CopySwiftLibs can
+        # now embed a small Swift runtime compatibility shim under
+        # Contents/Frameworks (e.g. libswiftCompatibilitySpan.dylib) when
+        # the code uses stdlib features newer than the deployment target's OS
+        # ships natively, as the MCP server's Swift 6 concurrency code does.
+        # Still no --deep: instead, anything actually present under
+        # Frameworks is signed first, inside-out, the way Apple's own docs
+        # recommend, before the outer bundle below.
+        local frameworks_dir="$app/Contents/Frameworks"
+        if [ -d "$frameworks_dir" ]; then
+            while IFS= read -r -d '' item; do
+                codesign --force --options runtime --timestamp --sign "$identity" "$item"
+            done < <(find "$frameworks_dir" -mindepth 1 -maxdepth 1 \
+                          \( -name "*.dylib" -o -name "*.framework" \) -print0)
+        fi
+
+        # --options runtime and --timestamp are both required before Apple
+        # will notarize.
         codesign --force --options runtime --timestamp \
                  --entitlements "$entitlements" \
                  --sign "$identity" "$app"

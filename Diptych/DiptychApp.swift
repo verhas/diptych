@@ -119,6 +119,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // MCP tool calls implicitly address "the" Diptych window (no session
+        // binding exists yet to say which one), so there can only be one
+        // running instance for that to mean anything. A second launch
+        // activates the first and quits itself, rather than the two
+        // silently coexisting as they would by default.
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let myPID = ProcessInfo.processInfo.processIdentifier
+            let other = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleID)
+                .first { $0.processIdentifier != myPID }
+            if let other {
+                other.activate()
+                NSApp.terminate(nil)
+                return
+            }
+        }
+
         // The Dock caches an app's icon against its bundle path, and a debug
         // build living in DerivedData keeps whatever it cached the first time --
         // a generic placeholder, if the app was ever built before it had an
@@ -147,6 +164,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "NSDisabledDictationMenuItem": true,
             "NSDisabledCharacterPaletteMenuItem": true,
         ])
+
+        MainActor.assumeIsolated {
+            let store = ConfigStore.shared
+            guard store.configuration.mcpServerEnabled else { return }
+            // Re-applying rather than reading the fields directly backfills
+            // a bearer token for a config file saved before this feature
+            // existed, where `mcpServerEnabled` could be true with no token.
+            store.setMCPServerEnabled(true)
+            let port = store.configuration.mcpServerPort
+            let token = store.configuration.mcpServerToken
+            Task { await MCPServer.shared.applyConfiguration(enabled: true, port: port, token: token) }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Task { await MCPServer.shared.shutdown() }
     }
 }
 
@@ -287,6 +320,9 @@ struct FileCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command, .option])
             Button("Open Terminal Here") { model?.openTerminal() }
                 .keyboardShortcut("t", modifiers: [.command, .option])
+            Button("Add Diptych to Agent Config (.mcp.json)\u{2026}") {
+                model?.requestAddMCPConfig()
+            }
         }
 
         // Every one of these falls back to the standard responder action when

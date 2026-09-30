@@ -158,6 +158,12 @@ final class AppModel {
         }
     }
 
+    /// Stable identity for this window, for code outside the view hierarchy
+    /// (the MCP server) that needs to address a specific window by id. `slot`
+    /// is an ordinal array index into `~/.diptych/state.json`, not a
+    /// identifier suited to that purpose.
+    @ObservationIgnored let id = UUID()
+
     /// Which slot in ~/.diptych this window owns. Windows take slots in the
     /// order they are created, and reopen into the same order next launch.
     @ObservationIgnored let slot: Int
@@ -2870,6 +2876,23 @@ final class AppModel {
 
     func openTerminal() {
         NSWorkspaceOpener.openTerminal(at: active.directory)
+    }
+
+    /// Registers Diptych's MCP endpoint in the active pane's directory, so an
+    /// agent CLI started there auto-discovers it. Switches the server on
+    /// first, if it wasn't already -- a `.mcp.json` entry pointing at a
+    /// server that isn't listening would be worse than not writing one.
+    func requestAddMCPConfig() {
+        ConfigStore.shared.setMCPServerEnabled(true)
+        let port = ConfigStore.shared.configuration.mcpServerPort
+        let token = ConfigStore.shared.configuration.mcpServerToken
+        let directory = active.directory
+        do {
+            try MCPConfigWriter.merge(port: port, token: token, into: directory)
+            flash("Added Diptych to \(directory.lastPathComponent)/.mcp.json", error: false)
+        } catch {
+            flash("Could not write .mcp.json: \(error.localizedDescription)", error: true)
+        }
     }
 
     /// Exchange the two panes wholesale, with everything they contain.
