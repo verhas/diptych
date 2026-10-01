@@ -88,6 +88,25 @@ that a guess.
 
 ---
 
+## A smaller app, and a second file on the release page
+
+Every Diptych so far shipped with its full table of internal function names
+inside the app -- something only debugging ever reads. The libraries agent
+access is built on have a great many very long such names, and kept in, they
+would have made the app well over twice its size. From this release on, they
+are removed from the app before it is packaged: the app is about the size
+1.3.3 was, with all of the above added.
+
+The names are not thrown away. Each release on GitHub now carries
+`Diptych-<version>-debug-symbols.zip` next to the disk image -- the one thing
+that turns a crash report from that exact build back into readable function
+names. **You do not need it**: download the `.dmg` as before. It sits on the
+release page alongside the two "Source code" archives GitHub always adds,
+and is there for the day a crash report needs reading. Updating from inside
+Diptych picks the disk image and ignores it.
+
+---
+
 ## Upgrading
 
 Nothing to do. Agent access starts switched off.
