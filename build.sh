@@ -46,7 +46,8 @@ Everyday commands:
 Release commands, in the order a release actually goes out:
   version [x.y.z]    show the current version, or bump to a new one
   dmg                build Release, sign it, and package
-                     build/Diptych-<version>.dmg
+                     build/Diptych-<version>.dmg, keeping the matching
+                     build/Diptych-<version>.app.dSYM for crash reports
   notarize           submit that .dmg to Apple and staple the ticket
   publish            create the GitHub release for <version> from that
                      .dmg, once it has checked it is notarized and no
@@ -84,10 +85,24 @@ build() {
 
     generate_release_notes
 
+    # A Release build is stripped of its symbol table. Xcode only strips as
+    # part of an archive or install, never on a plain `build`, so every
+    # release before 1.4.0 shipped unstripped without it mattering much; the
+    # MCP server's SwiftNIO and MCP SDK dependencies then made the symbol
+    # names alone two thirds of the executable. This turns on Xcode's own
+    # strip step (STRIP_INSTALLED_PRODUCT/STRIP_STYLE in the project), which
+    # runs after the .dSYM is written and before signing -- the .dSYM is what
+    # crash reports are symbolicated with from then on.
+    local postprocess=NO
+    if [ "$CONFIG" = Release ]; then
+        postprocess=YES
+    fi
+
     info "Building $SCHEME ($CONFIG)..."
 
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-                  -destination "$DESTINATION" build >"$log" 2>&1; then
+                  -destination "$DESTINATION" \
+                  DEPLOYMENT_POSTPROCESSING="$postprocess" build >"$log" 2>&1; then
         # xcodebuild is extremely chatty. On success, surface only real
         # diagnostics -- lines that start with an absolute source path.
         local warnings
@@ -386,6 +401,14 @@ make_dmg() {
     [ "$version" = "$wanted_version" ] \
         || die "built app reports version $version but project.pbxproj says $wanted_version"
     dmg="$PWD/build/Diptych-$version.dmg"
+
+    # The shipped executable has no symbol names any more, so a crash report
+    # from it can only be read against this build's .dSYM. It is kept beside
+    # the image it belongs to, since no later build can reproduce it.
+    [ -d "$app.dSYM" ] || die "no $app.dSYM -- a stripped build without it cannot be symbolicated"
+    mkdir -p "$PWD/build"
+    rm -rf "$PWD/build/Diptych-$version.app.dSYM"
+    ditto "$app.dSYM" "$PWD/build/Diptych-$version.app.dSYM"
 
     staging=$(mktemp -d)
     trap 'rm -rf "$staging"' RETURN
