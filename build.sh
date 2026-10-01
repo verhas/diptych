@@ -46,12 +46,14 @@ Everyday commands:
 Release commands, in the order a release actually goes out:
   version [x.y.z]    show the current version, or bump to a new one
   dmg                build Release, sign it, and package
-                     build/Diptych-<version>.dmg, keeping the matching
-                     build/Diptych-<version>.app.dSYM for crash reports
+                     build/Diptych-<version>.dmg, plus the matching
+                     build/Diptych-<version>-debug-symbols.zip that
+                     crash reports are read with
   notarize           submit that .dmg to Apple and staple the ticket
-  publish            create the GitHub release for <version> from that
-                     .dmg, once it has checked it is notarized and no
-                     older than the source it was built from
+  publish            create the GitHub release for <version> with the .dmg
+                     and the debug symbols, once it has checked the .dmg is
+                     notarized, no older than the source it was built from,
+                     and that the symbols belong to the app inside it
 
   release            a bare Release-configuration build, for trying one
                      locally -- unsigned, no .dmg. Packaging one to ship
@@ -366,10 +368,35 @@ publish_release() {
     xcrun stapler validate "$dmg" >/dev/null 2>&1 \
         || die "$(basename "$dmg") is not notarized -- run ./build.sh notarize first"
 
+    # The debug symbols go up with the image, and must be the ones for the
+    # app inside it: both files are named only by version, so a zip left from
+    # an earlier `dmg` run of the same version would otherwise be published
+    # without complaint, and found out only when a crash report from it could
+    # not be read.
+    local symbols="$PWD/build/Diptych-$version-debug-symbols.zip"
+    [ -f "$symbols" ] || die "$symbols does not exist -- run ./build.sh dmg again"
+    local scratch mount device app_uuids symbol_uuids
+    scratch=$(mktemp -d)
+    mount="$scratch/image"
+    mkdir "$mount"
+    device=$(hdiutil attach -nobrowse -noverify -readonly "$dmg" -mountpoint "$mount" \
+             | awk '/^\/dev\/disk/{print $1; exit}')
+    app_uuids=$(build_uuids "$mount/Diptych.app/Contents/MacOS/Diptych" 2>/dev/null || true)
+    [ -n "$device" ] && hdiutil detach "$device" -force -quiet || true
+    ditto -x -k "$symbols" "$scratch/symbols"
+    symbol_uuids=$(build_uuids "$scratch/symbols/Diptych.app.dSYM" 2>/dev/null || true)
+    rm -rf "$scratch"
+    [ -n "$app_uuids" ] || die "could not read the app's build UUIDs from $(basename "$dmg")"
+    [ "$app_uuids" = "$symbol_uuids" ] \
+        || die "$(basename "$symbols") is not from the build inside $(basename "$dmg") -- run ./build.sh dmg again"
+
     command -v gh >/dev/null 2>&1 || die "the GitHub CLI ('gh') is not installed"
 
-    info "Publishing $(basename "$dmg") as the $version release on GitHub"
-    gh release create "$version" "$dmg" --title "$version" --notes-file "$notes"
+    # GitHub adds the two source archives on its own; the image and the
+    # symbols are the only files uploaded. The app's update check picks the
+    # .dmg by name, so a second asset does not get in its way.
+    info "Publishing $(basename "$dmg") and $(basename "$symbols") as the $version release on GitHub"
+    gh release create "$version" "$dmg" "$symbols" --title "$version" --notes-file "$notes"
     printf '%s==> Released %s%s\n' "$GREEN" "$version" "$OFF"
 }
 
@@ -403,12 +430,16 @@ make_dmg() {
     dmg="$PWD/build/Diptych-$version.dmg"
 
     # The shipped executable has no symbol names any more, so a crash report
-    # from it can only be read against this build's .dSYM. It is kept beside
-    # the image it belongs to, since no later build can reproduce it.
+    # from it can only be read against this build's .dSYM -- and no later
+    # build can reproduce that. Zipped beside the image, for `publish` to
+    # attach to the release. --keepParent keeps the Diptych.app.dSYM folder
+    # name inside the zip, which is what symbolication tools look for.
     [ -d "$app.dSYM" ] || die "no $app.dSYM -- a stripped build without it cannot be symbolicated"
+    local symbols="$PWD/build/Diptych-$version-debug-symbols.zip"
     mkdir -p "$PWD/build"
-    rm -rf "$PWD/build/Diptych-$version.app.dSYM"
-    ditto "$app.dSYM" "$PWD/build/Diptych-$version.app.dSYM"
+    rm -f "$symbols"
+    ditto -c -k --keepParent "$app.dSYM" "$symbols" \
+        || die "could not zip $app.dSYM"
 
     staging=$(mktemp -d)
     trap 'rm -rf "$staging"' RETURN
@@ -540,7 +571,13 @@ PLIST
     fi
 
     printf '%s==> %s%s\n' "$GREEN" "$dmg" "$OFF"
-    du -h "$dmg" | sed 's/^/    /'
+    du -h "$dmg" "$symbols" | sed 's/^/    /'
+}
+
+# The build UUIDs of every architecture in a binary or a .dSYM, one per line,
+# sorted. Equal lists mean the symbols belong to exactly that binary.
+build_uuids() {
+    dwarfdump --uuid "$1" | awk '{print $2}' | sort
 }
 
 case "${1:-build}" in
