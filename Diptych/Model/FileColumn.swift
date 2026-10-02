@@ -217,6 +217,10 @@ struct Configuration: Codable, Equatable {
     /// How many characters from the start of a file the model is shown.
     var nameExcerptLength = NameSuggester.defaultExcerptLength
 
+    /// Start naming what is copied before New from Clipboard is chosen, so
+    /// the name is ready, or nearly, when it is.
+    var prefetchClipboardNames = true
+
     var gitCheckOnOpen = false
 
     /// When a send is refused for being behind, catch up and send anyway.
@@ -299,7 +303,7 @@ struct Configuration: Codable, Equatable {
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
         case useAppleIntelligence, nameSeparatorEnabled, nameSeparator, nameUnicode
-        case nameGermanSpelling, nameExcerptLength
+        case nameGermanSpelling, nameExcerptLength, prefetchClipboardNames
         case directoryDiffComparePermissions, directoryDiffCompareAttributes
         case directoryDiffCompareACL, directoryDiffRecurseHiddenDirectories
         case directoryDiffCompareModificationDate, directoryDiffCompareCreationDate
@@ -347,6 +351,8 @@ struct Configuration: Codable, Equatable {
         // named from none of a file.
         nameExcerptLength = max(1, (try? container.decode(Int.self, forKey: .nameExcerptLength))
                                    ?? NameSuggester.defaultExcerptLength)
+        prefetchClipboardNames =
+            (try? container.decode(Bool.self, forKey: .prefetchClipboardNames)) ?? true
         gitUpdateWhenSending =
             (try? container.decode(Bool.self, forKey: .gitUpdateWhenSending)) ?? true
         fontName = (try? container.decode(String.self, forKey: .fontName)) ?? ""

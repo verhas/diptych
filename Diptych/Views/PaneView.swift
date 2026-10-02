@@ -437,19 +437,26 @@ struct PaneView: View {
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
         if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
+                .keyboardShortcut(.newFolder)
             Button("New File") { activate(); model.requestNewFile() }
+                .keyboardShortcut(.newFile)
             newFromClipboard
             scripts(for: [])
             Button("Paste") { activate(); model.pasteIntoActivePane() }
+                .keyboardShortcut(.paste)
             Button("Paste as Link") { activate(); model.pasteAsLink() }
+                .keyboardShortcut(.pasteAsLink)
             Button("Refresh") { pane.reload() }
+                .keyboardShortcut(.refresh)
         } else {
             Button("Open") {
                 act(ids) {
                     if let id = ids.first { model.open(id: id, in: pane) }
                 }
             }
+            .keyboardShortcut(.open)
             Button("Get Info") { act(ids) { model.showInfo() } }
+                .keyboardShortcut(.getInfo)
 
             // An application is enterable now, like any other folder, so
             // opening it -- Return, double-click, "Open" above -- walks into
@@ -495,40 +502,59 @@ struct PaneView: View {
 
             Menu("Copy") {
                 Button("File Name") { act(ids) { model.copySelectionNames(fullPath: false) } }
+                    .keyboardShortcut(.copyNames)
                 Button("Full Path") { act(ids) { model.copySelectionNames(fullPath: true) } }
+                    .keyboardShortcut(.copyPaths)
+                if model.canCopyContents(of: pane.rows.filter { ids.contains($0.id) }) {
+                    Button("Content") { act(ids) { model.copySelectionContents() } }
+                        .keyboardShortcut(.copyContent)
+                }
             } primaryAction: {
                 act(ids) { model.copySelectionToClipboard() }
             }
+            .keyboardShortcut(.copy)
             Button("Cut") { act(ids) { model.cutSelectionToClipboard() } }
+                .keyboardShortcut(.cut)
             Button("Paste") { activate(); model.pasteIntoActivePane() }
+                .keyboardShortcut(.paste)
             Button("Paste as Link") { activate(); model.pasteAsLink() }
+                .keyboardShortcut(.pasteAsLink)
 
             Divider()
 
             Button("New File") { activate(); model.requestNewFile() }
+                .keyboardShortcut(.newFile)
             Button("New Folder") { activate(); model.requestNewFolder() }
+                .keyboardShortcut(.newFolder)
             newFromClipboard
 
             Divider()
 
             Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
+                .keyboardShortcut(.copyToOtherPane)
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
+                .keyboardShortcut(.moveToOtherPane)
             Button("Rename...") { act(ids) { model.requestRename() } }
+                .keyboardShortcut(.rename)
             Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
+                .keyboardShortcut(.renameMany)
             if ids.count == 1, model.namesCanBeSuggested {
                 Button("Rename with Suggested Name...") {
                     act(ids) { model.renameWithSuggestion() }
                 }
+                .keyboardShortcut(.renameSuggested)
                 .disabled(model.isSuggestingName)
             }
 
             Divider()
 
             Button("Reveal in Finder") { act(ids) { model.revealSelection() } }
+                .keyboardShortcut(.revealInFinder)
 
             Divider()
 
             Button("Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
+                .keyboardShortcut(.trash)
         }
     }
 
@@ -590,6 +616,7 @@ struct PaneView: View {
     private var newFromClipboard: some View {
         if model.clipboardCommandIsOffered {
             Button("New from Clipboard") { activate(); model.newFromClipboard() }
+                .keyboardShortcut(.newFromClipboard)
                 .disabled(ClipboardWatcher.shared.kind == .empty)
         }
     }

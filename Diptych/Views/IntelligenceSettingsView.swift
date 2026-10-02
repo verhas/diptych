@@ -40,7 +40,7 @@ struct IntelligenceSettingsView: View {
                 // so a Mac that has lost Apple Intelligence since is not left
                 // with a setting nobody can change.
                 .disabled(!configuration.useAppleIntelligence && status != .ready)
-            explanation("Used for Rename with Suggested Name (\u{2303}\u{2318}R, or \u{2318}F2), "
+            explanation("Used for Rename with Suggested Name (\u{2318}F2), "
                         + "and to name what New from Clipboard makes from what is in it. A "
                         + "name always lands in the rename field for you to accept, change or "
                         + "throw away.")
@@ -49,6 +49,25 @@ struct IntelligenceSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(status == .ready ? Color.secondary : Color.orange)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Start naming what is copied before it is pasted",
+                       isOn: $store.configuration.prefetchClipboardNames)
+                    .toggleStyle(.checkbox)
+                explanation("New from Clipboard's name is worked out as soon as it looks "
+                            + "likely to be wanted \u{2014} when Diptych comes to the front "
+                            + "with something new copied, when something is copied while it "
+                            + "is in front, or when a menu opens \u{2014} so it is ready, or "
+                            + "nearly, when the command comes. Only while Diptych is in front, "
+                            + "and never for copied files.\n\n"
+                            + "Ticked, New from Clipboard answers faster, but the model works "
+                            + "every time you copy something, which costs processor time. If "
+                            + "Diptych seems to use too much CPU whenever you copy, untick this: "
+                            + "the model is then asked only when the command is chosen.")
+            }
+            .disabled(!configuration.useAppleIntelligence)
 
             Divider()
 

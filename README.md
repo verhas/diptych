@@ -51,6 +51,7 @@ developer account.
 | `⌘A` | select all -- in the path box it selects the text, otherwise every row |
 | `⌃⌘V` | paste as a **symbolic link** to what was copied, rather than a copy of it |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
+| `⌃⌘C` | copy what is *in* the selected file -- text as text, a picture as a picture |
 | `⌘U` | swap the left and right panes |
 | `⌘⇧G` | go to folder -- a path that is not a folder is refused and the editor stays open; Escape returns to where you were |
 | `↑` `↓` | move the cursor; typing letters jumps to a name (type-select) |
@@ -1313,11 +1314,16 @@ anything else writes to the pasteboard, the cut lapses and a paste copies.
 
 Right-click **Copy** does the same as `⌘C`; its submenu copies *text* instead:
 
-- **File Name** -- the selected names
-- **Full Path** -- the selected paths
+- **File Name** -- the selected names (`⌥⌘C`)
+- **Full Path** -- the selected paths (`⇧⌥⌘C`)
+- **Content** -- what is in the file (`⌃⌘C`, or Edit ▸ Copy Contents): a text
+  file as text, a picture or PDF as itself. Several text files are copied one
+  after another. Offered only where it can work: a folder, an archive or any
+  other binary file, or more than 32 MB, leaves it out of both menus. It is the
+  way back from **New from Clipboard**.
 
-Either way the items are space separated and quoted only where a shell needs it,
-for pasting straight into a terminal as arguments:
+For names and paths the items are space separated and quoted only where a shell
+needs it, for pasting straight into a terminal as arguments:
 
 ```
 -leading-dash.txt no-extension 'file with spaces.txt' 'dollar$sign.txt' 'quote'\''apostrophe.txt'

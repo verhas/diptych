@@ -135,11 +135,7 @@ struct ContentView: View {
             // Checked before Tips: both show through this one window's single
             // sheet, and asking about network access at all is the rarer,
             // higher-priority question of the two.
-            UpdateChecker.shared.checkIfNeeded(
-                showConsent: { if model.dialog == nil { model.dialog = .updateCheckConsent } },
-                showUpdateAvailable: { version in
-                    if model.dialog == nil { model.dialog = .updateAvailable(version: version) }
-                })
+            UpdateChecker.shared.checkIfNeeded(on: model)
             StartupTips.shared.presentIfNeeded(on: model)
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
@@ -150,6 +146,12 @@ struct ContentView: View {
             focusedSide = restoredSide
             model.activeSide = restoredSide
             focusFollowsUser = true
+        }
+
+        // An update notice that arrived while this window's sheet was busy --
+        // the startup tip, usually -- is shown the moment the sheet closes.
+        .onChange(of: model.dialog) { _, new in
+            if new == nil { UpdateChecker.shared.sheetClosed(on: model) }
         }
 
         // Focus and "active pane" are two views of one thing, kept in step.
@@ -799,8 +801,7 @@ struct DialogSheet: View {
             case .updateAvailable(let version):
                 confirmation(
                     title: "Diptych \(version) Is Available",
-                    detail: "Download it and open the disk image it arrives in, ready to drag "
-                        + "into Applications. Diptych will quit on its own once that is done.",
+                    detail: UpdateChecker.installExplanation,
                     confirm: "Download and Install",
                     destructive: false
                 ) { UpdateChecker.shared.installPendingRelease() }

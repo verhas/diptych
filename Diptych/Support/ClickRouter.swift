@@ -52,7 +52,8 @@ final class ClickRouter {
                 let location = event.locationInWindow
                 let number = event.windowNumber
                 let handled = MainActor.assumeIsolated {
-                    self?.offerFolderMenu(windowNumber: number, location: location) ?? false
+                    self?.anticipateNewFromClipboard(windowNumber: number, location: location)
+                    return self?.offerFolderMenu(windowNumber: number, location: location) ?? false
                 }
                 return handled ? nil : event
             }
@@ -68,8 +69,9 @@ final class ClickRouter {
         }
     }
 
-    /// True when the click was in a pane's empty space and a menu was shown.
-    private func offerFolderMenu(windowNumber: Int, location: NSPoint) -> Bool {
+    /// The pane whose table a click landed in, and the window's model.
+    private func paneHit(windowNumber: Int, location: NSPoint)
+        -> (model: AppModel, table: NSTableView, pane: PaneModel)? {
         guard let window = NSApp.window(withWindowNumber: windowNumber),
               let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
               let content = window.contentView,
@@ -77,6 +79,24 @@ final class ClickRouter {
               !isInsideEditor(hit),
               let table = enclosingTable(of: hit),
               let index = TableFinder.tables(in: window).firstIndex(of: table)
+        else { return nil }
+        let tables = TableFinder.tables(in: window)
+        let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+        return (model, table, pane)
+    }
+
+    /// Every menu a right-click on a pane opens offers New from Clipboard, for
+    /// the pane clicked -- so its name can start being worked out now.
+    private func anticipateNewFromClipboard(windowNumber: Int, location: NSPoint) {
+        guard let (_, table, pane) = paneHit(windowNumber: windowNumber, location: location),
+              table.visibleRect.contains(table.convert(location, from: nil))
+        else { return }
+        ClipboardNamePrefetcher.shared.anticipate(in: pane.directory)
+    }
+
+    /// True when the click was in a pane's empty space and a menu was shown.
+    private func offerFolderMenu(windowNumber: Int, location: NSPoint) -> Bool {
+        guard let (model, table, pane) = paneHit(windowNumber: windowNumber, location: location)
         else { return false }
 
         let point = table.convert(location, from: nil)
@@ -91,8 +111,6 @@ final class ClickRouter {
         // Below the last row. On a row, SwiftUI's own menu answers.
         guard table.row(at: point) < 0 else { return false }
 
-        let tables = TableFinder.tables(in: window)
-        let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
         FolderMenu.shared.show(for: model, pane: pane)
         return true
     }

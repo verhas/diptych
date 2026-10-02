@@ -177,6 +177,15 @@ enum NameSuggester {
         let words = await BlockingWork.run {
             reads ? describe(SendableImage(image), length: length) : ""
         }
+        return await suggest(forPictureDescribedAs: words, details: details, style: style)
+    }
+
+    /// The second half of a picture's name: what Vision said about it is
+    /// already known. Separate, because that half depends on the folder and
+    /// the first does not -- New from Clipboard's guess made ahead of time
+    /// keeps Vision's words when the folder changes under it.
+    static func suggest(forPictureDescribedAs words: String?, details: [String: String] = [:],
+                        style: Style = Style()) async -> Outcome {
         guard let words else { return .nothingToGoOn }
         return await ask(about: words, details: details, style: style)
     }

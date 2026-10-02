@@ -61,6 +61,21 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Picker("Check for updates", selection: $store.configuration.updateCheckPreference) {
+                Text("At startup, once a day at most").tag(Configuration.UpdateCheckPreference.enabled)
+                Text("Ask at startup").tag(Configuration.UpdateCheckPreference.ask)
+                Text("Never on its own").tag(Configuration.UpdateCheckPreference.never)
+            }
+            .fixedSize()
+            Text("Only the question goes to GitHub, and nothing is downloaded without asking. "
+                 + "Diptych \u{25B8} Check for Updates\u{2026} looks whenever you ask, "
+                 + "whatever is chosen here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Text("New from Clipboard").font(.headline)
 
             Text("Makes a file in the current folder out of whatever has been copied. "

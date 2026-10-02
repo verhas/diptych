@@ -191,6 +191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "NSDisabledCharacterPaletteMenuItem": true,
         ])
 
+        MainActor.assumeIsolated { ClipboardNamePrefetcher.shared.start() }
+
         MainActor.assumeIsolated {
             let store = ConfigStore.shared
             guard store.configuration.mcpServerEnabled else { return }
@@ -229,6 +231,11 @@ struct FileCommands: Commands {
     }
 
     var body: some Commands {
+        // Under About, above Settings, where macOS apps keep it.
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates\u{2026}") { UpdateChecker.shared.checkNow(on: model) }
+        }
+
         // `after:` rather than `replacing:` -- SwiftUI puts its own "New Window"
         // (Cmd-N) in the .newItem group for a WindowGroup scene, and each window
         // it opens gets a fresh AppModel. Replacing the group would delete it.
@@ -237,18 +244,18 @@ struct FileCommands: Commands {
         // where you go belongs in Go.
         CommandGroup(after: .newItem) {
             Button("New Tab") { model?.newTab() }
-                .keyboardShortcut("t")
+                .keyboardShortcut(.newTab)
             Button("New Folder") { model?.requestNewFolder() }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .keyboardShortcut(.newFolder)
                 .disabled(model == nil)
             Button("New File") { model?.requestNewFile() }
-                .keyboardShortcut("n", modifiers: [.command, .option])
+                .keyboardShortcut(.newFile)
                 .disabled(model == nil)
             // Absent, not greyed, when the setting says so: a command switched
             // off is not a command that is temporarily unavailable.
             if model?.clipboardCommandIsOffered ?? false {
                 Button("New from Clipboard") { model?.newFromClipboard() }
-                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .keyboardShortcut(.newFromClipboard)
                     // Greyed out when there is nothing to make a file from,
                     // rather than enabled and then complaining.
                     .disabled(model == nil || ClipboardWatcher.shared.kind == .empty)
@@ -262,16 +269,15 @@ struct FileCommands: Commands {
             Button("Open") {
                 dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
             }
-            .keyboardShortcut(.downArrow, modifiers: .command)
+            .keyboardShortcut(.open)
             Button("Get Info") { model?.showInfo() }
-                .keyboardShortcut("i")
+                .keyboardShortcut(.getInfo)
             Button("Compare") { model?.showDiff() }
-                .keyboardShortcut("d", modifiers: .command)
+                .keyboardShortcut(.compare)
             Button("Rename...") { model?.requestRename() }
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
-                .keyboardShortcut("r", modifiers: [.command, .control])
+                .keyboardShortcut(.renameMany)
                 .disabled(model == nil)
-                .keyboardShortcut("r", modifiers: [.command, .shift])
             // Absent unless it can work: switched on, and Apple Intelligence
             // ready on this Mac. Settings says which of the two is missing.
             if model?.namesCanBeSuggested ?? false {
@@ -280,22 +286,21 @@ struct FileCommands: Commands {
                 // rename key people already use, and the model takes the
                 // Command form of it.
                 Button("Rename with Suggested Name...") { model?.renameWithSuggestion() }
-                    // F2's own code point; SwiftUI has no name for it.
-                    .keyboardShortcut(KeyEquivalent("\u{F705}"), modifiers: .command)
+                    .keyboardShortcut(.renameSuggested)
                     .disabled(model?.isSuggestingName ?? true)
             }
 
             Divider()
 
             Button("Copy to Other Pane") { model?.copySelection() }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .keyboardShortcut(.copyToOtherPane)
             Button("Move to Other Pane") { model?.moveSelection() }
-                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .keyboardShortcut(.moveToOtherPane)
 
             Divider()
 
             Button("Change Permissions...") { model?.requestPermissionEdit() }
-                .keyboardShortcut("p", modifiers: [.command, .option])
+                .keyboardShortcut(.changePermissions)
             Button("Change Owner...") { model?.requestOwnerEdit() }
             Button("Change Group...") { model?.requestGroupEdit() }
 
@@ -321,11 +326,11 @@ struct FileCommands: Commands {
             // or the feature is off, rather than permanently greyed out.
             if model?.gitRepositoryRoot != nil {
                 Button("Send My Work\u{2026}") { model?.requestSendWork() }
-                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .keyboardShortcut(.sendWork)
                 Button("Get the Latest") { model?.getLatest() }
-                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                    .keyboardShortcut(.getLatest)
                 Button("Check for Changes") { model?.checkForChanges() }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .keyboardShortcut(.checkForChanges)
 
                 Divider()
             }
@@ -334,14 +339,14 @@ struct FileCommands: Commands {
                 dispatch(model?.trashFromMenu,
                          #selector(NSResponder.deleteToBeginningOfLine(_:)))
             }
-            .keyboardShortcut(.delete, modifiers: .command)
+            .keyboardShortcut(.trashNow)
 
             Divider()
 
             Button("Reveal in Finder") { model?.revealSelection() }
-                .keyboardShortcut("r", modifiers: [.command, .option])
+                .keyboardShortcut(.revealInFinder)
             Button("Open Terminal Here") { model?.openTerminal() }
-                .keyboardShortcut("t", modifiers: [.command, .option])
+                .keyboardShortcut(.openTerminal)
             Button("Add Diptych to Agent Config (.mcp.json)\u{2026}") {
                 model?.requestAddMCPConfig()
             }
@@ -388,27 +393,33 @@ struct FileCommands: Commands {
 
         CommandGroup(replacing: .pasteboard) {
             Button("Cut") { dispatch(model?.cutSelectionToClipboard, #selector(NSText.cut(_:))) }
-                .keyboardShortcut("x")
+                .keyboardShortcut(.cut)
             Button("Copy") { dispatch(model?.copySelectionToClipboard, #selector(NSText.copy(_:))) }
-                .keyboardShortcut("c")
+                .keyboardShortcut(.copy)
             Button("Paste") { dispatch(model?.pasteIntoActivePane, #selector(NSText.paste(_:))) }
-                .keyboardShortcut("v")
+                .keyboardShortcut(.paste)
             // Control-Command-V. Finder spells "paste something other than a
             // copy" with a modifier on V (Option-Command-V moves), so V with a
             // modifier is where anyone would look for it.
             Button("Paste as Link") { model?.pasteAsLink() }
-                .keyboardShortcut("v", modifiers: [.command, .control])
+                .keyboardShortcut(.pasteAsLink)
                 .disabled(model == nil)
 
             Button("Select All") { dispatch(model?.selectAll, #selector(NSText.selectAll(_:))) }
-                .keyboardShortcut("a")
+                .keyboardShortcut(.selectAll)
 
             Divider()
 
             Button("Copy File Names") { model?.copySelectionNames(fullPath: false) }
-                .keyboardShortcut("c", modifiers: [.command, .option])
+                .keyboardShortcut(.copyNames)
             Button("Copy Full Paths") { model?.copySelectionNames(fullPath: true) }
-                .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+                .keyboardShortcut(.copyPaths)
+            // Absent, like the right-click entry, when there is nothing in the
+            // selection the clipboard could hold.
+            if model?.canCopySelectionContents ?? false {
+                Button("Copy Contents") { model?.copySelectionContents() }
+                    .keyboardShortcut(.copyContent)
+            }
         }
 
         CommandGroup(after: .toolbar) {
@@ -490,7 +501,7 @@ struct FileCommands: Commands {
             Button("Same Folder in Other Pane") { model?.syncPanes() }
                 .keyboardShortcut("=", modifiers: .command)
             Button("Refresh") { model?.active.reload() }
-                .keyboardShortcut("r", modifiers: .command)
+                .keyboardShortcut(.refresh)
         }
     }
 }

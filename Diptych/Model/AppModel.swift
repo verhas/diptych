@@ -716,7 +716,7 @@ final class AppModel {
 
     /// What a pasted picture is waiting to be saved as, while the user is
     /// asked.
-    private var pendingImage: (image: NSImage, pdf: Data?)?
+    private var pendingImage: (image: NSImage, pdf: Data?, changeCount: Int)?
 
     /// Whether the command exists at all, which the setting can decide.
     var clipboardCommandIsOffered: Bool {
@@ -725,6 +725,9 @@ final class AppModel {
 
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
+        // Which clipboard this was, so a name guessed for it ahead of time --
+        // and only for it -- can be used.
+        let changeCount = NSPasteboard.general.changeCount
         switch Clipboard.contents() {
         case .nothing:
             flash("There is nothing on the clipboard", error: true)
@@ -737,18 +740,21 @@ final class AppModel {
                 write(data, as: suggestedName("untitled.txt"))
                 return
             }
-            nameThenWrite(data, extension: "txt", kind: "text") {
-                await NameSuggester.suggest(forText: string, details: $1, style: $0)
+            let early = ClipboardNamePrefetcher.shared.take(in: active.directory,
+                                                            changeCount: changeCount)
+            nameThenWrite(data, extension: "txt", kind: "text") { style, details in
+                if let early { return await ClipboardNamePrefetcher.wait(for: early) }
+                return await NameSuggester.suggest(forText: string, details: details, style: style)
             }
 
         case .image(let image, let pdf):
             let format = ConfigStore.shared.configuration.clipboardImageFormat
             guard format != .ask else {
-                pendingImage = (image, pdf)
+                pendingImage = (image, pdf, changeCount)
                 dialog = .clipboardFormat
                 return
             }
-            save(image, pdf: pdf, as: format)
+            save(image, pdf: pdf, as: format, changeCount: changeCount)
         }
     }
 
@@ -756,11 +762,11 @@ final class AppModel {
         dialog = nil
         guard let pending = pendingImage else { return }
         pendingImage = nil
-        save(pending.image, pdf: pending.pdf, as: format)
+        save(pending.image, pdf: pending.pdf, as: format, changeCount: pending.changeCount)
     }
 
     private func save(_ image: NSImage, pdf: Data?,
-                      as format: Configuration.ClipboardImageFormat) {
+                      as format: Configuration.ClipboardImageFormat, changeCount: Int) {
         guard let data = Clipboard.data(for: image, pdf: pdf, as: format) else {
             dialog = .message("That picture could not be saved as \(format.title).")
             return
@@ -773,8 +779,18 @@ final class AppModel {
         // Taken out of the NSImage here, on the main actor, since an NSImage
         // may not cross to the queue that does the looking.
         let sendable = NameSuggester.SendableImage(picture)
-        nameThenWrite(data, extension: format.fileExtension, kind: "picture") {
-            await NameSuggester.suggest(forImage: sendable.image, details: $1, style: $0)
+        let early = ClipboardNamePrefetcher.shared.take(in: active.directory,
+                                                        changeCount: changeCount)
+        nameThenWrite(data, extension: format.fileExtension, kind: "picture") { style, details in
+            if let early { return await ClipboardNamePrefetcher.wait(for: early) }
+            // No guess for this folder, but Vision may well have read the
+            // picture already: that half does not depend on where it goes.
+            let said = style.template.usesContent
+                ? await ClipboardNamePrefetcher.shared.pictureWords(
+                    for: sendable, changeCount: changeCount, length: style.excerptLength).value
+                : ""
+            return await NameSuggester.suggest(forPictureDescribedAs: said,
+                                               details: details, style: style)
         }
     }
 
@@ -791,7 +807,7 @@ final class AppModel {
         let pane = active
         isSuggestingName = true
         showWhileThinking()
-        var style = nameStyle
+        var style = Self.nameStyle
         // The file it will be, since there is no file yet to ask about.
         let details = NameSuggester.details(
             name: suggestedName("untitled.\(suffix)", in: pane.directory),
@@ -828,7 +844,7 @@ final class AppModel {
     }
 
     /// The Settings that shape a suggested name, read once per question.
-    private var nameStyle: NameSuggester.Style {
+    static var nameStyle: NameSuggester.Style {
         let configuration = ConfigStore.shared.configuration
         return NameSuggester.Style(
             separator: configuration.nameSeparatorEnabled
@@ -976,7 +992,11 @@ final class AppModel {
         // The folder is passed in when there has been a wait: by the time a
         // suggested name comes back the user may be in the other pane, and
         // numbering against that one would pick a name that clashes here.
-        let directory = folder ?? active.directory
+        Self.numberedName(base, in: folder ?? active.directory)
+    }
+
+    /// `suggestedName`, for code with no window of its own to ask.
+    static func numberedName(_ base: String, in directory: URL) -> String {
         let stem = (base as NSString).deletingPathExtension
         let suffix = (base as NSString).pathExtension
         func name(_ number: Int) -> String {
@@ -1127,11 +1147,14 @@ final class AppModel {
     func renameWithSuggestion() {
         guard namesCanBeSuggested, !isSuggestingName,
               let item = singleSelection("rename") else { return }
+        // The model answers one question at a time, and this is the one being
+        // waited for.
+        ClipboardNamePrefetcher.shared.cancel()
         let pane = active
         isSuggestingName = true
         showWhileThinking()
 
-        var style = nameStyle
+        var style = Self.nameStyle
         suggestionTask = Task {
             var outcome: NameSuggester.Outcome?
             if !item.isDirectory {
@@ -2366,6 +2389,45 @@ final class AppModel {
         Clipboard.copyText(Shell.arguments(values))
         flash("Copied \(values.count) \(fullPath ? "path" : "name")\(values.count == 1 ? "" : "s")",
               error: false)
+    }
+
+    /// Whether Copy ▸ Content can do anything with these rows. The command is
+    /// left out of the menus when not -- an archive or a folder has no
+    /// contents the clipboard can hold, and offering it only to refuse taught
+    /// nothing.
+    func canCopyContents(of items: [FileItem]) -> Bool {
+        guard !items.isEmpty, items.allSatisfy({ !$0.isDirectory && !$0.isParent }) else {
+            return false
+        }
+        return Clipboard.canReadContents(of: items.map { ($0.url, $0.byteSize) })
+    }
+
+    var canCopySelectionContents: Bool { canCopyContents(of: active.selectedItems) }
+
+    /// What is *in* the selected files, rather than the files themselves:
+    /// text as text, a picture as a picture. The way back from New from
+    /// Clipboard.
+    func copySelectionContents() {
+        let files = active.selectedItems.filter { !$0.isDirectory && !$0.isParent }
+        guard !files.isEmpty else {
+            flash("Select a file to copy what is in it", error: true)
+            return
+        }
+        let urls = files.map(\.url)
+        let name = files.count == 1 ? files[0].name : "\(files.count) files"
+        Task {
+            let contents = await Task.detached { Clipboard.readContents(of: urls) }.value
+            switch contents {
+            case .text(let text):
+                Clipboard.copyText(text)
+                flash("Copied the text of \(name)", error: false)
+            case .image(let data, let type):
+                Clipboard.copyImage(data, type: type)
+                flash("Copied the picture in \(name)", error: false)
+            case .refused(let why):
+                flash(why, error: true)
+            }
+        }
     }
 
     /// Cmd-A. Without a menu item bound to it, the shortcut matches nothing and

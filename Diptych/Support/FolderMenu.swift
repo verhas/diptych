@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// The menu for the empty space below a pane's rows: what you can do *here*,
 /// rather than to a file.
@@ -28,20 +29,20 @@ final class FolderMenu: NSObject {
         actions = []
         let menu = NSMenu()
 
-        add("New Folder", to: menu) { model.requestNewFolder() }
-        add("New File", to: menu) { model.requestNewFile() }
+        add("New Folder", .newFolder, to: menu) { model.requestNewFolder() }
+        add("New File", .newFile, to: menu) { model.requestNewFile() }
         if model.clipboardCommandIsOffered {
-            add("New from Clipboard", to: menu) { model.newFromClipboard() }
+            add("New from Clipboard", .newFromClipboard, to: menu) { model.newFromClipboard() }
         }
 
         menu.addItem(.separator())
-        add("Paste", to: menu) { model.pasteIntoActivePane() }
-        add("Paste as Link", to: menu) { model.pasteAsLink() }
+        add("Paste", .paste, to: menu) { model.pasteIntoActivePane() }
+        add("Paste as Link", .pasteAsLink, to: menu) { model.pasteAsLink() }
 
         menu.addItem(.separator())
-        add("Rename Many\u{2026}", to: menu) { model.requestRenameMany() }
-        add("Select All", to: menu) { model.selectAll() }
-        add("Refresh", to: menu) { pane.reload() }
+        add("Rename Many\u{2026}", .renameMany, to: menu) { model.requestRenameMany() }
+        add("Select All", .selectAll, to: menu) { model.selectAll() }
+        add("Refresh", .refresh, to: menu) { pane.reload() }
 
         self.menu = menu
         // Next turn of the run loop, at the pointer.
@@ -54,8 +55,10 @@ final class FolderMenu: NSObject {
         DispatchQueue.main.async { menu.popUp(positioning: nil, at: at, in: nil) }
     }
 
-    private func add(_ title: String, to menu: NSMenu, run: @escaping () -> Void) {
+    private func add(_ title: String, _ shortcut: KeyboardShortcut, to menu: NSMenu,
+                     run: @escaping () -> Void) {
         let item = NSMenuItem(title: title, action: #selector(chose(_:)), keyEquivalent: "")
+        item.show(shortcut)
         item.target = self
         item.tag = actions.count
         actions.append(run)
