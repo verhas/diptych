@@ -242,7 +242,7 @@ private final class MCPHTTPHandler: ChannelInboundHandler, @unchecked Sendable {
     private func respond(to state: RequestState, context: ChannelHandlerContext) async {
         let head = state.head
         let path = head.uri.split(separator: "?").first.map(String.init) ?? head.uri
-        guard await path == server.endpoint else {
+        guard path == server.endpoint else {
             await write(.error(statusCode: 404, .invalidRequest("Not Found")),
                        version: head.version, context: context)
             return
@@ -533,7 +533,8 @@ extension MCPServer {
                         + "the general Execute action. Returns immediately once the window is "
                         + "open -- call get_batch_status afterwards to see what the person did "
                         + "with it. op is one of: move, copy, rename, trash, delete_permanent, "
-                        + "set_permissions, set_owner, create_symlink, create_directory. source/"
+                        + "set_permissions, set_owner, create_symlink, create_directory, "
+                        + "set_xattr, remove_xattr, add_tags, remove_tags, set_tags. source/"
                         + "target/linkTarget meanings by op -- move/copy: source required, "
                         + "target is the destination path. rename: source required, target is "
                         + "the new leaf name (no slashes). trash/delete_permanent: source "
@@ -541,7 +542,18 @@ extension MCPServer {
                         + "style or octal (\"755\"/\"0755\"). set_owner: source required, target "
                         + "is \"owner:group\" (either half empty leaves it unchanged). "
                         + "create_symlink: target is the new link's path, linkTarget is what it "
-                        + "points to. create_directory: target is the new folder's path.",
+                        + "points to. create_directory: target is the new folder's path. "
+                        + "set_xattr: source required, name is the extended attribute's name, "
+                        + "value its new value, encoding how value is written -- text (UTF-8, "
+                        + "the default), hex or base64 -- for binary values. remove_xattr: "
+                        + "source and name required; removing com.apple.quarantine is how a "
+                        + "download's Gatekeeper check is cleared. add_tags/remove_tags/set_tags: "
+                        + "source required, tags is the list of Finder tag names -- add and remove "
+                        + "change the item's tags at the moment the batch runs, set replaces them "
+                        + "(an empty list clears them). Use these rather than set_xattr on "
+                        + "com.apple.metadata:_kMDItemUserTags: they also keep Finder's label "
+                        + "colour in step. Attribute and tag rows show the current value next to "
+                        + "the new one, and are undoable.",
                      inputSchema: .object([
                         "type": "object",
                         "properties": [
@@ -559,6 +571,12 @@ extension MCPServer {
                                         "target": ["type": "string"],
                                         "linkTarget": ["type": "string", "description": "Absolute path."],
                                         "reason": ["type": "string", "description": "Shown to the person, not enforced."],
+                                        "name": ["type": "string", "description": "set_xattr/remove_xattr: the attribute's name."],
+                                        "value": ["type": "string", "description": "set_xattr: the new value, in encoding."],
+                                        "encoding": ["type": "string", "enum": ["text", "hex", "base64"],
+                                                     "description": "set_xattr: how value is written. Default text."],
+                                        "tags": ["type": "array", "items": ["type": "string"],
+                                                 "description": "add_tags/remove_tags/set_tags: Finder tag names."],
                                     ],
                                     "required": ["op"],
                                 ],
@@ -721,7 +739,11 @@ extension MCPServer {
                         source: object["source"]?.stringValue,
                         target: object["target"]?.stringValue,
                         linkTarget: object["linkTarget"]?.stringValue,
-                        reason: object["reason"]?.stringValue)
+                        reason: object["reason"]?.stringValue,
+                        name: object["name"]?.stringValue,
+                        value: object["value"]?.stringValue,
+                        encoding: object["encoding"]?.stringValue,
+                        tags: object["tags"]?.arrayValue?.compactMap(\.stringValue))
                 }
                 let proposeResult = await MainActor.run {
                     MCPToolSupport.proposeFileOperations(windowId: windowId, operations: rawOps)

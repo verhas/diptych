@@ -16,6 +16,12 @@ CONFIG="${CONFIG:-Debug}"
 # arm64 and x86_64.
 DESTINATION="platform=macOS,arch=$(uname -m)"
 
+# SwiftTerm (the terminal panel) runs a build plugin that only asks git which
+# SwiftTerm version is being built. Xcode refuses to run any package plugin
+# until it is trusted in the IDE; on the command line this is how it is
+# trusted. Read Plugins/ in its checkout again before raising its version.
+PLUGIN_TRUST="-skipPackagePluginValidation"
+
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
 # ANSI colours, but only when stdout is a terminal, so piping stays clean.
@@ -103,7 +109,7 @@ build() {
     info "Building $SCHEME ($CONFIG)..."
 
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-                  -destination "$DESTINATION" \
+                  -destination "$DESTINATION" "$PLUGIN_TRUST" \
                   DEPLOYMENT_POSTPROCESSING="$postprocess" build >"$log" 2>&1; then
         # xcodebuild is extremely chatty. On success, surface only real
         # diagnostics -- lines that start with an absolute source path.
@@ -144,7 +150,7 @@ run_tests() {
     info "Testing $SCHEME..."
 
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
-                  -destination "$DESTINATION" test >"$log" 2>&1; then
+                  -destination "$DESTINATION" "$PLUGIN_TRUST" test >"$log" 2>&1; then
         grep -E "^Test Case .*(passed|failed)" "$log" \
             | sed -E "s/^Test Case '-\[[A-Za-z]+ (.*)\]'/    \1/" \
             | sed 's/ (.*seconds).*//' || true

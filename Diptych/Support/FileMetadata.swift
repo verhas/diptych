@@ -93,16 +93,44 @@ enum ExtendedAttributes {
         names(of: path).map { Attribute(name: $0, data: data(of: path, name: $0)) }
     }
 
-    /// Returns nil on success.
+    /// Returns nil on success -- success meaning the attribute now holds
+    /// `value`, read back to make sure.
+    ///
+    /// The kernel's own answer is not enough. Some attributes macOS keeps for
+    /// itself -- `com.apple.provenance` above all -- and a program asking to
+    /// change or remove one is told it worked while nothing changes. Taking
+    /// that answer at its word is how a removal was reported as done, and a
+    /// batch of them finished "successfully", with every attribute still there.
     static func set(_ value: Data, name: String, on path: String) -> Failure? {
         let result = value.withUnsafeBytes {
             setxattr(path, name, $0.baseAddress, value.count, 0, 0)
         }
-        return result == 0 ? nil : Failure(code: errno)
+        guard result == 0 else { return Failure(code: errno) }
+        return data(of: path, name: name) == value ? nil : kept(name)
     }
 
     static func remove(name: String, from path: String) -> Failure? {
-        removexattr(path, name, 0) == 0 ? nil : Failure(code: errno)
+        guard removexattr(path, name, 0) == 0 else { return Failure(code: errno) }
+        return names(of: path).contains(name) ? kept(name) : nil
+    }
+
+    /// The change was accepted and did not happen.
+    private static func kept(_ name: String) -> Failure {
+        Failure(message: protectedReason(for: name)
+                ?? "macOS reported the change to \u{201C}\(name)\u{201D} as made, but the "
+                   + "attribute is unchanged: macOS keeps it and does not let programs change it")
+    }
+
+    /// Attributes known to be macOS's own, which no program can change or
+    /// remove -- said before anyone tries, not discovered afterwards.
+    static func protectedReason(for name: String) -> String? {
+        switch name {
+        case "com.apple.provenance":
+            "macOS keeps \u{201C}com.apple.provenance\u{201D} itself and does not let any "
+                + "program change or remove it -- the request is accepted and ignored"
+        default:
+            nil
+        }
     }
 }
 
@@ -323,6 +351,13 @@ enum FinderTag {
 struct XattrWrite {
     let name: String
     let data: Data?
+
+    /// What this write asks for is what the file has: for a check after the
+    /// change was made some other way, as root through `xattr(1)`.
+    func isInEffect(on path: String) -> Bool {
+        guard let data else { return !ExtendedAttributes.names(of: path).contains(name) }
+        return ExtendedAttributes.data(of: path, name: name) == data
+    }
 
     func apply(to path: String) -> ExtendedAttributes.Failure? {
         guard let data else {

@@ -22,13 +22,19 @@ enum Privileged {
     /// The prompt is itself the confirmation, so callers do not need to ask
     /// twice -- but they must only reach here for something the user asked for.
     static func run(_ command: String) -> Result {
+        runCapturingOutput(command).result
+    }
+
+    /// `run`, keeping what the command printed -- for reading something only
+    /// root may read, such as the system's provenance database.
+    static func runCapturingOutput(_ command: String) -> (result: Result, output: String?) {
         var error: NSDictionary?
         let script = "do shell script \"\(appleScriptQuoted(command))\" with administrator privileges"
-        NSAppleScript(source: script)?.executeAndReturnError(&error)
+        let reply = NSAppleScript(source: script)?.executeAndReturnError(&error)
 
-        guard let error else { return .succeeded }
-        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return .cancelled }
-        return .failed(error[NSAppleScript.errorMessage] as? String ?? "Authentication failed.")
+        guard let error else { return (.succeeded, reply?.stringValue) }
+        if (error[NSAppleScript.errorNumber] as? Int) == -128 { return (.cancelled, nil) }
+        return (.failed(error[NSAppleScript.errorMessage] as? String ?? "Authentication failed."), nil)
     }
 
     /// Runs chown after the system's own authentication prompt.

@@ -18,6 +18,8 @@ struct SettingsView: View {
                 .tabItem { Label("Appearance", systemImage: "textformat.size") }
             BehaviourSettingsView()
                 .tabItem { Label("Behaviour", systemImage: "switch.2") }
+            AgentSettingsView()
+                .tabItem { Label("Agents", systemImage: "apple.terminal") }
             IntelligenceSettingsView()
                 .tabItem { Label("Apple Intelligence", systemImage: "apple.intelligence") }
             GitSettingsView()
@@ -29,8 +31,8 @@ struct SettingsView: View {
         // Wide enough for every tab in the toolbar. One too many for the width
         // and macOS moves the last ones into a ">>" overflow menu -- where a
         // Settings tab cannot be chosen at all: the items show, greyed out.
-        // Seven tabs need about 530 points.
-        .frame(width: 600, height: 470)
+        // Eight tabs need about 610 points.
+        .frame(width: 680, height: 470)
         .background(WindowAccessor { window in
             if let window {
                 AppWindows.shared.register(window)
@@ -44,6 +46,7 @@ struct SettingsView: View {
 struct BehaviourSettingsView: View {
 
     @Bindable private var store = ConfigStore.shared
+    @State private var fileViewerError: String?
 
     var body: some View {
         // Scrolls, because this pane keeps gaining sections and the Settings
@@ -58,6 +61,29 @@ struct BehaviourSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Toggle("Show files in Diptych instead of Finder", isOn: Binding(
+                get: { store.configuration.showFilesInDiptych },
+                set: { on in
+                    fileViewerError = FileViewer.setSystemDefault(on)
+                    if fileViewerError == nil { store.configuration.showFilesInDiptych = on }
+                }))
+                .toggleStyle(.checkbox)
+            Text("Other apps\u{2019} Show in Finder and Reveal in Finder open the folder here, "
+                 + "with the file selected. Sets macOS\u{2019}s NSFileViewer, as ForkLift and Path "
+                 + "Finder do. Apps already open keep using Finder until you reopen them; apps "
+                 + "that tell Finder directly by name, and Finder\u{2019}s own features, are not "
+                 + "affected.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let fileViewerError {
+                Text("Could not change it: \(fileViewerError)")
+                    .font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Divider()
 
@@ -139,42 +165,6 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
-            Text("Agent Access (MCP)").font(.headline)
-
-            Toggle("Allow a local AI agent to query Diptych", isOn: Binding(
-                get: { store.configuration.mcpServerEnabled },
-                set: { store.setMCPServerEnabled($0) }))
-                .toggleStyle(.checkbox)
-            Text("Listens on 127.0.0.1 only, and only while Diptych is running. An agent "
-                 + "needs the token below to ask it anything -- what's selected, what a "
-                 + "comparison window is showing -- nothing it can already do through the "
-                 + "shell.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if store.configuration.mcpServerEnabled {
-                LabeledContent("Port") {
-                    TextField("", value: $store.configuration.mcpServerPort, format: .number)
-                        .frame(width: 80)
-                }
-                LabeledContent("Token") {
-                    HStack {
-                        Text(MCPTokenStore.shared.token)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                        Button("Regenerate") { MCPTokenStore.shared.regenerate() }
-                    }
-                }
-                Text("Regenerating stops the old token working immediately. Any agent already "
-                     + "connected, and the .mcp.json entry it was given, needs the new one -- "
-                     + "run \u{201c}Add Diptych to Agent Config\u{201d} again to update it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
 
             Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
                 .toggleStyle(.checkbox)
@@ -314,6 +304,9 @@ struct AppearanceSettingsView: View {
     }
 
     var body: some View {
+        // Scrolls: the agent terminal's settings made this pane taller than
+        // the Settings window, which cannot be resized.
+        ScrollView {
         VStack(alignment: .leading, spacing: 14) {
             Text("The font the file listings are drawn with. Row heights and icons "
                  + "follow the size.")
@@ -364,7 +357,6 @@ struct AppearanceSettingsView: View {
 
             sample
 
-            Spacer()
             HStack {
                 Spacer()
                 Button("Reset to Defaults") {
@@ -372,8 +364,100 @@ struct AppearanceSettingsView: View {
                     PaneFont.reset()
                 }
             }
+
+            Divider()
+
+            terminalSection
         }
         .padding(20)
+        }
+    }
+
+    // MARK: - Agent terminal
+
+    private var terminalSize: Binding<Double> {
+        Binding(get: { store.configuration.terminalFontSize },
+                set: { store.configuration.terminalFontSize =
+                        min(max($0, Configuration.fontSizes.lowerBound),
+                            Configuration.fontSizes.upperBound) })
+    }
+
+    private func colour(_ keyPath: WritableKeyPath<Configuration, String>) -> Binding<Color> {
+        Binding(get: { Color(nsColor: NSColor(hex: store.configuration[keyPath: keyPath])
+                                     ?? .textColor) },
+                set: { store.configuration[keyPath: keyPath] = NSColor($0).hexString })
+    }
+
+    /// Its own font and colours, apart from the panes': a terminal is read
+    /// for long stretches, and many people want it dark when the rest is not.
+    @ViewBuilder
+    private var terminalSection: some View {
+        Text("Agent Terminal").font(.headline)
+
+        HStack {
+            Picker("Font", selection: $store.configuration.terminalFontName) {
+                Text("System Monospaced").tag("")
+                Divider()
+                ForEach(TerminalStyle.monospacedFamilies, id: \.self) { Text($0).tag($0) }
+            }
+            .frame(maxWidth: 320)
+            Spacer()
+        }
+
+        HStack(spacing: 10) {
+            Text("Size")
+            Slider(value: terminalSize, in: Configuration.fontSizes, step: 1)
+                .frame(maxWidth: 240)
+            Text("\(Int(store.configuration.terminalFontSize)) pt")
+                .monospacedDigit()
+                .frame(width: 44, alignment: .leading)
+            Stepper("", value: terminalSize, in: Configuration.fontSizes, step: 1)
+                .labelsHidden()
+        }
+
+        Picker("Colours", selection: $store.configuration.terminalColours) {
+            Text("Follow the system").tag(Configuration.TerminalColours.system)
+            Text("Light").tag(Configuration.TerminalColours.light)
+            Text("Dark").tag(Configuration.TerminalColours.dark)
+            Text("Custom").tag(Configuration.TerminalColours.custom)
+        }
+        .pickerStyle(.radioGroup)
+        .horizontalRadioGroupLayout()
+
+        if store.configuration.terminalColours == .custom {
+            HStack(spacing: 20) {
+                ColorPicker("Text", selection: colour(\.terminalForeground),
+                            supportsOpacity: false)
+                ColorPicker("Background", selection: colour(\.terminalBackground),
+                            supportsOpacity: false)
+            }
+        }
+
+        terminalSample
+
+        HStack {
+            Spacer()
+            Button("Reset Terminal to Defaults") {
+                store.configuration.terminalFontName = ""
+                store.configuration.terminalFontSize = Configuration.defaultTerminalFontSize
+                store.configuration.terminalColours = .system
+                store.configuration.terminalForeground = "#E6E6E6"
+                store.configuration.terminalBackground = "#1E1E1E"
+            }
+        }
+    }
+
+    private var terminalSample: some View {
+        let style = TerminalStyle.current
+        let colours = style.textColours
+        return Text("~/.diptych/agentic $ claude\n> which of the selected files is largest?")
+            .font(Font(style.font))
+            .foregroundStyle(Color(nsColor: colours.foreground))
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: colours.background),
+                        in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
     }
 
     /// Shown at the chosen size, because a number of points means nothing until

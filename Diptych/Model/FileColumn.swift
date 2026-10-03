@@ -136,6 +136,38 @@ struct Configuration: Codable, Equatable {
     var mcpServerEnabled = false
     /// Bound to 127.0.0.1 only; not itself configurable yet.
     var mcpServerPort = 8787
+
+    /// What the agent terminal starts with, run by the person's login shell.
+    /// Empty: a plain shell.
+    var agentCommand = "claude"
+
+    /// Where the agent terminal starts, and where its `.mcp.json` is kept.
+    /// A leading `~` is the home folder.
+    static let defaultAgentDirectory = "~/.diptych/agentic"
+    var agentDirectory = Configuration.defaultAgentDirectory
+
+    /// The agent terminal's own look, apart from the panes'. Empty font name:
+    /// the system's monospaced font.
+    var terminalFontName = ""
+    static let defaultTerminalFontSize = 12.0
+    var terminalFontSize = Configuration.defaultTerminalFontSize
+
+    enum TerminalColours: String, Codable, Sendable, CaseIterable {
+        case system, light, dark, custom
+    }
+    var terminalColours = TerminalColours.system
+    /// Used with `.custom`, as `#RRGGBB`.
+    var terminalForeground = "#E6E6E6"
+    var terminalBackground = "#1E1E1E"
+
+    /// Other apps' "Show in Finder" opens Diptych instead -- by setting
+    /// `NSFileViewer`, which is where the choice really lives; this keeps it
+    /// so Diptych can put it back if it is lost.
+    var showFilesInDiptych = false
+
+    /// How tall the agent terminal is when open.
+    static let defaultTerminalHeight = 260.0
+    var terminalHeight = Configuration.defaultTerminalHeight
     /// The bearer token itself lives in `~/.diptych/.mcp.token` (see
     /// `MCPTokenStore`), not here -- config.json is meant to be readable and
     /// hand-editable, which is exactly what a credential should not be.
@@ -310,7 +342,9 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareOwnership
         case showTipsAtStartup
         case updateCheckPreference, lastUpdateCheckAttempt
-        case mcpServerEnabled, mcpServerPort
+        case mcpServerEnabled, mcpServerPort, agentCommand, agentDirectory
+        case terminalFontName, terminalFontSize, terminalColours, terminalForeground
+        case terminalBackground, terminalHeight, showFilesInDiptych
     }
 
     init() {}
@@ -385,6 +419,23 @@ struct Configuration: Codable, Equatable {
         lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
         mcpServerEnabled = (try? container.decode(Bool.self, forKey: .mcpServerEnabled)) ?? false
         mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
+        agentCommand = (try? container.decode(String.self, forKey: .agentCommand)) ?? "claude"
+        showFilesInDiptych =
+            (try? container.decode(Bool.self, forKey: .showFilesInDiptych)) ?? false
+        agentDirectory = (try? container.decode(String.self, forKey: .agentDirectory))
+            ?? Self.defaultAgentDirectory
+        terminalFontName = (try? container.decode(String.self, forKey: .terminalFontName)) ?? ""
+        terminalFontSize = min(max((try? container.decode(Double.self, forKey: .terminalFontSize))
+                                   ?? Self.defaultTerminalFontSize, Self.fontSizes.lowerBound),
+                               Self.fontSizes.upperBound)
+        terminalColours = (try? container.decode(TerminalColours.self, forKey: .terminalColours))
+            ?? .system
+        terminalForeground = (try? container.decode(String.self, forKey: .terminalForeground))
+            ?? "#E6E6E6"
+        terminalBackground = (try? container.decode(String.self, forKey: .terminalBackground))
+            ?? "#1E1E1E"
+        terminalHeight = max(100, (try? container.decode(Double.self, forKey: .terminalHeight))
+                                  ?? Self.defaultTerminalHeight)
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

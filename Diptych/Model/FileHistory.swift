@@ -60,6 +60,18 @@ final class FileHistory {
         let to: mode_t
     }
 
+    /// One extended attribute's bytes, before and after. Nil is "not there":
+    /// setting it to nil removes the attribute. Finder tags are two of these
+    /// -- the tag list and the old label colour in the Finder flags -- so a
+    /// tag change and any other attribute change undo the same way.
+    struct AttributeChange: Sendable {
+        let url: URL
+        let name: String
+        /// What it should be now, for the step to apply cleanly.
+        let from: Data?
+        let to: Data?
+    }
+
     struct OwnershipChange: Sendable {
         let url: URL
         /// Who it should belong to now, for the step to apply cleanly. Nil
@@ -77,6 +89,7 @@ final class FileHistory {
         case trash([Removal])
         case permissions([PermissionChange])
         case ownership([OwnershipChange])
+        case attributes([AttributeChange])
     }
 
     struct Entry: Sendable, Identifiable {
@@ -227,6 +240,17 @@ final class FileHistory {
               + "\(names(real.map(\.url)))."
         record("Permission Change", told: told, .permissions(real.map {
             PermissionChange(url: $0.url, from: $0.after, to: $0.before)
+        }))
+    }
+
+    /// Extended attributes and Finder tags. `name` is what the menu says --
+    /// "Tag Change", "Attribute Change" -- and `told` the sentence about it.
+    func recordAttributes(_ changes: [(url: URL, name: String, before: Data?, after: Data?)],
+                          name: String, told: String) {
+        let real = changes.filter { $0.before != $0.after }
+        guard !real.isEmpty else { return }
+        record(name, told: told, .attributes(real.map {
+            AttributeChange(url: $0.url, name: $0.name, from: $0.after, to: $0.before)
         }))
     }
 
@@ -515,6 +539,25 @@ final class FileHistory {
                 }
             }
             doable = .permissions(ok)
+
+        case .attributes(let changes):
+            var ok: [AttributeChange] = []
+            var changedSince: Set<String> = []
+            for change in changes {
+                let name = quoted(change.url.lastPathComponent)
+                guard exists(change.url) else {
+                    problems.append("\(name) is no longer in \(folder(of: change.url)).")
+                    continue
+                }
+                ok.append(change)
+                if ExtendedAttributes.data(of: change.url.path, name: change.name) != change.from {
+                    changedSince.insert(name)
+                }
+            }
+            for name in changedSince.sorted() {
+                warnings.append("\(name) has had its attributes or tags changed since.")
+            }
+            doable = .attributes(ok)
         }
 
         return Plan(direction: direction, entry: entry, doable: doable,
@@ -632,6 +675,28 @@ final class FileHistory {
             }
             return Done(inverse: .ownership(outcome.0), touched: outcome.0.map(\.url),
                         failures: outcome.1)
+
+        case .attributes(let changes):
+            // Without asking for a password, like ownership: a read-only item
+            // is reported, not unlocked behind an undo.
+            let outcome = await BlockingWork.run { () -> ([AttributeChange], [String]) in
+                var done: [AttributeChange] = []
+                var failures: [String] = []
+                for change in changes {
+                    if let failure = XattrWrite(name: change.name, data: change.to)
+                        .apply(to: change.url.path) {
+                        failures.append("\(quoted(change.name)) on "
+                                        + "\(quoted(change.url.lastPathComponent)) could not be "
+                                        + "set back: \(failure.message)")
+                    } else {
+                        done.append(AttributeChange(url: change.url, name: change.name,
+                                                    from: change.to, to: change.from))
+                    }
+                }
+                return (done, failures)
+            }
+            return Done(inverse: .attributes(outcome.0), touched: outcome.0.map(\.url),
+                        failures: outcome.1)
         }
     }
 
@@ -689,6 +754,7 @@ extension FileHistory.Action {
         case .trash(let removals): removals.count
         case .permissions(let changes): changes.count
         case .ownership(let changes): changes.count
+        case .attributes(let changes): changes.count
         }
     }
 }

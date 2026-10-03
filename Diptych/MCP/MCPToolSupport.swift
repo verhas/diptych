@@ -228,6 +228,10 @@ enum MCPToolSupport {
         let target: String?
         let linkTarget: String?
         let reason: String?
+        var name: String? = nil
+        var value: String? = nil
+        var encoding: String? = nil
+        var tags: [String]? = nil
     }
 
     enum ProposeResult { case unknownOp(String), noWindow, proposed(UUID) }
@@ -242,7 +246,9 @@ enum MCPToolSupport {
         var rows: [BatchOperationRow] = []
         for entry in operations {
             switch BatchOperationRow.build(op: entry.op, source: entry.source, target: entry.target,
-                                           linkTarget: entry.linkTarget, reason: entry.reason) {
+                                           linkTarget: entry.linkTarget, reason: entry.reason,
+                                           name: entry.name, value: entry.value,
+                                           encoding: entry.encoding, tags: entry.tags) {
             case .unknownOp(let name): return .unknownOp(name)
             case .row(let row): rows.append(row)
             }

@@ -308,6 +308,89 @@ struct BatchOperationsView: View {
                 row.targetPath = $0.isEmpty ? nil : URL(fileURLWithPath: $0)
             }
             .onSubmit { model.revalidate() }
+        case .setXattr, .removeXattr:
+            attributeEditor(row, model: model, disabled: disabled)
+        case .addTags, .removeTags, .setTags:
+            tagEditor(row, model: model, disabled: disabled)
+        }
+    }
+
+    /// The attribute, what it holds now, and -- for set -- what it will hold,
+    /// in the encoding the value was given in.
+    @ViewBuilder
+    private func attributeEditor(_ row: BatchOperationRow, model: BatchOperationsModel,
+                                 disabled: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+                EditableTextField("Attribute name", initial: row.xattrName ?? "",
+                                  disabled: disabled) {
+                    row.xattrName = $0.isEmpty ? nil : $0
+                }
+                .onSubmit { model.revalidate() }
+                .frame(maxWidth: 260)
+            }
+            HStack(spacing: 6) {
+                Text(XattrDisplay.describe(row.currentXattr, name: row.xattrName))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    .help("What it holds now")
+                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+                if row.kind == .setXattr {
+                    Picker("", selection: Binding(
+                        get: { row.xattrEncoding },
+                        set: { row.xattrEncoding = $0; row.unknownEncoding = nil
+                               model.revalidate() })) {
+                        ForEach(XattrEncoding.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .labelsHidden().frame(width: 80).disabled(disabled)
+                    EditableTextField("Value", initial: row.xattrText ?? "", disabled: disabled) {
+                        row.xattrText = $0
+                    }
+                    .onSubmit { model.revalidate() }
+                } else {
+                    Text("(removed)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let name = row.xattrName, let meaning = XattrDisplay.meaning(of: name) {
+                Text(meaning).font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The tags the item has now, and the tags it will have, as chips. The
+    /// row's own list is edited in place: a chip's \u{00D7} drops it, the field
+    /// adds one.
+    @ViewBuilder
+    private func tagEditor(_ row: BatchOperationRow, model: BatchOperationsModel,
+                           disabled: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+            HStack(spacing: 6) {
+                TagChips(tags: row.currentTags ?? [], removable: false) { _ in }
+                    .help("The tags it has now")
+                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
+                TagChips(tags: row.resultingTags(from: row.currentTags ?? []), removable: false) { _ in }
+                    .help("The tags it will have")
+            }
+            HStack(spacing: 6) {
+                Text(row.kind == .addTags ? "Add:" : row.kind == .removeTags ? "Remove:" : "Set to:")
+                    .font(.caption).foregroundStyle(.secondary)
+                TagChips(tags: row.tags, removable: !disabled) { tag in
+                    row.tags.removeAll { $0 == tag }
+                    model.revalidate()
+                }
+                if !disabled {
+                    NewTagField { tag in
+                        if !row.tags.contains(where: {
+                            $0.caseInsensitiveCompare(tag) == .orderedSame }) {
+                            row.tags.append(tag)
+                        }
+                        model.revalidate()
+                    }
+                }
+            }
         }
     }
 
@@ -325,6 +408,57 @@ struct BatchOperationsView: View {
         rows[index].included.toggle()
         shiftAnchor = index
         model.revalidate()
+    }
+}
+
+/// Tags as Finder draws them: a coloured dot for the seven colours, the name
+/// beside it -- and, where the list is being edited, a \u{00D7} to drop one.
+private struct TagChips: View {
+    let tags: [String]
+    let removable: Bool
+    let remove: (String) -> Void
+
+    var body: some View {
+        if tags.isEmpty {
+            Text("(none)").font(.caption).foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: 4) {
+                ForEach(tags, id: \.self) { tag in
+                    HStack(spacing: 3) {
+                        if FinderTag.colourIndex(of: tag) != 0 {
+                            Circle().fill(InfoView.colour(of: tag)).frame(width: 8, height: 8)
+                        }
+                        Text(tag).font(.caption)
+                        if removable {
+                            Button { remove(tag) } label: {
+                                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Leave \u{201C}\(tag)\u{201D} out")
+                        }
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                }
+            }
+        }
+    }
+}
+
+/// Type a tag and press Return to add it.
+private struct NewTagField: View {
+    @State private var text = ""
+    let add: (String) -> Void
+
+    var body: some View {
+        TextField("Add a tag", text: $text)
+            .textFieldStyle(.roundedBorder).font(.caption).frame(width: 110)
+            .onSubmit {
+                let tag = text.trimmingCharacters(in: .whitespaces)
+                guard !tag.isEmpty else { return }
+                add(tag)
+                text = ""
+            }
     }
 }
 

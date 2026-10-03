@@ -135,6 +135,9 @@ final class AppModel {
     /// Text backing the New Folder sheet.
     var textInput = ""
 
+    /// Held here: a window keeps its delegate only weakly.
+    @ObservationIgnored private var closeGuard: BrowserCloseGuard?
+
     /// The window this model belongs to, so the shared key handler can tell
     /// which window's model should receive a keystroke.
     @ObservationIgnored weak var window: NSWindow? {
@@ -150,6 +153,20 @@ final class AppModel {
 
             restoreFrame(on: window)
             observeFrameChanges(of: window)
+            if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+            closeObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.windowClosed() }
+            }
+            // A busy agent terminal is asked about before the window closes.
+            // Deferred a turn: SwiftUI may set its own delegate after this.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                if let guard_ = BrowserCloseGuard.install(on: window, for: self) {
+                    self.closeGuard = guard_
+                }
+            }
             ColumnWidths.startObserving()
             applyColumnWidths()
             // The window resolves after start(), so the first save had no frame
@@ -166,8 +183,18 @@ final class AppModel {
 
     /// Which slot in ~/.diptych this window owns. Windows take slots in the
     /// order they are created, and reopen into the same order next launch.
+    /// A closed window's slot is free again, and a new window takes the lowest
+    /// free one: closing the last window and opening a new one brings back
+    /// the folders it showed, rather than an unused slot's defaults -- which
+    /// looked like a pane chosen at random.
     @ObservationIgnored let slot: Int
     @ObservationIgnored private static var nextSlot = 0
+    @ObservationIgnored private static var freeSlots: Set<Int> = []
+    /// The window has closed. SwiftUI keeps the model alive after that, and
+    /// its panes still notice changes on disk; it must not save over the slot
+    /// a new window has since taken.
+    @ObservationIgnored private var closed = false
+    @ObservationIgnored private var closeObserver: NSObjectProtocol?
     /// Guards against writing defaults over the saved file before restore runs.
     @ObservationIgnored private var restored = false
     @ObservationIgnored private var frameRestored = false
@@ -193,8 +220,13 @@ final class AppModel {
                                                          before: [(String?, String?)])?
 
     init() {
-        slot = Self.nextSlot
-        Self.nextSlot += 1
+        if let free = Self.freeSlots.min() {
+            Self.freeSlots.remove(free)
+            slot = free
+        } else {
+            slot = Self.nextSlot
+            Self.nextSlot += 1
+        }
 
         let home = FileManager.default.homeDirectoryForCurrentUser
         left = PaneModel(directory: home)
@@ -292,8 +324,16 @@ final class AppModel {
 
     // MARK: - Persistence
 
+    /// The window's last state is saved as it closes, and its slot handed on.
+    private func windowClosed() {
+        guard !closed else { return }
+        persist()
+        closed = true
+        Self.freeSlots.insert(slot)
+    }
+
     func persist() {
-        guard restored else { return }
+        guard restored, !closed else { return }
         StateStore.shared.update(slot, WindowState(
             frame: window.map { NSStringFromRect($0.frame) },
             left: left.snapshot,
@@ -2448,6 +2488,9 @@ final class AppModel {
         return responder is NSText
             || responder.isKind(of: NSTextView.self)
             || responder is PermissionEditorView
+            // The terminal panel: Command-C copies its text, Command-V types
+            // into the shell, and no menu shortcut reaches the file list.
+            || responder is DiptychTerminalView
     }
 
     /// Menu key equivalents are matched before the responder chain, so Cmd-C
@@ -3019,6 +3062,50 @@ final class AppModel {
 
     func openTerminal() {
         NSWorkspaceOpener.openTerminal(at: active.directory)
+    }
+
+    // MARK: - Agent terminal
+
+    /// The agent terminal under the window is showing.
+    var terminalVisible = false
+
+    /// This window's agent terminal, made the first time it is shown and kept
+    /// while it is hidden.
+    @ObservationIgnored private(set) var terminal: TerminalSession?
+
+    /// Show the agent terminal -- starting the configured agent in
+    /// `~/.diptych/agentic` the first time -- or hide it. Hiding does not
+    /// stop anything running in it.
+    func toggleTerminal() {
+        if terminalVisible {
+            terminalVisible = false
+            return
+        }
+        if terminal == nil {
+            let folder: URL
+            do {
+                folder = try AgentWorkspace.prepare()
+            } catch {
+                // The terminal still opens: a shell is worth having even when
+                // the agent could not be told where Diptych is. It says why.
+                folder = FileManager.default.homeDirectoryForCurrentUser
+                flash("The agent will not find Diptych: \(error.localizedDescription)",
+                      error: true)
+            }
+            let session = TerminalSession(
+                startingIn: folder, running: ConfigStore.shared.configuration.agentCommand)
+            session.hostWindow = window
+            session.onExit = { [weak self, weak session] in
+                // `exit` typed at the prompt closes the panel, as it closes a
+                // Terminal.app window; the next Show starts the agent afresh.
+                guard let self, self.terminal === session else { return }
+                self.terminal = nil
+                self.terminalVisible = false
+            }
+            terminal = session
+        }
+        terminal?.focusRequested = true
+        terminalVisible = true
     }
 
     /// Registers Diptych's MCP endpoint in the active pane's directory, so an

@@ -18,6 +18,13 @@ struct ContentView: View {
     @State private var focusFollowsUser = false
     @State private var isDropTarget = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    /// The split view's own changes to the sidebar count as the person's only
+    /// once the window has finished opening.
+    @State private var sidebarFollowsUser = false
+
+    /// The window's content height, so the terminal cannot be dragged so tall
+    /// that the panes have no room.
+    @State private var windowHeight: CGFloat = 800
 
     /// SwiftUI's own window opener, handed to the model so New Tab can create a
     /// sibling window without going through the menu bar by title.
@@ -34,11 +41,19 @@ struct ContentView: View {
         // merely set the initial focus -- it re-asserts the value it captured,
         // so clicking the right pane was undone ~10ms later. Initial focus is
         // set once in .task below instead.
+        // The agent terminal under everything, sidebar included: it belongs to
+        // the window, not to a pane, and the width is for long agent output.
+        // A plain stack with its own handle rather than a VSplitView: the split
+        // view rebuilt the terminal's host on unrelated updates, and with it
+        // the keyboard focus went wherever AppKit put it next.
+        VStack(spacing: 0) {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 300)
         } detail: {
             VStack(spacing: 0) {
+                // The terminal under both panes, full width, with a divider
+                // that can be dragged -- the layout VS Code and Xcode use.
                 paneSplit
                 Divider()
                 FunctionBar(model: model)
@@ -85,6 +100,16 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
+        .frame(minHeight: 300)
+
+            TerminalArea(session: model.terminal,
+                         isOpen: model.terminalVisible,
+                         style: TerminalStyle.current,
+                         maxHeight: max(100, windowHeight - 300 - TerminalArea.handleHeight),
+                         toggle: { model.toggleTerminal() },
+                         tookFocus: { focusedSide = nil })
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
 
         // The split view owns the sidebar's visibility; the model owns it for
         // persistence and for the menu item. Kept in step both ways.
@@ -92,6 +117,12 @@ struct ContentView: View {
             columnVisibility = visible ? .all : .detailOnly
         }
         .onChange(of: columnVisibility) { _, visibility in
+            // Not while the window is still being set up: it opens at a default
+            // size before its saved one is restored, and a split view too
+            // narrow for the sidebar folds it away by itself -- which, copied
+            // here, was saved as the person's choice, so a window sometimes
+            // came back without its sidebar.
+            guard sidebarFollowsUser else { return }
             model.sidebarVisible = visibility != .detailOnly
         }
         .frame(minWidth: 420, minHeight: 460)
@@ -129,6 +160,8 @@ struct ContentView: View {
                 openWindow(id: DiptychApp.batchOperationsWindowID, value: $0)
             }
             model.start()
+            // A "show this file" request that arrived before any window did.
+            FileViewer.shared.windowReady(model)
             ReleaseNotesPresenter.shared.presentIfNeeded {
                 openWindow(id: DiptychApp.releaseNotesWindowID)
             }
@@ -142,10 +175,21 @@ struct ContentView: View {
             // lands during the sleep below, and would otherwise have already
             // overwritten activeSide by the time we read it.
             let restoredSide = model.activeSide
+            let restoredSidebar = model.sidebarVisible
             try? await Task.sleep(for: .milliseconds(400))
             focusedSide = restoredSide
             model.activeSide = restoredSide
             focusFollowsUser = true
+            // The window has its saved size by now: the saved sidebar again,
+            // whatever the split view did to it in the meantime.
+            model.sidebarVisible = restoredSidebar
+            columnVisibility = restoredSidebar ? .all : .detailOnly
+            sidebarFollowsUser = true
+        }
+
+        // The terminal hidden: the keyboard goes back to the pane it came from.
+        .onChange(of: model.terminalVisible) { _, visible in
+            if !visible { focusedSide = model.activeSide }
         }
 
         // An update notice that arrived while this window's sheet was busy --

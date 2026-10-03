@@ -52,6 +52,7 @@ developer account.
 | `⌃⌘V` | paste as a **symbolic link** to what was copied, rather than a copy of it |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
 | `⌃⌘C` | copy what is *in* the selected file -- text as text, a picture as a picture |
+| `` ⌃` `` | show or hide the agent terminal |
 | `⌘U` | swap the left and right panes |
 | `⌘⇧G` | go to folder -- a path that is not a folder is refused and the editor stays open; Escape returns to where you were |
 | `↑` `↓` | move the cursor; typing letters jumps to a name (type-select) |
@@ -1039,6 +1040,38 @@ When anything is escaped, **both** parties are told: the status line says which
 kind was found, and the prompt itself carries a note, because whoever reads the
 model's answer needs to know the names were not as they appeared.
 
+## Diptych instead of Finder
+
+Settings ▸ Behaviour ▸ **Show files in Diptych instead of Finder** makes
+other apps' *Show in Finder* and *Reveal in Finder* open the folder in Diptych,
+with the file selected. It sets macOS's `NSFileViewer` default, the same
+undocumented setting ForkLift and Path Finder use:
+
+```sh
+defaults write -g NSFileViewer -string dev.verhas.Diptych   # on
+defaults delete -g NSFileViewer                             # off
+```
+
+Diptych runs exactly that, and remembers the choice: if the setting is found
+missing at launch, it is put back. Switching it off removes it only while it
+still names Diptych, so another app chosen since is left alone. Limits that
+come with the setting, not with Diptych: an app reads it when it starts, so
+apps already open keep using Finder until reopened; apps that tell Finder
+directly by name, and Finder's own features, are not affected; and being
+undocumented, a macOS update could change it.
+
+The setting holds Diptych's bundle id, not a path: macOS asks LaunchServices
+for an app with that id, which may be any copy of Diptych it has seen -- in
+`/Applications`, an Xcode build, a mounted disk image. **Uninstalling without
+switching it off does no harm**: when no copy of Diptych can be found, macOS
+falls back to Finder (tried on macOS 27). `defaults delete -g NSFileViewer`
+clears the leftover setting.
+
+Diptych answers both requests it may be sent -- Finder's *reveal* and the
+ordinary *open* -- in the frontmost window's active pane: a folder is opened,
+a file is shown selected in its folder. A request that launches Diptych waits
+for the first window.
+
 ## Local agent access (MCP)
 
 F1 is a one-shot formatter: it describes the selection once and puts that on
@@ -1048,8 +1081,8 @@ back into the GUI. It is **off by default**, same reasoning as version
 tracking: it opens a local network listener Diptych did not need before, so
 switching it on is a decision you make, not one made for you.
 
-**Turning it on:** Settings ▸ Behaviour ▸ *Allow a local AI agent to query
-Diptych*, or just run **File ▸ Add Diptych to Agent Config (.mcp.json)…**,
+**Turning it on:** Settings ▸ Agents ▸ *Allow a local AI agent to query
+Diptych*, open the agent terminal (below), or run **File ▸ Add Diptych to Agent Config (.mcp.json)…**,
 which switches the server on for you and writes an entry into `.mcp.json` in
 the active pane's directory:
 
@@ -1076,7 +1109,7 @@ configurability yet -- localhost is the only option.
 **The token** lives in `~/.diptych/.mcp.token`, not in `config.json` --
 config.json is meant to be readable and hand-editable, which is exactly what a
 credential should not be. The file is set owner-read-only immediately after
-every write. Settings ▸ Behaviour shows the current token (for pasting
+every write. Settings ▸ Agents shows the current token (for pasting
 somewhere by hand) and a **Regenerate** button, which writes a fresh one and
 pushes it to the running server immediately -- the old one stops working at
 once, not the next time the server happens to restart. Regenerating means
@@ -1122,6 +1155,40 @@ window is open showing what and with which options, whether an edit is
 unsaved, plus diptych's own rename-detection -- and being able to act back
 into the window the person is actually looking at.
 
+### The agent terminal
+
+**View ▸ Show Agent Terminal** (`` ⌃` ``) opens a terminal under the whole
+window, sidebar included, with your agent already running in it and Diptych
+already in its configuration -- for talking to an agent about the files you
+are looking at, in plain language, without setting anything up.
+
+- **It starts in `~/.diptych/agentic`**, not in your files. Where the agent
+  stands does not matter: it reaches files through Diptych. Each time a
+  terminal starts, Diptych switches agent access on and writes three files
+  there: `.mcp.json` with the current port and token, **`AGENTS.md`** -- the
+  agent's instructions: change files only by proposing them to Diptych, never
+  with the shell; reading is fine; scratch files go in `$TMPDIR`; what "this"
+  and "the other side" mean -- and a `CLAUDE.md` that imports it, since Claude
+  Code reads only that. Delete the first line of either instruction file and
+  Diptych leaves it alone from then on.
+- **The agent is configurable** in Settings ▸ Agents: the command (`claude` by
+  default; `codex`, `copilot`, anything, with options; empty for a plain
+  shell) and the folder. It is typed into your login shell, so your `PATH`
+  and start-up files apply once, and when the agent exits the shell stays.
+- **Its look is its own** -- font, size, and colours that follow the system,
+  stay light or dark, or are chosen -- in Settings ▸ Appearance.
+- **A thin strip along the bottom of every window is its handle.** The
+  terminal starts out closed, as just that strip; clicking it does what
+  `` ⌃` `` does -- the first time it starts the agent, after that it folds the
+  terminal back down to the strip, with everything still running, and opens
+  it again. Drag the handle of an open terminal to resize it; the height is
+  remembered.
+- **Drop files on it** from a pane or Finder to type their paths, quoted for
+  the shell.
+- While it has the keyboard, Diptych's own keys stand aside: Tab completes,
+  Return runs, ⌘C and ⌘V copy and paste text. Hiding it (`` ⌃` `` again)
+  keeps it running; `exit` closes it; quitting Diptych ends it.
+
 ### Batch file operations, reviewed first
 
 The one exception to "no file operations": an agent can **propose** them, and
@@ -1131,7 +1198,9 @@ understood appears in a window, and the one file it should not have included
 gets unticked *before* it is touched.
 
 The operations are move, copy, rename, move to Trash, permanent delete,
-permissions, owner/group, symbolic link and new folder. In the review window:
+permissions, owner/group, symbolic link, new folder, **extended attributes**
+(set one, in text, hex or base64, or remove one) and **Finder tags** (add,
+remove, or set the whole list). In the review window:
 
 - **Every row is ticked**, and can be unticked -- one at a time, a run of them
   with Shift-click, or all at once with Select All / Select None.
@@ -1154,20 +1223,40 @@ permissions, owner/group, symbolic link and new folder. In the review window:
 - **More than ten operations** are confirmed once more before running.
 - **Owner changes that need an administrator** are collected and done together
   after one password prompt, however many there are.
+- **Attribute and tag rows show what the item has now beside what it will
+  have**: an attribute's value as text, a property list or a hex dump; tags as
+  coloured chips, the row's own tags removable with their × and added from a
+  field. Well-known attributes say what they are -- removing
+  `com.apple.quarantine` says it skips the Gatekeeper check of a download.
+  Tags are added to, or removed from, what the item has *when the batch runs*,
+  and Finder's label colour is kept in step with them. A row that would change
+  nothing says **No change**. Every attribute change is read back afterwards:
+  macOS accepts some changes and ignores them -- `com.apple.provenance`, its
+  own record of which tracked app made a file, cannot be removed by any
+  program -- and such a row is reported as failed, not as done. Proposing to
+  remove that one is flagged before anything runs. Its value is shown as its
+  provenance ID and the installed apps that carry the same tag; in Get Info ▸
+  Attributes, **Identify App…** names the app exactly -- path, bundle id,
+  team, and since when macOS has tracked it -- from macOS's provenance
+  database (`/var/db/SystemPolicyConfiguration/ExecPolicy`, readable only by
+  root, so it asks for the administrator password once, reads it read-only,
+  and remembers the answer for the session).
+- **Read-only items are settled with one question** for the whole batch, not
+  one per file: make the ones you own writable for the moment the change takes
+  and restore their permissions straight afterwards, authenticate once as an
+  administrator for all of them, or skip them.
 - **Cancel closes the window** and changes nothing.
 
 Each row then says what happened to it, failures in red, and the footer
 counts successes and failures. What was done goes on the undo list, one step
 per kind of operation -- the undo list cannot hold a move and a permission
-change as one step.
+change as one step. Attribute and tag changes undo by putting back the exact
+bytes each attribute held before.
 
-`DIPTYCH_MCP_PROPOSAL.md` at the repository root is the design document this
-was built from -- the reasoning behind what is and is not exposed, the
-scenarios each tool answers, and what is deliberately not built yet (a
-terminal launched from a window and bound to it; bind-address
-configurability; extended attributes as a batch operation). Update it alongside this section when the tool set changes;
-this README section is the "how do I use it," the proposal is the "why does
-it work this way."
+The design document this was built from, `DIPTYCH_MCP_PROPOSAL.md` -- the
+reasoning behind what is and is not exposed -- is in the git history and in
+the 1.4.x source archives; it is no longer kept up to date. Not built yet:
+bind-address configurability.
 
 ## Copying, with progress
 

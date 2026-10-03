@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -17,6 +18,11 @@ enum BatchOperationKind: String, CaseIterable, Sendable {
     case setOwner = "set_owner"
     case createSymlink = "create_symlink"
     case createDirectory = "create_directory"
+    case setXattr = "set_xattr"
+    case removeXattr = "remove_xattr"
+    case addTags = "add_tags"
+    case removeTags = "remove_tags"
+    case setTags = "set_tags"
 
     init?(mcpName: String) { self.init(rawValue: mcpName) }
 
@@ -31,6 +37,95 @@ enum BatchOperationKind: String, CaseIterable, Sendable {
         case .setOwner: "Change Owner"
         case .createSymlink: "Create Symlink"
         case .createDirectory: "Create Folder"
+        case .setXattr: "Set Attribute"
+        case .removeXattr: "Remove Attribute"
+        case .addTags: "Add Tags"
+        case .removeTags: "Remove Tags"
+        case .setTags: "Set Tags"
+        }
+    }
+
+    /// The tag operations: their value is a list of tag names, not bytes.
+    var isTagChange: Bool { self == .addTags || self == .removeTags || self == .setTags }
+
+    /// Everything that changes an extended attribute in place -- tags are
+    /// attributes too, which is how they are written and undone.
+    var isAttributeChange: Bool { isTagChange || self == .setXattr || self == .removeXattr }
+}
+
+/// How a `set_xattr` value was written in the call, and is shown for editing.
+enum XattrEncoding: String, CaseIterable, Sendable {
+    case text, hex, base64
+
+    func decode(_ value: String) -> Data? {
+        switch self {
+        case .text:
+            return Data(value.utf8)
+        case .hex:
+            let digits = value.filter { !$0.isWhitespace }
+            guard digits.count.isMultiple(of: 2) else { return nil }
+            var data = Data()
+            var index = digits.startIndex
+            while index < digits.endIndex {
+                let next = digits.index(index, offsetBy: 2)
+                guard let byte = UInt8(digits[index..<next], radix: 16) else { return nil }
+                data.append(byte)
+                index = next
+            }
+            return data
+        case .base64:
+            return Data(base64Encoded: value.filter { !$0.isWhitespace })
+        }
+    }
+
+    func encode(_ data: Data) -> String {
+        switch self {
+        case .text: String(decoding: data, as: UTF8.self)
+        case .hex: data.map { String(format: "%02x", $0) }.joined()
+        case .base64: data.base64EncodedString()
+        }
+    }
+}
+
+/// What an attribute holds, in words a person can read: text as text, a
+/// property list as one, anything else as the start of a hex dump.
+@MainActor
+enum XattrDisplay {
+    static func describe(_ data: Data?, name: String? = nil) -> String {
+        guard let data else { return "(not set)" }
+        if data.isEmpty { return "(empty)" }
+        if name == Provenance.xattrName, let words = Provenance.describe(data) { return words }
+        if let list = try? PropertyListSerialization.propertyList(from: data, format: nil),
+           data.starts(with: Data("bplist".utf8)) {
+            return "\(list)".replacingOccurrences(of: "\n", with: " ")
+        }
+        if let text = String(data: data, encoding: .utf8),
+           !text.unicodeScalars.contains(where: { $0.value < 9 }) {
+            return text
+        }
+        let hex = data.prefix(48).map { String(format: "%02x", $0) }.joined(separator: " ")
+        return data.count > 48 ? hex + " \u{2026} (\(data.count) bytes)" : hex
+    }
+
+    /// A word on the attributes people most often meet, so the review shows
+    /// what removing one actually means.
+    static func meaning(of name: String) -> String? {
+        switch name {
+        case "com.apple.quarantine":
+            "Marks a download: macOS checks it with Gatekeeper and asks before it is "
+                + "first opened. Removing it skips that check."
+        case FinderTag.xattrName:
+            "Finder tags."
+        case "com.apple.metadata:kMDItemWhereFroms":
+            "Where the file was downloaded from."
+        case FinderInfo.xattrName:
+            "Finder flags and label colour."
+        case Provenance.xattrName:
+            "macOS's record of which tracked app made or last changed this file. Not "
+                + "quarantine: nothing is checked or asked because of it. macOS keeps it "
+                + "itself and lets no program remove it."
+        default:
+            nil
         }
     }
 }
@@ -57,6 +152,22 @@ final class BatchOperationRow: Identifiable {
     var group: String?
     /// create_symlink only: what the new link points to.
     var linkTarget: URL?
+    /// set_xattr / remove_xattr: the attribute's name.
+    var xattrName: String?
+    /// set_xattr: the new value, kept as the text it is edited in, in
+    /// `xattrEncoding`; `xattrValue` is that text decoded, nil when it does
+    /// not decode.
+    var xattrText: String?
+    var xattrEncoding = XattrEncoding.text
+    /// An `encoding` the call gave that is none of the three: a problem on
+    /// the row until another is picked, never silently read as text.
+    var unknownEncoding: String?
+    var xattrValue: Data? { xattrText.flatMap(xattrEncoding.decode) }
+    /// add_tags / remove_tags / set_tags: the tag names.
+    var tags: [String] = []
+    /// The attribute's value, or the item's tags, read at the last revalidate.
+    var currentXattr: Data?
+    var currentTags: [String]?
     /// The agent's stated rationale, shown to the person, never enforced.
     var reason: String?
 
@@ -95,8 +206,55 @@ final class BatchOperationRow: Identifiable {
     /// A permission change to what the item already has: still ticked, so
     /// the person's choice is left alone, but it would do nothing.
     var isNoOp: Bool {
-        guard kind == .setPermissions, let mode, let currentMode else { return false }
-        return mode & 0o7777 == currentMode & 0o7777
+        switch kind {
+        case .setPermissions:
+            guard let mode, let currentMode else { return false }
+            return mode & 0o7777 == currentMode & 0o7777
+        case .setXattr:
+            guard let value = xattrValue, source != nil else { return false }
+            return currentXattr == value
+        case .removeXattr:
+            return source != nil && xattrName != nil && currentXattr == nil
+        case .addTags, .removeTags, .setTags:
+            guard let currentTags else { return false }
+            return Self.sameTags(resultingTags(from: currentTags), currentTags)
+        default:
+            return false
+        }
+    }
+
+    /// The item's tags once this row has run, from the tags it has.
+    /// Compared without regard to case, as Finder does, so "red" does not
+    /// become a second Red.
+    func resultingTags(from current: [String]) -> [String] {
+        func has(_ list: [String], _ tag: String) -> Bool {
+            list.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+        }
+        switch kind {
+        case .addTags:
+            var result = current
+            for tag in tags where !has(result, tag) { result.append(tag) }
+            return result
+        case .removeTags:
+            return current.filter { !has(tags, $0) }
+        case .setTags:
+            var result: [String] = []
+            for tag in tags where !has(result, tag) { result.append(tag) }
+            return result
+        default:
+            return current
+        }
+    }
+
+    static func sameTags(_ a: [String], _ b: [String]) -> Bool {
+        Set(a.map { $0.lowercased() }) == Set(b.map { $0.lowercased() })
+    }
+
+    /// The tags an item has now. A fresh URL, so nothing cached from before
+    /// the last change is read back.
+    static func tags(of url: URL) -> [String] {
+        let fresh = URL(fileURLWithPath: url.path)
+        return (try? fresh.resourceValues(forKeys: [.tagNamesKey]))?.tagNames ?? []
     }
 
     /// The path this row reads from and, other than for copy, vacates --
@@ -104,7 +262,8 @@ final class BatchOperationRow: Identifiable {
     /// kinds that only ever create something new.
     var effectiveSource: URL? {
         switch kind {
-        case .move, .copy, .rename, .trash, .deletePermanent, .setPermissions, .setOwner:
+        case .move, .copy, .rename, .trash, .deletePermanent, .setPermissions, .setOwner,
+             .setXattr, .removeXattr, .addTags, .removeTags, .setTags:
             return source
         case .createSymlink, .createDirectory:
             return nil
@@ -123,7 +282,8 @@ final class BatchOperationRow: Identifiable {
             return source.deletingLastPathComponent().appendingPathComponent(newName)
         case .createSymlink, .createDirectory:
             return targetPath
-        case .trash, .deletePermanent, .setPermissions, .setOwner:
+        case .trash, .deletePermanent, .setPermissions, .setOwner,
+             .setXattr, .removeXattr, .addTags, .removeTags, .setTags:
             return nil
         }
     }
@@ -166,6 +326,32 @@ final class BatchOperationRow: Identifiable {
             if linkTarget == nil { problems.append("linkTarget (what it points to) is required.") }
         case .createDirectory:
             if targetPath == nil { problems.append("target (new directory path) is required.") }
+        case .setXattr, .removeXattr:
+            if source == nil { problems.append("source is required.") }
+            if (xattrName ?? "").isEmpty {
+                problems.append("name (the attribute's name) is required.")
+            } else if let name = xattrName,
+                      let reason = ExtendedAttributes.protectedReason(for: name) {
+                problems.append(reason.prefix(1).uppercased() + reason.dropFirst() + ".")
+            }
+            if kind == .setXattr {
+                if let unknownEncoding {
+                    problems.append("encoding \"\(unknownEncoding)\" is not one of text, hex, "
+                                    + "base64 -- choose how the value is written.")
+                } else if xattrText == nil {
+                    problems.append("value is required.")
+                } else if xattrValue == nil {
+                    problems.append("value is not valid \(xattrEncoding.rawValue).")
+                }
+            }
+        case .addTags, .removeTags, .setTags:
+            if source == nil { problems.append("source is required.") }
+            if kind != .setTags, tags.isEmpty {
+                problems.append("tags must name at least one tag.")
+            }
+            if tags.contains(where: { $0.isEmpty || $0.contains("\n") }) {
+                problems.append("A tag name cannot be empty or span lines.")
+            }
         }
         if let source, !FileOperations.exists(source) {
             problems.append("\(source.path) does not exist.")
@@ -227,6 +413,14 @@ final class BatchOperationsModel {
             }
             if row.kind == .setPermissions, let source = row.source {
                 row.currentMode = try? FileOperations.currentMode(of: source)
+            }
+            if let source = row.source, row.kind == .setXattr || row.kind == .removeXattr,
+               let name = row.xattrName {
+                row.currentXattr = ExtendedAttributes.data(of: source.path, name: name)
+            }
+            if let source = row.source, row.kind.isTagChange {
+                row.currentTags = FileOperations.exists(source)
+                    ? BatchOperationRow.tags(of: source) : nil
             }
         }
 
@@ -325,6 +519,11 @@ final class BatchOperationsModel {
                             afterOwner: String?, afterGroup: String?)] = []
         var symlinksCreated: [URL] = []
         var directoriesCreated: [URL] = []
+        var tagRecords: [(url: URL, name: String, before: Data?, after: Data?)] = []
+        var xattrRecords: [(url: URL, name: String, before: Data?, after: Data?)] = []
+        // Attribute changes refused because the item is read-only, settled
+        // together after the loop with one question rather than one per row.
+        var refusedAttributeRows: [RefusedAttributeWrite] = []
         // A plain chown to a different owner is refused for everyone but
         // root. Rather than asking for the administrator password once per
         // row, every row that hits this is collected here and settled in
@@ -454,7 +653,56 @@ final class BatchOperationsModel {
                     rowResults[row.id] = error.localizedDescription
                     failed.insert(row.id)
                 }
+
+            case .setXattr, .removeXattr, .addTags, .removeTags, .setTags:
+                guard let source = row.source else { continue }
+                let writes: [XattrWrite]
+                do {
+                    writes = try row.attributeWrites(on: source)
+                } catch {
+                    rowResults[row.id] = (error as? ExtendedAttributes.Failure)?.message
+                        ?? error.localizedDescription
+                    failed.insert(row.id)
+                    continue
+                }
+                guard !writes.isEmpty else {
+                    rowResults[row.id] = "Unchanged: already so."
+                    continue
+                }
+                let path = source.path
+                let before = writes.map { ExtendedAttributes.data(of: path, name: $0.name) }
+                if let failure = writes.lazy.compactMap({ $0.apply(to: path) }).first {
+                    if failure.isPermissionDenied {
+                        refusedAttributeRows.append(
+                            RefusedAttributeWrite(row: row, url: source, writes: writes, before: before))
+                    } else {
+                        rowResults[row.id] = failure.message
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
+                rowResults[row.id] = row.kind.isTagChange ? "Tags set." : "Attribute set."
+                if row.kind == .removeXattr { rowResults[row.id] = "Attribute removed." }
+                let records = zip(writes, before).map {
+                    (url: source, name: $0.name, before: $1,
+                     after: ExtendedAttributes.data(of: path, name: $0.name))
+                }
+                if row.kind.isTagChange { tagRecords += records } else { xattrRecords += records }
             }
+        }
+
+        for settled in settleRefusedAttributeWrites(refusedAttributeRows) {
+            rowResults[settled.item.row.id] = settled.message
+            guard settled.succeeded else {
+                failed.insert(settled.item.row.id)
+                continue
+            }
+            let path = settled.item.url.path
+            let records = zip(settled.item.writes, settled.item.before).map {
+                (url: settled.item.url, name: $0.name, before: $1,
+                 after: ExtendedAttributes.data(of: path, name: $0.name))
+            }
+            if settled.item.row.kind.isTagChange { tagRecords += records } else { xattrRecords += records }
         }
 
         // One administrator prompt for every owner change that needed root,
@@ -498,9 +746,160 @@ final class BatchOperationsModel {
         if !ownerRecords.isEmpty { FileHistory.shared.recordOwnership(ownerRecords) }
         if !symlinksCreated.isEmpty { FileHistory.shared.recordCreation(.link, of: symlinksCreated) }
         if !directoriesCreated.isEmpty { FileHistory.shared.recordCreation(.newFolder, of: directoriesCreated) }
+        if !tagRecords.isEmpty {
+            let items = Set(tagRecords.map(\.url)).count
+            FileHistory.shared.recordAttributes(
+                tagRecords, name: "Tag Change",
+                told: "The tags of \(items) item\(items == 1 ? "" : "s") were changed.")
+        }
+        if !xattrRecords.isEmpty {
+            let items = Set(xattrRecords.map(\.url)).count
+            FileHistory.shared.recordAttributes(
+                xattrRecords, name: "Attribute Change",
+                told: "Extended attributes of \(items) item\(items == 1 ? "" : "s") were changed.")
+        }
 
         failedRows = failed
         status = .finished
+    }
+}
+
+/// An attribute change a read-only item refused, waiting for the one
+/// question that settles all of them.
+struct RefusedAttributeWrite {
+    let row: BatchOperationRow
+    let url: URL
+    let writes: [XattrWrite]
+    /// The values before, for undo.
+    let before: [Data?]
+}
+
+extension BatchOperationsModel {
+
+    /// One question for every attribute change a read-only item refused --
+    /// not one per row, which for a few hundred locked files would be a few
+    /// hundred alerts. The answers are the Info window's, made for all of
+    /// them at once: make the ones the person owns writable for the moment
+    /// the change takes and restore their permissions straight after, or do
+    /// the lot as an administrator, or leave them.
+    func settleRefusedAttributeWrites(
+        _ refused: [RefusedAttributeWrite]
+    ) -> [(item: RefusedAttributeWrite, succeeded: Bool, message: String)] {
+        guard !refused.isEmpty else { return [] }
+
+        func ownedMode(_ url: URL) -> mode_t? {
+            var info = stat()
+            guard stat(url.path, &info) == 0, info.st_uid == getuid() else { return nil }
+            return info.st_mode
+        }
+        let owned = refused.filter { ownedMode($0.url) != nil }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let count = refused.count
+        alert.messageText = count == 1
+            ? "\u{201C}\(refused[0].url.lastPathComponent)\u{201D} does not allow its attributes to be changed."
+            : "\(count) items do not allow their attributes to be changed."
+        alert.informativeText = """
+            They are read-only. Diptych can make the ones you own writable for the moment \
+            the change takes and restore their permissions straight afterwards, or make \
+            every change as an administrator.
+            """
+        enum Choice { case unlock, authenticate, skip }
+        var choices: [Choice] = []
+        if !owned.isEmpty {
+            alert.addButton(withTitle: owned.count == count
+                            ? "Unlock, Change, Restore"
+                            : "Unlock the \(owned.count) I Own")
+            choices.append(.unlock)
+        }
+        alert.addButton(withTitle: "Authenticate\u{2026}")
+        choices.append(.authenticate)
+        alert.addButton(withTitle: "Skip Them")
+        choices.append(.skip)
+        // Skipping is the safe default, so a stray Return changes nothing.
+        alert.buttons.last?.keyEquivalent = "\r"
+        alert.buttons.first?.keyEquivalent = ""
+        let index = alert.runModal().rawValue
+            - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let choice = choices.indices.contains(index) ? choices[index] : .skip
+
+        switch choice {
+        case .skip:
+            return refused.map { ($0, false, "Skipped: the item is read-only.") }
+
+        case .unlock:
+            return refused.map { item in
+                guard let mode = ownedMode(item.url) else {
+                    return (item, false, "Skipped: read-only and not yours to unlock -- "
+                                         + "Authenticate\u{2026} would have done it.")
+                }
+                let write = MetadataWrite.xattrs(item.writes, on: item.url,
+                                                 action: "change its attributes")
+                switch write.unlockedWrite(restoring: mode) {
+                case .succeeded(let warning):
+                    return (item, true, warning ?? "Changed (unlocked and restored).")
+                case .cancelled:
+                    return (item, false, "Cancelled.")
+                case .failed(let message):
+                    return (item, false, message)
+                }
+            }
+
+        case .authenticate:
+            let commands = refused.flatMap { item in
+                item.writes.compactMap { $0.command(for: item.url.path) }
+            }
+            guard !commands.isEmpty else {
+                return refused.map { ($0, true, "Unchanged: already so.") }
+            }
+            switch Privileged.run(commands.joined(separator: " && ")) {
+            case .succeeded:
+                // Read back here too: root is told "done" for an attribute
+                // macOS keeps for itself, exactly as anyone else is.
+                return refused.map { item in
+                    let path = item.url.path
+                    guard item.writes.allSatisfy({ $0.isInEffect(on: path) }) else {
+                        let name = item.writes.first { !$0.isInEffect(on: path) }?.name ?? ""
+                        return (item, false, ExtendedAttributes.protectedReason(for: name)
+                                ?? "Reported as done, but the attribute is unchanged.")
+                    }
+                    return (item, true, "Changed (administrator).")
+                }
+            case .cancelled:
+                return refused.map { ($0, false, "Cancelled: administrator authentication was not completed.") }
+            case .failed(let message):
+                return refused.map { ($0, false, message) }
+            }
+        }
+    }
+}
+
+extension BatchOperationRow {
+
+    /// The attribute writes this row comes to, worked out from the item as
+    /// it is at this moment -- tags added to the tags it has now, not to the
+    /// ones it had when the batch was proposed. Empty when there is nothing
+    /// to do.
+    func attributeWrites(on url: URL) throws -> [XattrWrite] {
+        let path = url.path
+        switch kind {
+        case .setXattr:
+            guard let name = xattrName, let value = xattrValue,
+                  ExtendedAttributes.data(of: path, name: name) != value else { return [] }
+            return [XattrWrite(name: name, data: value)]
+        case .removeXattr:
+            guard let name = xattrName,
+                  ExtendedAttributes.data(of: path, name: name) != nil else { return [] }
+            return [XattrWrite(name: name, data: nil)]
+        case .addTags, .removeTags, .setTags:
+            let current = Self.tags(of: url)
+            let result = resultingTags(from: current)
+            guard !Self.sameTags(result, current) else { return [] }
+            return try FinderTag.writes(for: result, on: path)
+        default:
+            return []
+        }
     }
 }
 
@@ -576,7 +975,9 @@ extension BatchOperationRow {
     /// unparseable rather than refusing the call outright -- fixable inline
     /// in the review window instead of round-tripping back to the agent.
     static func build(op: String, source: String?, target: String?,
-                      linkTarget: String?, reason: String?) -> BuildResult {
+                      linkTarget: String?, reason: String?,
+                      name: String? = nil, value: String? = nil, encoding: String? = nil,
+                      tags: [String]? = nil) -> BuildResult {
         guard let kind = BatchOperationKind(mcpName: op) else { return .unknownOp(op) }
         let row = BatchOperationRow(kind: kind)
         row.reason = reason
@@ -607,6 +1008,24 @@ extension BatchOperationRow {
             }
         case .createSymlink, .createDirectory:
             row.targetPath = targetURL
+        case .setXattr, .removeXattr:
+            row.source = sourceURL
+            row.xattrName = name
+            if kind == .setXattr {
+                row.xattrText = value
+                if let encoding {
+                    if let known = XattrEncoding(rawValue: encoding.lowercased()) {
+                        row.xattrEncoding = known
+                    } else {
+                        // A problem on the row rather than a refused call:
+                        // fixable in the review window by picking one.
+                        row.unknownEncoding = encoding
+                    }
+                }
+            }
+        case .addTags, .removeTags, .setTags:
+            row.source = sourceURL
+            row.tags = (tags ?? []).map { $0.trimmingCharacters(in: .whitespaces) }
         }
 
         row.problems = row.computeProblems()

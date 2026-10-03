@@ -89,6 +89,9 @@ final class KeyRouter {
                 // The permissions editor is a plain NSView, so it does not match
                 // the text checks above, but it owns the keyboard while open.
                 if window.firstResponder is PermissionEditorView { return false }
+                // The terminal panel: Tab completes, Return runs, F-keys and
+                // Delete belong to whatever is running in the shell.
+                if window.firstResponder is DiptychTerminalView { return false }
 
                 // While the Quick Look panel is key it is the key window, and no
                 // model owns it -- so without this fallback every shortcut,

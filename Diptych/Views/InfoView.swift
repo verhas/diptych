@@ -7,6 +7,8 @@ struct InfoView: View {
     /// Working copies of the text-valued extended attributes, so typing does
     /// not write to disk on every keystroke.
     @State private var attributeDrafts: [String: String] = [:]
+    /// Why the last provenance lookup failed, if it did.
+    @State private var provenanceError: String?
     /// Filters the symbol picker. View state: it is not part of the file.
     @State private var symbolQuery = ""
 
@@ -398,7 +400,8 @@ struct InfoView: View {
         }
     }
 
-    private static func colour(of tag: String) -> Color {
+    /// Not private: the batch review window draws tags the same way.
+    static func colour(of tag: String) -> Color {
         switch tag {
         case "Red":    .red
         case "Orange": .orange
@@ -433,8 +436,19 @@ struct InfoView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 Button("Remove") { model.removeAttribute(named: attribute.name) }
                                     // Removing it would fail for the same
-                                    // reason reading it does.
-                                    .disabled(!attribute.isReadable)
+                                    // reason reading it does -- and one macOS
+                                    // keeps for itself never can be removed,
+                                    // whatever it answers.
+                                    .disabled(!attribute.isReadable
+                                              || ExtendedAttributes.protectedReason(
+                                                  for: attribute.name) != nil)
+                                    .help(ExtendedAttributes.protectedReason(for: attribute.name)
+                                          .map { $0.prefix(1).uppercased() + $0.dropFirst() + "." }
+                                          ?? "Remove this attribute")
+                            }
+                            if let meaning = XattrDisplay.meaning(of: attribute.name) {
+                                Text(meaning).font(.caption2).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             if !attribute.isReadable {
                                 // Listed rather than hidden. The file has this
@@ -456,6 +470,10 @@ struct InfoView: View {
                                                             text: attributeDrafts[attribute.name] ?? "")
                                     }
                                 }
+                            } else if attribute.name == Provenance.xattrName,
+                                      let data = attribute.data,
+                                      let words = Provenance.describe(data) {
+                                provenance(data, words: words)
                             } else {
                                 // Binary values -- a plist, a bookmark. Editing
                                 // them as text would corrupt them.
@@ -479,6 +497,38 @@ struct InfoView: View {
             .padding(4)
         }
         .onChange(of: model.attributes) { _, _ in seedDrafts() }
+    }
+
+    /// Which app the provenance tag stands for. What is known without a
+    /// password first; the exact answer needs the system's provenance
+    /// database, which only root can read, so it is fetched only when asked.
+    @ViewBuilder
+    private func provenance(_ data: Data, words: String) -> some View {
+        let key = Provenance.key(of: data)
+        let answer = key.flatMap { Provenance.Lookup.shared.answers[$0] }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(words).font(.caption).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            if answer == .notFound {
+                Text("The provenance database has no record of this ID.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else if answer == nil, let key {
+                HStack(spacing: 8) {
+                    Button("Identify App\u{2026}") {
+                        if case .failed(let message) = Provenance.Lookup.shared.identify([key]) {
+                            provenanceError = message
+                        }
+                    }
+                    .controlSize(.small)
+                    Text("Reads macOS\u{2019}s provenance database, which needs an "
+                         + "administrator password.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                if let provenanceError {
+                    Text(provenanceError).font(.caption2).foregroundStyle(.red)
+                }
+            }
+        }
     }
 
     private func draft(for attribute: ExtendedAttributes.Attribute) -> Binding<String> {

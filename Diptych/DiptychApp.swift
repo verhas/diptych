@@ -136,6 +136,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
+    /// Before launching finishes: a "show this file" request may be what
+    /// launched Diptych, and it arrives straight after.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { FileViewer.shared.installHandlers() }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // MCP tool calls implicitly address "the" Diptych window (no session
         // binding exists yet to say which one), so there can only be one
@@ -191,7 +197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "NSDisabledCharacterPaletteMenuItem": true,
         ])
 
-        MainActor.assumeIsolated { ClipboardNamePrefetcher.shared.start() }
+        MainActor.assumeIsolated {
+            ClipboardNamePrefetcher.shared.start()
+            FileViewer.reconcileAtLaunch()
+        }
 
         MainActor.assumeIsolated {
             let store = ConfigStore.shared
@@ -203,6 +212,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // The agent terminals' shells, and the agents in them, end with the
+        // app rather than being left to notice their terminal has gone.
+        MainActor.assumeIsolated {
+            for model in KeyRouter.shared.allModels { model.terminal?.terminate() }
+        }
         Task { await MCPServer.shared.shutdown() }
     }
 }
@@ -502,6 +516,14 @@ struct FileCommands: Commands {
                 .keyboardShortcut("=", modifiers: .command)
             Button("Refresh") { model?.active.reload() }
                 .keyboardShortcut(.refresh)
+
+            Divider()
+
+            Button(model?.terminalVisible == true ? "Hide Agent Terminal" : "Show Agent Terminal") {
+                model?.toggleTerminal()
+            }
+            .keyboardShortcut(.toggleTerminal)
+            .disabled(model == nil)
         }
     }
 }

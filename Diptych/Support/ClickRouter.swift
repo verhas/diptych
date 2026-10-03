@@ -75,7 +75,7 @@ final class ClickRouter {
         guard let window = NSApp.window(withWindowNumber: windowNumber),
               let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
               let content = window.contentView,
-              let hit = content.hitTest(content.convert(location, from: nil)),
+              let hit = Self.view(in: content, at: location),
               !isInsideEditor(hit),
               let table = enclosingTable(of: hit),
               let index = TableFinder.tables(in: window).firstIndex(of: table)
@@ -89,7 +89,7 @@ final class ClickRouter {
     /// the pane clicked -- so its name can start being worked out now.
     private func anticipateNewFromClipboard(windowNumber: Int, location: NSPoint) {
         guard let (_, table, pane) = paneHit(windowNumber: windowNumber, location: location),
-              table.visibleRect.contains(table.convert(location, from: nil))
+              isInListing(table, location)
         else { return }
         ClipboardNamePrefetcher.shared.anticipate(in: pane.directory)
     }
@@ -101,12 +101,11 @@ final class ClickRouter {
 
         let point = table.convert(location, from: nil)
         // `row(at:)` answers -1 for *any* point that is not exactly on a row --
-        // which is true below the last row, but just as true for a point in
-        // the path bar sitting above the table entirely: its background view
-        // is still what `hitTest` returns there. Only `visibleRect` actually
-        // distinguishes "inside the table, past the last row" from "nowhere
-        // near the table at all".
-        guard table.visibleRect.contains(point) else { return false }
+        // below the last row, but also on the column headers. Only the visible
+        // listing distinguishes "inside the list, past the last row" from
+        // anywhere else, and it has to be the scroll view's, not the table's
+        // own `visibleRect`, which ends at the last row of a short listing.
+        guard isInListing(table, location) else { return false }
 
         // Below the last row. On a row, SwiftUI's own menu answers.
         guard table.row(at: point) < 0 else { return false }
@@ -123,7 +122,7 @@ final class ClickRouter {
         guard let window = NSApp.window(withWindowNumber: windowNumber),
               let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
               let content = window.contentView,
-              let hit = content.hitTest(content.convert(location, from: nil))
+              let hit = Self.view(in: content, at: location)
         else { return }
 
         // While the Quick Look panel is up it is the key window, so a click in
@@ -140,6 +139,14 @@ final class ClickRouter {
 
         // A click inside an open editor belongs to that editor.
         if isInsideEditor(hit) { return }
+
+        // Into the agent terminal: the keyboard goes there, and neither pane
+        // is the focused one any more.
+        if let terminal = enclosingTerminal(of: hit) {
+            model.clickedAwayFromTable()
+            terminal.onFocus?()
+            return
+        }
 
         let tables = TableFinder.tables(in: window)
         guard let table = enclosingTable(of: hit), let index = tables.firstIndex(of: table) else {
@@ -179,10 +186,57 @@ final class ClickRouter {
         model.tableClicked(pane: pane, rowID: rowID, column: column, clickCount: clickCount)
     }
 
+    /// The list a view is part of. A short listing does not reach the bottom
+    /// of its pane: the space under its last row is the scroll view's, not
+    /// the table's, so the table is found through the scroll view too -- or a
+    /// right-click there finds no pane, and offers no menu at all.
+    /// The view a click at `location` (window coordinates) lands on.
+    ///
+    /// `hitTest` takes its point in the coordinates of the view's *superview*,
+    /// not its own -- and the window's content view is a SwiftUI hosting view,
+    /// which counts y downwards where the window counts it upwards. Passing
+    /// the content view's own coordinates mirrored every click top to bottom.
+    /// While the panes filled the window that went unnoticed -- left and right
+    /// still came out right, and the row is worked out separately -- but with
+    /// the agent terminal under them, a click on the terminal was taken for a
+    /// click on a pane and the other way round, and a right-click below the
+    /// last row looked for empty space somewhere else entirely.
+    static func view(in content: NSView, at location: NSPoint) -> NSView? {
+        let point = content.superview.map { $0.convert(location, from: nil) } ?? location
+        return content.hitTest(point)
+    }
+
     private func enclosingTable(of view: NSView) -> NSTableView? {
         var candidate: NSView? = view
         while let current = candidate {
             if let table = current as? NSTableView { return table }
+            if let clip = current as? NSClipView, let table = clip.documentView as? NSTableView {
+                return table
+            }
+            if let scroll = current as? NSScrollView,
+               let table = scroll.documentView as? NSTableView {
+                return table
+            }
+            candidate = current.superview
+        }
+        return nil
+    }
+
+    /// Inside the part of the pane that shows rows -- including the empty
+    /// space under the last one -- rather than the column headers or anything
+    /// outside the list. The clip view is that part: the table itself ends at
+    /// its last row, so its own bounds would leave the empty space out.
+    private func isInListing(_ table: NSTableView, _ location: NSPoint) -> Bool {
+        guard let clip = table.enclosingScrollView?.contentView else {
+            return table.visibleRect.contains(table.convert(location, from: nil))
+        }
+        return clip.bounds.contains(clip.convert(location, from: nil))
+    }
+
+    private func enclosingTerminal(of view: NSView) -> DiptychTerminalView? {
+        var candidate: NSView? = view
+        while let current = candidate {
+            if let terminal = current as? DiptychTerminalView { return terminal }
             candidate = current.superview
         }
         return nil

@@ -50,6 +50,9 @@ extension KeyboardShortcut {
     static let copyContent      = KeyboardShortcut("c", modifiers: [.command, .control])
 
     static let refresh          = KeyboardShortcut("r", modifiers: .command)
+
+    /// Control-backquote, as in VS Code. Nothing else in Diptych uses the key.
+    static let toggleTerminal   = KeyboardShortcut("`", modifiers: .control)
 }
 
 extension KeyEquivalent {
