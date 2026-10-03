@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Diptych — a two-pane file manager for macOS</title>
-<meta name="description" content="Diptych is a free, open-source, Norton-Commander-style two-pane file manager for macOS, written in Swift and SwiftUI. Compare files, bytes, or whole folders; version tracking; no telemetry.">
+<title>Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS</title>
+<meta name="description" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS. Free and open source, Norton-Commander style, written in Swift and SwiftUI. Compare files, bytes, or whole folders; version tracking; no telemetry.">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/icon.png">
 
-<meta property="og:title" content="Diptych — a two-pane file manager for macOS">
-<meta property="og:description" content="Free and open source. Two panes, Norton-Commander style. Compare files, bytes, or whole folders. No telemetry, ever.">
+<meta property="og:title" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS">
+<meta property="og:description" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS. Free and open source. Two panes, Norton-Commander style. No telemetry, ever.">
 <meta property="og:image" content="https://verhas.github.io/diptych/assets/icon.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
@@ -127,6 +127,14 @@
     font-weight: 800;
     letter-spacing: -0.02em;
     margin: 0 0 14px;
+  }
+  .hero p.slogan {
+    font-size: clamp(15px, 2vw, 17px);
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--amber-2);
+    max-width: 620px;
+    margin: 0 0 12px;
   }
   .hero p.tagline {
     font-size: clamp(17px, 2.4vw, 20px);
@@ -252,6 +260,40 @@
     font-size: 12.5px;
   }
 
+  /* The agent terminal, drawn rather than photographed. */
+  .term {
+    max-width: 860px;
+    margin: 0 auto 48px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    background: #15172b;
+    color: #e6e6f0;
+    font: 14px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .term .bar {
+    height: 14px;
+    background: #2a2d48;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #8f93b8;
+    font-size: 11px;
+  }
+  .term .body { padding: 18px 22px 20px; }
+  .term .line { white-space: pre-wrap; margin: 0; }
+  .term .prompt { color: #8f93b8; }
+  .term .you { color: #fff; font-weight: 600; }
+  .term .tool { color: var(--amber); }
+  .term .answer { color: #c9cbe2; }
+  .term .gap { height: 10px; }
+  .term-note {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin: -34px 0 40px;
+  }
+
   .list-check { list-style: none; padding: 0; margin: 0; }
   .list-check li {
     display: flex; gap: 12px; padding: 9px 0;
@@ -353,6 +395,7 @@
     <img src="assets/icon.png" alt="">
     <span class="brand">Diptych</span>
     <div class="links">
+      <a href="#agent">Agent</a>
       <a href="#features">Features</a>
       <a href="#compare">Compare</a>
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">Source</a>
@@ -364,10 +407,12 @@
 <header class="hero">
   <div class="wrap">
     <img class="icon" src="assets/icon.png" alt="Diptych icon">
+    <p class="slogan">Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.</p>
     <h1>A two-pane file manager,<br>the Norton&nbsp;Commander way.</h1>
     <p class="tagline">
       Diptych is a free, open-source file manager for macOS — two panes, a
-      keyboard that does the work, and a genuinely useful way to compare two
+      keyboard that does the work, an AI agent that sees what you see and asks
+      before it touches anything, and a genuinely useful way to compare two
       files, two folders, or two whole trees of them.
     </p>
     <div class="cta-row">
@@ -389,6 +434,75 @@
     </div>
   </div>
 </header>
+
+<section class="alt" id="agent">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">New in 1.5</p>
+      <h2>Your AI agent sees what you see</h2>
+      <p class="lede">
+        At the bottom of every window there is an agent terminal: Claude Code,
+        Codex, Copilot — whichever agent you use — already connected to
+        Diptych through MCP, the Model Context Protocol. It knows what you have
+        selected, what each pane shows, what a comparison found. And it changes
+        nothing behind your back: every change it wants is a list you review
+        first.
+      </p>
+    </div>
+
+    <div class="term" role="img" aria-label="An example conversation with the agent in Diptych's agent terminal">
+      <div class="bar">⌄</div>
+      <div class="body">
+        <p class="line"><span class="prompt">~/.diptych/agentic $</span> claude</p>
+        <div class="gap"></div>
+        <p class="line"><span class="you">&gt; Which of the selected files is the largest?</span></p>
+        <p class="line"><span class="tool">⏺ diptych · get_selection</span></p>
+        <p class="line"><span class="answer">  manual.pdf — the largest of the four files you selected.</span></p>
+        <div class="gap"></div>
+        <p class="line"><span class="you">&gt; Tag the 2025 invoices in the other pane Red, and remove the
+  quarantine from the PDFs I selected.</span></p>
+        <p class="line"><span class="tool">⏺ diptych · propose_file_operations</span></p>
+        <p class="line"><span class="answer">  The review window is open in Diptych: 15 operations, each one
+  shown with what it has now and what it will have. Untick
+  anything you don't want, then Execute.</span></p>
+      </div>
+    </div>
+    <p class="term-note">An example conversation. The agent asked Diptych — it was never told a file name.</p>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>One click to start</b>
+        <span class="desc">Click the strip at the bottom of the window, or press <kbd>⌃</kbd><kbd>`</kbd>. Your agent starts, already configured: Diptych writes its <code>.mcp.json</code> and an <code>AGENTS.md</code> that tells it to work on your files only through Diptych.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>It sees what you see</b>
+        <span class="desc">The selection, the folder in each pane, the open windows, what a folder comparison found — renamed files included. Things a shell has no way to know.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>It acts in the window you are looking at</b>
+        <span class="desc">It selects files, opens comparisons and Info windows, switches a pane, changes a setting — visibly, in Diptych.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>It proposes, you decide</b>
+        <span class="desc">Moves, copies, renames, permissions, owners, links, extended attributes, Finder tags, quarantine removal: a review window lists every operation, each one editable and untickable. Overwriting or deleting needs its own tick. And all of it can be undone.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Local, locked, logged</b>
+        <span class="desc">Diptych's MCP server listens on this Mac only, answers only with its token, and logs every call where you can see it. Off until you switch it on. Diptych sends nothing anywhere; your agent talks to its own provider, as it always does.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Any MCP agent, anywhere</b>
+        <span class="desc">Use the built-in terminal, or <i>File ▸ Add Diptych to Agent Config</i> to connect the agent you already run in your own terminal or editor.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
 
 <section id="features">
   <div class="wrap">
@@ -574,7 +688,7 @@
 
 <footer>
   <div class="wrap">
-    <span>© <span id="year"></span> Peter Verhas · Diptych</span>
+    <span>© <span id="year"></span> Peter Verhas · Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.</span>
     <div class="flinks">
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/verhas/diptych/issues" target="_blank" rel="noopener">Issues</a>
