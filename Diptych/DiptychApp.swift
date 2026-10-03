@@ -245,6 +245,10 @@ struct FileCommands: Commands {
     }
 
     var body: some Commands {
+        // The standard About panel, with the slogan under the version.
+        CommandGroup(replacing: .appInfo) {
+            Button("About Diptych") { AboutPanel.show() }
+        }
         // Under About, above Settings, where macOS apps keep it.
         CommandGroup(after: .appInfo) {
             Button("Check for Updates\u{2026}") { UpdateChecker.shared.checkNow(on: model) }

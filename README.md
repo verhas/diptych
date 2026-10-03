@@ -1,5 +1,7 @@
 #  Diptych
 
+*Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.*
+
 A two-pane (Norton Commander style) file manager for macOS, in Swift + SwiftUI.
 
 ## Build and run
