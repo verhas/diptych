@@ -163,30 +163,34 @@ run_tests() {
     fi
 }
 
-# The first Developer ID Application certificate in the keychain, if any.
-# The certificate's SHA-1 hash, not its name.
+# The Developer ID certificate to sign with, by its SHA-1 hash -- never by
+# its name. The name, "Peter Verhás", has an accented letter that codesign
+# mis-decodes as MacRoman and then fails to match; and two certificates carry
+# that same name: the original-authority one ending on 1 February 2027, and
+# its G2 replacement, which this hash is. Taking "the first one listed" picked
+# the old certificate. Override for a later certificate with
+#   DEVELOPER_ID=<sha-1 hash> ./build.sh ...
+# (`security find-identity -v -p codesigning` lists the hashes.)
+DEVELOPER_ID="${DEVELOPER_ID:-4F265A5D1E4D6CBA168179118CFC740B60C1778E}"
+
+# The configured certificate's hash, when it is in the keychain and can sign;
+# empty otherwise -- then the build is unsigned, and no other certificate is
+# ever used in its place.
 #
-# codesign takes either, and the name is the one that breaks: this one reads
-# "Peter Verhás", and by the time the name had been through the shell codesign
-# was looking for "Peter Verh√°s" -- the UTF-8 bytes read as MacRoman -- and
-# answered "no identity found" on a Mac that has the certificate installed.
-# The hash is ASCII and means exactly one certificate.
+# `|| true` throughout: under `set -e` a pipeline that finds nothing must mean
+# "no Developer ID here", not abort the whole build.
 developer_id() {
-    # `|| true`: grep exits non-zero when there is no such certificate, and
-    # under `set -e` that would abort the whole build rather than simply
-    # meaning "no Developer ID here".
     security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Developer ID Application" \
-        | head -1 \
-        | awk '{print $2}' || true
+        | awk -v id="$DEVELOPER_ID" 'toupper($2) == toupper(id) { print $2; exit }' || true
 }
 
-# The certificate as a person reads it, for saying what is being signed.
+# For status messages only -- the name, and the hash that is actually used.
+# Never pass this to codesign, see above.
 developer_id_name() {
     security find-identity -v -p codesigning 2>/dev/null \
-        | grep "Developer ID Application" \
-        | head -1 \
-        | sed 's/.*"\(.*\)"/\1/' || true
+        | awk -v id="$DEVELOPER_ID" 'toupper($2) == toupper(id) { print; exit }' \
+        | sed 's/.*"\(.*\)"/\1/' \
+        | sed "s/\$/ [$DEVELOPER_ID]/" || true
 }
 
 # Submit the image to Apple and staple the resulting ticket, so the app opens

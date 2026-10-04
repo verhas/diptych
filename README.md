@@ -1656,8 +1656,8 @@ project.
 ./build.sh notarize   # submit that image to Apple and staple the ticket
 ```
 
-`dmg` builds Release, signs the app with a Developer ID certificate if the
-keychain holds one, stages it next to a symlink to `/Applications`, and writes a
+`dmg` builds Release, signs the app with the Developer ID certificate named
+in `build.sh`, stages it next to a symlink to `/Applications`, and writes a
 compressed image. Mount, drag across, eject -- the arrangement users expect.
 
 The version comes from `MARKETING_VERSION` in the Xcode project, which is the
@@ -1668,7 +1668,19 @@ may go up between releases of the same version.
 macOS refuses to open the app on any machine but this one -- the user has to
 right-click and Open, and is told the developer cannot be verified. To avoid
 that you need the Apple Developer Program, a *Developer ID Application*
-certificate in the keychain, and credentials stored once:
+certificate in the keychain, and credentials stored once.
+
+The certificate is chosen by its **SHA-1 hash**, `DEVELOPER_ID` at the top of
+the signing section of `build.sh` -- never by its name, which has an accented
+letter `codesign` mis-decodes, and which two certificates can share (an
+expiring one and its replacement). A certificate that is not in the keychain
+means an unsigned build, never another certificate quietly used instead. To
+sign with a different one for a single run:
+`DEVELOPER_ID=<hash> ./build.sh dmg`; `security find-identity -v -p
+codesigning` lists the hashes. Developer ID certificates now expire, so this
+changes when one is renewed.
+
+
 
 ```sh
 xcrun notarytool store-credentials Diptych \
