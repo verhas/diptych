@@ -130,6 +130,13 @@ shown in red.
 
 - **About Diptych** now says what Diptych is: *Diptych — pronounced 'deep
   tech' — a two-pane AI driven file manager for macOS.*
+- **Choosing the Git program is no longer a one-way street.** Settings ▸
+  Version Tracking now offers *Find it automatically* or *Use a program I
+  choose*, right under the Git that was found, with *Choose Another…*. And a
+  chosen program now stays as chosen: picking Homebrew's `/opt/homebrew/bin/git`
+  stored the versioned folder it links to, which `brew upgrade` deletes —
+  silently switching version tracking off. If yours was chosen that way, it
+  shows in red; choose it again, or switch to automatic.
 - **Signed with the new Developer ID certificate.** Apple's original
   Developer ID authority expires on 1 February 2027; this release is signed
   with its G2 replacement. Earlier releases keep working.

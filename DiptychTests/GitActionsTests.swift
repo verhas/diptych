@@ -124,9 +124,17 @@ final class GitActionsTests: XCTestCase {
     func testResolvingGitAnnouncesItself() async throws {
         // A pane drawn before Git was resolved has no colours, and nothing else
         // would ever tell it to look again -- which is why locate() posts.
+        // The search, not this Mac's own setting: a chosen Git path that has
+        // since gone -- a Homebrew upgrade removes the old version's folder --
+        // failed this test while the code was fine.
         let original = ConfigStore.shared.configuration.gitEnabled
-        defer { ConfigStore.shared.configuration.gitEnabled = original }
+        let originalPath = ConfigStore.shared.configuration.gitPath
+        defer {
+            ConfigStore.shared.configuration.gitEnabled = original
+            ConfigStore.shared.configuration.gitPath = originalPath
+        }
         ConfigStore.shared.configuration.gitEnabled = true
+        ConfigStore.shared.configuration.gitPath = ""
 
         let heard = expectation(forNotification: GitService.availabilityChanged,
                                 object: nil, notificationCenter: .default)

@@ -640,6 +640,8 @@ struct GitSettingsView: View {
 
             found
 
+            programChoice
+
             warning
 
             Divider()
@@ -672,26 +674,6 @@ struct GitSettingsView: View {
 
             Text(Self.talksToTheServer)
                 .font(.caption).foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Text("Use a different program\u{2026}")
-                    .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                Button("Choose\u{2026}") { choose() }
-                if !store.configuration.gitPath.isEmpty {
-                    Button("Use the one found automatically") {
-                        store.configuration.gitPath = ""
-                        Task { await git.locate() }
-                    }
-                }
-                Spacer()
-            }
-
-            Text("The program must be named \u{201C}git\u{201D}. That stops you picking "
-                 + "the wrong file by accident. It is not a security check \u{2014} a "
-                 + "harmful program can be named \u{201C}git\u{201D} too.")
-                .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
@@ -748,6 +730,61 @@ struct GitSettingsView: View {
         }
     }
 
+    /// Which Git: found automatically, or one chosen -- and, when chosen, the
+    /// way to choose another or go back. Right under what was found, where
+    /// someone looking at the wrong Git will look; at the bottom of the pane
+    /// it went unseen, and a chosen program that had since gone -- removed by
+    /// `brew upgrade` -- looked like there was no way out but editing the
+    /// configuration file.
+    @ViewBuilder
+    private var programChoice: some View {
+        let chosen = store.configuration.gitPath
+        let missing = !chosen.isEmpty && !FileManager.default.isExecutableFile(atPath: chosen)
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Git program", selection: Binding(
+                get: { chosen.isEmpty ? 0 : 1 },
+                set: { mode in
+                    if mode == 0 { useAutomatic() } else if chosen.isEmpty { choose() }
+                })) {
+                Text("Find it automatically").tag(0)
+                Text("Use a program I choose").tag(1)
+            }
+            .pickerStyle(.radioGroup)
+
+            if !chosen.isEmpty {
+                HStack(spacing: 8) {
+                    Text(chosen)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(missing ? Color.red : Color.primary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .textSelection(.enabled)
+                    Button("Choose Another\u{2026}") { choose() }
+                        .controlSize(.small)
+                }
+                .padding(.leading, 20)
+                if missing {
+                    Text("That program is no longer there \u{2014} an upgrade may have moved "
+                         + "it. Choose it again, or let Diptych find one automatically.")
+                        .font(.caption).foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 20)
+                }
+            }
+
+            Text("Automatically, Diptych looks in /usr/bin, /opt/homebrew/bin, /usr/local/bin "
+                 + "and the other usual places. A chosen program must be named "
+                 + "\u{201C}git\u{201D} \u{2014} that stops you picking the wrong file by "
+                 + "accident; it is not a security check.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func useAutomatic() {
+        store.configuration.gitPath = ""
+        Task { await git.locate() }
+    }
+
     /// Names the consequence rather than saying "untrusted", which means
     /// nothing to someone who does not already know what to be afraid of.
     @ViewBuilder
@@ -789,6 +826,11 @@ struct GitSettingsView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
+        // The path as chosen, not what it links to. Homebrew's
+        // /opt/homebrew/bin/git is a link into Cellar/git/<version>/, and
+        // storing the resolved path broke version tracking at the next
+        // `brew upgrade`, when that version's folder went away.
+        panel.resolvesAliases = false
         panel.directoryURL = URL(fileURLWithPath: "/usr/bin")
         panel.message = "Choose the git program to use."
         guard panel.runModal() == .OK, let url = panel.url else { return }
