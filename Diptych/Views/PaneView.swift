@@ -637,12 +637,18 @@ struct PaneView: View {
             .keyboardShortcut(.runWithArguments)
             if !history.isEmpty {
                 Divider()
-                ForEach(history, id: \.self) { arguments in
-                    Button(arguments) {
+                // By position: two entries can read the same and differ only in
+                // their variables.
+                ForEach(Array(history.enumerated()), id: \.offset) { _, entry in
+                    Button(Self.menuTitle(of: entry)) {
                         if NSEvent.modifierFlags.contains(.option) {
-                            model.deleteRunHistory(arguments, for: item.url)
+                            model.deleteRunHistory(entry, for: item.url)
+                        } else if entry.isTemplate {
+                            // A template is a starting point: the window, filled in.
+                            model.requestRun(item.url, in: directory, prefill: entry)
                         } else {
-                            model.run(item.url, arguments: arguments, in: directory)
+                            model.run(item.url, arguments: entry.arguments,
+                                      environment: entry.variables, in: directory)
                         }
                     }
                 }
@@ -651,6 +657,18 @@ struct PaneView: View {
                     .disabled(true)
             }
         }
+    }
+
+    /// "dmg", "release  Ⓣ Ⓔ": the arguments, then Ⓣ for a template and Ⓔ
+    /// for an entry that sets variables -- a menu item has room for one image,
+    /// and these need two.
+    static func menuTitle(of entry: RunHistory.File.Entry) -> String {
+        var title = entry.arguments.isEmpty ? "(no arguments)" : entry.arguments
+        var marks: [String] = []
+        if entry.isTemplate { marks.append("\u{24C9}") }
+        if !entry.variables.isEmpty { marks.append("\u{24BA}") }
+        if !marks.isEmpty { title += "   " + marks.joined(separator: " ") }
+        return title
     }
 
     /// The rows a menu was opened on, as a script sees them.

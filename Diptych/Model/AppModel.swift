@@ -3068,6 +3068,9 @@ final class AppModel {
     struct RunRequest: Equatable {
         let program: URL
         let directory: URL
+        /// What the window starts with: a template chosen from the menu.
+        /// Nil starts from the most recent run.
+        var prefill: RunHistory.File.Entry?
     }
     var runRequest: RunRequest?
 
@@ -3082,25 +3085,29 @@ final class AppModel {
         return FileManager.default.isExecutableFile(atPath: resolved.path)
     }
 
-    func runHistory(for program: URL) -> [String] {
+    func runHistory(for program: URL) -> [RunHistory.File.Entry] {
         RunHistory.shared.entries(for: program)
     }
 
-    /// The arguments sheet, for this program, to run in this folder.
-    func requestRun(_ program: URL, in directory: URL) {
-        runRequest = RunRequest(program: program, directory: directory)
+    /// The arguments sheet, for this program, to run in this folder --
+    /// filled in from a template when one was chosen.
+    func requestRun(_ program: URL, in directory: URL, prefill: RunHistory.File.Entry? = nil) {
+        runRequest = RunRequest(program: program, directory: directory, prefill: prefill)
         dialog = .runArguments
     }
 
-    func run(_ program: URL, arguments: String, in directory: URL) {
-        RunLauncher.run(program: program, arguments: arguments, in: directory)
+    func run(_ program: URL, arguments: String,
+             environment: [RunHistory.File.Entry.Variable] = [],
+             asTemplate: Bool = false, in directory: URL) {
+        RunLauncher.run(program: program, arguments: arguments, environment: environment,
+                        asTemplate: asTemplate, in: directory)
     }
 
-    /// The ⌥-right-click Delete: no undo, as asked for.
-    func deleteRunHistory(_ arguments: String, for program: URL) {
-        RunHistory.shared.delete(arguments, for: program)
-        flash("Removed \u{201C}\(arguments)\u{201D} from the history of "
-              + "\(program.lastPathComponent)", error: false)
+    /// The ⌥-click Delete: no undo, as asked for.
+    func deleteRunHistory(_ entry: RunHistory.File.Entry, for program: URL) {
+        RunHistory.shared.delete(entry, for: program)
+        let shown = entry.arguments.isEmpty ? "the run without arguments" : "\u{201C}\(entry.arguments)\u{201D}"
+        flash("Removed \(shown) from the history of \(program.lastPathComponent)", error: false)
     }
 
     /// ⌥↩, and File ▸ Run with Arguments…: the selected program, in the

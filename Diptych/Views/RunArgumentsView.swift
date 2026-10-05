@@ -1,16 +1,32 @@
 import AppKit
 import SwiftUI
 
-/// Run ▸ Run with Arguments…: one line for the arguments, the program's
-/// earlier ones a ↑ away, and the exact command shown before it runs.
+/// Run ▸ Run with Arguments…: one line for the arguments, the variables the
+/// program is given, whether to keep this as a template -- and the exact
+/// command shown before it runs. ↑ and ↓ step through earlier runs, arguments
+/// and variables together, as a shell's history steps through lines: what
+/// was being edited is left behind.
 struct RunArgumentsView: View {
 
     @Bindable var model: AppModel
     let request: AppModel.RunRequest
 
+    typealias Variable = RunHistory.File.Entry.Variable
+
+    /// One row of the variables editor. Its own id, because two rows may for a
+    /// moment have the same name, and typing must stay in the row typed in.
+    struct VariableRow: Identifiable, Equatable {
+        let id = UUID()
+        var name: String
+        var value: String
+    }
+
     @State private var text = ""
-    @State private var history: [String] = []
-    /// Which history line the field shows; -1 is a new, empty line.
+    @State private var variables: [VariableRow] = []
+    @State private var showsVariables = false
+    @State private var asTemplate = false
+    @State private var history: [RunHistory.File.Entry] = []
+    /// Which history entry the window shows; -1 is a new, empty one.
     @State private var position = -1
 
     var body: some View {
@@ -22,18 +38,28 @@ struct RunArgumentsView: View {
                           onCommit: run, onCancel: { model.dialog = nil })
                 .frame(height: 22)
 
+            variablesEditor
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(preview)
                     .font(.system(.caption, design: .monospaced))
-                    .lineLimit(2).truncationMode(.middle)
+                    .lineLimit(3).truncationMode(.middle)
                 Text("in " + NamingTemplate.tilde(request.directory.path))
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
 
+            Toggle("Save as a template", isOn: $asTemplate)
+                .toggleStyle(.checkbox)
+            Text("A template stays in the Run menu, marked \u{24C9}, and opens this window with "
+                 + "these arguments and variables instead of running at once. It is never rolled "
+                 + "off by the history limit.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text(history.isEmpty
                  ? "Passed to your shell as typed: quotes, ~, $VARIABLES and wildcards work as at a prompt."
-                 : "\u{2191} \u{2193} for earlier arguments. Passed to your shell as typed, as at a prompt.")
+                 : "\u{2191} \u{2193} for earlier runs, variables included. Passed to your shell as typed.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -53,41 +79,125 @@ struct RunArgumentsView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Run") { run() }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!variablesAreValid)
             }
         }
         .onAppear {
             history = model.runHistory(for: request.program)
-            if let latest = history.first {
-                text = latest
+            if let prefill = request.prefill {
+                show(prefill)
+                position = history.firstIndex { $0.isSameRun(as: prefill) } ?? -1
+            } else if let latest = history.first {
+                show(latest)
                 position = 0
             }
         }
     }
 
-    private var preview: String {
-        let name = "./" + request.program.lastPathComponent
-        let inPlace = request.program.deletingLastPathComponent().standardizedFileURL
-            == request.directory.standardizedFileURL
-        let program = inPlace ? name : request.program.path
-        let arguments = text.trimmingCharacters(in: .whitespaces)
-        return Shell.argument(program) + (arguments.isEmpty ? "" : " " + arguments)
+    // MARK: - Variables
+
+    private var variablesEditor: some View {
+        DisclosureGroup(isExpanded: $showsVariables) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach($variables) { $row in
+                    HStack(spacing: 6) {
+                        TextField("NAME", text: $row.name)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(Self.isValidName(row.name) || row.name.isEmpty
+                                             ? Color.primary : Color.red)
+                            .frame(width: 170)
+                        Text("=").foregroundStyle(.secondary)
+                        TextField("value", text: $row.value)
+                            .font(.system(.body, design: .monospaced))
+                        Button {
+                            variables.removeAll { $0.id == row.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove this variable")
+                    }
+                }
+                Button {
+                    variables.append(VariableRow(name: "", value: ""))
+                } label: {
+                    Label("Add Variable", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+                if !variablesAreValid {
+                    Text("A name is letters, digits and _, not starting with a digit.")
+                        .font(.caption).foregroundStyle(.red)
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Text(variables.isEmpty ? "Environment Variables"
+                                   : "Environment Variables (\(variables.count))")
+        }
+    }
+
+    static func isValidName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first,
+              CharacterSet.letters.contains(first) || first == "_" else { return false }
+        return name.unicodeScalars.allSatisfy {
+            ($0.isASCII && CharacterSet.alphanumerics.contains($0)) || $0 == "_"
+        }
+    }
+
+    /// Rows with a name must have a good one; a row left empty is ignored.
+    private var variablesAreValid: Bool {
+        variables.allSatisfy { $0.name.isEmpty || Self.isValidName($0.name) }
+    }
+
+    private var enteredVariables: [Variable] {
+        variables.filter { !$0.name.isEmpty }.map { Variable(name: $0.name, value: $0.value) }
+    }
+
+    // MARK: - History
+
+    /// An entry into the window: its arguments, its variables -- the editor
+    /// opened when it has any. The template box always starts unticked.
+    private func show(_ entry: RunHistory.File.Entry) {
+        text = entry.arguments
+        variables = entry.variables.map { VariableRow(name: $0.name, value: $0.value) }
+        showsVariables = !variables.isEmpty
+        asTemplate = false
+    }
+
+    private func clear() {
+        text = ""
+        variables = []
+        asTemplate = false
     }
 
     private func older() {
         guard position + 1 < history.count else { return }
         position += 1
-        text = history[position]
+        show(history[position])
     }
 
     private func newer() {
         guard position > -1 else { return }
         position -= 1
-        text = position == -1 ? "" : history[position]
+        if position == -1 { clear() } else { show(history[position]) }
+    }
+
+    // MARK: - Running
+
+    private var preview: String {
+        let inPlace = request.program.deletingLastPathComponent().standardizedFileURL
+            == request.directory.standardizedFileURL
+        let program = inPlace ? "./" + request.program.lastPathComponent : request.program.path
+        let arguments = text.trimmingCharacters(in: .whitespaces)
+        return CommandRun.variablesPrefix(enteredVariables)
+            + Shell.argument(program) + (arguments.isEmpty ? "" : " " + arguments)
     }
 
     private func run() {
+        guard variablesAreValid else { return }
         model.dialog = nil
-        model.run(request.program, arguments: text, in: request.directory)
+        model.run(request.program, arguments: text, environment: enteredVariables,
+                  asTemplate: asTemplate, in: request.directory)
     }
 }
 

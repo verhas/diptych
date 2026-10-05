@@ -21,6 +21,8 @@ struct TerminalArea: View {
     let toggle: () -> Void
     /// The terminal took the keyboard.
     let tookFocus: () -> Void
+    /// Something was copied from it.
+    let copied: (String) -> Void
 
     @Bindable private var store = ConfigStore.shared
     /// The height while a drag is under way: written to Settings once, when
@@ -39,7 +41,8 @@ struct TerminalArea: View {
         VStack(spacing: 0) {
             handle
             if isOpen, let session {
-                TerminalPanel(session: session, style: style, tookFocus: tookFocus)
+                TerminalPanel(session: session, style: style, tookFocus: tookFocus,
+                              copied: copied)
                     .frame(height: height)
             }
         }
@@ -98,6 +101,7 @@ struct TerminalPanel: NSViewRepresentable {
     let session: TerminalSession
     let style: TerminalStyle
     let tookFocus: () -> Void
+    let copied: (String) -> Void
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
@@ -107,6 +111,7 @@ struct TerminalPanel: NSViewRepresentable {
         terminal.autoresizingMask = [.width, .height]
         container.addSubview(terminal)
         terminal.onFocus = tookFocus
+        terminal.onCopied = copied
         terminal.apply(style)
         if session.focusRequested {
             session.focusRequested = false
@@ -117,6 +122,7 @@ struct TerminalPanel: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         session.view.onFocus = tookFocus
+        session.view.onCopied = copied
         session.view.apply(style)
     }
 }

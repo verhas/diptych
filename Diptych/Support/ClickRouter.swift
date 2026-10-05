@@ -144,7 +144,19 @@ final class ClickRouter {
         // is the focused one any more.
         if let terminal = enclosingTerminal(of: hit) {
             model.clickedAwayFromTable()
+            // The keyboard goes with the click, as it does into a list. Left
+            // where it was, Command-C copied the pane's selected *files* while
+            // the person was looking at text selected in the terminal.
+            if window.firstResponder !== terminal { window.makeFirstResponder(terminal) }
             terminal.onFocus?()
+            // And again a turn later, after SwiftUI has finished reacting to
+            // the pane losing the keyboard -- it can take it back from
+            // whatever holds it, which left the cursor hollow until a second
+            // click.
+            DispatchQueue.main.async { [weak terminal, weak window] in
+                guard let terminal, let window, window.firstResponder !== terminal else { return }
+                window.makeFirstResponder(terminal)
+            }
             return
         }
 

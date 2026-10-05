@@ -1194,7 +1194,14 @@ are looking at, in plain language, without setting anything up.
 - **Drop files on it** from a pane or Finder to type their paths, quoted for
   the shell.
 - While it has the keyboard, Diptych's own keys stand aside: Tab completes,
-  Return runs, ⌘C and ⌘V copy and paste text. Hiding it (`` ⌃` `` again)
+  Return runs, ⌘C and ⌘V copy and paste text. ⌘⌫ deletes back to the start of
+  the line, ⌘← and ⌘→ go to its start and end -- as in Ghostty and iTerm.
+- **Selecting is copying**, in the agent terminal and in every run: let go of
+  the mouse on a selection -- dragged, double- or triple-clicked -- and the text
+  is on the clipboard and the selection cleared, without the padding at the
+  ends of the lines. ⌘C does nothing in a terminal: pressed from habit it
+  would otherwise replace what selecting just copied. A click into the
+  terminal gives it the keyboard, so ⌘V pastes there, not into a pane. Hiding it (`` ⌃` `` again)
   keeps it running; `exit` closes it; quitting Diptych ends it.
 
 ### Batch file operations, reviewed first
@@ -1714,8 +1721,21 @@ or an app -- has **Run ▸** in its right-click menu. Apps keep *Run App*.
   arguments on one line, pre-filled with the most recent ones; `↑` and `↓`
   step through the earlier ones, as at a prompt. The exact command and the
   folder it runs in are shown before anything runs.
-- **Under it, the argument lines it was run with**, most recent first: choose
-  one to run it again at once; `⌥`-click one to delete it instead, with no
+- **Environment variables** for the program: a list of name and value pairs
+  under the arguments, added with *Add Variable* and removed with ⊖. They are
+  set with `env(1)` after your login shell has read its start-up files, so a
+  `.zprofile` cannot override them, and they appear in the command shown --
+  `CONFIG=Release ./build.sh dmg`. `↑` and `↓` bring back an earlier run's
+  arguments and variables together; what was being edited is dropped.
+- **Save as a template** keeps that arguments-and-variables set in the menu
+  as a starting point: choosing it opens the window filled in instead of
+  running at once, the template box unticked -- tick it to keep the edited
+  version as a template of its own. Templates are never rolled off by the
+  history limit.
+- **Under it, the runs it was run with**, most recent first, marked **Ⓣ** for
+  a template and **Ⓔ** when they set variables -- two entries can read the
+  same and differ only in their variables. Choose one to run it again at once
+  (a template opens the window); `⌥`-click one to delete it instead, with no
   undo -- the menu's last line says so.
 - **It runs in the active pane's folder** -- usually the program's own. When
   you right-click a program while the *other* pane is active, the item says
@@ -1780,7 +1800,9 @@ nothing. Settings ▸ Behaviour sets how many lines a program keeps (or
 Every file spells out `"fixed"`, `"limit"` and `"unlimited"`, so they can be
 found by whoever opens it; the limit starts as the one in Settings and is the
 program's own from then on. `"fixed": true` keeps the list exactly as written -- running never reorders,
-adds or trims it; deleting still works. `"limit"` or `"unlimited": true`
+adds or trims it; deleting still works, and saving a template, a deliberate
+act, still adds one. An entry may carry `"environment"` (a list of `name` and
+`value`) and `"template": true`. `"limit"` or `"unlimited": true`
 overrides Settings for that program. Empty arguments are never recorded.
 
 **The history follows the program.** It carries its key in the extended

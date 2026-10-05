@@ -18,6 +18,8 @@ final class CommandRun: NSObject, Identifiable {
     let id = UUID()
     let program: URL
     let arguments: String
+    /// Variables given to this run, on top of the login shell's.
+    let environment: [RunHistory.File.Entry.Variable]
     let directory: URL
 
     private(set) var isRunning = true
@@ -41,9 +43,11 @@ final class CommandRun: NSObject, Identifiable {
     @ObservationIgnored private let timesFile = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("diptych-run-\(UUID().uuidString).times")
 
-    init(program: URL, arguments: String, directory: URL) {
+    init(program: URL, arguments: String,
+         environment: [RunHistory.File.Entry.Variable] = [], directory: URL) {
         self.program = program
         self.arguments = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.environment = environment.filter { !$0.name.isEmpty }
         self.directory = directory
         let style = TerminalStyle.current
         view = DiptychTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480),
@@ -60,7 +64,13 @@ final class CommandRun: NSObject, Identifiable {
         let inPlace = program.deletingLastPathComponent().standardizedFileURL
             == directory.standardizedFileURL
         let name = inPlace ? "./" + program.lastPathComponent : program.path
-        return Shell.argument(name) + (arguments.isEmpty ? "" : " " + arguments)
+        return Self.variablesPrefix(environment)
+            + Shell.argument(name) + (arguments.isEmpty ? "" : " " + arguments)
+    }
+
+    /// "CONFIG=Release TOKEN='a b' " -- as a shell would take it.
+    nonisolated static func variablesPrefix(_ variables: [RunHistory.File.Entry.Variable]) -> String {
+        variables.map { $0.name + "=" + Shell.argument($0.value) + " " }.joined()
     }
 
     /// A login shell, so the PATH from `.zprofile` is there -- but not an
@@ -75,7 +85,11 @@ final class CommandRun: NSObject, Identifiable {
     private func start() {
         let shell = TerminalSession.loginShell
         let wrapper = #"out=$1; shift; "$@"; status=$?; times > "$out"; exit $status"#
-        let script = "exec /bin/sh -c " + Shell.argument(wrapper) + " sh "
+        // The variables through env(1), after the login shell has read its
+        // start-up files -- so a .zprofile cannot quietly override them.
+        let variables = environment.map { Shell.argument("\($0.name)=\($0.value)") }
+        let setting = variables.isEmpty ? "" : "/usr/bin/env " + variables.joined(separator: " ") + " "
+        let script = "exec " + setting + "/bin/sh -c " + Shell.argument(wrapper) + " sh "
             + Shell.argument(timesFile.path) + " " + Shell.argument(program.path)
             + (arguments.isEmpty ? "" : " " + arguments)
         view.startProcess(executable: shell, args: ["-l", "-c", script],

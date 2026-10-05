@@ -214,6 +214,8 @@ private struct RunPanel: View {
     let run: CommandRun
     let close: () -> Void
     @State private var copied = false
+    /// "Copied …" after a selection was taken, for a few seconds.
+    @State private var selectionNote: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,6 +224,16 @@ private struct RunPanel: View {
             RunTerminal(view: run.view)
             Divider()
             footer
+        }
+        .onAppear {
+            run.view.onCopied = { text in
+                let note = DiptychTerminalView.copiedMessage(text)
+                selectionNote = note
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    if selectionNote == note { selectionNote = nil }
+                }
+            }
         }
     }
 
@@ -281,13 +293,17 @@ private struct RunPanel: View {
                 pasteboard.setString(run.outputText, forType: .string)
                 copied = true
             }
+            if let selectionNote {
+                Text(selectionNote).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
             Spacer()
             if run.isRunning {
                 Button("Stop") { run.stop() }
             } else {
                 Button("Run Again") {
                     RunLauncher.run(program: run.program, arguments: run.arguments,
-                                    in: run.directory)
+                                    environment: run.environment, in: run.directory)
                 }
                 Button("Close Tab") { close() }
                     .keyboardShortcut(.defaultAction)
@@ -324,10 +340,14 @@ enum RunLauncher {
     /// other window openers.
     static var openWindow: (() -> Void)?
 
-    static func run(program: URL, arguments: String, in directory: URL) {
+    static func run(program: URL, arguments: String,
+                    environment: [RunHistory.File.Entry.Variable] = [],
+                    asTemplate: Bool = false, in directory: URL) {
         guard confirmIfDownloaded(program) else { return }
-        RunHistory.shared.record(arguments, for: program)
-        let run = CommandRun(program: program, arguments: arguments, directory: directory)
+        RunHistory.shared.record(arguments, environment: environment, asTemplate: asTemplate,
+                                 for: program)
+        let run = CommandRun(program: program, arguments: arguments,
+                             environment: environment, directory: directory)
         CommandRuns.shared.add(run)
         RunLog.shared.started(run)
         run.onFinish = { finished in

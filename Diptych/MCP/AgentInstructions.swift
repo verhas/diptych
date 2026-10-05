@@ -156,6 +156,9 @@ enum AgentInstructions {
     - "this session", "since I restarted Diptych" -- runs whose `thisSession`
       is true: started by the Diptych running now (`get_diptych_info` gives
       its process id and start time). Runs from before a restart are kept too.
+    - A run's command line shows the environment variables it was given, as
+      `NAME=value ./build.sh dmg`. Values may be secrets: do not repeat them
+      unless asked.
     - You can read runs; you cannot start one, and must not run the program
       yourself to reproduce a failure unless the person asks you to.
 

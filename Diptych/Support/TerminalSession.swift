@@ -238,6 +238,92 @@ final class DiptychTerminalView: LocalProcessTerminalView {
         applyColours()
     }
 
+    // MARK: - Keys a terminal emulator gives meaning to
+
+    /// ⌘⌫, as Ghostty and iTerm have it: Control-U, which a shell and Claude
+    /// both read as "delete back to the start of the line". It arrives here
+    /// as the standard text command, from the menu shortcut ⌘⌫ already has.
+    override func deleteToBeginningOfLine(_ sender: Any?) { send(txt: "\u{15}") }
+
+    /// ⌘← and ⌘→: Control-A and Control-E, the start and end of the line.
+    override func moveToLeftEndOfLine(_ sender: Any?) { send(txt: "\u{1}") }
+    override func moveToBeginningOfLine(_ sender: Any?) { send(txt: "\u{1}") }
+    override func moveToRightEndOfLine(_ sender: Any?) { send(txt: "\u{5}") }
+    override func moveToEndOfLine(_ sender: Any?) { send(txt: "\u{5}") }
+
+    // MARK: - Copying
+
+    /// Told what was copied, for a word of feedback.
+    var onCopied: ((String) -> Void)?
+
+    /// "Copied “npm run build”", or "Copied 3 lines".
+    static func copiedMessage(_ text: String) -> String {
+        let lines = text.components(separatedBy: "\n").count
+        if lines > 1 { return "Copied \(lines) lines" }
+        let shown = text.count > 40 ? String(text.prefix(40)) + "\u{2026}" : text
+        return "Copied \u{201C}\(shown)\u{201D}"
+    }
+
+    /// What is selected, without the blanks the screen pads every line with.
+    /// Any NUL -- an empty cell, should one come through -- becomes a space:
+    /// many programs stop reading pasted text at one.
+    private var selectedText: String? {
+        getSelection().flatMap(Self.cleanedForPasting)
+    }
+
+    static func cleanedForPasting(_ raw: String) -> String? {
+        let lines = raw.replacingOccurrences(of: "\u{0}", with: " ")
+            .components(separatedBy: "\n")
+            .map { line in
+                var line = line
+                while line.last == " " || line.last == "\t" { line.removeLast() }
+                return line
+            }
+        var text = lines.joined(separator: "\n")
+        while text.hasSuffix("\n") { text.removeLast() }
+        return text.isEmpty ? nil : text
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        onCopied?(text)
+    }
+
+    /// ⌘C copies nothing here. Selecting already copied; a ⌘C pressed from
+    /// habit -- or by accident -- must not replace what was copied with
+    /// whatever happens to be selected, or with nothing.
+    override func copy(_ sender: Any) {}
+
+    /// Selecting is copying: there is nothing else to select terminal text
+    /// for. When the mouse is let go on a selection -- dragged, or a double-
+    /// or triple-click -- the text goes to the clipboard and the selection is
+    /// cleared, so it is plain that it has been taken.
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        // Cleared whether or not there was text to copy: a selection of only
+        // blanks, or one barely started, was left on screen when the clearing
+        // waited for something to copy.
+        guard getSelection() != nil else { return }
+        if let text = selectedText { copyToPasteboard(text) }
+        clearSelection()
+        // Once more a moment later: a double-click's word selection can be
+        // put back by the click handling that follows the release.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.clearSelection()
+        }
+    }
+
+    /// SwiftTerm's `selectNone` only marks the selection inactive -- it does
+    /// not say so, nor redraw -- so the highlight stayed on screen after the
+    /// text had been copied. Said and redrawn here.
+    private func clearSelection() {
+        selectNone()
+        selectionChanged(source: getTerminal())
+        needsDisplay = true
+    }
+
     // MARK: - Dropping files
 
     /// Files dragged in from a pane or from Finder are typed in as their

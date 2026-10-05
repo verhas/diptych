@@ -39,7 +39,29 @@ struct RunHistory {
 
         struct Entry: Codable, Equatable {
             var arguments: String
+            /// Variables the program was given, in the order written.
+            var environment: [Variable]?
+            /// Kept as a starting point: choosing it opens the arguments
+            /// window filled in, rather than running at once. Never rolled off
+            /// by the limit.
+            var template: Bool?
             var lastRun: Date?
+
+            struct Variable: Codable, Equatable, Hashable {
+                var name: String
+                var value: String
+            }
+
+            var variables: [Variable] { environment ?? [] }
+            var isTemplate: Bool { template == true }
+
+            /// The same run: arguments, variables and being a template alike.
+            /// Two entries can show the same arguments and differ only in
+            /// their variables.
+            func isSameRun(as other: Entry) -> Bool {
+                arguments == other.arguments && variables == other.variables
+                    && isTemplate == other.isTemplate
+            }
         }
     }
 
@@ -85,8 +107,8 @@ struct RunHistory {
         return file
     }
 
-    func entries(for program: URL) -> [String] {
-        history(for: program)?.entries.map(\.arguments) ?? []
+    func entries(for program: URL) -> [File.Entry] {
+        history(for: program)?.entries ?? []
     }
 
     /// The key the program's attribute names, when it is not this path's own
@@ -119,24 +141,44 @@ struct RunHistory {
         return (file, key)
     }
 
-    /// A run with these arguments: to the top of the list, or left alone in a
-    /// fixed one. Empty arguments are not history.
-    func record(_ arguments: String, for program: URL, now: Date = Date()) {
+    /// A run: to the top of the list, or -- in a fixed list -- left out,
+    /// unless it is a template, which is made on purpose. A run with neither
+    /// arguments nor variables is not history.
+    func record(_ arguments: String, environment: [File.Entry.Variable] = [],
+                asTemplate: Bool = false, for program: URL, now: Date = Date()) {
         let line = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        let variables = environment.filter { !$0.name.isEmpty }
         var (file, key) = adopt(program)
-        if !line.isEmpty, file.fixed != true {
-            file.entries.removeAll { $0.arguments == line }
-            file.entries.insert(File.Entry(arguments: line, lastRun: now), at: 0)
-            if let limit = limit(for: file) { file.entries = Array(file.entries.prefix(limit)) }
+        let worthKeeping = asTemplate || !line.isEmpty || !variables.isEmpty
+        if worthKeeping, file.fixed != true || asTemplate {
+            let entry = File.Entry(arguments: line, environment: variables.isEmpty ? nil : variables,
+                                   template: asTemplate ? true : nil, lastRun: now)
+            file.entries.removeAll { $0.isSameRun(as: entry) }
+            file.entries.insert(entry, at: 0)
+            if let limit = limit(for: file) { file.entries = Self.trimmed(file.entries, to: limit) }
         }
         save(file, key: key, program: program)
     }
 
-    /// The ⌥-right-click Delete. Allowed in a fixed list too: it is an edit.
-    func delete(_ arguments: String, for program: URL) {
+    /// The limit counts runs, not templates: a template stays until deleted.
+    private static func trimmed(_ entries: [File.Entry], to limit: Int) -> [File.Entry] {
+        var runs = 0
+        return entries.filter { entry in
+            if entry.isTemplate { return true }
+            runs += 1
+            return runs <= limit
+        }
+    }
+
+    /// The ⌥-click Delete. Allowed in a fixed list too: it is an edit.
+    func delete(_ entry: File.Entry, for program: URL) {
         var (file, key) = adopt(program)
-        file.entries.removeAll { $0.arguments == arguments }
+        file.entries.removeAll { $0.isSameRun(as: entry) }
         save(file, key: key, program: program)
+    }
+
+    func delete(arguments: String, for program: URL) {
+        delete(File.Entry(arguments: arguments), for: program)
     }
 
     /// The program's file, made if it has none yet, for editing by hand.

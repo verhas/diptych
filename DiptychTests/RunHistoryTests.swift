@@ -1,5 +1,6 @@
 import XCTest
 @testable import Diptych
+import SwiftTerm
 
 /// The argument lines Run ▸ remembers, one JSON file per program, and how
 /// they follow a program that is moved or copied.
@@ -29,19 +30,19 @@ final class RunHistoryTests: XCTestCase {
         history.record("run", for: program)
         history.record("dmg", for: program)
         history.record("run", for: program)
-        XCTAssertEqual(history.entries(for: program), ["run", "dmg"])
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), ["run", "dmg"])
     }
 
     func testNoArgumentsIsNotHistory() {
         let history = store()
         history.record("   ", for: program)
-        XCTAssertEqual(history.entries(for: program), [])
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), [])
     }
 
     func testTheLimitRollsTheOldestOff() {
         let history = store(limit: 2)
         for line in ["a", "b", "c"] { history.record(line, for: program) }
-        XCTAssertEqual(history.entries(for: program), ["c", "b"])
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), ["c", "b"])
     }
 
     func testNoLimitKeepsEverything() {
@@ -60,9 +61,9 @@ final class RunHistoryTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: json).write(to: file)
 
         history.record("dmg", for: program)
-        XCTAssertEqual(history.entries(for: program), ["run"], "a fixed list does not grow")
-        history.delete("run", for: program)
-        XCTAssertEqual(history.entries(for: program), [], "but deleting still works")
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), ["run"], "a fixed list does not grow")
+        history.delete(arguments: "run", for: program)
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), [], "but deleting still works")
     }
 
     func testTheFileNamesItsProgramForGrep() throws {
@@ -80,9 +81,9 @@ final class RunHistoryTests: XCTestCase {
         let moved = folder.appendingPathComponent("release.sh")
         try FileManager.default.moveItem(at: program, to: moved)
 
-        XCTAssertEqual(history.entries(for: moved), ["publish"], "found by its attribute")
+        XCTAssertEqual(history.entries(for: moved).map(\.arguments), ["publish"], "found by its attribute")
         history.record("dmg", for: moved)
-        XCTAssertEqual(history.entries(for: moved), ["dmg", "publish"])
+        XCTAssertEqual(history.entries(for: moved).map(\.arguments), ["dmg", "publish"])
         XCTAssertNil(history.read(key: oldKey), "the old file goes, its program is gone")
     }
 
@@ -92,11 +93,11 @@ final class RunHistoryTests: XCTestCase {
         let copy = folder.appendingPathComponent("build-copy.sh")
         try FileManager.default.copyItem(at: program, to: copy)
 
-        XCTAssertEqual(history.entries(for: copy), ["run"])
+        XCTAssertEqual(history.entries(for: copy).map(\.arguments), ["run"])
         history.record("dmg", for: copy)
         history.record("release", for: program)
-        XCTAssertEqual(history.entries(for: copy), ["dmg", "run"])
-        XCTAssertEqual(history.entries(for: program), ["release", "run"])
+        XCTAssertEqual(history.entries(for: copy).map(\.arguments), ["dmg", "run"])
+        XCTAssertEqual(history.entries(for: program).map(\.arguments), ["release", "run"])
     }
 }
 
@@ -225,5 +226,151 @@ final class RunHistoryDefaultsTests: XCTestCase {
         XCTAssertTrue(text.contains("\"fixed\" : false"), text)
         XCTAssertTrue(text.contains("\"limit\" : 7"), text)
         XCTAssertTrue(text.contains("\"unlimited\" : false"), text)
+    }
+}
+
+/// What the terminals put on the clipboard.
+@MainActor
+final class TerminalCopyTests: XCTestCase {
+
+    /// A gap the cursor jumped over comes back as spaces -- checked, because
+    /// a paste that came out empty was first blamed on NULs here; it was not.
+    func testGapsInALineComeBackAsSpaces() {
+        let view = DiptychTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        view.feed(text: "ab\u{1b}[6Gcd")          // "ab", jump to column 6, "cd"
+        let terminal = view.getTerminal()
+        let raw = terminal.getText(start: Position(col: 0, row: 0), end: Position(col: 10, row: 0))
+        XCTAssertFalse(raw.contains("\u{0}"))
+        XCTAssertEqual(DiptychTerminalView.cleanedForPasting(raw), "ab   cd")
+    }
+
+    /// A real drag and release, in an off-screen window: the text is copied
+    /// and nothing is left selected. The person's clipboard is put back.
+    func testADragAndReleaseCopiesAndClearsTheSelection() {
+        let saved = NSPasteboard.general.string(forType: .string)
+        defer {
+            NSPasteboard.general.clearContents()
+            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = DiptychTerminalView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        window.contentView = view
+        view.feed(text: "hello selection world")
+        var copied: String?
+        view.onCopied = { copied = $0 }
+        func event(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 110), modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        // The first drag event only marks where a selection starts; a real
+        // drag sends many.
+        view.mouseDown(with: event(.leftMouseDown, x: 3))
+        view.mouseDragged(with: event(.leftMouseDragged, x: 60))
+        view.mouseDragged(with: event(.leftMouseDragged, x: 120))
+        XCTAssertFalse((view.getSelection() ?? "").isEmpty)
+        view.mouseUp(with: event(.leftMouseUp, x: 120))
+        XCTAssertNotNil(copied)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), copied)
+        XCTAssertNil(view.getSelection(), "the selection is cleared once it is copied")
+    }
+
+    /// A selection with nothing in it to copy is still cleared.
+    func testAnEmptySelectionIsClearedToo() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 120),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let view = DiptychTerminalView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        window.contentView = view
+        func event(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: 110), modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil,
+                               eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        view.mouseDown(with: event(.leftMouseDown, x: 3))
+        view.mouseDragged(with: event(.leftMouseDragged, x: 120))
+        view.mouseUp(with: event(.leftMouseUp, x: 120))
+        XCTAssertNil(view.getSelection())
+    }
+
+    func testPaddingIsTrimmedAndEmptyIsNothing() {
+        XCTAssertEqual(DiptychTerminalView.cleanedForPasting("one   \ntwo\u{0}\u{0}\n\n"), "one\ntwo")
+        XCTAssertNil(DiptychTerminalView.cleanedForPasting("  \u{0} \n"))
+    }
+}
+
+/// Environment variables and templates.
+final class RunTemplateTests: XCTestCase {
+
+    private var folder: URL!
+    private var program: URL!
+    typealias Variable = RunHistory.File.Entry.Variable
+
+    override func setUpWithError() throws {
+        folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RunTemplateTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        program = folder.appendingPathComponent("build.sh")
+        try "#!/bin/sh\n".write(to: program, atomically: true, encoding: .utf8)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    func testTheSameArgumentsWithOtherVariablesAreAnotherEntry() {
+        let history = RunHistory(directory: folder.appendingPathComponent("h"), defaultLimit: 10)
+        history.record("dmg", for: program)
+        history.record("dmg", environment: [Variable(name: "CONFIG", value: "Debug")], for: program)
+        history.record("dmg", for: program)
+        let entries = history.entries(for: program)
+        XCTAssertEqual(entries.map(\.arguments), ["dmg", "dmg"])
+        XCTAssertEqual(entries.map(\.variables.count), [0, 1])
+    }
+
+    func testTemplatesAreNotRolledOff() {
+        let history = RunHistory(directory: folder.appendingPathComponent("h"), defaultLimit: 2)
+        history.record("release", asTemplate: true, for: program)
+        for line in ["a", "b", "c"] { history.record(line, for: program) }
+        let entries = history.entries(for: program)
+        XCTAssertEqual(entries.filter(\.isTemplate).map(\.arguments), ["release"])
+        XCTAssertEqual(entries.filter { !$0.isTemplate }.map(\.arguments), ["c", "b"])
+    }
+
+    func testVariablesWithoutArgumentsAreHistory() {
+        let history = RunHistory(directory: folder.appendingPathComponent("h"), defaultLimit: 10)
+        history.record("", environment: [Variable(name: "DEBUG", value: "1")], for: program)
+        XCTAssertEqual(history.entries(for: program).count, 1)
+    }
+
+    func testNamesAreCheckedTheWayAShellReadsThem() {
+        XCTAssertTrue(RunArgumentsView.isValidName("CONFIG"))
+        XCTAssertTrue(RunArgumentsView.isValidName("_private_2"))
+        XCTAssertFalse(RunArgumentsView.isValidName("2FAST"))
+        XCTAssertFalse(RunArgumentsView.isValidName("A-B"))
+        XCTAssertFalse(RunArgumentsView.isValidName("A B"))
+    }
+}
+
+@MainActor
+final class RunEnvironmentTests: XCTestCase {
+    func testVariablesReachTheProgram() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RunEnvironmentTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let script = folder.appendingPathComponent("show.sh")
+        try "#!/bin/sh\necho \"<$GREETING>\"\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let run = CommandRun(program: script, arguments: "",
+                             environment: [.init(name: "GREETING", value: "hello there")],
+                             directory: folder)
+        for _ in 0..<100 where run.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(run.exitCode, 0)
+        XCTAssertTrue(run.outputText.contains("<hello there>"), run.outputText)
+        XCTAssertEqual(run.commandLine, "GREETING='hello there' ./show.sh")
     }
 }

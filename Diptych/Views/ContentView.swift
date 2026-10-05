@@ -107,7 +107,12 @@ struct ContentView: View {
                          style: TerminalStyle.current,
                          maxHeight: max(100, windowHeight - 300 - TerminalArea.handleHeight),
                          toggle: { model.toggleTerminal() },
-                         tookFocus: { focusedSide = nil })
+                         // Nothing to tell SwiftUI: clearing its pane focus here
+                         // made it resign the first responder a moment later --
+                         // the terminal's included -- so the first click into
+                         // the terminal left its cursor hollow.
+                         tookFocus: {},
+                         copied: { model.flash(DiptychTerminalView.copiedMessage($0), error: false) })
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
 
@@ -862,7 +867,8 @@ struct DialogSheet: View {
         .padding(20)
         // Wider for the history sheets: their sentences name two files and a
         // folder, and at 470 a rename was broken over three lines.
-        .frame(width: dialog == .historyStep || dialog == .historyMany ? 600 : 470)
+        .frame(width: dialog == .historyStep || dialog == .historyMany || dialog == .runArguments
+               ? 600 : 470)
     }
 
     /// One random fact, shown once at startup, with "Next" cycling through the

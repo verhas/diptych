@@ -20,6 +20,7 @@ final class RunLog {
         var id: UUID
         var program: String
         var arguments: String
+        var environment: [RunHistory.File.Entry.Variable]?
         var commandLine: String
         var directory: String
         var startedAt: Date
@@ -85,6 +86,7 @@ final class RunLog {
 
     private static func record(of run: CommandRun) -> Record {
         Record(id: run.id, program: run.program.path, arguments: run.arguments,
+               environment: run.environment.isEmpty ? nil : run.environment,
                commandLine: run.commandLine, directory: run.directory.path,
                startedAt: run.startedAt, endedAt: run.endedAt, state: run.state,
                exitCode: run.exitCode, userSeconds: run.cpu?.user,
