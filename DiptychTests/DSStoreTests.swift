@@ -251,4 +251,19 @@ final class DSStoreTests: XCTestCase {
         XCTAssertTrue(html.contains("de ad"), "an unknown key still shows its bytes")
         XCTAssertTrue(html.contains("<i>unknown</i>"), "and says that it is unknown")
     }
+
+    // MARK: - The icon map
+
+    /// Only the spacing shrinks, and never below half: a folder of many icons
+    /// spread wide keeps readable names and scrolls instead of shrinking to specks.
+    func testTheMapShrinksSpacingButNotBelowHalf() {
+        XCTAssertEqual(DSStoreReport.mapScale(forExtent: 300), 1, "a small folder is not enlarged")
+        XCTAssertEqual(DSStoreReport.mapScale(forExtent: 1000), 0.68, accuracy: 0.01)
+        XCTAssertEqual(DSStoreReport.mapScale(forExtent: 20_000), 0.5, "past half it scrolls")
+    }
+
+    func testLongNamesAreShortenedOnTheMap() {
+        XCTAssertEqual(DSStoreReport.shortened("short.txt"), "short.txt")
+        XCTAssertEqual(DSStoreReport.shortened("a-rather-long-file-name.txt"), "a-rather-long-f\u{2026}")
+    }
 }

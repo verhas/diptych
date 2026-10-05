@@ -163,15 +163,44 @@ enum DSStoreReport {
         }
         guard points.count > 1 else { return nil }
 
-        let width = Double(points.map(\.1).max() ?? 1) + 40
-        let height = Double(points.map(\.2).max() ?? 1) + 40
-        var svg = "<h2>Icon positions</h2><div class=map>"
-            + "<svg viewBox='0 0 \(Int(width)) \(Int(height))' preserveAspectRatio='xMinYMin meet'>"
+        // Only the spacing is scaled, and not below half: the dots and the
+        // names keep their size whatever the folder's extent. Scaling the
+        // whole picture to fit -- as this once did -- turned a folder of many
+        // icons into specks with unreadable names. Past half size the map
+        // keeps its size and scrolls in its box instead.
+        let maxX = Double(points.map(\.1).max() ?? 1)
+        let maxY = Double(points.map(\.2).max() ?? 1)
+        let scale = mapScale(forExtent: maxX)
+        let margin = 40.0
+        let width = Int(maxX * scale + margin * 2)
+        let height = Int(maxY * scale + margin * 1.5)
+        let shown = scale < 0.995 ? ", shown at \(Int((scale * 100).rounded())) %" : ""
+        var svg = "<h2>Icon positions</h2>"
+            + "<p class=meta>\(points.count) icons\(shown)\(width > Int(mapWidth) ? " \u{2014} scroll to see them all" : "")</p>"
+            + "<div class=map><svg width='\(width)' height='\(height)'>"
         for (name, x, y) in points {
-            svg += "<circle cx='\(x)' cy='\(y)' r='7'/>"
-            svg += "<text x='\(x)' y='\(Int(y) + 20)'>\(escape(name))</text>"
+            let cx = Int(Double(x) * scale + margin)
+            let cy = Int(Double(y) * scale + margin / 2)
+            svg += "<g><title>\(escape(name))</title>"
+            svg += "<circle cx='\(cx)' cy='\(cy)' r='6'/>"
+            svg += "<text x='\(cx)' y='\(cy + 18)'>\(escape(shortened(name)))</text></g>"
         }
         return svg + "</svg></div>"
+    }
+
+    /// About the width a preview has for the map.
+    static let mapWidth = 760.0
+
+    /// How much to shrink the spacing so a folder this wide fits -- never
+    /// enlarged, and never below half, where names would run into each other.
+    static func mapScale(forExtent maxX: Double) -> Double {
+        min(1, max(0.5, (mapWidth - 80) / max(maxX, 1)))
+    }
+
+    /// Long names would run into their neighbours' at a reduced spacing; the
+    /// whole name is in the hover title.
+    static func shortened(_ name: String) -> String {
+        name.count > 16 ? String(name.prefix(15)) + "\u{2026}" : name
     }
 
     /// Property lists nest, so the rendering does too.
@@ -270,10 +299,11 @@ enum DSStoreReport {
         .aside { color: var(--dim); }
         .plist ul { margin: 0; padding-left: 15px; list-style: none; }
         .plist li { padding: 1px 0; }
-        .map { background: var(--panel); border-radius: 6px; padding: 8px; }
-        .map svg { width: 100%; height: auto; max-height: 320px; }
+        .map { background: var(--panel); border-radius: 6px; padding: 8px;
+               overflow: auto; max-height: 480px; }
+        .map svg { display: block; }
         .map circle { fill: #4a90d9; }
-        .map text { font: 9px -apple-system, sans-serif; fill: var(--dim); text-anchor: middle; }
+        .map text { font: 10px -apple-system, sans-serif; fill: var(--ink); text-anchor: middle; }
         .empty { color: var(--dim); font-style: italic; }
         </style></head><body>\(body)</body></html>
         """

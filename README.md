@@ -278,8 +278,11 @@ The rendering groups records by the item they describe, expands the embedded
 property lists, turns `{{310, 275}, {1727, 1040}}` into `1727 × 1040 at
 (310, 275)`, and **plots the icon positions** -- coordinates are the one part of
 the file that is genuinely a shape, and a picture of how the folder was arranged
-says more than a list of number pairs. Keys it cannot name still show their
-bytes. A file that fails to decode gets a page saying so, rather than falling
+says more than a list of number pairs. Only the spacing is scaled to fit, and
+never below half: the dots and the names keep a readable size however many
+icons there are, long names are shortened (the whole name shows on hover), and
+a map larger than the preview scrolls in its box. Keys it cannot name still
+show their bytes. A file that fails to decode gets a page saying so, rather than falling
 back to the empty panel: "this is not a `Bud1` file at all" is worth being told.
 
 Three things the format does that a first attempt gets wrong, all found by

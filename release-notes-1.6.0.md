@@ -130,6 +130,11 @@ shown in red.
 
 - **About Diptych** now says what Diptych is: *Diptych — pronounced 'deep
   tech' — a two-pane AI driven file manager for macOS.*
+- **The icon map in a `.DS_Store` preview stays readable.** It used to shrink
+  everything to fit, so a folder of many icons became specks with unreadable
+  names. Now only the spacing shrinks, never below half; the dots and names
+  keep their size, long names are shortened (the whole name shows on hover),
+  and a large map scrolls in its box.
 - **Choosing the Git program is no longer a one-way street.** Settings ▸
   Version Tracking now offers *Find it automatically* or *Use a program I
   choose*, right under the Git that was found, with *Choose Another…*. And a
