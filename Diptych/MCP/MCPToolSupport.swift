@@ -260,6 +260,71 @@ enum MCPToolSupport {
         return .proposed(batch.batchId)
     }
 
+    // MARK: - Runs
+
+    /// A run as MCP reports it, from its record -- with what only the live run
+    /// knows, while it is still open or running, laid over it.
+    static func runSummary(_ record: RunLog.Record, index: Int) -> MCPModels.RunSummary {
+        let live = CommandRuns.shared.run(record.id)
+        let started = record.startedAt
+        let real = live?.realTime
+            ?? (record.endedAt ?? Date()).timeIntervalSince(started)
+        return MCPModels.RunSummary(
+            index: index, runId: record.id.uuidString, commandLine: record.commandLine,
+            program: record.program, arguments: record.arguments, directory: record.directory,
+            state: live?.state ?? record.state, exitCode: live?.exitCode ?? record.exitCode,
+            startedAt: started.formatted(.iso8601),
+            realSeconds: (real * 1000).rounded() / 1000,
+            userSeconds: live?.cpu?.user ?? record.userSeconds,
+            systemSeconds: live?.cpu?.system ?? record.systemSeconds,
+            timing: live?.timingLine ?? record.timing ?? "real " + CommandRun.formatted(real),
+            tabOpen: live?.windowIsOpen ?? false,
+            focused: CommandRuns.shared.focused == record.id,
+            diptychPid: record.diptychPID, thisSession: record.isThisSession)
+    }
+
+    static func diptychInfo() -> MCPModels.DiptychInfo {
+        let records = RunLog.shared.records
+        return MCPModels.DiptychInfo(
+            pid: DiptychProcess.pid,
+            startedAt: DiptychProcess.startedAt.formatted(.iso8601),
+            version: DiptychProcess.version, build: DiptychProcess.build,
+            appPath: Bundle.main.bundlePath, debugBuild: DiptychProcess.isDebugBuild,
+            macOS: ProcessInfo.processInfo.operatingSystemVersionString,
+            mcpPort: ConfigStore.shared.configuration.mcpServerPort,
+            runsThisSession: records.filter(\.isThisSession).count,
+            runsKept: records.count)
+    }
+
+    /// Runs `from` ... `to`, counting back from the most recent, which is 1.
+    static func runList(from: Int?, to: Int?) -> MCPModels.RunList {
+        let all = RunLog.shared.newestFirst
+        let first = max(1, from ?? 1)
+        let last = min(max(first, to ?? first + 9), first + 99)
+        let chosen = all.enumerated().filter { $0.offset + 1 >= first && $0.offset + 1 <= last }
+        return MCPModels.RunList(
+            runs: chosen.map { runSummary($0.element, index: $0.offset + 1) },
+            total: all.count)
+    }
+
+    /// The last `tailLines` lines -- an error is nearly always at the end, and
+    /// a long build's whole output would swamp the answer. From the live
+    /// terminal while the run is open, from its saved output once it is not.
+    static func runOutput(runId: UUID, tailLines: Int?) -> MCPModels.RunOutput? {
+        let all = RunLog.shared.newestFirst
+        guard let position = all.firstIndex(where: { $0.id == runId }) else { return nil }
+        let text = CommandRuns.shared.run(runId)?.outputText
+            ?? RunLog.shared.savedOutput(runId) ?? ""
+        let lines = text.components(separatedBy: "\n")
+        let wanted = min(max(1, tailLines ?? 400), 5000)
+        let tail = Array(lines.suffix(wanted))
+        return MCPModels.RunOutput(
+            run: runSummary(all[position], index: position + 1),
+            output: tail.joined(separator: "\n"),
+            totalLines: lines.count, returnedLines: tail.count,
+            truncated: tail.count < lines.count)
+    }
+
     static func batchStatus(batchId: UUID) -> MCPModels.BatchStatus? {
         guard let model = BatchOperationsStore.shared.model(for: batchId) else { return nil }
         let statusName: String

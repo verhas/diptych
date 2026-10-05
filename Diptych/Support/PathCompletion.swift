@@ -48,8 +48,11 @@ enum PathCompletion {
         guard completed.count > partial.count || names.count == 1 else { return nil }
 
         // A lone directory gets its separator: the next Tab then completes
-        // inside it rather than re-completing the name.
-        let separator = names.count == 1 ? "/" : ""
+        // inside it rather than re-completing the name. A file is where the
+        // path ends, so it gets none.
+        let separator = names.count == 1
+            && isDirectory((directory as NSString).appendingPathComponent(names[0]), base: "/")
+            ? "/" : ""
         let prefix = text.hasSuffix("/") ? text : String(text.dropLast(partial.count))
         let result = prefix + completed + separator
         return result == text ? nil : result
@@ -62,9 +65,14 @@ enum PathCompletion {
         return String(completed.dropFirst(text.count))
     }
 
-    /// Whether what is typed names a directory that exists. Drives the red text
-    /// -- a path being typed is usually invalid, so this is only consulted for
-    /// text the user has finished with, or as a running hint.
+    /// Whether what is typed names something that is there -- a folder, or a
+    /// file, which the bar now opens in its folder. Drives the red text.
+    static func exists(_ text: String, base: String) -> Bool {
+        let resolved = resolve(text, base: base)
+        return !resolved.isEmpty && FileManager.default.fileExists(atPath: resolved)
+    }
+
+    /// Whether what is typed names a directory that exists.
     static func isDirectory(_ text: String, base: String) -> Bool {
         let resolved = resolve(text, base: base)
         guard !resolved.isEmpty else { return false }
@@ -103,10 +111,8 @@ enum PathCompletion {
             // is again what a shell does.
             guard !name.hasPrefix(".") || partial.hasPrefix(".") else { return false }
 
-            var directoryFlag: ObjCBool = false
-            let path = (directory as NSString).appendingPathComponent(name)
-            return fm.fileExists(atPath: path, isDirectory: &directoryFlag)
-                && directoryFlag.boolValue
+            // Files too: a file's path goes to its folder and opens it.
+            return true
         }.sorted()
     }
 

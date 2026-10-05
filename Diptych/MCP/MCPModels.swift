@@ -138,6 +138,68 @@ enum MCPModels {
         var batchId: String
     }
 
+    /// One program the person ran with Run ▸, as `list_runs` reports it.
+    struct RunSummary: Codable, Sendable {
+        /// 1 is the most recent run, 2 the one before, and so on.
+        var index: Int
+        var runId: String
+        var commandLine: String
+        var program: String
+        var arguments: String
+        var directory: String
+        /// running, finished, failed or stopped.
+        var state: String
+        var exitCode: Int32?
+        var startedAt: String
+        var realSeconds: Double
+        /// The program's and its children's CPU time, as `time` reports it;
+        /// absent while it runs.
+        var userSeconds: Double?
+        var systemSeconds: Double?
+        /// "real 1m12.403s  user 0m45.201s  sys 0m8.102s".
+        var timing: String
+        /// Its tab is open in the Runs window.
+        var tabOpen: Bool
+        /// Its tab was the one in front most recently: "this run", "the open one".
+        var focused: Bool
+        /// The Diptych process that started it, and whether that is the one
+        /// running now -- as opposed to one before a restart.
+        var diptychPid: Int32?
+        var thisSession: Bool
+    }
+
+    /// The running Diptych, from `get_diptych_info`.
+    struct DiptychInfo: Codable, Sendable {
+        var pid: Int32
+        var startedAt: String
+        var version: String
+        var build: String
+        var appPath: String
+        var debugBuild: Bool
+        var macOS: String
+        var mcpPort: Int
+        /// Runs started by this process.
+        var runsThisSession: Int
+        /// All runs kept, from this and earlier sessions.
+        var runsKept: Int
+    }
+
+    struct RunList: Codable, Sendable {
+        var runs: [RunSummary]
+        /// How many runs are kept in all.
+        var total: Int
+    }
+
+    struct RunOutput: Codable, Sendable {
+        var run: RunSummary
+        /// What it printed, as plain text: the terminal's colours are not in it.
+        var output: String
+        var totalLines: Int
+        var returnedLines: Int
+        /// Only the last `returnedLines` of `totalLines` are in `output`.
+        var truncated: Bool
+    }
+
     struct BatchRowStatus: Codable, Sendable {
         var kind: String
         var description: String

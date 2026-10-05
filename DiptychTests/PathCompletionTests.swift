@@ -49,9 +49,10 @@ final class PathCompletionTests: XCTestCase {
         XCTAssertEqual(PathCompletion.complete(path("Downloads/"), base: root.path), path("Downloads/inner/"))
     }
 
-    func testFilesAreNotOffered() {
-        // The bar navigates; a file path is refused on commit anyway.
-        XCTAssertNil(PathCompletion.complete(path("not"), base: root.path))
+    func testFilesAreOfferedWithoutASeparator() {
+        // A file's path opens it in its folder, so it completes -- and, being
+        // where the path ends, gets no "/".
+        XCTAssertEqual(PathCompletion.complete(path("not"), base: root.path), path("notes.txt"))
     }
 
     func testHiddenEntriesAppearOnlyOnceTheDotIsTyped() {
@@ -75,10 +76,10 @@ final class PathCompletionTests: XCTestCase {
                      "an empty directory has nothing to add")
     }
 
-    func testValidityIsAboutDirectoriesNotFiles() {
-        XCTAssertTrue(PathCompletion.isDirectory(path("Downloads"), base: root.path))
-        XCTAssertFalse(PathCompletion.isDirectory(path("notes.txt"), base: root.path), "a file is not a folder")
-        XCTAssertFalse(PathCompletion.isDirectory(path("nowhere"), base: root.path))
+    func testAFileOrAFolderIsValidAndNothingIsNot() {
+        XCTAssertTrue(PathCompletion.exists(path("Downloads"), base: root.path))
+        XCTAssertTrue(PathCompletion.exists(path("notes.txt"), base: root.path), "a file opens in its folder")
+        XCTAssertFalse(PathCompletion.exists(path("nowhere"), base: root.path))
     }
 
     // MARK: - Relative paths

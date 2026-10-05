@@ -16,6 +16,7 @@ struct DiptychApp: App {
     static let releaseNotesWindowID = "diptych.releaseNotes"
     static let mcpConsoleWindowID = "diptych.mcpConsole"
     static let batchOperationsWindowID = "diptych.batchOperations"
+    static let runWindowID = "diptych.run"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -99,6 +100,14 @@ struct DiptychApp: App {
             if let batchId { BatchOperationsView(batchId: batchId) }
         }
         .defaultSize(width: 760, height: 560)
+        .restorationBehavior(.disabled)
+
+        // One Runs window, a tab per run -- its own tab strip, not macOS's
+        // window tabs; see RunsView.
+        Window("Runs", id: DiptychApp.runWindowID) {
+            RunsView()
+        }
+        .defaultSize(width: 820, height: 520)
         .restorationBehavior(.disabled)
 
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
@@ -288,6 +297,9 @@ struct FileCommands: Commands {
                 dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
             }
             .keyboardShortcut(.open)
+            Button("Run with Arguments\u{2026}") { model?.runSelectionWithArguments() }
+                .keyboardShortcut(.runWithArguments)
+                .disabled(model == nil)
             Button("Get Info") { model?.showInfo() }
                 .keyboardShortcut(.getInfo)
             Button("Compare") { model?.showDiff() }

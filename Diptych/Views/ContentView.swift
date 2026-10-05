@@ -156,6 +156,9 @@ struct ContentView: View {
             model.openDirectoryDiffWindow = {
                 openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
             }
+            if RunLauncher.openWindow == nil {
+                RunLauncher.openWindow = { openWindow(id: DiptychApp.runWindowID) }
+            }
             model.openBatchOperationsWindow = {
                 openWindow(id: DiptychApp.batchOperationsWindowID, value: $0)
             }
@@ -841,6 +844,11 @@ struct DialogSheet: View {
 
             case .updateCheckConsent:
                 updateCheckConsent
+
+            case .runArguments:
+                if let request = model.runRequest {
+                    RunArgumentsView(model: model, request: request)
+                }
 
             case .updateAvailable(let version):
                 confirmation(

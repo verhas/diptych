@@ -101,6 +101,9 @@ final class PaneModel {
     /// entirely, and selecting them before the new listing arrives would land on
     /// stale indexes.
     var pendingSelection: Set<FileItem.ID> = []
+    /// Once the selection above is in place, open it as Return would: a file
+    /// path typed into the path bar means "that file", not only its folder.
+    var openAfterLoading = false
 
     // MARK: - Filter
 
@@ -689,9 +692,16 @@ final class PaneModel {
             if !present.isEmpty {
                 selection = present
                 owner?.scrollSelectionIntoView()
+                if openAfterLoading, present.count == 1,
+                   let item = loaded.first(where: { present.contains($0.id) }) {
+                    openAfterLoading = false
+                    open(item)
+                }
+                openAfterLoading = false
                 return
             }
         }
+        openAfterLoading = false
         selection = selection.filter { id in loaded.contains { $0.id == id } }
         landOnSomethingToPreview()
     }

@@ -50,13 +50,14 @@ developer account.
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
 | `⌘[` `⌘]` | back / forward through the active pane's directory history |
 | `⌘I` | Info window for the selected file (exactly one) |
+| `⌥↩` | run the selected script or command-line tool, asking for its arguments |
 | `⌘A` | select all -- in the path box it selects the text, otherwise every row |
 | `⌃⌘V` | paste as a **symbolic link** to what was copied, rather than a copy of it |
 | `⌥⌘C` / `⇧⌥⌘C` | copy the selected file names / full paths as shell arguments |
 | `⌃⌘C` | copy what is *in* the selected file -- text as text, a picture as a picture |
 | `` ⌃` `` | show or hide the agent terminal |
 | `⌘U` | swap the left and right panes |
-| `⌘⇧G` | go to folder -- a path that is not a folder is refused and the editor stays open; Escape returns to where you were |
+| `⌘⇧G` | go to folder -- a file's path goes to its folder, selects it and opens it, as Return on its row would; a path that does not exist is refused and the editor stays open; Escape returns to where you were |
 | `↑` `↓` | move the cursor; typing letters jumps to a name (type-select) |
 | `Home` `End` | first / last row |
 | `PgUp` `PgDn` | one screenful |
@@ -1146,6 +1147,9 @@ window go to "the" Diptych, which only means something if there is one.
 | `set_setting` | Changes one setting by key, from `list_settings` |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
 | `propose_file_operations` | Proposes a batch of file operations for you to review before anything happens -- see below. Returns as soon as the review window is open |
+| `get_diptych_info` | The running Diptych: process id and start time, version and build, app path, debug or not, macOS version, MCP port, and runs started by this process against all kept |
+| `list_runs` | The kept runs (Run ▸), counted back from the latest -- 1 is the last run; `from`/`to` choose a range, 1-10 by default: run id, command line, folder, running / finished / failed / stopped / interrupted, exit code, start, timing (`real`, `user`, `sys`), whether its tab is open, and which tab is in front (`focused`). Starting a run is deliberately not offered |
+| `get_run_output` | What a run printed, as plain text without the terminal's colours, with its state and timing -- also after its tab is closed; the last 400 lines by default, up to 5000 -- so "why did that build fail?" needs no copy and paste |
 | `get_batch_status` | Where a proposed batch stands -- reviewing, executing, finished or cancelled -- and, once it has run, each row's outcome and whether it failed |
 
 None of these read or write file *contents*, and none return diff content
@@ -1178,7 +1182,9 @@ are looking at, in plain language, without setting anything up.
   shell) and the folder. It is typed into your login shell, so your `PATH`
   and start-up files apply once, and when the agent exits the shell stays.
 - **Its look is its own** -- font, size, and colours that follow the system,
-  stay light or dark, or are chosen -- in Settings ▸ Appearance.
+  stay light or dark, or are chosen -- in Settings ▸ Appearance. Option types
+  what your keyboard layout puts on it (`#`, `@`, `\`…), as in Terminal.app;
+  *Use Option as Meta key* there makes it the shell's Meta instead.
 - **A thin strip along the bottom of every window is its handle.** The
   terminal starts out closed, as just that strip; clicking it does what
   `` ⌃` `` does -- the first time it starts the agent, after that it folds the
@@ -1698,6 +1704,91 @@ the volume name follow from the built bundle, so nothing else needs editing.
 Then `./build.sh dmg && ./build.sh notarize`. Stapling matters: it puts the
 ticket inside the image, so the app opens even on a machine that is offline the
 first time it runs.
+
+## Running programs
+
+A script or command-line tool -- any file you may execute that is not a folder
+or an app -- has **Run ▸** in its right-click menu. Apps keep *Run App*.
+
+- **Run with Arguments…** (`⌥↩`, also in the File menu) asks for the
+  arguments on one line, pre-filled with the most recent ones; `↑` and `↓`
+  step through the earlier ones, as at a prompt. The exact command and the
+  folder it runs in are shown before anything runs.
+- **Under it, the argument lines it was run with**, most recent first: choose
+  one to run it again at once; `⌥`-click one to delete it instead, with no
+  undo -- the menu's last line says so.
+- **It runs in the active pane's folder** -- usually the program's own. When
+  you right-click a program while the *other* pane is active, the item says
+  *Run with Arguments… in "that folder"*.
+- **The arguments go to your login shell as typed**: quotes, `~`,
+  `$VARIABLES`, wildcards and pipes work as at a prompt. The program's own
+  path is quoted by Diptych.
+- **Each run is a tab of one Runs window** -- whichever window it was
+  started from -- so "the run in front" is always clear. A real terminal --
+  colours,
+  progress bars, and questions the program asks all work. Typing reaches the
+  program while it runs; once it ends the window takes no input, and shows
+  *Finished*, *Failed -- exit N* or *Stopped*, with the time it took as
+  `time` reports it: `real`, and the `user` and `sys` time of the program and
+  everything it ran. **Copy Output** copies all of
+  it as plain text; **Stop** sends Control-C; **Run Again**; closing a window
+  whose program is still running asks first.
+- **A downloaded program** -- one with `com.apple.quarantine` -- is asked
+  about before it runs: macOS checks downloaded apps, but no one checks
+  downloaded scripts.
+- **No agent can run anything.** Running a program is not offered over MCP --
+  but an agent can *read* a run: `list_runs` and `get_run_output` let you ask
+  "why did that fail?" without copying any output.
+
+**Runs are kept for a while.** Each run's record (what ran, where, how it ended,
+how long it took) and, once it exits, everything it printed are written to
+`~/.diptych/runs/` -- private to you, since output can hold anything. Settings
+▸ Behaviour ▸ *Keep runs and their output for* decides how long: an hour to 30
+days, or until deleted; a day by default. They are purged at launch, whenever a
+run starts and every quarter of an hour -- never one whose tab is open -- and
+*Delete All Kept Runs* clears them at once. A closed tab's run is still there: MCP's `list_runs` lists
+them counted back from the latest (1 is the last run, `from`/`to` choose a
+range) and marks the tab in front as `focused`, and which Diptych process
+started each one -- `thisSession`, or one before a restart; `get_run_output`
+reads any of them. A run Diptych quit during is listed as *interrupted*.
+
+**Tabs.** Every run is a tab of the one **Runs** window, whichever window
+started it -- Diptych's own tab strip, not macOS window tabs, so there is no
+*+* opening an empty window, a new run never appears on its own, and the tab in
+front is unambiguously "this run". Each tab shows how it stands (blue running,
+green finished, red failed, orange stopped) and has its ×; closing a tab, or the
+window, that still runs something asks first. The tabs share the width; when
+there are too many to fit, ‹ and › step through them, ⌄ lists them all, and the
+tab shown is always scrolled into view.
+
+**The history.** One JSON file per program in `~/.diptych/run-history/`,
+named by the MD5 of the program's real path, with that path inside so `grep`
+finds it -- not one file for every program, so hundreds of scripts cost
+nothing. Settings ▸ Behaviour sets how many lines a program keeps (or
+*Unlimited*); a program's own file can say otherwise, and can be opened from
+*Run with Arguments… ▸ Edit History File…*:
+
+```json
+{
+  "path" : "/Users/me/github/diptych/build.sh",
+  "fixed" : true,
+  "limit" : 5,
+  "entries" : [ { "arguments" : "dmg", "lastRun" : "2026-10-04T17:12:00Z" } ]
+}
+```
+
+Every file spells out `"fixed"`, `"limit"` and `"unlimited"`, so they can be
+found by whoever opens it; the limit starts as the one in Settings and is the
+program's own from then on. `"fixed": true` keeps the list exactly as written -- running never reorders,
+adds or trims it; deleting still works. `"limit"` or `"unlimited": true`
+overrides Settings for that program. Empty arguments are never recorded.
+
+**The history follows the program.** It carries its key in the extended
+attribute `dev.verhas.diptych.run-history`. Moved, it finds its history by the
+attribute and takes it along; copied -- the original still there -- the copy
+inherits the history once and then goes its own way. Nothing is written when a
+menu opens, only when something runs. Where a volume keeps no attributes, a
+moved program simply starts afresh.
 
 ## Scripts
 

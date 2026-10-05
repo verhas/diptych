@@ -87,6 +87,49 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Text("Run").font(.headline)
+            HStack(spacing: 10) {
+                Text("Remember")
+                Stepper(value: $store.configuration.runHistoryLimit, in: 1...999) {
+                    Text("\(store.configuration.runHistoryLimit)").monospacedDigit()
+                }
+                .disabled(store.configuration.runHistoryUnlimited)
+                Text("argument lines per program")
+                Toggle("Unlimited", isOn: $store.configuration.runHistoryUnlimited)
+                    .toggleStyle(.checkbox)
+            }
+            HStack(spacing: 10) {
+                Picker("Keep runs and their output for", selection: $store.configuration.runKeepHours) {
+                    Text("1 hour").tag(1)
+                    Text("12 hours").tag(12)
+                    Text("1 day").tag(24)
+                    Text("3 days").tag(72)
+                    Text("1 week").tag(168)
+                    Text("30 days").tag(720)
+                    Text("Until deleted").tag(0)
+                }
+                .fixedSize()
+                .onChange(of: store.configuration.runKeepHours) { _, _ in RunLog.shared.purge() }
+                Button("Delete All Kept Runs") { RunLog.shared.deleteAll() }
+            }
+            Text("Every run's record and output are kept in ~/.diptych/runs for as long as set "
+                 + "here, so a closed tab can still be read -- and an agent can be asked why it "
+                 + "failed. Runs whose tab is open are never deleted.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Right-click a script or command-line tool \u{25B8} Run lists the arguments it "
+                 + "was run with, most recent first. Each program keeps its own file in "
+                 + "~/.diptych/run-history, starting with this limit; from then on the file "
+                 + "has its own \u{201C}limit\u{201D}, \u{201C}unlimited\u{201D} and "
+                 + "\u{201C}fixed\u{201D} (true keeps the list exactly as written). Run with "
+                 + "Arguments\u{2026} \u{25B8} Edit History File opens it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Picker("Check for updates", selection: $store.configuration.updateCheckPreference) {
                 Text("At startup, once a day at most").tag(Configuration.UpdateCheckPreference.enabled)
                 Text("Ask at startup").tag(Configuration.UpdateCheckPreference.ask)
@@ -432,6 +475,15 @@ struct AppearanceSettingsView: View {
                             supportsOpacity: false)
             }
         }
+
+        Toggle("Use Option as Meta key", isOn: $store.configuration.terminalOptionAsMeta)
+            .toggleStyle(.checkbox)
+        Text("Off, Option types what your keyboard layout puts on it -- # @ \\ and the "
+             + "rest -- as everywhere else. On, Option+key is the shell's Meta: Option+B and "
+             + "Option+F move by word.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
         terminalSample
 

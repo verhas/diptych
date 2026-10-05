@@ -259,9 +259,15 @@ struct PaneView: View {
             pathFieldFocused = true
             return
         }
+        // A file: its folder, with it selected and opened -- what Return on its
+        // row would have done. A path pasted from a log or a message is then
+        // one keystroke from the file itself.
         guard isDirectory.boolValue else {
-            model.flash("\u{201C}\(pathText)\u{201D} is a file, not a folder")
-            pathFieldFocused = true
+            let file = URL(fileURLWithPath: expanded)
+            pane.pendingSelection = [file]
+            pane.openAfterLoading = true
+            pane.navigate(to: file.deletingLastPathComponent())
+            endPathEdit()
             return
         }
 
@@ -466,6 +472,10 @@ struct PaneView: View {
                item.isApplication {
                 Button("Run App") { act(ids) { NSWorkspaceOpener.open(item.url) } }
             }
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               model.isRunnable(item) {
+                runMenu(for: item)
+            }
 
             // Only for files Git does not know about: for anything else the
             // two entries would be permanently meaningless.
@@ -597,6 +607,48 @@ struct PaneView: View {
                     }
                     .help(script.summary)
                 }
+            }
+        }
+    }
+
+    /// Run ▸ for a command-line program: the arguments sheet first, then the
+    /// argument lines it was run with before, most recent first.
+    ///
+    /// It runs in the *active* pane's folder -- usually the program's own --
+    /// and the item says so when that is the other pane's. Read at the moment
+    /// the menu opens, before choosing an item activates this pane.
+    ///
+    /// ⌥-click on an entry deletes it instead of running it. Read when the
+    /// entry is chosen, not when the menu opens: SwiftUI builds the submenu at
+    /// a moment of its own choosing, and ⌥ held "as the menu opened" was not
+    /// reliably seen. The hint at the bottom says so.
+    @ViewBuilder
+    private func runMenu(for item: FileItem) -> some View {
+        let directory = model.active.directory
+        let elsewhere = directory.standardizedFileURL
+            != item.url.deletingLastPathComponent().standardizedFileURL
+        let history = model.runHistory(for: item.url)
+        Menu("Run") {
+            Button(elsewhere
+                   ? "Run with Arguments\u{2026} in \u{201C}\(directory.lastPathComponent)\u{201D}"
+                   : "Run with Arguments\u{2026}") {
+                model.requestRun(item.url, in: directory)
+            }
+            .keyboardShortcut(.runWithArguments)
+            if !history.isEmpty {
+                Divider()
+                ForEach(history, id: \.self) { arguments in
+                    Button(arguments) {
+                        if NSEvent.modifierFlags.contains(.option) {
+                            model.deleteRunHistory(arguments, for: item.url)
+                        } else {
+                            model.run(item.url, arguments: arguments, in: directory)
+                        }
+                    }
+                }
+                Divider()
+                Button("\u{2325}-click an entry to delete it") {}
+                    .disabled(true)
             }
         }
     }

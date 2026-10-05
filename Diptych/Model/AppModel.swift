@@ -43,6 +43,7 @@ final class AppModel {
         case tips
         case updateCheckConsent
         case updateAvailable(version: String)
+        case runArguments
 
         var id: String {
             switch self {
@@ -63,6 +64,7 @@ final class AppModel {
             case .tips:           return "tips"
             case .updateCheckConsent: return "updateCheckConsent"
             case .updateAvailable:    return "updateAvailable"
+            case .runArguments:       return "runArguments"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -3060,6 +3062,59 @@ final class AppModel {
         NSWorkspaceOpener.revealInFinder(urls.isEmpty ? [active.directory] : urls)
     }
 
+    // MARK: - Run
+
+    /// A program to be run, and where: what the arguments sheet is about.
+    struct RunRequest: Equatable {
+        let program: URL
+        let directory: URL
+    }
+    var runRequest: RunRequest?
+
+    /// A command-line program -- a script or a tool that may be executed --
+    /// rather than an app, which has Run App, or a document.
+    func isRunnable(_ item: FileItem) -> Bool {
+        guard !item.isParent, !item.isDirectory else { return false }
+        let resolved = item.url.resolvingSymlinksInPath()
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved.path, isDirectory: &isFolder),
+              !isFolder.boolValue else { return false }
+        return FileManager.default.isExecutableFile(atPath: resolved.path)
+    }
+
+    func runHistory(for program: URL) -> [String] {
+        RunHistory.shared.entries(for: program)
+    }
+
+    /// The arguments sheet, for this program, to run in this folder.
+    func requestRun(_ program: URL, in directory: URL) {
+        runRequest = RunRequest(program: program, directory: directory)
+        dialog = .runArguments
+    }
+
+    func run(_ program: URL, arguments: String, in directory: URL) {
+        RunLauncher.run(program: program, arguments: arguments, in: directory)
+    }
+
+    /// The ⌥-right-click Delete: no undo, as asked for.
+    func deleteRunHistory(_ arguments: String, for program: URL) {
+        RunHistory.shared.delete(arguments, for: program)
+        flash("Removed \u{201C}\(arguments)\u{201D} from the history of "
+              + "\(program.lastPathComponent)", error: false)
+    }
+
+    /// ⌥↩, and File ▸ Run with Arguments…: the selected program, in the
+    /// active pane's folder.
+    func runSelectionWithArguments() {
+        guard !editorHasKeyboardFocus else { return }
+        guard let item = singleSelection("run", includingParent: false) else { return }
+        guard isRunnable(item) else {
+            flash("\(item.name) is not a program that can be run", error: true)
+            return
+        }
+        requestRun(item.url, in: active.directory)
+    }
+
     func openTerminal() {
         NSWorkspaceOpener.openTerminal(at: active.directory)
     }
@@ -3277,7 +3332,9 @@ final class AppModel {
 
         switch key {
         case .tab:            toggleActiveSide()
-        case .ret, .enter:    openSelection()
+        case .ret, .enter:
+            // ⌥↩ runs the selected program, with arguments; Return opens.
+            if modifiers.contains(.option) { runSelectionWithArguments() } else { openSelection() }
         case .f1:             copyPromptToClipboard()
         case .f2:             requestRename()
         // F4 as well as F9: on many setups F9 is taken by Mission Control.

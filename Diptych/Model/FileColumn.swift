@@ -165,6 +165,20 @@ struct Configuration: Codable, Equatable {
     /// so Diptych can put it back if it is lost.
     var showFilesInDiptych = false
 
+    /// Run ▸ in the right-click menu: how many argument lines a program
+    /// remembers, unless its own history file says otherwise.
+    var runHistoryLimit = 10
+    var runHistoryUnlimited = false
+    /// How long a run -- its record and all it printed -- is kept after it
+    /// ended, in hours. 0 keeps them until deleted.
+    var runKeepHours = 24
+
+    /// Option as the terminal's Meta key -- Option+B is Escape B, for word
+    /// movement in a shell -- rather than as the keyboard layout's Option:
+    /// Option+X is whatever the layout puts there, such as #. Off by default,
+    /// as in Terminal.app: a layout's Option characters are what people type.
+    var terminalOptionAsMeta = false
+
     /// How tall the agent terminal is when open.
     static let defaultTerminalHeight = 260.0
     var terminalHeight = Configuration.defaultTerminalHeight
@@ -345,6 +359,7 @@ struct Configuration: Codable, Equatable {
         case mcpServerEnabled, mcpServerPort, agentCommand, agentDirectory
         case terminalFontName, terminalFontSize, terminalColours, terminalForeground
         case terminalBackground, terminalHeight, showFilesInDiptych
+        case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
     }
 
     init() {}
@@ -420,6 +435,12 @@ struct Configuration: Codable, Equatable {
         mcpServerEnabled = (try? container.decode(Bool.self, forKey: .mcpServerEnabled)) ?? false
         mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
         agentCommand = (try? container.decode(String.self, forKey: .agentCommand)) ?? "claude"
+        runKeepHours = max(0, (try? container.decode(Int.self, forKey: .runKeepHours)) ?? 24)
+        terminalOptionAsMeta =
+            (try? container.decode(Bool.self, forKey: .terminalOptionAsMeta)) ?? false
+        runHistoryLimit = max(1, (try? container.decode(Int.self, forKey: .runHistoryLimit)) ?? 10)
+        runHistoryUnlimited =
+            (try? container.decode(Bool.self, forKey: .runHistoryUnlimited)) ?? false
         showFilesInDiptych =
             (try? container.decode(Bool.self, forKey: .showFilesInDiptych)) ?? false
         agentDirectory = (try? container.decode(String.self, forKey: .agentDirectory))

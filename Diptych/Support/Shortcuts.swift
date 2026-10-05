@@ -16,6 +16,8 @@ extension KeyboardShortcut {
 
     static let open             = KeyboardShortcut(.downArrow, modifiers: .command)
     static let getInfo          = KeyboardShortcut("i")
+    /// ⌥↩: Return opens, Option is "the other way" -- run, with arguments.
+    static let runWithArguments = KeyboardShortcut(.return, modifiers: .option)
     static let compare          = KeyboardShortcut("d", modifiers: .command)
     /// F2, answered by `KeyRouter`. A menu-bar item cannot carry it: the key
     /// would then rename a file while someone was typing in the path bar.

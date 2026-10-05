@@ -105,7 +105,7 @@ struct PathField: NSViewRepresentable {
         /// text had not changed and nothing recoloured it.
         func recolour(_ field: NSTextField) {
             let whole = field.stringValue
-            let valid = whole.isEmpty || PathCompletion.isDirectory(whole, base: parent.base)
+            let valid = whole.isEmpty || PathCompletion.exists(whole, base: parent.base)
             let colour: NSColor = valid ? .labelColor : .systemRed
             field.textColor = colour
             if let editor = field.currentEditor() as? NSTextView {

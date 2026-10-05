@@ -584,6 +584,47 @@ extension MCPServer {
                         ],
                         "required": ["operations"],
                      ])),
+                Tool(name: "get_diptych_info",
+                     description: "The running Diptych: its process id and when it started, "
+                        + "version and build, where the app is, whether it is a debug build, "
+                        + "the macOS version, the MCP port, and how many runs this process "
+                        + "started against how many are kept in all. list_runs marks each run "
+                        + "with the process that started it (diptychPid) and thisSession, so "
+                        + "\"how many commands did I run since Diptych restarted\" can be answered.",
+                     inputSchema: .object(["type": "object", "properties": [:]])),
+                Tool(name: "list_runs",
+                     description: "Programs the person ran from Diptych (right-click a script "
+                        + "or command-line tool, Run) and still kept -- a day unless Settings say "
+                        + "otherwise -- each a tab of the Runs "
+                        + "window, or closed but kept. Counted back from the most recent: 1 is "
+                        + "the last run, 2 the one before; from/to choose the range (default "
+                        + "1 to 10, at most 100 at a time). Each has its runId, command line, "
+                        + "folder, state (running, finished, failed, stopped, interrupted), exit "
+                        + "code, start time, timing (real/user/sys as `time` reports), whether "
+                        + "its tab is open, and whether it is the focused tab -- what \"this "
+                        + "run\" means. With get_run_output this answers \"why did that fail?\" "
+                        + "without anyone pasting output. Agents cannot start runs.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "from": ["type": "integer", "description": "First, counting back; 1 is the latest. Default 1."],
+                            "to": ["type": "integer", "description": "Last, counting back. Default from + 9."],
+                        ],
+                     ])),
+                Tool(name: "get_run_output",
+                     description: "What a run from list_runs printed, as plain text (the "
+                        + "terminal's colours removed), with its state, exit code and timing -- "
+                        + "also for a run whose tab is closed, while it is kept. By default the last 400 "
+                        + "lines, where an error usually is; tailLines asks for more, up to 5000.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "runId": ["type": "string", "description": "From list_runs."],
+                            "tailLines": ["type": "integer",
+                                          "description": "How many lines from the end. Default 400."],
+                        ],
+                        "required": ["runId"],
+                     ])),
                 Tool(name: "get_batch_status",
                      description: "The status of a batch from propose_file_operations -- "
                         + "reviewing, executing, finished or cancelled -- and, once it has run, "
@@ -758,6 +799,31 @@ extension MCPServer {
                 case .proposed(let batchId):
                     return try MCPModels.result(for: MCPModels.ProposedBatch(batchId: batchId.uuidString))
                 }
+
+            case "get_diptych_info":
+                return try MCPModels.result(for: await MainActor.run { MCPToolSupport.diptychInfo() })
+
+            case "list_runs":
+                let from = params.arguments?["from"]?.intValue
+                let to = params.arguments?["to"]?.intValue
+                return try MCPModels.result(for: await MainActor.run {
+                    MCPToolSupport.runList(from: from, to: to)
+                })
+
+            case "get_run_output":
+                guard let idString = params.arguments?["runId"]?.stringValue,
+                      let runId = UUID(uuidString: idString) else {
+                    return .init(content: [.text(text: "runId is required and must be a UUID.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let tail = params.arguments?["tailLines"]?.intValue
+                guard let output = await MainActor.run(body: {
+                    MCPToolSupport.runOutput(runId: runId, tailLines: tail)
+                }) else {
+                    return .init(content: [.text(text: "No such run. list_runs gives the ids.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                return try MCPModels.result(for: output)
 
             case "get_batch_status":
                 guard let batchIdString = params.arguments?["batchId"]?.stringValue,

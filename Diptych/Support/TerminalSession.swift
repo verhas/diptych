@@ -63,8 +63,18 @@ final class TerminalSession: NSObject {
     private func start(in folder: URL, running command: String) {
         let shell = Self.loginShell
         let name = "-" + (shell as NSString).lastPathComponent
+        view.startProcess(executable: shell, args: [], environment: Self.environment,
+                          execName: name, currentDirectory: folder.path)
+        // Waits in the terminal's input until the shell is ready to read it.
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { view.send(txt: trimmed + "\r") }
+    }
+
+    /// What a shell started by Diptych is given: a terminal that does colour,
+    /// and `TERM_PROGRAM`, so a program can tell where it runs.
+    static var environment: [String] {
         var environment = Terminal.getEnvironmentVariables(termName: "xterm-256color")
-        environment.append("SHELL=\(shell)")
+        environment.append("SHELL=\(loginShell)")
         environment.append("TERM_PROGRAM=Diptych")
         if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
             environment.append("TERM_PROGRAM_VERSION=\(version)")
@@ -74,11 +84,7 @@ final class TerminalSession: NSObject {
             environment.removeAll { $0.hasPrefix("LANG=") }
             environment.append("LANG=\(lang)")
         }
-        view.startProcess(executable: shell, args: [], environment: environment,
-                          execName: name, currentDirectory: folder.path)
-        // Waits in the terminal's input until the shell is ready to read it.
-        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { view.send(txt: trimmed + "\r") }
+        return environment
     }
 
     /// The shell in the account's own record, not `$SHELL`: an app started
@@ -141,6 +147,7 @@ extension TerminalSession: @preconcurrency LocalProcessTerminalViewDelegate {
 /// How the agent terminal looks, from Settings ▸ Appearance -- its own font
 /// and colours, apart from the panes'.
 struct TerminalStyle: Equatable {
+    var optionAsMeta = false
     var fontName: String
     var fontSize: Double
     var colours: Configuration.TerminalColours
@@ -150,7 +157,8 @@ struct TerminalStyle: Equatable {
     @MainActor
     static var current: TerminalStyle {
         let configuration = ConfigStore.shared.configuration
-        return TerminalStyle(fontName: configuration.terminalFontName,
+        return TerminalStyle(optionAsMeta: configuration.terminalOptionAsMeta,
+                             fontName: configuration.terminalFontName,
                              fontSize: configuration.terminalFontSize,
                              colours: configuration.terminalColours,
                              foreground: configuration.terminalForeground,
@@ -207,6 +215,9 @@ final class DiptychTerminalView: LocalProcessTerminalView {
         let fontChanged = newStyle.fontName != style.fontName || newStyle.fontSize != style.fontSize
         style = newStyle
         if fontChanged || font != style.font { font = style.font }
+        // SwiftTerm's default is Meta, which sent Escape X for Option+X and so
+        // made a layout's # @ \ and the rest impossible to type.
+        optionAsMetaKey = style.optionAsMeta
         applyColours()
     }
 

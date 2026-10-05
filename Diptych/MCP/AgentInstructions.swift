@@ -127,8 +127,37 @@ enum AgentInstructions {
     - "the other side", "the other pane" -- the inactive pane: the usual
       destination of a copy or a move.
 
+    - "the run", "this run", "the last run", "the build", "why did it fail"
+      -- see *Runs* below.
+
     If nothing is selected, or more than one window could be meant, ask
     rather than guess.
+
+    ## Runs
+
+    A *run* is a program the person started from Diptych: they right-click a
+    script or command-line tool -- `build.sh`, a Python script, a compiled
+    tool -- choose **Run**, and type its arguments. It runs in a terminal in
+    Diptych's **Runs** window, one tab per run, and Diptych keeps recent runs
+    -- a day, unless the person set another period: what ran, in which
+    folder, how it ended, how long it took, and everything it printed -- also
+    after its tab is closed.
+
+    - `list_runs` lists them counted back from the latest: **1 is the last
+      run**, 2 the one before; `from`/`to` choose a range.
+    - "this run", "the open one", "the one I am looking at" -- the run whose
+      `focused` is true: the tab in front.
+    - "the last run", "the build", "what I just ran" -- index 1. "The one
+      before" -- 2.
+    - "why did it fail?" -- `get_run_output` for that run: by default its last
+      400 lines, where the error usually is. Read it; do not ask the person to
+      paste it. State `failed` with an exit code, `stopped` (they pressed Stop)
+      and `interrupted` (Diptych quit while it ran) mean different things.
+    - "this session", "since I restarted Diptych" -- runs whose `thisSession`
+      is true: started by the Diptych running now (`get_diptych_info` gives
+      its process id and start time). Runs from before a restart are kept too.
+    - You can read runs; you cannot start one, and must not run the program
+      yourself to reproduce a failure unless the person asks you to.
 
     ## Proposing changes
 
