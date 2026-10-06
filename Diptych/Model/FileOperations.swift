@@ -311,8 +311,15 @@ actor FileOperations {
         return candidate
     }
 
+    /// Whether anything is at this name -- a broken symbolic link included.
+    ///
+    /// Not `fileExists`, which follows a link and so answers "no" for one
+    /// whose target is gone. A name holding such a link looked free: Paste as
+    /// Link then tried to put a new link at it, and was refused, because the
+    /// name was taken all along. `lstat` looks at the name itself.
     nonisolated static func exists(_ url: URL) -> Bool {
-        FileManager().fileExists(atPath: url.path)
+        var info = stat()
+        return lstat(url.path, &info) == 0
     }
 
     /// "report.pdf" -> "report-1.pdf", then "-2" and so on.
@@ -320,8 +327,7 @@ actor FileOperations {
     /// A dash rather than a space, and starting at 1 rather than 2: a space in
     /// a generated name is a nuisance everywhere it is later typed.
     nonisolated static func uniqueURL(for url: URL) -> URL {
-        let fm = FileManager()
-        guard fm.fileExists(atPath: url.path) else { return url }
+        guard exists(url) else { return url }
 
         let ext = url.pathExtension
         let stem = url.deletingPathExtension().lastPathComponent
@@ -330,7 +336,7 @@ actor FileOperations {
         for suffix in 1...9999 {
             var candidate = directory.appendingPathComponent("\(stem)-\(suffix)")
             if !ext.isEmpty { candidate.appendPathExtension(ext) }
-            if !fm.fileExists(atPath: candidate.path) { return candidate }
+            if !exists(candidate) { return candidate }
         }
         return url
     }
@@ -361,7 +367,9 @@ actor FileOperations {
                 // throws to say so. Believed at face value, that leaves a
                 // duplicate nobody asked for sitting in the Trash and no
                 // warning that nothing was actually removed.
-                guard !fm.fileExists(atPath: url.path) else {
+                // The name itself, not where it points: a broken link that
+                // stayed would otherwise read as gone, and as trashed.
+                guard !Self.exists(url) else {
                     if let trashed = resulting as URL? { try? fm.removeItem(at: trashed) }
                     outcome.failures.append((url,
                         "\u{201C}\(url.lastPathComponent)\u{201D} was not moved to the Trash. "

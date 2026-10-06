@@ -44,6 +44,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// Empty for everything else. Read by the loader, because a `readlink` per
     /// symlink is cheap and doing it during a redraw is not.
     var linkTarget: String = ""
+    /// A symbolic link whose target is not there.
+    var isBrokenLink = false
     /// Filled in after the listing, once the repository has been asked.
     var gitState: GitState = .clean
     /// Everything found at or under this row, strongest first. One entry for a

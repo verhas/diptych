@@ -1319,8 +1319,10 @@ final class AppModel {
 
         case .permissions:
             // Permissions can be edited for a whole selection, so clicking any
-            // already-selected row starts the edit.
-            guard selectionBeforeClick.contains(rowID) else { return }
+            // already-selected row starts the edit -- but not a link's empty
+            // cell: a link has no permissions of its own to edit.
+            guard selectionBeforeClick.contains(rowID),
+                  pane.rows.first(where: { $0.id == rowID })?.isSymlink != true else { return }
             scheduleClickEdit { [weak self] in
                 self?.activate(pane)
                 self?.requestPermissionEdit(anchor: rowID)
@@ -2438,7 +2440,9 @@ final class AppModel {
     /// contents the clipboard can hold, and offering it only to refuse taught
     /// nothing.
     func canCopyContents(of items: [FileItem]) -> Bool {
-        guard !items.isEmpty, items.allSatisfy({ !$0.isDirectory && !$0.isParent }) else {
+        // A broken link has no contents: its target is gone.
+        guard !items.isEmpty,
+              items.allSatisfy({ !$0.isDirectory && !$0.isParent && !$0.isBrokenLink }) else {
             return false
         }
         return Clipboard.canReadContents(of: items.map { ($0.url, $0.byteSize) })
@@ -2761,10 +2765,16 @@ final class AppModel {
     /// row under the pointer and, once the pointer has stayed there long
     /// enough, opens it -- exactly as a double-click would.
     func dragHovered() {
-        guard let (pane, item) = rowUnderPointer(), item.isEnterable else {
+        // A position update can still arrive once the drop is done, and it
+        // marked the folder under the pointer as the target again -- with
+        // no drag left to clear it, the row went on flashing for a minute.
+        // No mouse button down means no drag, so nothing to spring-load.
+        guard NSEvent.pressedMouseButtons & 1 != 0,
+              let (pane, item) = rowUnderPointer(), item.isEnterable else {
             cancelSpringLoad()
             return
         }
+        expireSpringLoad()
         guard springLoadPane === pane, springLoadTarget?.id == item.id else {
             springLoadPane = pane
             springLoadTarget = item
@@ -2793,13 +2803,38 @@ final class AppModel {
         springLoadSince = nil
     }
 
-    /// Where a drop landing on `pane` right now would actually go: the row
-    /// spring-load is sitting on, if the pointer has not been there long
-    /// enough to have opened it yet, otherwise the pane's own directory --
-    /// which, once spring-load has opened a folder, *is* that folder.
+    /// Bumped on every position update, so a check started by an earlier
+    /// one can tell it has been overtaken.
+    private var springLoadHover = 0
+
+    /// A drag sends position updates many times a second, even when the
+    /// pointer is still. When they stop without a drop or an exit -- however
+    /// the drag ended -- the target is let go a moment later, so no row can
+    /// be left marked after the drag is gone.
+    private func expireSpringLoad() {
+        springLoadHover &+= 1
+        let hover = springLoadHover
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, self.springLoadHover == hover else { return }
+            self.cancelSpringLoad()
+        }
+    }
+
+    /// Where a drop landing on `pane` right now would actually go: the folder
+    /// row under the pointer, whether or not spring-loading has opened it,
+    /// otherwise the pane's own directory -- which, once spring-load has
+    /// opened a folder, *is* that folder.
+    ///
+    /// Read from the pointer, not from the spring-load target: the last
+    /// position update of a drag arrives with the button already up and
+    /// clears that target, so a drop on a folder that had not opened yet
+    /// went into the pane's folder instead. An app is a folder, but not one
+    /// to drop into.
     private func dropDestination(in pane: PaneModel) -> URL {
-        guard springLoadPane === pane, let target = springLoadTarget else { return pane.directory }
-        return target.isSymlink ? target.url.resolvingSymlinksInPath() : target.url
+        guard let (rowPane, item) = rowUnderPointer(), rowPane === pane,
+              item.isParent || (item.isDirectory && !item.isPackage) else { return pane.directory }
+        return item.isSymlink ? item.url.resolvingSymlinksInPath() : item.url
     }
 
     /// The specific row under the pointer, in whichever pane's table it falls
@@ -2972,10 +3007,17 @@ final class AppModel {
     /// `anchor` is the row whose cell hosts the editor; the edit still applies
     /// to the whole selection.
     func requestPermissionEdit(anchor: FileItem.ID? = nil) {
-        let items = active.selectedItems
-        guard !items.isEmpty else {
+        let selected = active.selectedItems
+        guard !selected.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
                          text: "Select one or more items to change permissions.")
+            return
+        }
+        // Links left out: their own permissions govern nothing on macOS.
+        let items = selected.filter { !$0.isSymlink }
+        guard !items.isEmpty else {
+            flash("A symbolic link has no permissions of its own \u{2014} its target\u{2019}s "
+                  + "are what count", error: true)
             return
         }
 
@@ -3012,7 +3054,9 @@ final class AppModel {
 
     func commitPermissionEdit(_ mode: mode_t, in pane: PaneModel? = nil) {
         let pane = pane ?? active
-        let urls = pane.selectedItems.map(\.url)
+        // Never a link: its own bits mean nothing, and trying to set them
+        // only produced an error.
+        let urls = pane.selectedItems.filter { !$0.isSymlink }.map(\.url)
         pane.permissionEditAnchor = nil
         permissionScope = nil
         restoreTableFocus()
@@ -3120,6 +3164,30 @@ final class AppModel {
             return
         }
         requestRun(item.url, in: active.directory)
+    }
+
+    /// Where a symbolic link points, one step: relative targets read from the
+    /// link's own folder. A link to a link is followed no further -- the next
+    /// step is the person's to take, with the same command.
+    nonisolated static func linkTarget(of link: URL) -> URL? {
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+        else { return nil }
+        let target = destination.hasPrefix("/")
+            ? URL(fileURLWithPath: destination)
+            : link.deletingLastPathComponent().appendingPathComponent(destination)
+        return target.standardizedFileURL
+    }
+
+    /// Right-click ▸ Go to Link Target: the target's folder in this pane, with
+    /// the target selected -- a folder as much as a file, so the jump always
+    /// lands on the item the link names rather than inside it.
+    func goToLinkTarget(of item: FileItem, in pane: PaneModel) {
+        guard let target = Self.linkTarget(of: item.url), FileOperations.exists(target) else {
+            flash("\u{201C}\(item.name)\u{201D} points to something that is not there", error: true)
+            return
+        }
+        pane.pendingSelection = [target]
+        pane.navigate(to: target.deletingLastPathComponent())
     }
 
     func openTerminal() {

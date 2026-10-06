@@ -26,8 +26,6 @@ struct CellView: View {
         model.springLoadPane === pane && model.springLoadTarget?.id == item.id
     }
 
-    @State private var springLoadPulse = false
-
     /// What do I need to know before I touch this file?
     ///
     /// That used to read "what happens when I send my work?", which was true
@@ -96,18 +94,21 @@ struct CellView: View {
         .font(PaneFont.swiftUI)
         .opacity(isDimmed ? 0.35 : 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(isSpringLoadTarget
-                    ? Color.accentColor.opacity(springLoadPulse ? 0.45 : 0.15) : tagTint)
-        // Restarted fresh every time this row becomes the target, and cut
-        // short the moment it stops being one -- an animation left running
-        // on a row the pointer has already moved past would flash on forever.
-        .onChange(of: isSpringLoadTarget, initial: true) { _, active in
-            if active {
-                withAnimation(.easeInOut(duration: 0.45).repeatForever(autoreverses: true)) {
-                    springLoadPulse = true
+        .background {
+            // The pulse is read off the clock while this row is the target,
+            // not run as a repeating animation: setting a repeatForever back
+            // does not reliably stop it, and a drop onto the row -- which
+            // clears the target while the listing reloads -- left the row
+            // flashing for good, even after navigating away and back. With
+            // no animation to stop, the flashing ends with the target.
+            if isSpringLoadTarget {
+                TimelineView(.animation) { context in
+                    let seconds = context.date.timeIntervalSinceReferenceDate
+                    let phase = (1 - cos(seconds * .pi / 0.45)) / 2
+                    Color.accentColor.opacity(0.15 + 0.30 * phase)
                 }
             } else {
-                springLoadPulse = false
+                tagTint
             }
         }
     }
@@ -175,6 +176,13 @@ struct CellView: View {
                         .help(item.linkTarget.isEmpty
                               ? "Symbolic link"
                               : "Symbolic link to \(item.linkTarget)")
+                    // A link to nothing: the one thing about a link worth
+                    // seeing at a glance.
+                    if item.isBrokenLink {
+                        Circle().fill(Color.red)
+                            .frame(width: PaneFont.size * 0.6, height: PaneFont.size * 0.6)
+                            .help("Broken link: \u{201C}\(item.linkTarget)\u{201D} is not there")
+                    }
                 }
                 if item.isExecutable {
                     Image(systemName: "terminal.fill")
@@ -195,6 +203,12 @@ struct CellView: View {
                             onCursor: { model.permissionCursorMoved(to: $0) },
                             onCommit: { model.commitPermissionEdit($0) },
                             onCancel: { model.cancelPermissionEdit() })
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if item.isSymlink {
+            // A link's own bits are always rwxr-xr-x on macOS and govern
+            // nothing -- its target's do. Shown, they were noise, and offered
+            // an edit that could only fail.
+            Text("")
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(item.text(for: column))

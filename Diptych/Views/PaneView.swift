@@ -455,12 +455,24 @@ struct PaneView: View {
             Button("Refresh") { pane.reload() }
                 .keyboardShortcut(.refresh)
         } else {
-            Button("Open") {
-                act(ids) {
-                    if let id = ids.first { model.open(id: id, in: pane) }
-                }
+            // A broken link can be renamed, moved, trashed or repaired in Get
+            // Info -- but nothing that has to reach its target can work, so
+            // those commands are not offered rather than offered to fail.
+            let reachesNothing = pane.rows.contains { ids.contains($0.id) && $0.isBrokenLink }
+            // First for a link, and only when there is something to go to.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               item.isSymlink, !item.isBrokenLink {
+                Button("Go to Link Target") { act(ids) { model.goToLinkTarget(of: item, in: pane) } }
+                Divider()
             }
-            .keyboardShortcut(.open)
+            if !reachesNothing {
+                Button("Open") {
+                    act(ids) {
+                        if let id = ids.first { model.open(id: id, in: pane) }
+                    }
+                }
+                .keyboardShortcut(.open)
+            }
             Button("Get Info") { act(ids) { model.showInfo() } }
                 .keyboardShortcut(.getInfo)
 
@@ -502,7 +514,7 @@ struct PaneView: View {
             // Hidden rather than disabled for a folder: the entry would be
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
-               !item.isDirectory, !item.isParent {
+               !item.isDirectory, !item.isParent, !item.isBrokenLink {
                 Button("Text Edit") { act(ids) { model.showTextEditor() } }
                 Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
@@ -548,7 +560,7 @@ struct PaneView: View {
                 .keyboardShortcut(.rename)
             Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
                 .keyboardShortcut(.renameMany)
-            if ids.count == 1, model.namesCanBeSuggested {
+            if ids.count == 1, model.namesCanBeSuggested, !reachesNothing {
                 Button("Rename with Suggested Name...") {
                     act(ids) { model.renameWithSuggestion() }
                 }

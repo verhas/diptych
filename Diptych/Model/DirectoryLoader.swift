@@ -87,12 +87,21 @@ enum DirectoryLoader {
             // which follows the link. Only done for actual symlinks -- it is an
             // extra stat, and there are usually a handful per directory.
             var isDirectory = v?.isDirectory ?? false
+            // The same for "executable": a link's own permissions are always
+            // rwxr-xr-x on macOS and mean nothing, so a link to a PDF was
+            // badged executable. The target's say, read through the link; a
+            // dangling link is not executable.
+            var isExecutable = v?.isExecutable ?? false
             if isSymlink {
                 var target: ObjCBool = false
                 if fm.fileExists(atPath: url.path, isDirectory: &target) {
                     isDirectory = target.boolValue
+                    isExecutable = fm.isExecutableFile(atPath: url.path)
+                } else {
+                    isExecutable = false
                 }
             }
+            let isBroken = isSymlink && !fm.fileExists(atPath: url.path)
 
             var item = FileItem(
                 isParent: false,
@@ -101,12 +110,13 @@ enum DirectoryLoader {
                 isDirectory: isDirectory,
                 isPackage: v?.isPackage ?? false,
                 isSymlink: isSymlink,
-                isExecutable: !isDirectory && (v?.isExecutable ?? false),
+                isExecutable: !isDirectory && isExecutable,
                 byteSize: Int64(v?.fileSize ?? 0),
                 modified: v?.contentModificationDate ?? .distantPast)
 
             if isSymlink {
                 item.linkTarget = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
+                item.isBrokenLink = isBroken
             }
             item.created = v?.creationDate ?? .distantPast
             item.added = v?.addedToDirectoryDate ?? .distantPast

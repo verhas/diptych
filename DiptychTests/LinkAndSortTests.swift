@@ -35,6 +35,75 @@ final class LinkAndSortTests: XCTestCase {
         XCTAssertEqual(link.linkTarget, "real.txt", "kept exactly as stored, still relative")
     }
 
+    /// A link's own permissions are rwxr-xr-x whatever it points at; whether it
+    /// is executable is its target's to say. A link to a PDF was badged.
+    func testALinkIsExecutableOnlyWhenItsTargetIs() async throws {
+        let document = root.appendingPathComponent("scan.pdf")
+        try Data("%PDF".utf8).write(to: document)
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: document.path)
+        let tool = root.appendingPathComponent("tool.sh")
+        try Data("#!/bin/sh\n".utf8).write(to: tool)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("to-scan.pdf").path,
+                                  withDestinationPath: "scan.pdf")
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("to-tool.sh").path,
+                                  withDestinationPath: "tool.sh")
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("dangling").path,
+                                  withDestinationPath: "nowhere")
+
+        let items = try await DirectoryLoader.load(directory: root, showHidden: false,
+                                                   columns: [.name])
+        func named(_ name: String) throws -> FileItem {
+            try XCTUnwrap(items.first { $0.name == name })
+        }
+        XCTAssertFalse(try named("to-scan.pdf").isExecutable, "a link to a document")
+        XCTAssertTrue(try named("to-tool.sh").isExecutable, "a link to a program")
+        XCTAssertFalse(try named("dangling").isExecutable, "a link to nothing")
+    }
+
+    /// A broken link still takes its name. Paste as Link took the name of a
+    /// link whose target was gone for free, and was refused creating there.
+    func testABrokenLinksNameIsNotFree() async throws {
+        let picture = root.appendingPathComponent("untitled.png")
+        try Data("png".utf8).write(to: picture)
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("untitled-1.png").path,
+                                  withDestinationPath: "gone.png")
+
+        XCTAssertTrue(FileOperations.exists(root.appendingPathComponent("untitled-1.png")))
+        let outcome = await FileOperations.shared.createLinks(to: [picture], in: root)
+        XCTAssertTrue(outcome.failures.isEmpty, "\(outcome.failures)")
+        XCTAssertEqual(outcome.succeeded.map(\.lastPathComponent), ["untitled-2.png"])
+    }
+
+    func testABrokenLinkIsMarked() async throws {
+        try Data("x".utf8).write(to: root.appendingPathComponent("real.txt"))
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("good").path,
+                                  withDestinationPath: "real.txt")
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent("broken").path,
+                                  withDestinationPath: "nowhere")
+        let items = try await DirectoryLoader.load(directory: root, showHidden: false,
+                                                   columns: [.name])
+        XCTAssertFalse(try XCTUnwrap(items.first { $0.name == "good" }).isBrokenLink)
+        XCTAssertTrue(try XCTUnwrap(items.first { $0.name == "broken" }).isBrokenLink)
+    }
+
+    /// Go to Link Target goes one step, reading a relative target from the
+    /// link's own folder.
+    func testALinksTargetIsReadFromItsOwnFolder() throws {
+        let sub = root.appendingPathComponent("sub")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: sub.appendingPathComponent("real.txt"))
+        let link = root.appendingPathComponent("link.txt")
+        try fm.createSymbolicLink(atPath: link.path, withDestinationPath: "sub/real.txt")
+        XCTAssertEqual(AppModel.linkTarget(of: link)?.path,
+                       sub.appendingPathComponent("real.txt").standardizedFileURL.path)
+
+        let absolute = root.appendingPathComponent("abs")
+        try fm.createSymbolicLink(atPath: absolute.path, withDestinationPath: sub.path)
+        XCTAssertEqual(AppModel.linkTarget(of: absolute)?.path, sub.standardizedFileURL.path)
+        XCTAssertNil(AppModel.linkTarget(of: sub), "not a link")
+    }
+
     func testANonLinkHasNoTarget() async throws {
         try Data("x".utf8).write(to: root.appendingPathComponent("plain.txt"))
 

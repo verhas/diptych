@@ -209,6 +209,15 @@ sidebar recognised by pointer position. SwiftUI gives every `.dropDestination` a
 window-sized platform view, so a second one would overlap the first and swallow
 its drops.
 
+Within a pane, the drop goes where the pointer is when it lands: onto a folder
+row (or `..`), into that folder, whether or not spring-loading has opened it
+yet; anywhere else, into the pane's folder. It is read from the pointer, not
+from the folder spring-loading is waiting on -- the last position update of a
+drag arrives with the button already up and clears that. An app is not a folder
+to drop into. A row stops flashing within a moment of the drag ending, however
+it ends: the flash is drawn from the clock rather than a repeating animation,
+and the target is let go once position updates stop.
+
 ## Sounds
 
 A short sound after a copy, a move, or a move to Trash, chosen in Settings >
@@ -707,6 +716,24 @@ trap.
 A **symbolic link** shows an arrow beside its name, and hovering it now says
 where the link points. The target is read once by the loader -- a `readlink` per
 symlink is cheap, and doing it during a redraw is not.
+
+- **A broken link** -- its target is not there -- has a **red dot** beside the
+  arrow, and its right-click menu leaves out what would have to reach the
+  target: Open, Text Edit, Bin Edit, Copy ▸ Content and Rename with Suggested
+  Name. What acts on the link itself stays -- rename, move, copy, trash, Reveal
+  in Finder -- and so does Get Info, where the target can be typed anew to
+  repair it.
+- **Right-click ▸ Go to Link Target**, first in the menu, opens the target's
+  folder in the pane with the target selected -- a folder as much as a file. It
+  is there only when the target exists, and goes one step: a link to a link
+  lands on that link.
+- **No permissions are shown or edited for a link.** Its own bits are always
+  `rwxr-xr-x` on macOS and govern nothing; its target's are what count. A
+  selection mixing links and files changes only the files.
+- **Whether a link is executable** -- the orange badge -- is its target's to
+  say, not the link's.
+- **A broken link still takes its name**: a new copy or link beside it is given
+  the next free name rather than failing on the one the broken link holds.
 
 The Info window's General tab has the target as an editable field for links,
 with a note that follows **what is typed**, updating as you type rather than
