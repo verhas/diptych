@@ -459,10 +459,18 @@ struct PaneView: View {
             // Info -- but nothing that has to reach its target can work, so
             // those commands are not offered rather than offered to fail.
             let reachesNothing = pane.rows.contains { ids.contains($0.id) && $0.isBrokenLink }
-            // First for a link, and only when there is something to go to.
+            // First for a link, and only when there is something to go to --
+            // a link to a link leading nowhere still has its first step.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
-               item.isSymlink, !item.isBrokenLink {
+               item.isSymlink, item.linkTargetExists {
                 Button("Go to Link Target") { act(ids) { model.goToLinkTarget(of: item, in: pane) } }
+                // Past every link on the way, when there is more than one and
+                // they end at something real. A loop has no end to go to.
+                if let chain = item.linkChain, chain.length > 1, chain.finalTarget != nil {
+                    Button("Go to Final Target") {
+                        act(ids) { model.goToFinalTarget(of: item, in: pane) }
+                    }
+                }
                 Divider()
             }
             if !reachesNothing {
@@ -475,6 +483,14 @@ struct PaneView: View {
             }
             Button("Get Info") { act(ids) { model.showInfo() } }
                 .keyboardShortcut(.getInfo)
+            // Only for a file with more than one name: for any other, there
+            // is nothing to find.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               item.hardLinkCount > 1 {
+                Button("Find Sibling Names (Hard Links to the Same File)\u{2026}") {
+                    act(ids) { model.findSiblingNames(of: item) }
+                }
+            }
 
             // An application is enterable now, like any other folder, so
             // opening it -- Return, double-click, "Open" above -- walks into

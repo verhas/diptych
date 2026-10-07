@@ -455,7 +455,9 @@ enum DirectoryComparison {
             let v = try? url.resourceValues(forKeys: keys)
             let isSymlink = v?.isSymbolicLink ?? false
             var isDirectory = v?.isDirectory ?? false
-            let name = v?.name ?? url.lastPathComponent
+            // Not `.nameKey`, which can answer a hard link with another of the
+            // file's names, pairing it with the wrong row on the other side.
+            let name = url.lastPathComponent
             if isSymlink {
                 // Not followed: `.isDirectoryKey` already says false for the
                 // link itself, and descending into it risks a cycle.

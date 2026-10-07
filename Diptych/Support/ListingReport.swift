@@ -87,7 +87,7 @@ enum ListingReport {
 
     /// The same look as the other previews, so that pressing Space on one thing
     /// and then another does not feel like two applications.
-    private static func page(title: String, body: String) -> String {
+    static func page(title: String, body: String) -> String {
         """
         <!doctype html><html><head><meta charset="utf-8"><title>\(escape(title))</title><style>
         :root { color-scheme: light dark;
@@ -111,6 +111,8 @@ enum ListingReport {
         .size { width: 80px; text-align: right; color: var(--dim);
                 font: 11px ui-monospace, Menlo, monospace; white-space: nowrap; }
         .when { width: 150px; color: var(--dim); font-size: 11px; white-space: nowrap; }
+        .via { color: var(--dim); font: 11px ui-monospace, Menlo, monospace; word-break: break-all; }
+        .bad { color: var(--warn); }
         </style></head><body>\(body)</body></html>
         """
     }

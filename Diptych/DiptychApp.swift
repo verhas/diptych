@@ -17,6 +17,7 @@ struct DiptychApp: App {
     static let mcpConsoleWindowID = "diptych.mcpConsole"
     static let batchOperationsWindowID = "diptych.batchOperations"
     static let runWindowID = "diptych.run"
+    static let siblingsWindowID = "diptych.siblings"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -54,6 +55,13 @@ struct DiptychApp: App {
             if let url { TextEditView(url: url) }
         }
         .defaultSize(width: 780, height: 620)
+        .restorationBehavior(.disabled)
+
+        // One search for a file's other names per file.
+        WindowGroup(id: DiptychApp.siblingsWindowID, for: URL.self) { $url in
+            if let url { SiblingsView(url: url) }
+        }
+        .defaultSize(width: 680, height: 380)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder.

@@ -62,10 +62,14 @@ final class ClickRouter {
             let number = event.windowNumber
             let clicks = event.clickCount
 
-            MainActor.assumeIsolated {
+            let consumed = MainActor.assumeIsolated {
                 self?.dispatch(windowNumber: number, location: location, clickCount: clicks)
+                    ?? false
             }
-            return event   // never consumed
+            // Consumed only for a double-click on a link's arrow, which goes
+            // to the link's target: let through, the table's own double-click
+            // would open the link as well.
+            return consumed ? nil : event
         }
     }
 
@@ -118,12 +122,13 @@ final class ClickRouter {
         for model in models.compactMap(\.model) { model.cancelPendingClickEdit() }
     }
 
-    private func dispatch(windowNumber: Int, location: NSPoint, clickCount: Int) {
+    /// True when the click was spent here and must not reach the table.
+    private func dispatch(windowNumber: Int, location: NSPoint, clickCount: Int) -> Bool {
         guard let window = NSApp.window(withWindowNumber: windowNumber),
               let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
               let content = window.contentView,
               let hit = Self.view(in: content, at: location)
-        else { return }
+        else { return false }
 
         // While the Quick Look panel is up it is the key window, so a click in
         // here is a click into a *background* window: AppKit spends it on
@@ -138,7 +143,7 @@ final class ClickRouter {
         if !window.isKeyWindow { window.makeKey() }
 
         // A click inside an open editor belongs to that editor.
-        if isInsideEditor(hit) { return }
+        if isInsideEditor(hit) { return false }
 
         // Into the agent terminal: the keyboard goes there, and neither pane
         // is the focused one any more.
@@ -157,7 +162,7 @@ final class ClickRouter {
                 guard let terminal, let window, window.firstResponder !== terminal else { return }
                 window.makeFirstResponder(terminal)
             }
-            return
+            return false
         }
 
         let tables = TableFinder.tables(in: window)
@@ -165,7 +170,7 @@ final class ClickRouter {
             // Clicked the path bar, the toolbar, the status line: still ends an
             // edit in progress.
             model.clickedAwayFromTable()
-            return
+            return false
         }
 
         let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
@@ -195,7 +200,18 @@ final class ClickRouter {
         let column = columns.indices.contains(columnIndex) ? columns[columnIndex] : nil
         let rowID = pane.rows.indices.contains(row) ? pane.rows[row].id : nil
 
+        // The second click of a double-click on a link's arrow: the arrow,
+        // not the row, so Go to Link Target rather than Open.
+        if clickCount == 2, column == .name, let rowID, row >= 0,
+           let rowView = table.rowView(atRow: row, makeIfNecessary: false),
+           LinkArrowMarkerView.contains(location, in: rowView) {
+            model.tableClicked(pane: pane, rowID: rowID, column: column, clickCount: clickCount)
+            model.linkArrowDoubleClicked(rowID: rowID, in: pane)
+            return true
+        }
+
         model.tableClicked(pane: pane, rowID: rowID, column: column, clickCount: clickCount)
+        return false
     }
 
     /// The list a view is part of. A short listing does not reach the bottom

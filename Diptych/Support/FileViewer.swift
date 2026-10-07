@@ -130,6 +130,10 @@ final class FileViewer: NSObject {
         for request in waiting { show(request.urls, selecting: request.selecting, in: model) }
     }
 
+    /// Shows these in a browser window, selected in their folder -- from a
+    /// window that has no pane of its own.
+    func reveal(_ urls: [URL]) { show(urls, selecting: true) }
+
     private func show(_ urls: [URL], selecting: Bool) {
         guard !urls.isEmpty else { return }
         // Only windows still open. SwiftUI keeps a closed window's model

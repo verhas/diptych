@@ -104,6 +104,7 @@ final class QuickLookController: NSObject {
     ]
 
     private func previewable(_ url: URL) -> URL {
+        if let rendered = linkReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -150,6 +151,20 @@ final class QuickLookController: NSObject {
         // session would otherwise overwrite each other in the scratch directory.
         let stem = directory.replacingOccurrences(of: "/", with: "_")
         let target = scratch.appendingPathComponent("DS_Store\(stem).html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A symbolic link gets a page of its own -- that it is a link, and every
+    /// step to where it ends -- rather than a preview of its target, which
+    /// made a link look like the file and a broken one like nothing.
+    private func linkReport(for url: URL) -> URL? {
+        guard let chain = LinkChain.follow(url) else { return nil }
+        let html = LinkReport.html(for: chain, name: url.lastPathComponent, path: url.path)
+        let target = scratch.appendingPathComponent(
+            "link" + url.path.replacingOccurrences(of: "/", with: "_") + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
             return nil
         }

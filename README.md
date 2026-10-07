@@ -2,6 +2,9 @@
 
 *Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.*
 
+https://verhas.github.io/diptych/
+
+
 A two-pane (Norton Commander style) file manager for macOS, in Swift + SwiftUI.
 
 ## Build and run
@@ -717,16 +720,49 @@ A **symbolic link** shows an arrow beside its name, and hovering it now says
 where the link points. The target is read once by the loader -- a `readlink` per
 symlink is cheap, and doing it during a redraw is not.
 
-- **A broken link** -- its target is not there -- has a **red dot** beside the
-  arrow, and its right-click menu leaves out what would have to reach the
-  target: Open, Text Edit, Bin Edit, Copy ▸ Content and Rename with Suggested
-  Name. What acts on the link itself stays -- rename, move, copy, trash, Reveal
-  in Finder -- and so does Get Info, where the target can be typed anew to
-  repair it.
+- **A link is followed to its end**, through every link it leads to, and the
+  arrow is followed by how far that goes:
+  - **(n)** in plain text when it reaches a real file or folder through n
+    links -- (2) for a link to a link to a file. A direct link shows nothing.
+  - a **red dot** when the end is not there, with the number of links before
+    it -- **(2)** for a link to a link to nothing; a bare dot is (1), the
+    link's own target missing.
+  - a red **broken circle with an arrow** when the links go round in a loop,
+    with how many links can be followed before one comes round again:
+    x5 → x4 → x3 → x2 → x1 → x3 shows **(4)**. A link to itself shows the bare
+    circle.
+- **Hovering the arrow** says what the link points to -- the next step, as
+  stored, whether or not anything is there.
+- **Hard links**: a file with more than one name -- several hard links to the
+  same inode -- shows the number of names in grey after its own, **(2)**.
+- **Right-click ▸ Find Sibling Names (Hard Links to the Same File)…**, on a
+  file with more than one name, opens a window that searches for the others.
+  It reads outwards from the file: its own folder and everything below it,
+  then the folder above without the branch already read, and so on up to the
+  top of the volume -- and stops as soon as it has as many names as the inode
+  has. Names made near each other, the usual case, are found at once. The
+  inode number comes with each folder entry, so nothing is `stat`ed but a
+  match; a full search of a startup disk takes about two minutes where
+  `find / -inum` takes three and a half. Symbolic links are not followed, and
+  `/System/Volumes` is skipped: through the firmlinks it is the same files
+  again. Double-click a name, or Show, to see it in a pane.
+- **A broken link** -- one that does not lead to anything -- has a right-click
+  menu that leaves out what would have to reach the target: Open, Text Edit,
+  Bin Edit, Copy ▸ Content and Rename with Suggested Name. What acts on the
+  link itself stays -- rename, move, copy, trash, Reveal in Finder -- and so
+  does Get Info, where the target can be typed anew to repair it.
 - **Right-click ▸ Go to Link Target**, first in the menu, opens the target's
   folder in the pane with the target selected -- a folder as much as a file. It
-  is there only when the target exists, and goes one step: a link to a link
-  lands on that link.
+  is there whenever the link's own target exists, and goes one step: a link to
+  a link lands on that link. **Double-clicking the arrow** does the same;
+  double-clicking anywhere else on the row opens it, as before.
+- **Right-click ▸ Go to Final Target**, under it, is there for a link to a
+  link that ends at a real file or folder, and goes straight to that. Not for a
+  loop: there is no end to go to.
+- **Quick Look on a link** shows the link, not its target: that it is one,
+  every step it goes through, and how it ends -- the file or folder with its
+  size and date, the name that is not there, or the link the chain goes round
+  to.
 - **No permissions are shown or edited for a link.** Its own bits are always
   `rwxr-xr-x` on macOS and govern nothing; its target's are what count. A
   selection mixing links and files changes only the files.

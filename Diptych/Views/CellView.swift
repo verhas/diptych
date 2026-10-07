@@ -168,21 +168,25 @@ struct CellView: View {
                     .foregroundStyle(Self.gitColour(item.gitState) ?? .primary)
                     .help(item.gitState.explanation ?? "")
 
+                // More than one name for the same file. Grey, so it does not
+                // read as part of the name.
+                if item.hardLinkCount > 1 {
+                    Text("(\(item.hardLinkCount))")
+                        .font(.system(size: PaneFont.size * 0.8))
+                        .foregroundStyle(.secondary)
+                        .help("\(item.hardLinkCount) hard links: this file has "
+                              + "\(item.hardLinkCount) names")
+                }
+
                 if item.isSymlink {
                     Image(systemName: "arrowshape.turn.up.right")
                         .foregroundStyle(.secondary)
-                        // The arrow already says it is a link; what is missing
-                        // is where it goes.
-                        .help(item.linkTarget.isEmpty
-                              ? "Symbolic link"
-                              : "Symbolic link to \(item.linkTarget)")
-                    // A link to nothing: the one thing about a link worth
-                    // seeing at a glance.
-                    if item.isBrokenLink {
-                        Circle().fill(Color.red)
-                            .frame(width: PaneFont.size * 0.6, height: PaneFont.size * 0.6)
-                            .help("Broken link: \u{201C}\(item.linkTarget)\u{201D} is not there")
-                    }
+                        // Where ClickRouter finds the arrow -- a double-click on
+                        // it goes to the link's target instead of opening it --
+                        // and where it says what the link points to, the next
+                        // step only, whether or not anything is there.
+                        .overlay(LinkArrowMarker(toolTip: arrowToolTip))
+                    linkSteps
                 }
                 if item.isExecutable {
                     Image(systemName: "terminal.fill")
@@ -192,6 +196,54 @@ struct CellView: View {
                 }
             }
         }
+    }
+
+    private var arrowToolTip: String {
+        guard !item.linkTarget.isEmpty else { return "Symbolic link" }
+        return "Symbolic link to \(item.linkTarget)"
+            + (item.linkTargetExists ? " \u{2014} double-click the arrow to go there" : "")
+    }
+
+    /// How far a link goes, after its arrow. A plain number when it reaches
+    /// something through more than one link; a red dot when it ends at nothing
+    /// -- "(3)" before it when that is the third link along; a red broken
+    /// circle when the links go round, with how many can be followed first.
+    /// A bare dot or circle is (1) or (0): nothing to count.
+    @ViewBuilder
+    private var linkSteps: some View {
+        if let chain = item.linkChain {
+            if chain.finalTarget != nil {
+                if chain.length > 1 {
+                    stepCount(chain.length, colour: .primary)
+                        .help("Through \(chain.length) links to its target")
+                }
+            } else if let steps = chain.brokenAfter {
+                HStack(spacing: 2) {
+                    if steps > 1 { stepCount(steps, colour: .red) }
+                    Circle().fill(Color.red)
+                        .frame(width: PaneFont.size * 0.6, height: PaneFont.size * 0.6)
+                }
+                .help(steps == 1
+                      ? "Broken link: \u{201C}\(item.linkTarget)\u{201D} is not there"
+                      : "Broken link: \(steps) links along, the target is not there")
+            } else if let steps = chain.stepsBeforeLoop {
+                HStack(spacing: 2) {
+                    if steps > 0 { stepCount(steps, colour: .red) }
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: PaneFont.size * 0.75, weight: .bold))
+                        .foregroundStyle(.red)
+                }
+                .help(steps == 0
+                      ? "Broken link: it points to itself"
+                      : "Broken link: after \(steps) links the links lead round in a loop")
+            }
+        }
+    }
+
+    private func stepCount(_ count: Int, colour: Color) -> some View {
+        Text("(\(count))")
+            .font(.system(size: PaneFont.size * 0.8))
+            .foregroundStyle(colour)
     }
 
     // MARK: - Permissions

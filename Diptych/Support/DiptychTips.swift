@@ -199,7 +199,7 @@ enum DiptychTips {
             + " menu, but it is switched off by default in Settings.",
         "scripts live in ~/.diptych/scripts and are read once when Diptych starts, deliberately not"
             + " while it is running, so a script cannot be swapped out between being approved and being run.",
-        "Developer Mode adds a \"Read the Scripts Folder Again\" command for anyone actively editing"
+        "Developer Mode adds the menu item \"File > Read the Scripts Folder Again\" for anyone actively editing"
             + " scripts, without relaxing any of the safety rules around running them.",
         "Diptych refuses to run any script in its scripts folder that still carries the quarantine"
             + " flag macOS attaches to anything downloaded from outside the Mac.",

@@ -200,8 +200,9 @@ struct BehaviourSettingsView: View {
                    isOn: $store.configuration.scriptsDeveloperMode)
                 .toggleStyle(.checkbox)
                 .disabled(!store.configuration.scriptsEnabled)
-            Text("Adds a command to read the folder again without restarting, for when you "
-                 + "have just changed a script. It does not relax any of the rules above.")
+            Text("Adds the menu item \u{201C}File \u{25B8} Read the Scripts Folder "
+                 + "Again\u{201D}, which reads the folder again without restarting, for when "
+                 + "you have just changed a script. It does not relax any of the rules above.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

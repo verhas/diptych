@@ -101,12 +101,13 @@ enum DirectoryLoader {
                     isExecutable = false
                 }
             }
-            let isBroken = isSymlink && !fm.fileExists(atPath: url.path)
-
             var item = FileItem(
                 isParent: false,
                 url: url,
-                name: v?.name ?? url.lastPathComponent,
+                // The name as listed, not `.nameKey`: that is looked up by
+                // inode, and for a hard link it can answer with another of the
+                // file's names -- "hardx5" was listed as a second "x5".
+                name: url.lastPathComponent,
                 isDirectory: isDirectory,
                 isPackage: v?.isPackage ?? false,
                 isSymlink: isSymlink,
@@ -116,7 +117,13 @@ enum DirectoryLoader {
 
             if isSymlink {
                 item.linkTarget = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
-                item.isBrokenLink = isBroken
+                item.linkChain = LinkChain.follow(url)
+            }
+            // The name itself, not through a link: a link's own count is what
+            // says how many names the link has.
+            if !(v?.isDirectory ?? false) {
+                var info = stat()
+                if lstat(url.path, &info) == 0 { item.hardLinkCount = Int(info.st_nlink) }
             }
             item.created = v?.creationDate ?? .distantPast
             item.added = v?.addedToDirectoryDate ?? .distantPast

@@ -87,6 +87,160 @@ final class LinkAndSortTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(items.first { $0.name == "broken" }).isBrokenLink)
     }
 
+    // MARK: - Link chains
+
+    private func link(_ name: String, to destination: String) throws {
+        try fm.createSymbolicLink(atPath: root.appendingPathComponent(name).path,
+                                  withDestinationPath: destination)
+    }
+
+    /// Real paths: the temporary folder is reached through /var -> /private/var.
+    /// Not `resolvingSymlinksInPath`, which takes /private off again.
+    private func real(_ name: String) -> String {
+        let resolved = realpath(root.path, nil)!
+        defer { free(resolved) }
+        return String(cString: resolved) + "/" + name
+    }
+
+    func testAChainOfLinksIsFollowedToTheFile() throws {
+        try Data("x".utf8).write(to: root.appendingPathComponent("real.txt"))
+        try link("one", to: "two")
+        try link("two", to: "sub/../three")
+        try link("three", to: real("real.txt"))
+
+        let chain = try XCTUnwrap(LinkChain.follow(root.appendingPathComponent("one")))
+        XCTAssertEqual(chain.length, 3)
+        XCTAssertEqual(chain.steps.map(\.destination), ["two", "sub/../three", real("real.txt")])
+        XCTAssertEqual(chain.finalTarget?.path, real("real.txt"))
+        XCTAssertNil(chain.brokenAfter)
+        XCTAssertFalse(chain.isLoop)
+        XCTAssertNil(LinkChain.follow(root.appendingPathComponent("real.txt")), "not a link")
+    }
+
+    /// The number shown before the red dot: how many links until nothing.
+    func testABrokenChainCountsItsSteps() throws {
+        try link("direct", to: "nowhere")
+        try link("first", to: "second")
+        try link("second", to: "third")
+        try link("third", to: "nowhere")
+
+        XCTAssertEqual(LinkChain.follow(root.appendingPathComponent("direct"))?.brokenAfter, 1)
+        let chain = try XCTUnwrap(LinkChain.follow(root.appendingPathComponent("first")))
+        XCTAssertEqual(chain.brokenAfter, 3)
+        XCTAssertEqual(chain.end, .missing(URL(fileURLWithPath: real("nowhere"))))
+        XCTAssertNil(chain.finalTarget)
+    }
+
+    func testALoopIsALoop() throws {
+        try link("self", to: "self")
+        try link("ping", to: "pong")
+        try link("pong", to: "./ping")
+        // Round through a folder that is itself a link.
+        try link("dir", to: "dir/x")
+
+        for name in ["self", "ping", "dir"] {
+            let chain = try XCTUnwrap(LinkChain.follow(root.appendingPathComponent(name)))
+            XCTAssertTrue(chain.isLoop, name)
+            XCTAssertNil(chain.finalTarget, name)
+            XCTAssertNil(chain.brokenAfter, name)
+        }
+        XCTAssertEqual(LinkChain.follow(root.appendingPathComponent("ping"))?.length, 2)
+        XCTAssertEqual(LinkChain.follow(root.appendingPathComponent("self"))?.stepsBeforeLoop, 0)
+    }
+
+    /// x5 -> x4 -> x3 -> x2 -> x1, and x1 -> x3 comes round again: 4.
+    func testALoopCountsTheStepsBeforeItComesRound() throws {
+        try link("x1", to: "x3")
+        try link("x2", to: "x1")
+        try link("x3", to: "x2")
+        try link("x4", to: "x3")
+        try link("x5", to: "x4")
+
+        XCTAssertEqual(LinkChain.follow(root.appendingPathComponent("x5"))?.stepsBeforeLoop, 4)
+        XCTAssertEqual(LinkChain.follow(root.appendingPathComponent("x1"))?.stepsBeforeLoop, 2)
+        XCTAssertNil(LinkChain.follow(root.appendingPathComponent("x5"))?.brokenAfter)
+    }
+
+    func testHardLinksAreCounted() async throws {
+        let file = root.appendingPathComponent("a")
+        try Data("x".utf8).write(to: file)
+        try fm.linkItem(at: file, to: root.appendingPathComponent("harda"))
+        try Data("y".utf8).write(to: root.appendingPathComponent("alone"))
+        try fm.createDirectory(at: root.appendingPathComponent("folder/sub"),
+                               withIntermediateDirectories: true)
+
+        let items = try await DirectoryLoader.load(directory: root, showHidden: false,
+                                                   columns: [.name])
+        func named(_ name: String) throws -> FileItem {
+            try XCTUnwrap(items.first { $0.name == name })
+        }
+        XCTAssertEqual(try named("a").hardLinkCount, 2)
+        XCTAssertEqual(try named("harda").hardLinkCount, 2)
+        XCTAssertEqual(try named("alone").hardLinkCount, 1)
+        XCTAssertEqual(try named("folder").hardLinkCount, 1, "a folder's count is not names")
+    }
+
+    /// `.nameKey` is looked up by inode: a hard link to a symbolic link came
+    /// back named after the other link, and the pane showed "x5" twice.
+    func testAHardLinkKeepsItsOwnName() async throws {
+        try link("x5", to: "x4")
+        // linkat without AT_SYMLINK_FOLLOW: a second name for the link itself.
+        XCTAssertEqual(linkat(AT_FDCWD, root.appendingPathComponent("x5").path,
+                              AT_FDCWD, root.appendingPathComponent("hardx5").path, 0), 0)
+        try Data("x".utf8).write(to: root.appendingPathComponent("a"))
+        try fm.linkItem(at: root.appendingPathComponent("a"),
+                        to: root.appendingPathComponent("harda"))
+
+        let items = try await DirectoryLoader.load(directory: root, showHidden: false,
+                                                   columns: [.name])
+        let files = items.filter { !$0.isParent }
+        XCTAssertEqual(files.map(\.name).sorted(), ["a", "harda", "hardx5", "x5"])
+        XCTAssertEqual(files.map { $0.url.lastPathComponent }.sorted(), files.map(\.name).sorted())
+    }
+
+    /// Go to Link Target still has somewhere to go when the link's own target
+    /// is there -- a link -- however the chain ends.
+    func testTheLoaderReadsTheChain() async throws {
+        try Data("x".utf8).write(to: root.appendingPathComponent("real.txt"))
+        try link("hop", to: "good")
+        try link("good", to: "real.txt")
+        try link("deep", to: "broken")
+        try link("broken", to: "nowhere")
+        try link("ping", to: "pong")
+        try link("pong", to: "ping")
+
+        let items = try await DirectoryLoader.load(directory: root, showHidden: false,
+                                                   columns: [.name])
+        func named(_ name: String) throws -> FileItem {
+            try XCTUnwrap(items.first { $0.name == name })
+        }
+        XCTAssertEqual(try named("hop").linkChain?.length, 2)
+        XCTAssertFalse(try named("hop").isBrokenLink)
+        XCTAssertEqual(try named("deep").linkChain?.brokenAfter, 2)
+        XCTAssertTrue(try named("deep").isBrokenLink)
+        XCTAssertTrue(try named("deep").linkTargetExists)
+        XCTAssertFalse(try named("broken").linkTargetExists)
+        XCTAssertTrue(try named("ping").linkChain?.isLoop ?? false)
+        XCTAssertTrue(try named("ping").isBrokenLink)
+        XCTAssertTrue(try named("ping").linkTargetExists)
+    }
+
+    func testTheQuickLookPageSaysItIsALink() throws {
+        try Data("x".utf8).write(to: root.appendingPathComponent("real.txt"))
+        try link("hop", to: "good")
+        try link("good", to: "real.txt")
+        try link("ping", to: "pong")
+        try link("pong", to: "ping")
+
+        let hop = try XCTUnwrap(LinkChain.follow(root.appendingPathComponent("hop")))
+        let page = LinkReport.html(for: hop, name: "hop", path: "/x/hop")
+        XCTAssertTrue(page.contains("Symbolic link through 2 links to a file"))
+        XCTAssertTrue(page.contains(real("real.txt")))
+
+        let ping = try XCTUnwrap(LinkChain.follow(root.appendingPathComponent("ping")))
+        XCTAssertTrue(LinkReport.html(for: ping, name: "ping", path: "/x/ping").contains("loop"))
+    }
+
     /// Go to Link Target goes one step, reading a relative target from the
     /// link's own folder.
     func testALinksTargetIsReadFromItsOwnFolder() throws {

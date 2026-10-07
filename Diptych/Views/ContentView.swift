@@ -154,6 +154,7 @@ struct ContentView: View {
         .task {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
+            model.openSiblingsWindow = { openWindow(id: DiptychApp.siblingsWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
@@ -177,6 +178,9 @@ struct ContentView: View {
             // sheet, and asking about network access at all is the rarer,
             // higher-priority question of the two.
             UpdateChecker.shared.checkIfNeeded(on: model)
+            // Before Tips, which give way to anything already showing: a
+            // script left out of the menu is worth knowing about first.
+            model.reportScriptProblemsAtStartup()
             StartupTips.shared.presentIfNeeded(on: model)
             columnVisibility = model.sidebarVisible ? .all : .detailOnly
             // Read the restored side *now*: SwiftUI's own focus assignment
@@ -203,7 +207,10 @@ struct ContentView: View {
         // An update notice that arrived while this window's sheet was busy --
         // the startup tip, usually -- is shown the moment the sheet closes.
         .onChange(of: model.dialog) { _, new in
-            if new == nil { UpdateChecker.shared.sheetClosed(on: model) }
+            if new == nil {
+                UpdateChecker.shared.sheetClosed(on: model)
+                model.showWaitingScriptProblems()
+            }
         }
 
         // Focus and "active pane" are two views of one thing, kept in step.
@@ -225,18 +232,6 @@ struct ContentView: View {
         .navigationTitle(model.title)
 
         .toolbar { toolbar }
-        // An overlay, not a sheet: only one presentation modifier per view
-        // works reliably here, and this view has already spent its one.
-        .overlay {
-            if let run = model.scriptRun {
-                Color.black.opacity(0.2).ignoresSafeArea()
-                ScriptOutputView(run: run) { model.finishScript() }
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .shadow(radius: 20)
-                    .padding(40)
-            }
-        }
-
         // Columns changed in Settings: reload so the loader fetches the
         // metadata the new set needs, and drop a sort that points at a column
         // no longer on screen.

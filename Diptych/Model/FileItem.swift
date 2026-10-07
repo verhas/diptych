@@ -44,8 +44,21 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// Empty for everything else. Read by the loader, because a `readlink` per
     /// symlink is cheap and doing it during a redraw is not.
     var linkTarget: String = ""
-    /// A symbolic link whose target is not there.
-    var isBrokenLink = false
+    /// How many names the file has: more than 1 when hard links share its
+    /// inode. Left at 1 for folders, whose count is their subfolders.
+    var hardLinkCount = 1
+    /// A symbolic link followed to its end, through any links it leads to.
+    /// Worked out by the loader, for the same reason as `linkTarget`.
+    var linkChain: LinkChain?
+    /// A symbolic link that leads to nothing: its target, or a link further
+    /// along, points to a name that is not there, or the links go round.
+    var isBrokenLink: Bool {
+        guard let linkChain else { return false }
+        return linkChain.finalTarget == nil
+    }
+    /// The link's own target is there -- even if that is a link leading
+    /// nowhere -- so there is somewhere for Go to Link Target to go.
+    var linkTargetExists: Bool { linkChain.map { $0.brokenAfter != 1 } ?? false }
     /// Filled in after the listing, once the repository has been asked.
     var gitState: GitState = .clean
     /// Everything found at or under this row, strongest first. One entry for a

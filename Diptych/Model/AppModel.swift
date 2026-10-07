@@ -214,6 +214,7 @@ final class AppModel {
     @ObservationIgnored private let picker = PopupMenu()
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
+    @ObservationIgnored var openSiblingsWindow: ((URL) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((URL) -> Void)?
@@ -911,7 +912,6 @@ final class AppModel {
 
     // MARK: - Scripts
 
-    private(set) var scriptRun: ScriptRun?
     private(set) var scriptAwaitingApproval: ScriptDefinition?
 
     /// The scripts that suit what is selected in the active pane. The menu bar
@@ -990,16 +990,16 @@ final class AppModel {
                               + "be given at once. Try fewer than a thousand.")
             return
         }
-        scriptRun = ScriptRun(script: script, targets: targets,
-                              left: left.directory, right: right.directory,
-                              active: active.directory, other: inactive.directory)
-    }
-
-    func finishScript() {
-        scriptRun = nil
-        // Scripts exist to change files.
-        left.reload()
-        right.reload()
+        // A tab of the Runs window, not a box over this one: a script can run
+        // for minutes, and the panes stay usable meanwhile.
+        let run = CommandRun(script: script, targets: targets,
+                             left: left.directory, right: right.directory,
+                             active: active.directory, other: inactive.directory)
+        RunLauncher.show(run) { [weak self] _ in
+            // Scripts exist to change files.
+            self?.left.reload()
+            self?.right.reload()
+        }
     }
 
     /// Read the folder again. Only in developer mode, and only from the menu:
@@ -1014,6 +1014,27 @@ final class AppModel {
         guard !ScriptCatalogue.shared.problems.isEmpty else { return }
         dialog = .scriptProblems
     }
+
+    /// Once per launch, in the first window: the scripts that were left out
+    /// and why. Nothing else says so -- a script with a mistake in it is
+    /// simply missing from the menu. If the window's sheet is already taken,
+    /// it waits for it to close.
+    func reportScriptProblemsAtStartup() {
+        guard !Self.scriptProblemsReported else { return }
+        Self.scriptProblemsReported = true
+        guard !ScriptCatalogue.shared.problems.isEmpty else { return }
+        if dialog == nil { dialog = .scriptProblems } else { scriptProblemsWaiting = true }
+    }
+
+    /// The window's sheet has closed: the script problems, if they waited.
+    func showWaitingScriptProblems() {
+        guard scriptProblemsWaiting, dialog == nil else { return }
+        scriptProblemsWaiting = false
+        reportScriptProblems()
+    }
+
+    private static var scriptProblemsReported = false
+    @ObservationIgnored private var scriptProblemsWaiting = false
 
     func requestNewFolder() {
         textInput = suggestedName("untitled folder")
@@ -3188,6 +3209,36 @@ final class AppModel {
         }
         pane.pendingSelection = [target]
         pane.navigate(to: target.deletingLastPathComponent())
+    }
+
+    /// Right-click ▸ Go to Final Target: for a link to a link, past every link
+    /// to the file or folder at the end, selected in its folder. Read afresh,
+    /// not from the row: the links on the way may have changed since.
+    func goToFinalTarget(of item: FileItem, in pane: PaneModel) {
+        guard let target = LinkChain.follow(item.url)?.finalTarget else {
+            flash("\u{201C}\(item.name)\u{201D} does not lead to anything", error: true)
+            return
+        }
+        pane.pendingSelection = [target]
+        pane.navigate(to: target.deletingLastPathComponent())
+    }
+
+    /// Right-click ▸ Find Sibling Names: a window that searches for the
+    /// file's other names, its hard links, outwards from its folder.
+    func findSiblingNames(of item: FileItem) {
+        openSiblingsWindow?(item.url)
+    }
+
+    /// A double-click on a link's arrow: Go to Link Target, rather than
+    /// opening what it points to, which is what the rest of the row does.
+    func linkArrowDoubleClicked(rowID: FileItem.ID, in pane: PaneModel) {
+        guard let item = pane.rows.first(where: { $0.id == rowID }), item.isSymlink else { return }
+        guard pane.matchesFilter(item) else {
+            flash("\u{201C}\(item.name)\u{201D} does not match the filter", error: true)
+            return
+        }
+        activate(pane)
+        goToLinkTarget(of: item, in: pane)
     }
 
     func openTerminal() {

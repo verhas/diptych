@@ -35,8 +35,7 @@ struct RunsView: View {
         .background(WindowAccessor { found in
             guard let found else { return }
             window = found
-            AppWindows.shared.register(found)
-            WindowSubjects.shared.register(found, kind: "runs", description: "Runs")
+            Self.list(found)
             guard found.delegate !== guard_ else { return }
             guard_.shouldClose = { closeWindowIsAllowed() }
             guard_.willClose = {
@@ -48,6 +47,24 @@ struct RunsView: View {
         .onChange(of: runs.tabs.isEmpty) { _, empty in
             if empty { window?.close() }
         }
+        // Closing the window takes it off Option-Tab's list, and SwiftUI shows
+        // the same window again for the next run without necessarily updating
+        // this view -- so the accessor above does not run again, and the
+        // window was left out of the rotation. Coming to the front puts it back.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+            guard let found = $0.object as? NSWindow, found === window else { return }
+            Self.list(found)
+        }
+    }
+
+    /// In Option-Tab's rotation and the agent's window list, and in the Window
+    /// menu -- which is also the list the Dock's menu shows. A SwiftUI
+    /// `Window` scene leaves its window out of that menu, offering a command
+    /// to open it instead, and so the Dock never listed it.
+    private static func list(_ window: NSWindow) {
+        AppWindows.shared.register(window)
+        WindowSubjects.shared.register(window, kind: "runs", description: "Runs")
+        if window.isExcludedFromWindowsMenu { window.isExcludedFromWindowsMenu = false }
     }
 
     /// The tabs share the width, as in Safari, down to a width a command can
@@ -301,9 +318,13 @@ private struct RunPanel: View {
             if run.isRunning {
                 Button("Stop") { run.stop() }
             } else {
-                Button("Run Again") {
-                    RunLauncher.run(program: run.program, arguments: run.arguments,
-                                    environment: run.environment, in: run.directory)
+                // Not for a script: that is run again from Scripts ▸, where it
+                // is checked again and its items are chosen afresh.
+                if run.script == nil {
+                    Button("Run Again") {
+                        RunLauncher.run(program: run.program, arguments: run.arguments,
+                                        environment: run.environment, in: run.directory)
+                    }
                 }
                 Button("Close Tab") { close() }
                     .keyboardShortcut(.defaultAction)
@@ -346,14 +367,22 @@ enum RunLauncher {
         guard confirmIfDownloaded(program) else { return }
         RunHistory.shared.record(arguments, environment: environment, asTemplate: asTemplate,
                                  for: program)
-        let run = CommandRun(program: program, arguments: arguments,
-                             environment: environment, directory: directory)
+        show(CommandRun(program: program, arguments: arguments,
+                        environment: environment, directory: directory))
+    }
+
+    /// A run already started, as a tab of the Runs window, logged.
+    /// `then` is called once it has ended, after the log has it.
+    static func show(_ run: CommandRun, then: ((CommandRun) -> Void)? = nil) {
         CommandRuns.shared.add(run)
         RunLog.shared.started(run)
         run.onFinish = { finished in
             RunLog.shared.finished(finished)
             CommandRuns.shared.finished(finished)
+            then?(finished)
         }
+        // A run that could not even start has ended already.
+        if !run.isRunning { run.onFinish?(run); run.onFinish = nil }
         openWindow?()
     }
 

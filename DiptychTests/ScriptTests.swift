@@ -499,32 +499,38 @@ final class ScriptRunTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    private func run(_ text: String, on targets: [ScriptTarget] = []) async throws -> ScriptRun {
+    private func run(_ text: String, on targets: [ScriptTarget] = []) async throws -> CommandRun {
         let url = folder.appendingPathComponent("script.sh")
         try Data(text.utf8).write(to: url)
         let (script, problems) = ScriptDefinition.read(url, contents: text)
         XCTAssertEqual(problems, [])
-        let run = ScriptRun(script: try XCTUnwrap(script), targets: targets,
-                            left: folder, right: folder, active: folder, other: folder)
+        let run = CommandRun(script: try XCTUnwrap(script), targets: targets,
+                             left: folder, right: folder, active: folder, other: folder)
         for _ in 0..<200 where run.isRunning {
             try await Task.sleep(for: .milliseconds(25))
         }
         return run
     }
 
+    /// The output with the terminal's wrapping undone: a long path is broken
+    /// across lines at the terminal's width.
+    private func unwrapped(_ run: CommandRun) -> String {
+        run.outputText.replacingOccurrences(of: "\n", with: "")
+    }
+
     func testTheOutputAndTheExitStatusComeBack() async throws {
         let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho hello\n")
 
         XCTAssertFalse(run.isRunning)
-        XCTAssertEqual(run.status, 0)
-        XCTAssertTrue(run.output.contains("hello"), run.output)
+        XCTAssertEqual(run.exitCode, 0)
+        XCTAssertTrue(run.outputText.contains("hello"), run.outputText)
     }
 
     func testAFailureIsReportedAsOneRatherThanLookingLikeSuccess() async throws {
         let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho oh dear\nexit 3\n")
 
-        XCTAssertEqual(run.status, 3)
-        XCTAssertTrue(run.output.contains("oh dear"), "and what it said is still there")
+        XCTAssertEqual(run.exitCode, 3)
+        XCTAssertTrue(run.outputText.contains("oh dear"), "and what it said is still there")
     }
 
     func testTheLastLinesAreNotLostWhenAScriptEndsAtOnce() async throws {
@@ -534,15 +540,15 @@ final class ScriptRunTests: XCTestCase {
         for _ in 0..<20 {
             let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho first\necho last\n")
 
-            XCTAssertTrue(run.output.contains("first"), run.output)
-            XCTAssertTrue(run.output.contains("last"), run.output)
+            XCTAssertTrue(run.outputText.contains("first"), run.outputText)
+            XCTAssertTrue(run.outputText.contains("last"), run.outputText)
         }
     }
 
     func testWhatItPrintsToStandardErrorIsShownToo() async throws {
         let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho trouble >&2\n")
 
-        XCTAssertTrue(run.output.contains("trouble"), run.output)
+        XCTAssertTrue(run.outputText.contains("trouble"), run.outputText)
     }
 
     func testThePanesAndTheScriptArriveAsEnvironmentVariables() async throws {
@@ -554,9 +560,9 @@ final class ScriptRunTests: XCTestCase {
         echo "script=$DIPTYCH_SCRIPT"
         """)
 
-        XCTAssertTrue(run.output.contains("active=\(folder.path)"), run.output)
-        XCTAssertTrue(run.output.contains("script=\(folder.appendingPathComponent("script.sh").path)"),
-                      "the original, not the copy that ran: \(run.output)")
+        XCTAssertTrue(unwrapped(run).contains("active=\(folder.path)"), run.outputText)
+        XCTAssertTrue(unwrapped(run).contains("script=\(folder.appendingPathComponent("script.sh").path)"),
+                      "the original, not the copy that ran: \(run.outputText)")
     }
 
     func testAnAwkwardFileNameArrivesInOnePiece() async throws {
@@ -567,6 +573,17 @@ final class ScriptRunTests: XCTestCase {
         let run = try await run("#!/bin/sh\n# call: $0 $1\necho \"[$1]\"\n",
                                 on: [ScriptTarget(url: awkward, kind: .file)])
 
-        XCTAssertTrue(run.output.contains("[\(awkward.path)]"), run.output)
+        XCTAssertTrue(unwrapped(run).contains("[\(awkward.path)]"), run.outputText)
+        XCTAssertEqual(run.commandLine,
+                       Shell.argument(folder.appendingPathComponent("script.sh").path) + " "
+                       + Shell.argument(awkward.path),
+                       "the script itself is shown, not the private copy that ran")
+    }
+
+    /// The private copy goes when the run ends.
+    func testTheCopyIsRemovedAfterwards() async throws {
+        let run = try await run("#!/bin/sh\n# args: 0\n# call: $0\necho \"$0\"\n")
+        let folder = try XCTUnwrap(run.script?.copyFolder)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
     }
 }
