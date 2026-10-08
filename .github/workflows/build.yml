@@ -1,9 +1,9 @@
 name: Build
 
+# Only by hand from the Actions tab, for now: GitHub's newest runner has
+# Xcode 26, and Diptych needs 27 (see Choose Xcode). Put push and
+# pull_request back once runs-on names a runner that has it.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # NameSuggester uses LanguageModelError, which is only in macOS 27
       # SDK: the newest Xcode on the runner is chosen, and anything older than
