@@ -213,6 +213,7 @@ struct BatchOperationsView: View {
                     if model.failedRows.contains(row.id) {
                         Label(result, systemImage: "xmark.octagon.fill")
                             .font(.caption).foregroundStyle(.red)
+                            .textSelection(.enabled)
                     } else {
                         Label(result, systemImage: "checkmark.circle")
                             .font(.caption2).foregroundStyle(.secondary)
@@ -220,6 +221,7 @@ struct BatchOperationsView: View {
                 }
                 ForEach(row.problems, id: \.self) { problem in
                     Text(problem).font(.caption2).foregroundStyle(.red)
+                        .textSelection(.enabled)
                 }
             }
         }

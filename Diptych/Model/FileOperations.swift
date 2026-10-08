@@ -369,22 +369,76 @@ actor FileOperations {
                 // warning that nothing was actually removed.
                 // The name itself, not where it points: a broken link that
                 // stayed would otherwise read as gone, and as trashed.
-                guard !Self.exists(url) else {
+                //
+                // A cloud folder's provider can finish the move a moment
+                // later, so the original is given a little time to go first.
+                guard Self.stillThere(url) else {
+                    outcome.succeeded.append(url)
+                    if let trashed = resulting as URL? { moved.append((url, trashed)) }
+                    continue
+                }
+                if Self.isCloudItem(url) {
+                    // Never the Trash copy of a cloud item: should the provider
+                    // still finish the move after all, that copy would be the
+                    // only one left. A spare in the Trash does no harm.
+                    outcome.failures.append((url,
+                        "\u{201C}\(url.lastPathComponent)\u{201D} is still in its folder, though a "
+                        + "copy went to the Trash. Its cloud provider did not finish the move."))
+                } else {
                     if let trashed = resulting as URL? { try? fm.removeItem(at: trashed) }
                     outcome.failures.append((url,
                         "\u{201C}\(url.lastPathComponent)\u{201D} was not moved to the Trash. "
                         + "Its folder cannot be written to \u{2014} often macOS protecting one "
                         + "of its own files, which nothing in Get Info can change."))
+                }
+            } catch {
+                // A cloud provider can refuse its part of a trash -- Dropbox
+                // does, for some items it has long had, reported as no
+                // permission. The file system has no objection to the move
+                // itself, so it is made directly. Finder's Put Back will not
+                // know where the item came from; Diptych's own Undo does.
+                let refused = (error as NSError).domain == NSCocoaErrorDomain
+                    && (error as NSError).code == NSFileWriteNoPermissionError
+                if refused, Self.isCloudItem(url), let trashed = Self.moveIntoTrash(url) {
+                    outcome.succeeded.append(url)
+                    moved.append((url, trashed))
                     continue
                 }
-
-                outcome.succeeded.append(url)
-                if let trashed = resulting as URL? { moved.append((url, trashed)) }
-            } catch {
                 outcome.failures.append((url, error.localizedDescription))
             }
         }
         return (outcome, moved)
+    }
+
+    /// Whether `url` is still there after a trash said it went -- given up to
+    /// two seconds to go, since a cloud folder's provider can finish later.
+    nonisolated static func stillThere(_ url: URL, waiting: Duration = .seconds(2)) -> Bool {
+        let deadline = ContinuousClock.now + waiting
+        while exists(url) {
+            guard ContinuousClock.now < deadline else { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return false
+    }
+
+    /// In a folder a cloud provider keeps -- Dropbox, iCloud Drive, Google
+    /// Drive -- where moves go through the provider.
+    nonisolated static func isCloudItem(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
+    }
+
+    /// The item moved into the Trash by a plain rename, under a free name.
+    /// Only on the home folder's volume, whose Trash that is: anywhere else
+    /// the move would be a copy, which is not what a trash is.
+    nonisolated static func moveIntoTrash(_ url: URL) -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var item = stat(), homeInfo = stat()
+        guard lstat(url.path, &item) == 0, stat(home.path, &homeInfo) == 0,
+              item.st_dev == homeInfo.st_dev else { return nil }
+        let trash = home.appendingPathComponent(".Trash")
+        let target = uniqueURL(for: trash.appendingPathComponent(url.lastPathComponent))
+        guard Darwin.rename(url.path, target.path) == 0 else { return nil }
+        return target
     }
 
     /// Applies the nine rwx bits to every item, leaving everything above them

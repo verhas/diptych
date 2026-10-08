@@ -1213,14 +1213,25 @@ struct DialogSheet: View {
         Text(title).font(.headline)
         if !detail.isEmpty {
             ScrollView {
+                // Selectable: an error worth reading is worth quoting, and a
+                // screenshot was the only way to pass one on.
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 140)
         }
         HStack {
+            // A message to acknowledge, not a question: the whole of it in
+            // one click, title included.
+            if !showsCancel, !detail.isEmpty {
+                Button("Copy") {
+                    Clipboard.copyText(title + "\n\n" + detail)
+                    model.dialog = nil
+                }
+            }
             Spacer()
             if showsCancel {
                 Button("Cancel") { model.dialog = nil }

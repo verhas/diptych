@@ -2451,9 +2451,22 @@ final class AppModel {
         guard !items.isEmpty else { return }
 
         let values = items.map { fullPath ? $0.url.path : $0.name }
-        Clipboard.copyText(Shell.arguments(values))
-        flash("Copied \(values.count) \(fullPath ? "path" : "name")\(values.count == 1 ? "" : "s")",
-              error: false)
+        let text = Shell.arguments(values)
+        Clipboard.copyText(text)
+        // What was copied, not only that something was: the text itself, as
+        // it went to the clipboard, quotes and all.
+        let what = values.count == 1 ? (fullPath ? "path" : "name")
+            : "\(values.count) \(fullPath ? "paths" : "names")"
+        flash("Copied \(what): \(Self.shortened(text))", error: false)
+    }
+
+    /// The start and the end of a long text, with an ellipsis between: the
+    /// end of a path is the file, the start is where it is.
+    nonisolated static func shortened(_ text: String, to limit: Int = 70) -> String {
+        guard text.count > limit else { return text }
+        let head = (limit - 1) / 2
+        let tail = limit - 1 - head
+        return text.prefix(head) + "\u{2026}" + text.suffix(tail)
     }
 
     /// Whether Copy ▸ Content can do anything with these rows. The command is
