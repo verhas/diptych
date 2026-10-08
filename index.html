@@ -702,8 +702,10 @@
 
   // Point the download buttons straight at the current .dmg, and show the
   // version, without hand-editing this page on every release. Falls back to
-  // the releases page (already the href) if the API is unreachable.
-  fetch('https://api.github.com/repos/verhas/diptych/releases/latest')
+  // the releases page (already the href) if the API is unreachable. Never
+  // from the browser's cache: a reply kept from before a release showed the
+  // previous version, and its .dmg, after the new one was out.
+  fetch('https://api.github.com/repos/verhas/diptych/releases/latest', { cache: 'no-store' })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function (release) {
       var asset = (release.assets || []).find(function (a) {
