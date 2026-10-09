@@ -179,6 +179,21 @@ struct Configuration: Codable, Equatable {
     /// as in Terminal.app: a layout's Option characters are what people type.
     var terminalOptionAsMeta = false
 
+    /// Text Edit: which extensions mean which format, for folding and for
+    /// pointing out where a file breaks its format. By the format's name.
+    var textFormatExtensions: [String: [String]] = Configuration.defaultTextFormatExtensions
+    static let defaultTextFormatExtensions: [String: [String]] = Dictionary(
+        uniqueKeysWithValues: TextFormat.defaultExtensions.map { ($0.key.rawValue, $0.value) })
+
+    var textFormats: [TextFormat: [String]] {
+        Dictionary(uniqueKeysWithValues: TextFormat.allCases.map {
+            ($0, textFormatExtensions[$0.rawValue] ?? [])
+        })
+    }
+
+    /// Text Edit's line numbers: off, absolute, or relative to the caret.
+    var textLineNumbers = TextLineNumbers.absolute
+
     /// How tall the agent terminal is when open.
     static let defaultTerminalHeight = 260.0
     var terminalHeight = Configuration.defaultTerminalHeight
@@ -360,6 +375,7 @@ struct Configuration: Codable, Equatable {
         case terminalFontName, terminalFontSize, terminalColours, terminalForeground
         case terminalBackground, terminalHeight, showFilesInDiptych
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
+        case textFormatExtensions, textLineNumbers
     }
 
     init() {}
@@ -436,6 +452,11 @@ struct Configuration: Codable, Equatable {
         mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
         agentCommand = (try? container.decode(String.self, forKey: .agentCommand)) ?? "claude"
         runKeepHours = max(0, (try? container.decode(Int.self, forKey: .runKeepHours)) ?? 24)
+        textFormatExtensions = (try? container.decode([String: [String]].self,
+                                                      forKey: .textFormatExtensions))
+            ?? Self.defaultTextFormatExtensions
+        textLineNumbers = (try? container.decode(TextLineNumbers.self, forKey: .textLineNumbers))
+            ?? .absolute
         terminalOptionAsMeta =
             (try? container.decode(Bool.self, forKey: .terminalOptionAsMeta)) ?? false
         runHistoryLimit = max(1, (try? container.decode(Int.self, forKey: .runHistoryLimit)) ?? 10)
@@ -468,5 +489,39 @@ struct Configuration: Codable, Equatable {
         }
         columnOrder = [.name] + order
         enabledColumns.insert(.name)
+    }
+}
+
+/// How Text Edit's gutter numbers lines -- as Tychedit does.
+enum TextLineNumbers: String, Codable, CaseIterable, Sendable {
+    case off
+    /// 1, 2, 3 …
+    case absolute
+    /// Distance from the caret's line, as vi's `relativenumber`; the caret's
+    /// own line shows its number.
+    case relative
+
+    var next: TextLineNumbers {
+        switch self {
+        case .off: .absolute
+        case .absolute: .relative
+        case .relative: .off
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .off: "Line Numbers Off"
+        case .absolute: "Line Numbers"
+        case .relative: "Relative Line Numbers"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .off: "text.justify.left"
+        case .absolute: "list.number"
+        case .relative: "arrow.up.and.down.text.horizontal"
+        }
     }
 }

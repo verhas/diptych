@@ -811,6 +811,42 @@ Save (⌘S) — and careful where general editors are not:
 Files that are neither UTF-8 nor marked with their encoding are read as Windows
 Latin-1, then ISO Latin-1, and the window shows which.
 
+**The gutter**, left of the text, from left to right:
+
+* **What changed since the last commit**, as IntelliJ shows it: a green bar
+  beside added lines, a blue one beside changed lines, a red wedge where lines
+  were deleted. Shown when Version Tracking is on in Settings and the file is in
+  a repository; a file not in the last commit is all green. The commit is read
+  again whenever the window comes to the front.
+* **What changed since the last save**, in a thinner bar of its own, because
+  Text Edit does not save by itself: teal for added, orange for changed, an
+  orange wedge for deleted. Saving clears it.
+* **Line numbers**, switched by the bar's button between absolute, relative to
+  the caret's line as vi's `relativenumber` -- the caret's own line keeps its
+  number -- and off, as in Tychedit. Remembered for every window.
+* **Chevrons that fold** the structure of a JSON, XML, TOML or YAML file: an
+  object or array between its brackets (`"windows": [ 4 items ]`), an element
+  between its tags, a comment or CDATA, a TOML table down to the next one and
+  an array or string over lines, what is indented under a YAML line. A badge
+  stands for what is folded; clicking it opens it, as do Find or typing into
+  it. Fold All and Unfold All are in the bar. Nothing is taken out of the text:
+  saving, undo and find see all of it.
+
+**Which format a file is** is decided by its extension: `json` is JSON, `xml`
+XML, `toml` TOML, `yml` and `yaml` YAML. Settings ▸ Behaviour ▸ Text Edit adds
+more -- `geojson, jsonc` for JSON, say -- or empties a format to treat its
+files as plain text.
+
+**A file that breaks its format** says so as it is typed: a red line under the
+bar -- *Not valid JSON — line 12, column 5: A comma or } is expected after the
+value* -- with **Show** to put the caret there, the line's number in red in
+the gutter, and the place underlined. A well-formed file shows its format with
+a green tick. JSON and TOML are checked completely, XML for being well formed
+-- tags in pairs, attributes once each and in quotes, entities, one root --
+and YAML for the mistakes people make: tabs for indentation, a line indented to
+no level above it, a key under a line that already has its value, a line in a
+mapping that is no key, a key set twice, a quote or a bracket not closed.
+
 ## Bin Edit
 
 Right-click a file ▸ **Bin Edit** opens a hex editor in its own window, one per

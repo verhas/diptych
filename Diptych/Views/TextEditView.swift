@@ -17,7 +17,9 @@ struct TextEditView: View {
     @State private var wraps = true
     @State private var guard_ = CloseGuard()
     @State private var finder = FindTrigger()
+    @State private var link = EditorLink()
     @State private var window: NSWindow?
+    @Bindable private var store = ConfigStore.shared
 
     init(url: URL) {
         self.url = url
@@ -35,7 +37,13 @@ struct TextEditView: View {
                     Text(failure)
                 }
             } else {
-                PlainTextEditor(document: document, wraps: wraps, finder: finder)
+                if let problem = document.problem, let format = document.format {
+                    problemBar(problem, format: format)
+                    Divider()
+                }
+                PlainTextEditor(document: document, wraps: wraps, finder: finder, link: link,
+                                lineNumbers: store.configuration.textLineNumbers,
+                                formats: store.configuration.textFormats)
             }
         }
         .navigationTitle(title)
@@ -63,6 +71,11 @@ struct TextEditView: View {
             guard_.willClose = { DiffWindows.shared.releaseFromEditing(url) }
             found.delegate = guard_
         })
+        // A commit made elsewhere moves the base of the commit bar.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+            note in
+            if let window, note.object as? NSWindow === window { link.controller?.loadBaseline() }
+        }
         .onChange(of: document.isEdited) { _, edited in
             // The dot in the close button: the unsaved-changes cue every Mac
             // window gives.
@@ -86,6 +99,23 @@ struct TextEditView: View {
                 .disabled(document.failure != nil)
             Toggle("Wrap lines", isOn: $wraps)
                 .toggleStyle(.checkbox)
+            Button {
+                store.configuration.textLineNumbers = store.configuration.textLineNumbers.next
+            } label: {
+                Image(systemName: store.configuration.textLineNumbers.icon)
+            }
+            .help("\(store.configuration.textLineNumbers.title) \u{2014} click for "
+                  + "\(store.configuration.textLineNumbers.next.title.lowercased())")
+            if document.format != nil {
+                Button { link.controller?.foldAll() } label: {
+                    Image(systemName: "rectangle.compress.vertical")
+                }
+                .help("Fold everything that folds")
+                Button { link.controller?.unfoldAll() } label: {
+                    Image(systemName: "rectangle.expand.vertical")
+                }
+                .help("Unfold everything")
+            }
 
             Spacer()
 
@@ -96,6 +126,11 @@ struct TextEditView: View {
             } else if document.isEdited {
                 Text("Edited").foregroundStyle(.secondary)
             }
+            if let format = document.format, document.problem == nil {
+                Label(format.title, systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+                    .help("Well-formed \(format.title), by its extension")
+            }
             Text(document.summary)
                 .foregroundStyle(.secondary)
                 .help("Saving keeps the file's encoding and line endings as they are.")
@@ -105,9 +140,30 @@ struct TextEditView: View {
         .padding(.vertical, 8)
     }
 
+    /// Where the file breaks its format, and a way to it.
+    private func problemBar(_ problem: SyntaxProblem, format: TextFormat) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text("Not valid \(format.title) \u{2014} line \(problem.line), column "
+                 + "\(problem.column): \(problem.message)")
+                .foregroundStyle(.red)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Spacer()
+            Button("Show") { link.controller?.revealProblem() }
+                .help("Put the caret where the problem is")
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
     private func saveNow(overwriting: Bool = false) {
         switch document.save(overwriting: overwriting) {
-        case .saved, .nothingToDo:
+        case .saved:
+            link.controller?.saved()
+        case .nothingToDo:
             break
         case .changedUnderneath:
             let alert = NSAlert()
@@ -173,16 +229,28 @@ private extension NSMenuItem {
     }
 }
 
-/// An `NSTextView` set up for files rather than prose.
+/// The editor, from the window's bar: its problem, its folds.
+@MainActor
+final class EditorLink {
+    weak var controller: TextEditController?
+}
+
+/// An `NSTextView` set up for files rather than prose, with Text Edit's
+/// gutter: line numbers, folds, changes since the commit and the save.
 struct PlainTextEditor: NSViewRepresentable {
 
     let document: TextEditDocument
     let wraps: Bool
     let finder: FindTrigger
+    let link: EditorLink
+    let lineNumbers: TextLineNumbers
+    /// Settings' formats by extension, so a change there reaches the window.
+    let formats: [TextFormat: [String]]
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
-        guard let text = scroll.documentView as? NSTextView else { return scroll }
+        let controller = TextEditController(document: document)
+        context.coordinator.controller = controller
+        let text = controller.textView
 
         text.isRichText = false
         text.importsGraphics = false
@@ -206,21 +274,25 @@ struct PlainTextEditor: NSViewRepresentable {
         text.delegate = context.coordinator
 
         finder.textView = text
+        link.controller = controller
         document.currentText = { [weak text] in text?.string ?? "" }
         context.coordinator.shownRevision = -1
-        apply(wraps: wraps, to: scroll, text: text)
-        return scroll
+        controller.lineNumbers = lineNumbers
+        apply(wraps: wraps, to: controller.scrollView, text: text)
+        return controller.scrollView
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let text = scroll.documentView as? NSTextView else { return }
+        guard let controller = context.coordinator.controller else { return }
+        let text = controller.textView
         context.coordinator.document = document
+        controller.document = document
 
         // Replaced only when the file was read, never on an ordinary update:
         // setting the string also throws away the undo history.
         if context.coordinator.shownRevision != document.revision {
             context.coordinator.shownRevision = document.revision
-            text.string = document.saved
+            controller.loaded(text: document.saved)
             text.undoManager?.removeAllActions()
             let end = (text.string as NSString).length
             text.setSelectedRange(NSRange(location: end, length: 0))
@@ -232,6 +304,8 @@ struct PlainTextEditor: NSViewRepresentable {
             DispatchQueue.main.async { text.window?.makeFirstResponder(text) }
         }
         text.isEditable = !document.isReadOnly
+        controller.lineNumbers = lineNumbers
+        controller.refreshFormat()
         apply(wraps: wraps, to: scroll, text: text)
     }
 
@@ -266,12 +340,18 @@ struct PlainTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var document: TextEditDocument
+        var controller: TextEditController?
         var shownRevision = -1
 
         init(document: TextEditDocument) { self.document = document }
 
         func textDidChange(_ notification: Notification) {
             document.noteEdit()
+            controller?.textChanged()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            controller?.selectionChanged()
         }
     }
 }

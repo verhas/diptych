@@ -87,6 +87,10 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            TextFormatSettings()
+
+            Divider()
+
             Text("Run").font(.headline)
             HStack(spacing: 10) {
                 Text("Remember")
@@ -920,5 +924,62 @@ struct SoundSettingsView: View {
             .buttonStyle(.borderless)
             .help("Play")
         }
+    }
+}
+
+/// Text Edit's formats by extension: which files fold, and are checked.
+struct TextFormatSettings: View {
+
+    @Bindable private var store = ConfigStore.shared
+    /// What is typed, by format: read into the setting as it is typed, but
+    /// not written back, or a comma typed would vanish before the next name.
+    @State private var drafts: [TextFormat: String] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Text Edit").font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                ForEach(TextFormat.allCases) { format in
+                    GridRow {
+                        Text(format.title)
+                        TextField("extensions", text: draft(of: format))
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(width: 260)
+                    }
+                }
+            }
+            Text("Files with these extensions, separated by commas, are folded by their "
+                 + "structure in Text Edit, and a place where one breaks its format is shown. "
+                 + "Leave a format empty to treat its files as plain text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Back to the Defaults") {
+                store.configuration.textFormatExtensions = Configuration.defaultTextFormatExtensions
+                drafts = [:]
+            }
+            .disabled(store.configuration.textFormatExtensions
+                      == Configuration.defaultTextFormatExtensions)
+        }
+    }
+
+    private func draft(of format: TextFormat) -> Binding<String> {
+        Binding(
+            get: {
+                drafts[format] ?? (store.configuration.textFormatExtensions[format.rawValue] ?? [])
+                    .joined(separator: ", ")
+            },
+            set: { text in
+                drafts[format] = text
+                store.configuration.textFormatExtensions[format.rawValue] = Self.extensions(in: text)
+            })
+    }
+
+    /// `json, .GeoJSON` → `["json", "geojson"]`.
+    nonisolated static func extensions(in text: String) -> [String] {
+        text.split(whereSeparator: { $0 == "," || $0 == " " })
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased() }
+            .filter { !$0.isEmpty }
     }
 }

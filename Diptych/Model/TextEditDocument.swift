@@ -29,6 +29,11 @@ final class TextEditDocument {
     /// what it shows -- and knows not to on any other update.
     private(set) var revision = 0
 
+    /// The format the extension says, and where the text breaks it -- set by
+    /// the editor as it analyses what is typed.
+    var format: TextFormat?
+    var problem: SyntaxProblem?
+
     /// The text as it is in the editor. Set by the view.
     @ObservationIgnored var currentText: () -> String = { "" }
 
