@@ -73,9 +73,9 @@ struct DiptychApp: App {
         .defaultSize(width: 760, height: 680)
         .restorationBehavior(.disabled)
 
-        // One Rename Many per folder.
-        WindowGroup(id: DiptychApp.renameWindowID, for: URL.self) { $folder in
-            if let folder { RenameManyView(folder: folder) }
+        // One Rename Many per folder -- and selection, or flat view.
+        WindowGroup(id: DiptychApp.renameWindowID, for: RenameManyRequest.self) { $request in
+            if let request { RenameManyView(request: request) }
         }
         .defaultSize(width: 720, height: 620)
         .restorationBehavior(.disabled)
@@ -536,6 +536,12 @@ struct FileCommands: Commands {
                 model?.isSinglePane.toggle()
             }
             .keyboardShortcut("2", modifiers: .command)
+
+            Toggle("Flat View", isOn: Binding(
+                get: { model?.active.isFlat ?? false },
+                set: { _ in model?.toggleFlatView() }))
+                .keyboardShortcut(.flatView)
+                .disabled(model == nil)
 
             Toggle("Show Hidden Files", isOn: Binding(
                 get: { model?.showHidden ?? false },

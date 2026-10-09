@@ -1,9 +1,103 @@
 # Diptych 1.8.0
 
-Images get an EXIF editor — with a map, pasting places from Google Maps, and
-an erase that Undo takes back — the path bar becomes links to the folders above
-while Option is held, a circle between Back and Forward lists the folders you
-have been in, and what a dialog or an alert says can be selected and copied.
+A pane can show a folder and everything under it as one list, filtered by an
+expression much like `find`'s; images get an EXIF editor — with a map, pasting
+places from Google Maps, and an erase that Undo takes back; Rename Many works
+on the selection and on a flat view; the path bar becomes links to the folders
+above while Option is held, a circle between Back and Forward lists the folders
+you have been in, and what a dialog or an alert says can be selected and
+copied.
+
+---
+
+## Flat view
+
+**View ▸ Flat View** (`⇧⌘F`), or the new button after `‹ ○ ›`, turns a pane
+into one list of its folder **and everything under it**. Each row has its
+folder in front of its name, in grey -- `src/app/View.swift` -- and sorting by
+name keeps a folder's files together. The button is lit while the pane is flat;
+press it again to go back.
+
+### The expression
+
+The filter gives way to one expression field and a ▶ button (or Return):
+
+```
+directory traversed, file and name ~ /\.(jpe?g|png|heic)$/i and size > 1MB
+(directory and name = "src") or (file and name = "*.swift")
+modified >= 2026-01-01 and access = "***r**r**" and not xattr("com.apple.quarantine")
+```
+
+- **Tests:** `name = "*.txt"` (a shell pattern) and `name ~ /regex/`; `size`
+  with `KB`, `KiB`, `MB`, … ; `created` and `modified` in ISO 8601, to the
+  precision written; `access = "rw*r**r**"`, with `*` for either; `owner`,
+  `group`; `xattr("name")` and its value; `contains "text"` and `contains ~
+  /regex/`, never in a binary file; `file`; `directory`, `directory traversed`
+  (walked into, not listed) and `directory listed` (listed, not walked into);
+  `true` and `false`.
+- **AND, OR -- or a comma -- NOT and parentheses.** Keywords and quoted values
+  ignore case. **Regular expressions are between slashes**, `/…/`, and mind
+  case unless `i` follows; a backslash in quotes is just a backslash.
+  **`/* … */` is a comment.**
+- **An expression without `file` or `directory` is about files**: every folder
+  is listed and walked into. With either, folders are asked too -- so
+  `directory traversed, file and …` searches the whole tree and lists files.
+
+### Typing it
+
+- **Errors are underlined in red** as you type, with the reason under the
+  field; the line says what the word at the caret takes otherwise.
+- **What cannot be meant is underlined in orange**, and can still be run: an
+  expression that lists nothing, one that walks into no folder, and an AND that
+  can never hold -- a file that is a folder, one permission bit both set and
+  clear, sizes or dates that do not meet, two exact names, a name another test
+  rules out, a test and its opposite. A run that finds nothing says so.
+- **Control-Space** offers what can come next; when only one thing can, it is
+  inserted at once. After `access =` it offers `"*********"`, and inside those
+  quotes typing overwrites, as in the pane's permission editor.
+- **A long expression gets every line it needs** while it is being edited.
+
+### Saved expressions
+
+- **Right-click ▸ Save Expression** while editing: a new name, or one already
+  used, to replace. Only an expression that parses can be saved.
+- **A saved name can be the expression, or part of one**, and stands for its
+  expression in parentheses: `images and size > 1MB`. Control-Space offers
+  the names. Select one and **right-click ▸ Expand** to replace it with its
+  expression, to edit.
+- **Each is a JSON file in `~/.diptych/filters`**, holding every older version
+  too, newest first -- edit the file to put one back. Replacing one is
+  undoable.
+- **If one that others use goes**, Diptych says at once which stop working,
+  and an expression using them says which name is missing, and through which.
+
+### Walking, and holding still
+
+- **The rows arrive as they are found**, with how many so far and the folder
+  being read; **Stop** keeps what was found. Each pane remembers its last six
+  walks, so Back to a flat view is immediate.
+- **It holds still.** Only ▶ walks the tree again. A row renamed, or its
+  permissions set, changes in place and stays, even when it no longer passes
+  the expression -- which then turns **brown**, stale, until it is run again.
+  A renamed folder takes its rows along. Refresh re-reads the rows and drops
+  only what is gone.
+- **Opening a folder from it leaves it**, and so do the path bar and the recent
+  folders; with Option held, the path bar's last folder is a link back to the
+  folder too. A flat pane is saved as flat.
+- **A source, not a target**: rows can be copied, moved, renamed and trashed;
+  nothing can be copied, moved, pasted or made *into* a flat view.
+
+---
+
+## Rename Many
+
+- **Only the selection, unless told otherwise**: with files selected in the
+  pane, **Selection only** is ticked and only they are matched and renamed --
+  the other names still count as taken. Untick it for the whole folder.
+- **From a flat view** it works on the rows the pane lists -- stale or not --
+  renaming each in its own folder, a folder after what is in it. A clash is
+  looked for among every name in each folder, and said with its folder. The
+  whole rename is still one Undo step.
 
 ---
 
@@ -82,6 +176,11 @@ artist, copyright, dates, lens, exposure, location and more.
 
 - **The new MCP tool `open_exif_editor`** opens the editor on images from any
   folders; the editing and saving are yours.
+- **The new MCP tool `show_flat_view`** puts a pane into a flat view with an
+  expression -- "list every image under here that the group can read" -- and
+  returns at once with the expression's warnings; `get_pane` says while the walk
+  is still collecting, and lists the rows. The agent's `AGENTS.md` describes the
+  expression language, with examples.
 
 ---
 
@@ -123,4 +222,4 @@ Nothing to do.
 
 ---
 
-*912 tests.*
+*975 tests.*

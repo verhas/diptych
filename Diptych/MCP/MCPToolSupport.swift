@@ -120,7 +120,52 @@ enum MCPToolSupport {
             windowId: model.id.uuidString,
             side: resolvedSide,
             directory: pane.directory.path,
+            flatExpression: pane.flat?.expression,
+            flatStale: pane.isFlat ? pane.flatStale : nil,
+            flatProgress: pane.flatProgress.map {
+                MCPModels.FlatProgress(found: $0.found, foldersRead: $0.folders,
+                                       current: $0.current.path)
+            },
+            flatStopped: pane.isFlat ? pane.flatStopped : nil,
+            flatUnreadableFolders: pane.isFlat && !pane.flatUnreadable.isEmpty
+                ? pane.flatUnreadable.map(\.path) : nil,
             entries: pane.rows.filter { !$0.isParent }.map(MCPModels.FileEntry.init))
+    }
+
+    enum FlatViewStart {
+        case noWindow
+        case notAFolder(String)
+        case problem(FlatQuery.Problem)
+        case left(side: String)
+        case started(PaneModel, windowId: String, side: String, warnings: [String])
+    }
+
+    /// Puts a pane into a flat view of `directory` -- its own folder when
+    /// nil -- filtered by `expression`, and starts the walk; or, with `off`,
+    /// back to the folder.
+    static func showFlatView(windowId: String?, side: String?, directory: String?,
+                             expression: String, off: Bool) -> FlatViewStart {
+        guard let model = resolveModel(windowId: windowId) else { return .noWindow }
+        let (pane, resolvedSide) = resolvePane(model: model, side: side)
+        if off {
+            if pane.isFlat { pane.toggleFlat() }
+            model.persist()
+            return .left(side: resolvedSide)
+        }
+        let root = directory.map { URL(fileURLWithPath: $0) }
+            ?? pane.flat?.root ?? pane.directory
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isFolder),
+              isFolder.boolValue else { return .notAFolder(root.path) }
+        let query: FlatQuery
+        switch FlatQuery.parse(expression) {
+        case .failure(let problem): return .problem(problem)
+        case .success(let parsed): query = parsed
+        }
+        pane.showFlat(of: root.standardizedFileURL, expression: expression)
+        model.persist()
+        return .started(pane, windowId: model.id.uuidString, side: resolvedSide,
+                        warnings: query.warnings.map(\.message))
     }
 
     static func selection(windowId: String?, side: String?) -> MCPModels.SelectionSnapshot? {

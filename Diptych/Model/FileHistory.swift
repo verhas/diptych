@@ -104,6 +104,15 @@ final class FileHistory {
         case ownership([OwnershipChange])
         case attributes([AttributeChange])
         case contents([ContentChange])
+        case savedExpressions([SavedExpressionChange])
+    }
+
+    /// A flat view expression saved under a name: what its file is to hold
+    /// once the step is done -- nil, no file.
+    struct SavedExpressionChange: Sendable {
+        let name: String
+        let url: URL
+        let data: Data?
     }
 
     struct Entry: Sendable, Identifiable {
@@ -276,6 +285,14 @@ final class FileHistory {
             ContentChange(url: $0.url, identity: Self.identity(of: $0.url),
                           modified: Self.modified($0.url), snapshot: $0.before)
         }))
+    }
+
+    /// A flat view expression saved; `before` is what its file held, nil
+    /// for a name saved the first time.
+    func recordSavedExpression(_ name: String, at url: URL, before: Data?) {
+        record("Save Expression",
+               told: "The expression \(quoted(name)) was saved.",
+               .savedExpressions([SavedExpressionChange(name: name, url: url, data: before)]))
     }
 
     /// Owner or group, or both at once.
@@ -583,6 +600,9 @@ final class FileHistory {
             }
             doable = .attributes(ok)
 
+        case .savedExpressions(let changes):
+            doable = .savedExpressions(changes)
+
         case .contents(let changes):
             var ok: [ContentChange] = []
             for change in changes {
@@ -744,6 +764,21 @@ final class FileHistory {
             return Done(inverse: .attributes(outcome.0), touched: outcome.0.map(\.url),
                         failures: outcome.1)
 
+        case .savedExpressions(let changes):
+            var done: [SavedExpressionChange] = []
+            var failures: [String] = []
+            for change in changes {
+                do {
+                    let now = try FlatFilterStore.shared.putBack(change.data, at: change.url)
+                    done.append(SavedExpressionChange(name: change.name, url: change.url,
+                                                      data: now))
+                } catch {
+                    failures.append("The expression \(quoted(change.name)) could not be put "
+                                    + "back: \(error.localizedDescription)")
+                }
+            }
+            return Done(inverse: .savedExpressions(done), touched: [], failures: failures)
+
         case .contents(let changes):
             let outcome = await BlockingWork.run { () -> ([ContentChange], [String]) in
                 var done: [ContentChange] = []
@@ -831,6 +866,7 @@ extension FileHistory.Action {
         case .ownership(let changes): changes.count
         case .attributes(let changes): changes.count
         case .contents(let changes): changes.count
+        case .savedExpressions(let changes): changes.count
         }
     }
 }

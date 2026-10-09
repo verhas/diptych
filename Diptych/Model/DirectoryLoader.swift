@@ -38,19 +38,10 @@ enum DirectoryLoader {
         // four per row, thousands per directory. Same lesson as reading all of a
         // file's attributes in one shot instead of calling isDirectory(),
         // length() and lastModified() separately.
-        // Always needed to classify and draw a row at all...
-        var keys: Set<URLResourceKey> = [
-            .nameKey, .localizedNameKey, .isDirectoryKey, .isPackageKey,
-            .isSymbolicLinkKey, .isExecutableKey, .fileSizeKey,
-            .contentModificationDateKey,
-            // Always, not only when the Tags column is on: a tag colours the
-            // whole row, so it is needed to draw the list at all.
-            .tagNamesKey,
-        ]
-        // ...plus whatever the enabled columns ask for, and nothing else.
-        for column in columns {
-            keys.formUnion(column.resourceKeys)
-        }
+        // Always what is needed to classify and draw a row at all -- a tag
+        // colours the whole row, so tags too -- plus whatever the enabled
+        // columns ask for, and nothing else.
+        let keys = Self.keys(for: columns)
 
         // A private FileManager instance rather than `.default`: instances are
         // cheap, and a local one is unambiguously ours, which keeps the
@@ -76,78 +67,7 @@ enum DirectoryLoader {
             // row for no benefit.
             if index % 256 == 0 { try Self.stop(if: cancelled) }
 
-            // `try?` yields an Optional instead of throwing: one unreadable
-            // entry (a dangling symlink, a permission hole) must not abort the
-            // whole listing.
-            let v = try? url.resourceValues(forKeys: keySet)
-            let isSymlink = v?.isSymbolicLink ?? false
-
-            // `.isDirectoryKey` describes the link itself, not its target, so a
-            // symlink to a folder reports false. Resolve it with fileExists,
-            // which follows the link. Only done for actual symlinks -- it is an
-            // extra stat, and there are usually a handful per directory.
-            var isDirectory = v?.isDirectory ?? false
-            // The same for "executable": a link's own permissions are always
-            // rwxr-xr-x on macOS and mean nothing, so a link to a PDF was
-            // badged executable. The target's say, read through the link; a
-            // dangling link is not executable.
-            var isExecutable = v?.isExecutable ?? false
-            if isSymlink {
-                var target: ObjCBool = false
-                if fm.fileExists(atPath: url.path, isDirectory: &target) {
-                    isDirectory = target.boolValue
-                    isExecutable = fm.isExecutableFile(atPath: url.path)
-                } else {
-                    isExecutable = false
-                }
-            }
-            var item = FileItem(
-                isParent: false,
-                url: url,
-                // The name as listed, not `.nameKey`: that is looked up by
-                // inode, and for a hard link it can answer with another of the
-                // file's names -- "hardx5" was listed as a second "x5".
-                name: url.lastPathComponent,
-                isDirectory: isDirectory,
-                isPackage: v?.isPackage ?? false,
-                isSymlink: isSymlink,
-                isExecutable: !isDirectory && isExecutable,
-                byteSize: Int64(v?.fileSize ?? 0),
-                modified: v?.contentModificationDate ?? .distantPast)
-
-            if isSymlink {
-                item.linkTarget = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
-                item.linkChain = LinkChain.follow(url)
-            }
-            // The name itself, not through a link: a link's own count is what
-            // says how many names the link has.
-            if !(v?.isDirectory ?? false) {
-                var info = stat()
-                if lstat(url.path, &info) == 0 { item.hardLinkCount = Int(info.st_nlink) }
-            }
-            item.created = v?.creationDate ?? .distantPast
-            item.added = v?.addedToDirectoryDate ?? .distantPast
-            item.kind = v?.localizedTypeDescription ?? ""
-            item.tags = v?.tagNames ?? []
-            // A symlink carries its own mode (usually 0755) while chmod, and
-            // FileManager.setAttributes with it, follow the link and change the
-            // target. Showing the link's own bits would mean displaying one
-            // thing and editing another, so read through the link.
-            var security = v?.fileSecurity
-            if isSymlink {
-                security = try? url.resolvingSymlinksInPath()
-                    .resourceValues(forKeys: [.fileSecurityKey]).fileSecurity
-            }
-
-            if let security {
-                let decoded = Self.decode(security, isDirectory: isDirectory)
-                item.permissions = decoded.permissions
-                item.mode = decoded.mode
-                item.owner = decoded.owner
-                item.group = decoded.group
-            }
-
-            items.append(item)
+            items.append(Self.item(at: url, keys: keySet, fm: fm))
         }
 
         try Self.stop(if: cancelled)
@@ -157,6 +77,96 @@ enum DirectoryLoader {
             items.insert(FileItem.parent(of: directory), at: 0)
         }
         return items
+    }
+
+
+    /// The keys `list` asks for with these columns on.
+    static func keys(for columns: [FileColumn]) -> Set<URLResourceKey> {
+        var keys: Set<URLResourceKey> = [
+            .nameKey, .localizedNameKey, .isDirectoryKey, .isPackageKey,
+            .isSymbolicLinkKey, .isExecutableKey, .fileSizeKey,
+            .contentModificationDateKey, .tagNamesKey,
+        ]
+        for column in columns { keys.formUnion(column.resourceKeys) }
+        return keys
+    }
+
+    /// One row, for an entry of a listing -- or for one file on its own, as
+    /// the flat view re-reads its rows.
+    static func item(at url: URL, keys keySet: Set<URLResourceKey>,
+                     fm: FileManager = FileManager()) -> FileItem {
+        // `try?` yields an Optional instead of throwing: one unreadable
+        // entry (a dangling symlink, a permission hole) must not abort the
+        // whole listing.
+        let v = try? url.resourceValues(forKeys: keySet)
+        let isSymlink = v?.isSymbolicLink ?? false
+
+        // `.isDirectoryKey` describes the link itself, not its target, so a
+        // symlink to a folder reports false. Resolve it with fileExists,
+        // which follows the link. Only done for actual symlinks -- it is an
+        // extra stat, and there are usually a handful per directory.
+        var isDirectory = v?.isDirectory ?? false
+        // The same for "executable": a link's own permissions are always
+        // rwxr-xr-x on macOS and mean nothing, so a link to a PDF was
+        // badged executable. The target's say, read through the link; a
+        // dangling link is not executable.
+        var isExecutable = v?.isExecutable ?? false
+        if isSymlink {
+            var target: ObjCBool = false
+            if fm.fileExists(atPath: url.path, isDirectory: &target) {
+                isDirectory = target.boolValue
+                isExecutable = fm.isExecutableFile(atPath: url.path)
+            } else {
+                isExecutable = false
+            }
+        }
+        var item = FileItem(
+            isParent: false,
+            url: url,
+            // The name as listed, not `.nameKey`: that is looked up by
+            // inode, and for a hard link it can answer with another of the
+            // file's names -- "hardx5" was listed as a second "x5".
+            name: url.lastPathComponent,
+            isDirectory: isDirectory,
+            isPackage: v?.isPackage ?? false,
+            isSymlink: isSymlink,
+            isExecutable: !isDirectory && isExecutable,
+            byteSize: Int64(v?.fileSize ?? 0),
+            modified: v?.contentModificationDate ?? .distantPast)
+
+        if isSymlink {
+            item.linkTarget = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
+            item.linkChain = LinkChain.follow(url)
+        }
+        // The name itself, not through a link: a link's own count is what
+        // says how many names the link has.
+        if !(v?.isDirectory ?? false) {
+            var info = stat()
+            if lstat(url.path, &info) == 0 { item.hardLinkCount = Int(info.st_nlink) }
+        }
+        item.created = v?.creationDate ?? .distantPast
+        item.added = v?.addedToDirectoryDate ?? .distantPast
+        item.kind = v?.localizedTypeDescription ?? ""
+        item.tags = v?.tagNames ?? []
+        // A symlink carries its own mode (usually 0755) while chmod, and
+        // FileManager.setAttributes with it, follow the link and change the
+        // target. Showing the link's own bits would mean displaying one
+        // thing and editing another, so read through the link.
+        var security = v?.fileSecurity
+        if isSymlink {
+            security = try? url.resolvingSymlinksInPath()
+                .resourceValues(forKeys: [.fileSecurityKey]).fileSecurity
+        }
+
+        if let security {
+            let decoded = Self.decode(security, isDirectory: isDirectory)
+            item.permissions = decoded.permissions
+            item.mode = decoded.mode
+            item.owner = decoded.owner
+            item.group = decoded.group
+        }
+
+        return item
     }
 
     private static func stop(if cancelled: CancellationFlag) throws {

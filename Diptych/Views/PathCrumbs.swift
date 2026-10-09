@@ -6,9 +6,12 @@ import SwiftUI
 struct PathCrumbs: View {
 
     let directory: URL
+    /// The pane's own folder is a link too: in a flat view the pane is not
+    /// in that folder, and clicking it goes there, out of the flat view.
+    var lastIsLink = false
     /// Called with the folder clicked, and the one under it on the way here --
-    /// which the pane selects, as going up does.
-    let go: (_ folder: URL, _ cameFrom: URL) -> Void
+    /// which the pane selects, as going up does; nil for the pane's own.
+    let go: (_ folder: URL, _ cameFrom: URL?) -> Void
 
     var body: some View {
         // Left-aligned, as the text is. Only a path too long for the bar
@@ -30,8 +33,13 @@ struct PathCrumbs: View {
                 // only a space follows it.
                 if index > 0 { Text(index == 1 ? " " : " / ").foregroundStyle(.secondary) }
                 if index == folders.count - 1 {
-                    // Where the pane already is: not a link.
-                    name(of: folder)
+                    // Where the pane already is: not a link -- unless it is
+                    // a flat view of it.
+                    if lastIsLink {
+                        link(to: folder, cameFrom: nil)
+                    } else {
+                        name(of: folder)
+                    }
                 } else {
                     link(to: folder, cameFrom: folders[index + 1])
                 }
@@ -57,7 +65,7 @@ struct PathCrumbs: View {
         Text(folder.pathComponents.count == 1 ? "/" : folder.lastPathComponent)
     }
 
-    private func link(to folder: URL, cameFrom: URL) -> some View {
+    private func link(to folder: URL, cameFrom: URL?) -> some View {
         Button {
             go(folder, cameFrom)
         } label: {

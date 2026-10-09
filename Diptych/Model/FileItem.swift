@@ -59,6 +59,13 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// The link's own target is there -- even if that is a link leading
     /// nowhere -- so there is somewhere for Go to Link Target to go.
     var linkTargetExists: Bool { linkChain.map { $0.brokenAfter != 1 } ?? false }
+    /// In a flat view, the folder the row is in, relative to the folder the
+    /// view is of, with a slash at the end: `src/main/`. Empty in an
+    /// ordinary listing, and for what is directly in the flat view's folder.
+    var folderPrefix = ""
+    /// What the Name column sorts by: the name, after its folder in a flat
+    /// view.
+    var relativePath: String { folderPrefix + name }
     /// Filled in after the listing, once the repository has been asked.
     var gitState: GitState = .clean
     /// Everything found at or under this row, strongest first. One entry for a

@@ -29,10 +29,14 @@ struct PaneView: View {
     /// The mouse is over the path bar: Option then shows the links too,
     /// without clicking into the text first.
     @State private var pathBarHovered = false
+    /// Where the caret is in the flat view's expression, for its hint.
+    @State private var flatCaret = 0
+    @State private var flatFieldHeight = FlatExpressionField.lineHeight
 
     var body: some View {
         VStack(spacing: 0) {
             toolRow
+            if pane.isFlat { flatStatus }
             pathBar
             Divider()
             table
@@ -96,8 +100,145 @@ struct PaneView: View {
             .disabled(!pane.canGoForward)
             .help("Forward")
 
-            Spacer(minLength: 6)
+            flatButton
 
+            if pane.isFlat {
+                flatExpression
+            } else {
+                Spacer(minLength: 6)
+                filterControls
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+    }
+
+    // MARK: - Flat view
+
+    /// Flat or not, at a glance: the stacked list lit up while the pane is
+    /// one list of its folder and everything under it.
+    private var flatButton: some View {
+        Button {
+            activate()
+            model.toggleFlatView()
+        } label: {
+            Image(systemName: pane.isFlat ? "list.bullet.rectangle.fill" : "list.bullet.indent")
+                .foregroundStyle(pane.isFlat ? Color.accentColor : Color.primary)
+                .frame(width: 18)
+        }
+        .buttonStyle(.borderless)
+        .help(pane.isFlat
+              ? "Flat view: this folder and everything under it, as one list. Click to go "
+                + "back to the folder (\u{21E7}\u{2318}F)"
+              : "Flat view: list this folder and everything under it as one list, filtered "
+                + "by an expression (\u{21E7}\u{2318}F)")
+    }
+
+    private var flatProblem: FlatQuery.Problem? {
+        if case .failure(let problem) = FlatQuery.parse(pane.flatDraft) { return problem }
+        return nil
+    }
+
+    private var flatWarnings: [FlatQuery.Problem] {
+        (try? FlatQuery.parse(pane.flatDraft).get())?.warnings ?? []
+    }
+
+    /// The list was made by this very expression, and something in it no
+    /// longer passes: only running it again puts that right.
+    private var flatIsStale: Bool {
+        pane.flatStale && pane.flat?.expression == pane.flatDraft
+    }
+
+    private var flatExpression: some View {
+        HStack(alignment: .top, spacing: 6) {
+            FlatExpressionField(text: $pane.flatDraft, caret: $flatCaret, problem: flatProblem,
+                                warnings: flatWarnings, stale: flatIsStale,
+                                height: $flatFieldHeight,
+                                onSave: flatProblem == nil ? { name in
+                                    model.saveFlatExpression(pane.flatDraft, as: name)
+                                } : nil,
+                                onRun: { runFlat() })
+                .frame(height: flatFieldHeight)
+                .frame(maxWidth: .infinity)
+            if pane.flatProgress != nil {
+                Button("Stop") { pane.stopFlatScan() }
+                    .controlSize(.small)
+                    .help("Stop walking the tree; what was found so far stays")
+            } else {
+                Button { runFlat() } label: {
+                    Image(systemName: "play.fill")
+                }
+                .controlSize(.small)
+                .disabled(flatProblem != nil)
+                .help("Walk the tree again with this expression (Return)")
+            }
+        }
+    }
+
+    private func runFlat() {
+        activate()
+        guard flatProblem == nil else { return }
+        pane.runFlat()
+        model.persist()
+    }
+
+    /// Under the expression: what is wrong with it, or what the word at the
+    /// caret takes -- and how the walk is going.
+    private var flatStatus: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let problem = flatProblem {
+                Text(problem.message)
+                    .foregroundStyle(.red)
+            } else if let warning = flatWarnings.first {
+                Text(warning.message)
+                    .foregroundStyle(.orange)
+            } else if let hint = FlatQuery.hint(in: pane.flatDraft, at: flatCaret) {
+                Text(hint)
+                    .foregroundStyle(.secondary)
+            }
+            if let progress = pane.flatProgress {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).scaleEffect(0.6)
+                        .frame(width: 12, height: 12)
+                    Text("\(progress.found) found in \(progress.folders) folders \u{2014} "
+                         + (progress.current.path as NSString).abbreviatingWithTildeInPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                }
+            } else if flatIsStale {
+                Text("Some rows no longer pass the expression since they were changed; they "
+                     + "stay until it is run again (\u{25B6})")
+                    .foregroundStyle(.brown)
+            } else if pane.flatStopped {
+                Text("Stopped: \(pane.items.count) found before that \u{2014} the list is not "
+                     + "complete")
+                    .foregroundStyle(.orange)
+            } else if pane.items.isEmpty, !pane.isLoading, pane.flat?.expression == pane.flatDraft,
+                      flatWarnings.isEmpty {
+                Text("Nothing here passes the expression")
+                    .foregroundStyle(.secondary)
+            }
+            if !pane.flatUnreadable.isEmpty {
+                Text("\(pane.flatUnreadable.count) folder"
+                     + (pane.flatUnreadable.count == 1 ? "" : "s") + " could not be read")
+                    .foregroundStyle(.orange)
+                    .help(pane.flatUnreadable.prefix(20)
+                        .map { ($0.path as NSString).abbreviatingWithTildeInPath }
+                        .joined(separator: "\n"))
+            }
+        }
+        .font(.system(size: 11))
+        .lineLimit(2)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.top, 3)
+    }
+
+    /// The ordinary filter: a pattern, and how it is read and shown.
+    @ViewBuilder
+    private var filterControls: some View {
             TextField("Filter", text: $pane.filterText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
@@ -141,9 +282,6 @@ struct PaneView: View {
                 .font(.system(size: 11))
                 .help("Leave non-matching items out of the list entirely, "
                       + "instead of greying them out")
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
     }
 
     /// The folders this pane has been in, most recent first -- also the ones
@@ -231,7 +369,7 @@ struct PaneView: View {
             .allowsHitTesting(!showsCrumbs)
             .overlay(alignment: .leading) {
                 if showsCrumbs {
-                    PathCrumbs(directory: pane.directory) { folder, cameFrom in
+                    PathCrumbs(directory: pane.directory, lastIsLink: pane.isFlat) { folder, cameFrom in
                         goToCrumb(folder, cameFrom: cameFrom)
                     }
                 }
@@ -252,11 +390,11 @@ struct PaneView: View {
 
     /// A folder above, from the links: the folder it came out of is selected,
     /// as going up does, and any typing in the path bar is given up.
-    private func goToCrumb(_ folder: URL, cameFrom: URL) {
+    private func goToCrumb(_ folder: URL, cameFrom: URL?) {
         activate()
         endPathEdit()
         pane.navigate(to: folder)
-        pane.pendingSelection = [cameFrom]
+        if let cameFrom { pane.pendingSelection = [cameFrom] }
     }
 
     /// `/Users/verhasp/Documents` shown as `~/Documents`.

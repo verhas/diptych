@@ -39,7 +39,40 @@ enum MCPModels {
         var windowId: String
         var side: String
         var directory: String
+        /// Set while the pane is a flat view of `directory`: the entries are
+        /// then everything under it that the expression lists.
+        var flatExpression: String? = nil
+        /// A flat view whose rows were changed since it was walked, so that
+        /// some no longer pass the expression.
+        var flatStale: Bool? = nil
+        /// Set while a flat view's walk is still collecting: the entries
+        /// are what it has found so far.
+        var flatProgress: FlatProgress? = nil
+        /// The walk was stopped before the end: the entries are not all.
+        var flatStopped: Bool? = nil
+        /// Folders the walk could not read.
+        var flatUnreadableFolders: [String]? = nil
         var entries: [FileEntry]
+    }
+
+    struct FlatProgress: Codable, Sendable {
+        var found: Int
+        var foldersRead: Int
+        /// The folder being read now.
+        var current: String
+    }
+
+    /// What `show_flat_view` did.
+    struct FlatViewResult: Codable, Sendable {
+        var windowId: String
+        var side: String
+        var directory: String
+        var expression: String
+        /// Parts that parse but cannot be what was meant -- worth fixing.
+        var warnings: [String]
+        /// The walk is still going -- almost always, as the call does not
+        /// wait for it. `get_pane` says when it is done.
+        var collecting: Bool
     }
 
     struct SelectionSnapshot: Codable, Sendable {

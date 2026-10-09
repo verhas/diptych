@@ -54,12 +54,14 @@ struct RenamePlan: Equatable, Sendable {
     // MARK: - Working it out
 
     /// `names` is everything in the folder, `search` must match a whole name.
+    /// `only`, when given, are the names that may be renamed -- the selected
+    /// ones -- the rest still count as names that are taken.
     static func plan(names: [String], search: NSRegularExpression,
-                     replacement: String) -> RenamePlan {
+                     replacement: String, only: Set<String>? = nil) -> RenamePlan {
         var plan = RenamePlan()
         var pairs: [(from: String, to: String)] = []
 
-        for name in names.sorted() {
+        for name in names.sorted() where only?.contains(name) ?? true {
             let range = NSRange(name.startIndex..., in: name)
             guard let match = search.firstMatch(in: name, options: [], range: range),
                   match.range == range else { continue }

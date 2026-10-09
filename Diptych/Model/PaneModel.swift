@@ -90,7 +90,17 @@ final class PaneModel {
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
         didSet { owner?.persist() }
     }
-    var showHidden = false { didSet { reload() } }
+    var showHidden = false {
+        didSet {
+            // In a flat view, hidden folders change what is walked: the tree
+            // again, or the walk remembered with them shown or not.
+            if let flat {
+                enter(flat, recordingHistory: false, rescan: false)
+            } else {
+                reload()
+            }
+        }
+    }
 
     /// The row currently being renamed in place, and the text being edited.
     var renamingID: FileItem.ID?
@@ -125,7 +135,8 @@ final class PaneModel {
     private(set) var filterIsValid = true
     @ObservationIgnored private var filterRegex: NSRegularExpression?
 
-    var hasFilter: Bool { !filterText.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// Never in a flat view, which has its expression instead.
+    var hasFilter: Bool { !isFlat && !filterText.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func rebuildFilter() {
         let pattern = filterText.trimmingCharacters(in: .whitespaces)
@@ -193,7 +204,23 @@ final class PaneModel {
 
     // MARK: - History
 
-    @ObservationIgnored private var history: [URL] = []
+    /// Where the pane has been: a folder, or a flat view of one.
+    enum Place: Equatable {
+        case folder(URL)
+        case flat(FlatView)
+
+        var url: URL {
+            switch self {
+            case .folder(let url): url
+            case .flat(let view):  view.root
+            }
+        }
+    }
+
+    /// Where the pane is now.
+    var place: Place { flat.map(Place.flat) ?? .folder(directory) }
+
+    @ObservationIgnored private var history: [Place] = []
     @ObservationIgnored private var historyIndex = -1
 
     private(set) var canGoBack = false
@@ -201,12 +228,25 @@ final class PaneModel {
 
     func goBack() {
         guard let target = step(-1) else { return }
-        navigate(to: target, recordingHistory: false)
+        go(to: target)
     }
 
     func goForward() {
         guard let target = step(1) else { return }
-        navigate(to: target, recordingHistory: false)
+        go(to: target)
+    }
+
+    /// Somewhere from the history, which is not recorded again.
+    private func go(to target: Place) {
+        switch target {
+        case .folder(let url):
+            navigate(to: url, recordingHistory: false)
+        case .flat(let view):
+            // Back out of a folder opened from the flat view: the cursor is
+            // put back on it.
+            if case .folder(let from) = place { pendingSelection = [from] }
+            enter(view, recordingHistory: false, rescan: false)
+        }
     }
 
     /// Move through the history in one direction, stepping over anything that
@@ -221,14 +261,14 @@ final class PaneModel {
     /// So a folder that has gone is not somewhere to try and fail to go; it is
     /// removed, and the walk carries on in the same direction. What is left is
     /// a history of places that are still there.
-    private func step(_ direction: Int) -> URL? {
+    private func step(_ direction: Int) -> Place? {
         while true {
             let next = historyIndex + direction
             guard next >= 0, next < history.count else {
                 updateHistoryFlags()
                 return nil
             }
-            if FileManager.default.fileExists(atPath: history[next].path) {
+            if FileManager.default.fileExists(atPath: history[next].url.path) {
                 historyIndex = next
                 updateHistoryFlags()
                 return history[next]
@@ -242,14 +282,14 @@ final class PaneModel {
         }
     }
 
-    private func record(_ url: URL) {
+    private func record(_ place: Place) {
         // Moving somewhere new after going back discards the forward trail,
         // exactly as a browser does.
         if historyIndex >= 0 && historyIndex < history.count - 1 {
             history.removeSubrange((historyIndex + 1)...)
         }
-        if history.last != url {
-            history.append(url)
+        if history.last != place {
+            history.append(place)
             if history.count > 200 { history.removeFirst() }
         }
         historyIndex = history.count - 1
@@ -259,7 +299,7 @@ final class PaneModel {
     /// Take a place that is gone out of the trail, keeping the cursor pointing
     /// at whatever it was pointing at.
     private func forget(_ url: URL) {
-        while let index = history.firstIndex(of: url) {
+        while let index = history.firstIndex(where: { $0.url == url }) {
             history.remove(at: index)
             if index <= historyIndex { historyIndex -= 1 }
         }
@@ -316,9 +356,10 @@ final class PaneModel {
         // can hold the folder you are standing in on both sides of the hole,
         // and a button that offers to take you where you already are is a
         // button that does nothing.
-        canGoBack = history[..<max(historyIndex, 0)].contains { $0 != directory }
+        let here = place
+        canGoBack = history[..<max(historyIndex, 0)].contains { $0 != here }
         canGoForward = history.count > historyIndex + 1
-            && history[(historyIndex + 1)...].contains { $0 != directory }
+            && history[(historyIndex + 1)...].contains { $0 != here }
     }
 
     /// True while the path bar is an open text field. The pane must not
@@ -345,7 +386,7 @@ final class PaneModel {
 
     init(directory: URL) {
         self.directory = directory
-        history = [directory]
+        history = [.folder(directory)]
         historyIndex = 0
     }
 
@@ -391,12 +432,18 @@ final class PaneModel {
 
     func navigate(to url: URL, recordingHistory: Bool = true) {
         let previous = directory
+        // Any navigation leaves a flat view: it is of one folder, and this
+        // is going to a folder.
+        let wasFlat = flat != nil
+        if wasFlat { leaveFlatState() }
         directory = url
         selection = []
         renamingID = nil
-        if recordingHistory { record(url) } else { updateHistoryFlags() }
+        if recordingHistory { record(.folder(url)) } else { updateHistoryFlags() }
         recent = Self.remembering(url, in: recent)
-        reload(navigatingFrom: previous == url ? nil : previous)
+        // From a flat view to its own folder is still a different listing:
+        // the flat rows must not stand in for it while it loads.
+        reload(navigatingFrom: previous == url && !wasFlat ? nil : previous)
         owner?.persist()
     }
 
@@ -416,7 +463,7 @@ final class PaneModel {
         // Take the abandoned directory back out of the history. It was recorded
         // when the navigation began, and leaving it there would make Back walk
         // past where you actually are into somewhere you never arrived.
-        if history.last == abandoned, history.count > 1 {
+        if history.last == .folder(abandoned), history.count > 1 {
             history.removeLast()
             historyIndex = min(historyIndex, history.count - 1)
         }
@@ -447,12 +494,20 @@ final class PaneModel {
         PaneState(directory: directory.path,
                   sortField: (sortOrder.first?.column ?? .name).rawValue,
                   sortAscending: (sortOrder.first?.order ?? .forward) == .forward,
-                  recent: recent.map(\.path))
+                  recent: recent.map(\.path),
+                  flatDraft: flatDraft,
+                  flatExpression: flat?.expression)
     }
 
     func restore(_ state: PaneState) {
         directory = URL(fileURLWithPath: state.directory)
-        history = [directory]
+        flatDraft = state.flatDraft
+        // A flat view comes back flat; the next reload walks the tree again.
+        if let expression = state.flatExpression {
+            flat = FlatView(root: directory, expression: expression)
+            flatQuery = try? FlatQuery.parse(expression).get()
+        }
+        history = [place]
         historyIndex = 0
         updateHistoryFlags()
         recent = Self.remembering(directory, in: state.recent.map { URL(fileURLWithPath: $0) })
@@ -496,6 +551,308 @@ final class PaneModel {
         } else {
             NSWorkspaceOpener.open(item.url)
         }
+    }
+
+    // MARK: - Flat view
+
+    /// A folder and everything under it, as one list, filtered by an
+    /// expression: what the history keeps for a flat view.
+    struct FlatView: Equatable, Hashable {
+        let root: URL
+        let expression: String
+    }
+
+    /// Set while the pane is a flat view. It has no one folder then: nothing
+    /// can be copied, moved or made into it.
+    private(set) var flat: FlatView?
+    @ObservationIgnored private var flatQuery: FlatQuery?
+    var isFlat: Bool { flat != nil }
+
+    /// What is typed in the expression field, run or not.
+    var flatDraft = ""
+
+    /// How the walk is going, while it is.
+    struct FlatProgress: Equatable {
+        var found: Int
+        var folders: Int
+        var current: URL
+    }
+
+    private(set) var flatProgress: FlatProgress?
+    /// The walk was stopped: the rows are what it had found by then.
+    private(set) var flatStopped = false
+    /// Folders the walk could not read.
+    private(set) var flatUnreadable: [URL] = []
+    /// Something listed was changed -- renamed, its permissions set -- and
+    /// no longer passes the expression. It stays listed: the view does not
+    /// shift under the hand changing it. Only running the expression again
+    /// makes the list fresh.
+    private(set) var flatStale = false
+    @ObservationIgnored private var flatTask: Task<Void, Never>?
+
+    /// Walked trees, so Back to a flat view -- after opening a folder from
+    /// it by mistake, say -- shows it at once. The last few, per pane.
+    @ObservationIgnored private var flatCache: [(key: FlatCacheKey, rows: [FileItem],
+                                                 stale: Bool)] = []
+    nonisolated static let flatCacheLimit = 6
+
+    private struct FlatCacheKey: Equatable {
+        let view: FlatView
+        let showHidden: Bool
+    }
+
+    /// The flat view button and View ▸ Flat View: into the flat view of this
+    /// folder, or back out to the folder.
+    func toggleFlat() {
+        if let flat {
+            navigate(to: flat.root)
+        } else {
+            enter(FlatView(root: directory, expression: flatDraft), recordingHistory: true,
+                  rescan: false)
+        }
+    }
+
+    /// The expression's button, or Return in it: the tree walked again with
+    /// what is typed now. A changed expression is a new place in the history.
+    func runFlat() {
+        guard case .success = FlatQuery.parse(flatDraft) else { return }
+        let view = FlatView(root: flat?.root ?? directory, expression: flatDraft)
+        if view == flat {
+            scanFlat()
+        } else {
+            enter(view, recordingHistory: true, rescan: true)
+        }
+    }
+
+    /// A flat view of `root` with `expression`, walked afresh -- for an
+    /// agent, which names both. False when the expression does not parse.
+    @discardableResult
+    func showFlat(of root: URL, expression: String) -> Bool {
+        guard case .success = FlatQuery.parse(expression) else { return false }
+        let view = FlatView(root: root, expression: expression)
+        if view == flat {
+            flatDraft = expression
+            scanFlat()
+        } else {
+            enter(view, recordingHistory: true, rescan: true)
+        }
+        return true
+    }
+
+    /// The walk stopped where it is; what it found stays.
+    func stopFlatScan() {
+        guard flatProgress != nil else { return }
+        flatTask?.cancel()
+        flatTask = nil
+        flatProgress = nil
+        isLoading = false
+        flatStopped = true
+    }
+
+    private func enter(_ view: FlatView, recordingHistory: Bool, rescan: Bool) {
+        loadTask?.cancel()
+        flatTask?.cancel()
+        // Nothing to watch: the tree is not one folder, and a change in the
+        // top one says nothing about the rest. Refresh re-reads the rows.
+        watcher?.cancel()
+        watcher = nil
+        watchedPath = nil
+
+        flat = view
+        flatQuery = try? FlatQuery.parse(view.expression).get()
+        flatDraft = view.expression
+        directory = view.root
+        renamingID = nil
+        errorText = nil
+        loadingDirectory = nil
+        directoryBeforeLoad = nil
+        flatStopped = false
+        flatUnreadable = []
+        flatStale = false
+        if recordingHistory { record(.flat(view)) } else { updateHistoryFlags() }
+
+        let key = FlatCacheKey(view: view, showHidden: showHidden)
+        if !rescan, let cached = flatCache.first(where: { $0.key == key }) {
+            items = cached.rows
+            flatStale = cached.stale
+            selection = []
+            isLoading = false
+            flatProgress = nil
+            if !applyPendingSelection(in: items) { landOnSomethingToPreview() }
+        } else {
+            scanFlat()
+        }
+        owner?.persist()
+    }
+
+    /// Out of the flat view, to wherever the navigation goes.
+    private func leaveFlatState() {
+        flatTask?.cancel()
+        flatTask = nil
+        flatProgress = nil
+        flat = nil
+        flatQuery = nil
+        flatStopped = false
+        flatUnreadable = []
+        flatStale = false
+    }
+
+    /// The tree walked, the rows arriving as they are found.
+    private func scanFlat() {
+        guard let view = flat else { return }
+        flatTask?.cancel()
+        loadTask?.cancel()
+        items = []
+        selection = []
+        flatStopped = false
+        flatUnreadable = []
+        flatStale = false
+        // An expression that does not parse lists nothing until it is put
+        // right; the field says what is wrong.
+        guard let query = flatQuery else {
+            flatProgress = nil
+            isLoading = false
+            return
+        }
+        isLoading = true
+        flatProgress = FlatProgress(found: 0, folders: 0, current: view.root)
+        let key = FlatCacheKey(view: view, showHidden: showHidden)
+        let stream = FlatScanner.scan(root: view.root, query: query, showHidden: showHidden,
+                                      columns: ConfigStore.shared.configuration.columns)
+        flatTask = Task { [weak self] in
+            for await event in stream {
+                guard let self, self.flat == view, !Task.isCancelled else { return }
+                switch event {
+                case .found(let batch, let folders, let current):
+                    self.items.append(contentsOf: batch)
+                    self.flatProgress = FlatProgress(found: self.items.count, folders: folders,
+                                                     current: current)
+                case .finished(let unreadable):
+                    self.flatUnreadable = unreadable
+                    self.flatProgress = nil
+                    self.isLoading = false
+                    self.remember(self.items, for: key)
+                    self.applyPendingSelection(in: self.items)
+                    self.decorateWithGit(for: view.root)
+                }
+            }
+        }
+    }
+
+    private func remember(_ rows: [FileItem], for key: FlatCacheKey) {
+        flatCache.removeAll { $0.key == key }
+        flatCache.insert((key, rows, flatStale), at: 0)
+        if flatCache.count > Self.flatCacheLimit { flatCache.removeLast() }
+    }
+
+    /// Refresh in a flat view: each row read again -- gone ones dropped --
+    /// and the files an operation has just made added. Nothing is left out
+    /// for no longer passing the expression: that only makes the view
+    /// stale. The tree is not walked again; the expression's button does
+    /// that.
+    private func refreshFlat() {
+        guard let view = flat, flatProgress == nil else { return }
+        guard let query = flatQuery else { return }
+        let key = FlatCacheKey(view: view, showHidden: showHidden)
+        // Restored at launch, or with nothing found yet: walk it.
+        if items.isEmpty, !flatStopped, !flatCache.contains(where: { $0.key == key }) {
+            scanFlat()
+            return
+        }
+        let current = items
+        let wanted = pendingSelection
+        let columns = ConfigStore.shared.configuration.columns
+        let stopped = flatStopped
+        loadTask?.cancel()
+        loadTask = Task { [weak self] in
+            let fresh = try? await BlockingWork.run { () -> (rows: [FileItem], stale: Bool) in
+                var stale = false
+                var rows: [FileItem] = []
+                for item in current {
+                    guard let row = FlatScanner.reread(item, columns: columns) else { continue }
+                    // Only what changed is asked again: `contains` reads the
+                    // whole file.
+                    if Self.changed(item, row), !query.decide(FlatSubject(row)).list {
+                        stale = true
+                    }
+                    rows.append(row)
+                }
+                let known = Set(rows.map(\.id.path))
+                for url in wanted where !known.contains(url.path) {
+                    if let row = FlatScanner.row(for: url, under: view.root, columns: columns) {
+                        if !query.decide(FlatSubject(row)).list { stale = true }
+                        rows.append(row)
+                    }
+                }
+                return (rows, stale)
+            }
+            guard let self, let fresh, !Task.isCancelled, self.flat == view else { return }
+            self.items = fresh.rows
+            if fresh.stale { self.flatStale = true }
+            if !stopped { self.remember(fresh.rows, for: key) }
+            if !self.applyPendingSelection(in: fresh.rows) {
+                self.selection = self.selection.filter { id in fresh.rows.contains { $0.id == id } }
+            }
+            self.decorateWithGit(for: view.root)
+        }
+    }
+
+    /// Some rows changed by Diptych itself -- their permissions set, one
+    /// renamed, with everything under it if it is a folder -- shown as they
+    /// are now, and only they: in a flat view nothing else is read again,
+    /// and nothing leaves the list for no longer passing the expression. In
+    /// an ordinary listing, the folder is read again.
+    func refreshRows(_ urls: [URL], renamed: [(from: URL, to: URL)] = []) {
+        guard let view = flat, let query = flatQuery else {
+            reload()
+            return
+        }
+        let current = items
+        let columns = ConfigStore.shared.configuration.columns
+        let touched = Set(urls.map(FlatScanner.canonicalPath))
+        Task { [weak self] in
+            let changes = await BlockingWork.run { () -> (rows: [URL: FileItem?], stale: Bool) in
+                var rows: [URL: FileItem?] = [:]
+                var stale = false
+                for item in current {
+                    let path = FlatScanner.canonicalPath(item.url)
+                    let row: FileItem?
+                    let moved = RenameManyModel.following(renamed, item.url)
+                    if FlatScanner.canonicalPath(moved) != path {
+                        row = FlatScanner.row(for: moved, under: view.root, columns: columns)
+                    } else if touched.contains(path) {
+                        row = FlatScanner.reread(item, columns: columns)
+                    } else {
+                        continue
+                    }
+                    if let row, !query.decide(FlatSubject(row)).list { stale = true }
+                    rows[item.id] = row
+                }
+                return (rows, stale)
+            }
+            guard let self, self.flat == view, !changes.rows.isEmpty else { return }
+            // Merged into the rows as they are now, not as they were: another
+            // change may have landed meanwhile.
+            self.items = self.items.compactMap { item in
+                guard let change = changes.rows[item.id] else { return item }
+                return change
+            }
+            if changes.stale { self.flatStale = true }
+            if !self.flatStopped { self.remember(self.items, for: FlatCacheKey(view: view,
+                                                                               showHidden: self.showHidden)) }
+            if !self.applyPendingSelection(in: self.items) {
+                self.selection = self.selection.filter { id in self.items.contains { $0.id == id } }
+            }
+            self.decorateWithGit(for: view.root)
+        }
+    }
+
+    /// What the expression can ask about has changed.
+    nonisolated private static func changed(_ old: FileItem, _ new: FileItem) -> Bool {
+        old.name != new.name || old.mode != new.mode || old.owner != new.owner
+            || old.group != new.group || old.byteSize != new.byteSize
+            || old.modified != new.modified || old.created != new.created
+            || old.isDirectory != new.isDirectory
     }
 
     // MARK: - Loading
@@ -564,7 +921,13 @@ final class PaneModel {
         }
     }
 
-    func reload() { reload(navigatingFrom: nil) }
+    func reload() {
+        if isFlat {
+            refreshFlat()
+            return
+        }
+        reload(navigatingFrom: nil)
+    }
 
     /// Reload, and wait for the rows to actually be there.
     ///
@@ -696,7 +1059,8 @@ final class PaneModel {
     }
 
     private func finish(_ loaded: [FileItem], for target: URL) {
-        guard target == directory else { return }   // a newer navigation won
+        // A newer navigation won -- or the pane went flat meanwhile.
+        guard target == directory, !isFlat else { return }
         items = loaded
         decorateWithGit(for: target)
         isLoading = false
@@ -704,6 +1068,17 @@ final class PaneModel {
         directoryBeforeLoad = nil
         errorIsPermission = false
 
+        if applyPendingSelection(in: loaded) { return }
+        openAfterLoading = false
+        selection = selection.filter { id in loaded.contains { $0.id == id } }
+        landOnSomethingToPreview()
+    }
+
+    /// The rows asked for before the listing came, selected and scrolled to
+    /// -- and opened, for a file typed into the path bar. True when that
+    /// settled the selection.
+    @discardableResult
+    private func applyPendingSelection(in loaded: [FileItem]) -> Bool {
         if !pendingSelection.isEmpty {
             // Matched by path, not by URL. A row's URL comes from the directory
             // listing, which puts a trailing slash on a folder; a URL built by
@@ -725,12 +1100,10 @@ final class PaneModel {
                     open(item)
                 }
                 openAfterLoading = false
-                return
+                return true
             }
         }
-        openAfterLoading = false
-        selection = selection.filter { id in loaded.contains { $0.id == id } }
-        landOnSomethingToPreview()
+        return false
     }
 
     /// With the preview open, a folder that arrives with nothing selected puts

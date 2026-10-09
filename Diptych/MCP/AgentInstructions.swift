@@ -162,6 +162,102 @@ enum AgentInstructions {
     - You can read runs; you cannot start one, and must not run the program
       yourself to reproduce a failure unless the person asks you to.
 
+    ## Listing a tree: the flat view
+
+    "List all the … under here", "show me every … recursively", "find the
+    files that …" -- show it in the pane with `show_flat_view`, rather than
+    answering from `find`: the person sees the list, and can select, copy,
+    move or delete from it. The pane then shows one list of the folder and
+    everything under it, each row with its folder in front of its name.
+    `get_pane` returns the rows; `show_flat_view` with `off: true` goes back.
+
+    The expression, in short:
+
+    - **Tests** are joined by `and`, `or` -- or a comma, which is `or` --
+      and `not`, with parentheses. `and` binds tighter than `or`/`,`.
+    - **Case:** keywords and quoted values ignore case (`name = "*.JPG"`
+      finds `a.jpg`). A regular expression minds case unless `i` follows it.
+    - **Texts** are quoted, `"…"` or `'…'`. A backslash in quotes is just a
+      backslash. **Regular expressions** are between slashes, `/…/`, with
+      flags after: `i` ignore case, `m` `^`/`$` at each line, `s` `.`
+      matches a line break, `x` spaces ignored. `\/` is a slash inside one.
+      They are not anchored: `^…$` for the whole name.
+
+    | Test | Meaning |
+    | --- | --- |
+    | `name = "*.txt"`, `name != "*~"` | the name, or a shell pattern (`*`, `?`, `[…]`) |
+    | `name ~ /^IMG_\d+/i`, `name !~ /…/` | the name matches a regular expression |
+    | `size > 10MB` | `= != < <= > >=`; `B KB KiB MB MiB GB GiB TB TiB` (KB = 1000, KiB = 1024); false for folders |
+    | `modified >= 2026-01-31`, `created < 2026-01-31T14:30:00+02:00` | ISO 8601, to the precision written: a date alone is the whole day, so `= 2026-01-31` is that day; no zone is this Mac's |
+    | `access = "rw*r**r**"`, `access != "…"` | nine places, `rwx` for user, group, others: the letter where the bit must be set, `-` where clear, `*` for either; `s` in the 3rd/6th place for setuid/setgid, `t` in the 9th for sticky |
+    | `owner = "peter"`, `group ~ /^st/` | owner and group names |
+    | `xattr("com.apple.quarantine")` | has the extended attribute |
+    | `xattr("com.apple.metadata:kMDItemWhereFroms") ~ /github/` | its value (each string in a property list) |
+    | `contains "TODO"`, `contains ~ /^import /` | the text in the file (ignoring case), or a line matching; binary files never match |
+    | `file` | anything that is not a folder |
+    | `directory` | a folder: listed, and walked into |
+    | `directory traversed` | a folder walked into, not listed itself |
+    | `directory listed` | a folder listed, not walked into |
+    | `true`, `false` | always so: `false and (…)` switches a part off |
+
+    `/* … */` is a comment. A **saved expression** -- a name the person
+    saved one under -- may be used as a test, and stands for its
+    expression in parentheses: `images and size > 1MB`. They are JSON files
+    in `~/.diptych/filters` (`expression` is the current one); read them
+    with `cat` when the person names one, and use the name rather than
+    copying its text. Do not write them: saving is the person's, from the
+    expression field's right-click menu.
+
+    **Folders are the subtle part.** Each folder is asked twice: list it?
+    walk into it? An expression that mentions neither `file` nor
+    `directory` is about files only: every folder is then listed and walked
+    into, and the files are filtered. As soon as `file` or `directory`
+    appears, folders are asked too, and a folder nothing says yes to is not
+    walked into -- so `file and name = "*.txt"` alone looks only at the top
+    folder. To search the whole tree but list files only, start with
+    `directory traversed,`:
+
+        directory traversed, file and name = "*.txt"
+
+    Packages (apps, `.rtfd`) count as files and are not entered; links to
+    folders are listed, never followed. Hidden files are included only if
+    the pane shows them.
+
+    Examples:
+
+    - every image, anywhere below:
+      `directory traversed, file and name ~ /\.(jpe?g|png|gif|heic|heif|tiff?|webp|bmp|dng|cr2|nef|arw)$/i`
+    - files the group and everyone else can read, images, and no `a` in the
+      name (a pattern ignores case, so no `A` either):
+      `directory traversed, file and access = "***r**r**" and name ~ /\.(jpe?g|png|gif|heic|tiff?|webp)$/i and name != "*a*"`
+    - big files changed this year: `directory traversed, file and size > 100MB and modified >= 2026-01-01`
+    - downloaded and still quarantined: `directory traversed, file and xattr("com.apple.quarantine")`
+    - only the `src` folders' Swift files: `(directory and name = "src") or (file and name = "*.swift")`
+      -- a folder not named `src` is not walked into, so this finds `src`
+      folders directly at the top, or inside another `src`.
+
+    `show_flat_view` returns at once, as the walk starts, with any
+    **warnings** -- an expression that can list nothing, an `and` of two
+    things that are never both true (a permission bit both set and clear,
+    sizes or dates that do not overlap, a name another test rules out), or
+    nothing being walked into. Read
+    them: a warning usually means the expression is not what was meant, so
+    fix it and call again rather than letting a useless walk run. An error
+    says where the expression stopped parsing.
+
+    The walk itself can take a while on a big tree, and the person sees the
+    rows arrive in the pane. `get_pane` tells you how it is going: while
+    `flatProgress` is there it is still collecting (how many found, how
+    many folders read, which one now) and `entries` are what it has so far.
+    Before saying what was found, call `get_pane` again until `flatProgress`
+    is gone -- a few seconds apart, not in a tight loop. For a walk that is
+    clearly long, tell the person it is running rather than waiting in
+    silence. `flatStopped` means the person pressed Stop: the list is not
+    complete, so say so. `flatUnreadableFolders` were skipped.
+
+    The flat view is something to look at, and a place to take files
+    from; nothing can be copied, moved or made *into* it.
+
     ## Proposing changes
 
     Diptych's tools describe themselves -- what each does and what it

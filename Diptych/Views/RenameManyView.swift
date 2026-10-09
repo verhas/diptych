@@ -9,13 +9,18 @@ import AppKit
 /// pane filter dims them, and can be hidden instead.
 struct RenameManyView: View {
 
-    let folder: URL
+    let request: RenameManyRequest
 
     @State private var model: RenameManyModel
 
-    init(folder: URL) {
-        self.folder = folder
-        _model = State(initialValue: RenameManyModel(folder: folder))
+    init(request: RenameManyRequest) {
+        self.request = request
+        _model = State(initialValue: RenameManyModel(request))
+    }
+
+    private var title: String {
+        "Rename Many \u{2014} \(NamingTemplate.tilde(model.folder.path))"
+            + (model.isFlat ? " (flat view)" : "")
     }
 
     var body: some View {
@@ -26,12 +31,13 @@ struct RenameManyView: View {
             Divider()
             bottom
         }
-        .navigationTitle("Rename Many \u{2014} \(NamingTemplate.tilde(model.folder.path))")
+        .navigationTitle(title)
         .onAppear { model.load() }
         .background(WindowAccessor { window in
             if let window {
                 AppWindows.shared.register(window)
-                WindowSubjects.shared.register(window, kind: "renameMany", description: folder.path)
+                WindowSubjects.shared.register(window, kind: "renameMany",
+                                               description: request.folder.path)
             }
         })
     }
@@ -47,6 +53,16 @@ struct RenameManyView: View {
                 Text(NamingTemplate.tilde(model.folder.path))
                     .lineLimit(1).truncationMode(.head)
                     .textSelection(.enabled)
+                if let expression = model.flatExpression {
+                    // The rows as the pane lists them -- stale or not -- not
+                    // what the expression would find now.
+                    Text(expression.isEmpty ? "flat view, everything"
+                                            : "flat view: \(expression)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.tail)
+                        .help("The flat view's rows, as the pane lists them")
+                }
                 Spacer()
                 if model.isLoading { ProgressView().controlSize(.small) }
             }
@@ -71,6 +87,12 @@ struct RenameManyView: View {
             }
 
             HStack(spacing: 12) {
+                Toggle("Selection only", isOn: $model.selectionOnly)
+                    .toggleStyle(.checkbox)
+                    .disabled(!model.hasSelection)
+                    .help(model.hasSelection
+                          ? "Match and rename only what was selected in the pane"
+                          : "Nothing was selected in the pane")
                 Toggle("Hide the files that do not match", isOn: $model.hidesOthers)
                     .toggleStyle(.checkbox)
                 Spacer()
@@ -83,7 +105,10 @@ struct RenameManyView: View {
     }
 
     private var summary: String {
-        guard model.hasSearch else { return "Every file is listed." }
+        guard model.hasSearch else {
+            return model.selectionOnly ? "Only the \(model.selected.count) selected."
+                                       : "Every file is listed."
+        }
         guard model.searchIsValid else { return "That is not a regular expression yet." }
         let matched = model.matching.count
         if model.replacement.isEmpty {
@@ -111,9 +136,9 @@ struct RenameManyView: View {
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: entry.isDirectory ? "folder" : "doc")
                 .foregroundStyle(.secondary)
-            Text(entry.name)
+            (Text(entry.prefix).foregroundStyle(.secondary) + Text(entry.name))
                 .lineLimit(1).truncationMode(.middle)
-            if let new = model.newNames[entry.name] {
+            if let new = model.newNames[entry.id] {
                 Text("\u{2192}").foregroundStyle(.secondary)
                 Text(new)
                     .foregroundStyle(Color.accentColor)
@@ -127,10 +152,10 @@ struct RenameManyView: View {
         .padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            guard entry.isDirectory else { return }
-            model.navigate(to: model.folder.appendingPathComponent(entry.name))
+            guard entry.isDirectory, !model.isFlat else { return }
+            model.navigate(to: entry.url)
         }
-        .help(entry.isDirectory ? "Double-click to go into this folder" : "")
+        .help(entry.isDirectory && !model.isFlat ? "Double-click to go into this folder" : "")
     }
 
     // MARK: - Below the list

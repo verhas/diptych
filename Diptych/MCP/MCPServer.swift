@@ -332,7 +332,11 @@ extension MCPServer {
                         + "it's showing.",
                      inputSchema: .object(["type": "object", "properties": [:]])),
                 Tool(name: "get_pane",
-                     description: "A pane's current directory and listing.",
+                     description: "A pane's current directory and listing. For a flat view "
+                        + "(show_flat_view), also its expression; flatProgress while its walk "
+                        + "is still collecting (the entries are then what was found so far); "
+                        + "flatStopped if it was stopped before the end; flatStale if rows "
+                        + "were changed so some no longer pass; flatUnreadableFolders.",
                      inputSchema: .object([
                         "type": "object",
                         "properties": [
@@ -375,6 +379,62 @@ extension MCPServer {
                             "side": ["type": "string", "enum": ["left", "right"]],
                         ],
                         "required": ["side"],
+                     ])),
+                Tool(name: "show_flat_view",
+                     description: "Turns a pane into a flat view: one list of a folder and "
+                        + "everything under it, filtered by an expression, shown to the person "
+                        + "in the pane -- for \"list all the … under here\" requests. Returns "
+                        + "at once, as the walk starts, with any warnings about the expression. "
+                        + "The walk can take a while on a big tree: get_pane says whether it is "
+                        + "still collecting (flatProgress, with how many found so far) and has "
+                        + "the rows found so far; poll it until flatProgress is gone. "
+                        + "Expression: tests joined by AND, OR (or a comma), NOT and "
+                        + "parentheses, AND binding tighter; keywords and quoted values ignore "
+                        + "case. Tests: name = \"*.jpg\" (shell pattern) or name ~ /regex/ "
+                        + "(add i after the closing slash to ignore case), != and !~ for not; "
+                        + "size > 10MB (B KB KiB MB MiB GB GiB TB TiB; = != < <= > >=); "
+                        + "modified >= 2026-01-31, created < 2026-01-31T14:30 (ISO 8601, to "
+                        + "its precision); access = \"rw*r**r**\" (nine places of rwx for "
+                        + "user, group, others: the letter set, - clear, * either; s, t for the "
+                        + "special bits); owner = \"name\", group = \"staff\"; "
+                        + "xattr(\"com.apple.quarantine\") exists, xattr(\"n\") = \"v\" or "
+                        + "~ /re/; contains \"text\" or contains ~ /re/ (text files only); "
+                        + "file; directory (listed and walked into), directory traversed "
+                        + "(walked into, not listed), directory listed (listed, not walked "
+                        + "into); true, false. /* … */ is a comment. A name saved in "
+                        + "~/.diptych/filters/<name>.json stands for its expression in "
+                        + "parentheses. An expression without file or directory is about files: "
+                        + "every folder is then listed and walked into. With either, folders "
+                        + "are asked too -- so start with \"directory traversed,\" to search "
+                        + "the whole tree while listing only files: directory traversed, "
+                        + "file and name ~ /\\.(jpe?g|png)$/i. An empty expression lists "
+                        + "everything. Backslashes in quotes are literal; in /…/ they are the "
+                        + "regex's own.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "side": [
+                                "type": "string",
+                                "enum": ["left", "right", "active"],
+                                "description": "Defaults to \"active\".",
+                            ],
+                            "directory": [
+                                "type": "string",
+                                "description": "Absolute path of the folder to list under. Defaults to the pane's own folder.",
+                            ],
+                            "expression": [
+                                "type": "string",
+                                "description": "The filter, as described above. Empty lists everything.",
+                            ],
+                            "off": [
+                                "type": "boolean",
+                                "description": "true: leave the flat view, back to the folder; the other arguments are then ignored.",
+                            ],
+                        ],
                      ])),
                 Tool(name: "close_window",
                      description: "Closes a Diptych window (browser, Text Edit, Bin Edit, "
@@ -907,6 +967,43 @@ extension MCPServer {
                     text: found ? "Active pane set to \(activeSide)."
                                 : "No matching Diptych window is open.",
                     annotations: nil, _meta: nil)], isError: !found)
+
+            case "show_flat_view":
+                let expression = params.arguments?["expression"]?.stringValue ?? ""
+                let directory = params.arguments?["directory"]?.stringValue
+                let off = params.arguments?["off"]?.boolValue ?? false
+                let start = await MainActor.run {
+                    MCPToolSupport.showFlatView(windowId: windowId, side: side,
+                                                directory: directory, expression: expression,
+                                                off: off)
+                }
+                switch start {
+                case .noWindow:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .notAFolder(let path):
+                    return .init(content: [.text(text: "Not a folder: \(path)",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .problem(let problem):
+                    let marker = String(repeating: " ", count: problem.range.location) + "^"
+                    return .init(content: [.text(
+                        text: "The expression does not parse, at character "
+                            + "\(problem.range.location): \(problem.message)\n\(expression)\n\(marker)",
+                        annotations: nil, _meta: nil)], isError: true)
+                case .left(let leftSide):
+                    return .init(content: [.text(text: "The \(leftSide) pane shows its folder again.",
+                                                 annotations: nil, _meta: nil)], isError: false)
+                case .started(let pane, let window, let resolvedSide, let warnings):
+                    // Not waited for: a big tree takes minutes, and get_pane
+                    // says how the walk is going.
+                    let result = await MainActor.run {
+                        MCPModels.FlatViewResult(
+                            windowId: window, side: resolvedSide,
+                            directory: pane.directory.path, expression: expression,
+                            warnings: warnings, collecting: pane.flatProgress != nil)
+                    }
+                    return try MCPModels.result(for: result)
+                }
 
             case "close_window":
                 guard let windowNumber = params.arguments?["windowNumber"]?.intValue else {

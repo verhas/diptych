@@ -218,6 +218,96 @@ final class RenameManyTests: XCTestCase {
         XCTAssertEqual(try names(), ["a-b", "b-a"])
     }
 
+    // MARK: - The selection, and flat views
+
+    private func opened(_ request: RenameManyRequest) async throws -> RenameManyModel {
+        let model = RenameManyModel(request)
+        model.load()
+        for _ in 0 ..< 100 where model.isLoading { try await Task.sleep(for: .milliseconds(20)) }
+        return model
+    }
+
+    func testOnlyTheSelectionIsRenamedUnlessToldOtherwise() async throws {
+        try make(["a.txt", "b.txt", "c.txt"])
+        let model = try await opened(RenameManyRequest(
+            folder: folder, selected: [folder.appendingPathComponent("b.txt")]))
+        XCTAssertTrue(model.selectionOnly, "on, as something was selected")
+        model.search = #"(.*)\.txt"#
+        model.replacement = "$1.text"
+        XCTAssertEqual(model.matching, ["b.txt"])
+        XCTAssertEqual(model.plan.renames, 1)
+        XCTAssertFalse(model.matches(model.entries.first { $0.name == "a.txt" }!))
+
+        model.selectionOnly = false
+        XCTAssertEqual(model.plan.renames, 3)
+
+        model.selectionOnly = true
+        await model.rename()
+        XCTAssertEqual(try names(), ["a.txt", "b.text", "c.txt"])
+        XCTAssertEqual(model.selected, ["b.text"], "still selected, under its new name")
+    }
+
+    func testANameOutsideTheSelectionIsStillTaken() async throws {
+        try make(["a.txt", "b.txt"])
+        let model = try await opened(RenameManyRequest(
+            folder: folder, selected: [folder.appendingPathComponent("a.txt")]))
+        model.search = "a\\.txt"
+        model.replacement = "b.txt"
+        XCTAssertFalse(model.canRename)
+    }
+
+    func testNothingSelectedMeansEverything() async throws {
+        try make(["a.txt"])
+        let model = try await opened(RenameManyRequest(folder: folder))
+        XCTAssertFalse(model.selectionOnly)
+        XCTAssertFalse(model.hasSelection)
+    }
+
+    func testAFlatViewsRowsAcrossFolders() async throws {
+        let one = folder.appendingPathComponent("one")
+        let two = folder.appendingPathComponent("two")
+        for sub in [one, two] {
+            try manager.createDirectory(at: sub, withIntermediateDirectories: true)
+            try Data().write(to: sub.appendingPathComponent("x.txt"))
+            try Data().write(to: sub.appendingPathComponent("y.txt"))
+        }
+        // The rows as listed -- y.txt in two is not among them, as if the
+        // view were stale or the expression had left it out.
+        let rows = [one.appendingPathComponent("x.txt"), one.appendingPathComponent("y.txt"),
+                    two.appendingPathComponent("x.txt")]
+        let model = try await opened(RenameManyRequest(folder: folder, flatRows: rows,
+                                                       flatExpression: "name = \"*.txt\""))
+        XCTAssertTrue(model.isFlat)
+        XCTAssertEqual(model.entries.map(\.id), ["one/x.txt", "one/y.txt", "two/x.txt"])
+        model.search = #"(.*)\.txt"#
+        model.replacement = "$1.md"
+        XCTAssertEqual(model.plan.renames, 3)
+        XCTAssertEqual(model.newNames["two/x.txt"], "x.md")
+        await model.rename()
+        XCTAssertEqual(try manager.contentsOfDirectory(atPath: two.path).sorted(),
+                       ["x.md", "y.txt"], "only what was listed")
+        XCTAssertEqual(model.entries.map(\.id), ["one/x.md", "one/y.md", "two/x.md"])
+
+        let undone = await FileHistory.shared.perform(.undo) { _ in true }
+        XCTAssertTrue(undone.failures.isEmpty, "\(undone.failures)")
+        XCTAssertEqual(try manager.contentsOfDirectory(atPath: one.path).sorted(),
+                       ["x.txt", "y.txt"])
+    }
+
+    func testAFlatViewClashIsSaidWithItsFolder() async throws {
+        let one = folder.appendingPathComponent("one")
+        try manager.createDirectory(at: one, withIntermediateDirectories: true)
+        try Data().write(to: one.appendingPathComponent("x.txt"))
+        try Data().write(to: one.appendingPathComponent("x.md"))
+        let model = try await opened(RenameManyRequest(
+            folder: folder, flatRows: [one.appendingPathComponent("x.txt")]))
+        model.search = #"(.*)\.txt"#
+        model.replacement = "$1.md"
+        XCTAssertFalse(model.canRename, "x.md is there, though not listed")
+        XCTAssertTrue(model.plan.problems.first?.hasPrefix("In one/") == true,
+                      "\(model.plan.problems)")
+    }
+
     func testAFolderCanBeRenamedToo() async throws {
         let inner = folder.appendingPathComponent("old folder")
         try manager.createDirectory(at: inner, withIntermediateDirectories: true)

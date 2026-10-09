@@ -48,6 +48,7 @@ developer account.
 | `⌘=` | show the active pane's folder in the other pane |
 | `⌘2` | one pane / two panes |
 | `⇧⌘.` | show/hide hidden files (as in Finder; plain `⌘.` is the system's "cancel") |
+| `⇧⌘F` | flat view: the active pane's folder and everything under it as one list, filtered by an expression -- see [Flat view](#flat-view) |
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
@@ -250,7 +251,8 @@ is switched on, since the colour is part of drawing the row.
 ## History and filtering
 
 Each pane has its own bar above the path: back and forward arrows on the left,
-with a circle between them for the recent folders, and a filter on the right.
+with a circle between them for the recent folders, then the flat view's button
+(see [Flat view](#flat-view)), and a filter on the right.
 
 **Back / Forward** (`⌘[` and `⌘]`) walk that pane's own history of visited
 directories. Going somewhere new after going back discards the forward trail,
@@ -285,6 +287,149 @@ field rather than as something to press.
 - on -- they are not listed at all
 
 `..` always matches; it is navigation, not content.
+
+## Flat view
+
+**View ▸ Flat View** (`⇧⌘F`), or the list button after `‹ ○ ›`, turns a pane
+into one list of its folder **and everything under it**, filtered by an
+expression much like `find`'s. The button is lit while the pane is flat; press
+it again to go back to the folder. The path bar shows the folder the view is of,
+and each row's name has its folder in front, in grey: `src/app/View.swift`.
+Sorting by name keeps a folder's files together.
+
+The filter and its two boxes give way to one long **expression** field, with a
+button on its right that walks the tree with it (Return does the same). The
+rows arrive as they are found, with how many so far and the folder being read;
+**Stop** ends the walk and keeps what it found, marked as not complete.
+Folders that cannot be read are counted, and listed in the tooltip.
+
+```
+size > 10MB and modified < 2025-01-01
+(directory and name = "myDir") or (file and name = "*.txt")
+directory traversed, file and contains ~ /TODO|FIXME/
+name ~ /^IMG_\d+\.heic$/i and xattr("com.apple.metadata:kMDItemWhereFroms") ~ /icloud/i
+```
+
+Tests, joined with **AND**, **OR** -- or a comma, which reads as OR -- and
+**NOT** (AND binds tighter than OR) and grouped with parentheses. Keywords and
+the quoted values compared are case-insensitive. Texts are in quotes, where a
+backslash is just a backslash. Regular expressions are between slashes,
+`/…/`, as in many programming languages, and mind case unless `i` follows:
+`/readme/i`. The other flags are `m` (`^` and `$` at every line), `s` (`.`
+matches a line break) and `x` (spaces ignored); `\/` is a slash inside one.
+They are not anchored: `^…$` for a whole name.
+
+| Test | True when |
+|---|---|
+| `size <op> n` | the file's size compares: `=` `!=` `<` `<=` `>` `>=`, in bytes or with `B`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB` (KB is 1000, KiB 1024). Never for a folder |
+| `name = "pattern"` | the name is that, or matches the shell pattern (`*.txt`); `!=` for not |
+| `name ~ /regex/` | a regular expression finds a match in the name; `!~` for not |
+| `directory` | it is a folder: listed, and walked into |
+| `directory traversed` | it is a folder, to walk into but not list |
+| `directory listed` | it is a folder, to list but not walk into |
+| `file` | it is not a folder |
+| `access = "rwxr-x---"` | the permissions, place by place: `r` `w` `x` set, `-` clear, `*` either; `s` in the user's and group's `x` places for setuid and setgid, `t` in the last for sticky |
+| `owner = "name"`, `group = "name"` | the owner or group; `~ /regex/` for a regular expression |
+| `xattr("name")` | the extended attribute is there; `= "value"` or `~ /regex/` for its value (a property list's strings each count) |
+| `created <op> date`, `modified <op> date` | ISO 8601: `2026-01-31`, `2026-01-31T14:30`, `2026-01-31T14:30:00+02:00` or `Z`. Without a zone, this Mac's; a date alone is the whole day, so `=` is within it and `>` after it |
+| `contains "text"` | the text is anywhere in the file (also `content`) |
+| `contains ~ /regex/` | a line of the file matches, as `grep` |
+
+`contains` never looks into a binary file -- one with a NUL byte near its
+start, as `grep` and Git judge it: three letters turn up in an image's bytes
+by chance, and that is never what was looked for. The rest of the expression
+still counts for it: `contains "x" or name = "*.png"` lists the images.
+
+**true, false and comments.** `true` and `false` are tests too: `false and (…)`
+switches a part off without deleting it, and no warning is given for what it
+makes impossible. So does a comment, `/* … */`, which may be anywhere and
+span lines.
+
+**Saved expressions.** Right-click the field while editing it: **Save
+Expression** lists the names already in use, to replace one, and **New Name…**.
+Only an expression that parses can be saved. A name is a letter, then letters,
+digits, `_` or `-`, and not one of the language's words; case does not matter.
+A saved name can then be the expression, or part of one, and stands for its
+expression in parentheses: with `images` saved as `name = "*.jpg" or name =
+"*.png"`, `images and size > 1MB` means `(name = "*.jpg" or name = "*.png") and
+size > 1MB`. Control-Space offers the saved names, and the line under the field
+shows a name's expression. Each is a JSON file in `~/.diptych/filters`,
+holding the expression and every version before it, newest first -- edit the
+file to put an older one back. Saving is undoable: Undo puts back the version
+before, or removes a name saved the first time.
+
+One saved expression may use another. Replacing one says which others it
+changes with it. If one that others use goes -- its file deleted, or its first
+save undone -- Diptych says at once which stop working, and an expression
+using them is underlined at the name, saying which is missing and through
+which: *"jpegs" is no longer saved, and "images" uses it, which "photos"
+uses*. They work again as soon as it is back.
+
+**Folders.** A folder is asked twice: whether to list it, and whether to walk
+into it. `directory` says yes to both, `directory traversed` only to walking,
+`directory listed` only to listing. So
+`(directory and name = "myDir") or (file and name = "*.txt")` walks only into
+folders named myDir, below the top one, and lists them and the `.txt` files it
+finds -- leave out `file` and a folder named `notes.txt` would be walked into
+as well. `directory traversed or (file and name = "*.txt")` walks everywhere and
+lists only the `.txt` files, and so does
+`directory traversed, file and name = "*.txt"`. An expression with neither `directory` nor `file`
+is about files alone: every folder is listed and walked into, and listed first
+when folders come first. An empty expression lists everything. Links to folders
+are listed but never walked into, so a link pointing above itself cannot send
+the walk round for ever; packages and apps count as one item.
+
+**Typing it.** While the field is being edited it grows to show all of a long
+expression, and goes back to one line after. What does not parse is underlined
+in red as you type, and the reason is under the field; until it parses the
+button does nothing. What parses but cannot be what was meant is underlined in
+orange, and said under the field. It can still be run.
+
+- **Nothing can be listed:** `directory traversed` alone.
+- **An AND that can never hold**, the two tests underlined: a file that is a
+  folder (`directory traversed and file`, `directory and size > 1KB`); one
+  permission bit both set and clear (`access = "***r**r**" and access =
+  "***-*****"`: the group's read bit); sizes or dates in ranges that do not
+  meet (`size > 10MB and size < 1MB`); two different exact names, owners or
+  groups; an exact name that another test rules out (`name = "cat.jpg" and name
+  != "*a*"`); two endings at once (`name = "*.jpg" and name = "*.png"` -- OR, or
+  a comma, is either); a test and its opposite; an attribute's value tested
+  where the attribute is not to be there.
+- **No folder is walked into**, so only the top one is looked at: `file and
+  name = "*.txt"`.
+
+Not every impossible expression is caught, only the common shapes. A run that
+finds nothing says so under the field. Otherwise the line under the field says
+what the word at the caret takes. **Control-Space** offers what can come next
+-- a test, a comparison, a unit, a keyword, a saved name -- starting with what
+is typed of it; when only one thing can come next, it is inserted at once. After `access =` it offers
+`"*********"`, and inside those quotes typing overwrites, as in the pane's
+permission editor: `r`, `w`, `x` set that letter in the caret's three places
+(Shift makes it `-`, Option toggles), `s` and `t` the special bits, and `-`,
+`+`, `*` and Space set the place under the caret and move on -- Space goes
+round letter, `-`, `*`. Backspace makes the place before `*`.
+
+**Opening and coming back.** Return, `⌘↓` or a double-click opens a file as
+usual, and opens a folder as a folder, leaving the flat view; Back returns to
+it at once, from the walk it remembers, with the folder you came out of
+selected. Each pane remembers its last six walks. Going anywhere through the
+path bar, its links or the recent folders leaves the flat view too; with
+Option held, the path bar's last folder is a link as well, back to that
+folder. A flat pane is saved as flat and walked again when Diptych starts.
+
+**It holds still.** Only the expression's button (or Return in it) walks the
+tree again. Renaming a row, or setting its permissions, changes just that row
+-- a renamed folder takes its rows along -- and the row stays even when it no
+longer passes the expression; the expression then turns **brown**, and the
+line under it says the list is stale, until it is run again. Refresh (`⌘R`)
+re-reads every row the same way: gone ones drop out, nothing else does.
+
+**A source, not a target.** Rows can be copied, moved, renamed, trashed and
+dragged out as anywhere else. Nothing can be copied, moved, pasted, dropped or
+made *into* a flat view -- it is many folders, not one -- except by dropping
+onto one of its folder rows, which is a folder. F5 or F6 towards it, New
+Folder, New File and Paste say so instead. Rename Many works on the flat
+view's rows -- see [Rename Many](#rename-many).
 
 ## Previewing a .DS_Store
 
@@ -347,6 +492,19 @@ folder full of damage — so there is no RegEx box to tick. The replacement uses
 `$1`, `$2` … for the capturing groups. Non-matching files are dimmed as the
 pane filter dims them, or hidden with a checkbox. ↑ and a double-click on a
 folder navigate.
+
+**The selection.** When files are selected in the pane, **Selection only** is
+ticked: only they are matched and renamed, the rest are dimmed -- though their
+names still count as taken. Untick it for the whole folder. With nothing
+selected the box cannot be ticked. After renaming, the renamed files are still
+the selection, under their new names.
+
+**From a flat view**, the window works on the flat view's rows, each with its
+folder in front of its name, and renames each in its own folder. The rows are
+the ones the pane **lists** -- in a stale view too -- not what the expression
+would find now. A clash is looked for among every name in each folder, listed
+or not, and said with the folder it is in. A folder is renamed after what is
+in it. The pane follows the renames row by row, as it does after any rename.
 
 **Nothing is renamed until the whole plan is sound.** `RenamePlan` works it all
 out first and refuses, naming the files:
@@ -1360,7 +1518,7 @@ window go to "the" Diptych, which only means something if there is one.
 | Tool | Does |
 | --- | --- |
 | `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
-| `get_pane` | A pane's current directory and listing |
+| `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting |
 | `get_selection` | The files currently selected in a pane |
 | `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
 | `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
@@ -1371,6 +1529,7 @@ window go to "the" Diptych, which only means something if there is one.
 | `open_exif_editor` | Opens the EXIF editor on explicit JPEG/HEIC paths, which may be in different folders -- something a right-click on one pane's selection cannot do. Nothing is written by the tool: you edit, tick and save (or cancel) in the window, and a save is one EXIF Change in Undo. A path that is missing, a folder, or another kind of file is reported, and then nothing is opened |
 | `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
 | `set_setting` | Changes one setting by key, from `list_settings` |
+| `show_flat_view` | Turns a pane into a [flat view](#flat-view) of a folder with an expression, and returns at once as the walk starts, with the expression's warnings -- so "list every image under here that the group can read" is shown in the pane, not just answered. A syntax error comes back with its position; `off: true` goes back to the folder. `get_pane` lists the rows found so far, says the pane is flat and with which expression, and -- while the walk is still collecting -- `flatProgress`: how many found, how many folders read, and the one being read; also whether it was stopped, is stale, or skipped unreadable folders |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
 | `propose_file_operations` | Proposes a batch of file operations for you to review before anything happens -- see below. Returns as soon as the review window is open |
 | `get_diptych_info` | The running Diptych: process id and start time, version and build, app path, debug or not, macOS version, MCP port, and runs started by this process against all kept |

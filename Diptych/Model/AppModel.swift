@@ -218,7 +218,7 @@ final class AppModel {
     @ObservationIgnored var openExifWindow: (([URL]) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
-    @ObservationIgnored var openRenameWindow: ((URL) -> Void)?
+    @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?,
                                                          urls: [URL],
                                                          before: [(String?, String?)])?
@@ -309,14 +309,38 @@ final class AppModel {
         for name in [RenameManyModel.renamed, ExifEditorModel.saved] {
             NotificationCenter.default.addObserver(
                 forName: name, object: nil, queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] note in
+                // A flat view follows the renames row by row, rather than
+                // dropping what no longer has its old name.
+                let from = note.userInfo?[RenameManyModel.fromKey] as? [URL] ?? []
+                let to = note.userInfo?[RenameManyModel.toKey] as? [URL] ?? []
+                let renames = Array(zip(from, to)).map { (from: $0.0, to: $0.1) }
                 MainActor.assumeIsolated {
-                    self?.left.reload()
-                    self?.right.reload()
+                    guard let self else { return }
+                    for pane in [self.left, self.right] {
+                        if renames.isEmpty {
+                            pane.reload()
+                        } else {
+                            pane.refreshRows([], renamed: renames)
+                        }
+                    }
                 }
             }
         }
         Task { await GitService.shared.locateIfNeeded() }
+
+        // A saved expression deleted that others use: said at once, not
+        // when one of them next fails to parse.
+        FlatFilterStore.shared.watch()
+        NotificationCenter.default.addObserver(
+            forName: FlatFilterStore.lost, object: nil, queue: .main
+        ) { [weak self] note in
+            let gone = note.userInfo?["gone"] as? [String] ?? []
+            let broken = note.userInfo?["broken"] as? [String] ?? []
+            MainActor.assumeIsolated {
+                self?.flash(Self.lostMessage(gone: gone, broken: broken), error: true)
+            }
+        }
 
         // Read once, when Diptych starts. A script that could change between
         // being agreed to and being run would make the agreement worth
@@ -619,8 +643,65 @@ final class AppModel {
 
     /// Rename Many: one regular expression over a whole folder, in its own
     /// window, showing what each file would be called before anything happens.
+    /// A flat view expression saved under a name, to use alone or as part of
+    /// another; undoable, the version before kept in its file.
+    func saveFlatExpression(_ text: String, as name: String) {
+        let store = FlatFilterStore.shared
+        var saved = store.expressions()
+        saved[name.lowercased()] = text
+        if case .failure(let problem) = FlatQuery.parse(text, saved: saved) {
+            flash("Not saved: \(problem.message)", error: true)
+            return
+        }
+        do {
+            let url = store.file(for: name)
+            let before = try store.save(text, as: name)
+            FileHistory.shared.recordSavedExpression(store.saved(name)?.name ?? name, at: url,
+                                                     before: before)
+            // A replaced one changes every expression that uses it.
+            let users = before == nil ? [] : store.users(of: name)
+            // Replacing one can be taken back; a name saved the first time
+            // is simply new.
+            flash("Saved as \u{201C}\(name)\u{201D}"
+                  + (before == nil ? "" : ", undoable")
+                  + (users.isEmpty ? "" : " \u{2014} it changes "
+                     + Self.quotedList(users) + " too, which use"
+                     + (users.count == 1 ? "s" : "") + " it"),
+                  error: false)
+        } catch {
+            flash("Not saved: \(error.localizedDescription)", error: true)
+        }
+    }
+
+    /// "a", "a" and "b", "a", "b" and "c".
+    nonisolated static func quotedList(_ names: [String]) -> String {
+        let quoted = names.map { "\u{201C}\($0)\u{201D}" }
+        guard quoted.count > 1 else { return quoted.first ?? "" }
+        return quoted.dropLast().joined(separator: ", ") + " and " + quoted.last!
+    }
+
+    /// Saved expressions gone, and the ones that used them no longer work.
+    nonisolated static func lostMessage(gone: [String], broken: [String]) -> String {
+        quotedList(gone) + (gone.count == 1 ? " is" : " are") + " no longer saved, so "
+            + quotedList(broken) + (broken.count == 1 ? ", which uses it, does" : ", which use "
+                                   + (gone.count == 1 ? "it" : "them") + ", do")
+            + " not work until " + (gone.count == 1 ? "it is" : "they are")
+            + " back \u{2014} Undo, or the Trash, may have " + (gone.count == 1 ? "it" : "them")
+    }
+
+    /// On the active pane's folder -- or its flat view's rows, as listed --
+    /// and its selection, which is all it renames unless told otherwise.
     func requestRenameMany() {
-        openRenameWindow?(active.directory)
+        let pane = active
+        let selected = pane.selectedItems.map(\.url)
+        if let flat = pane.flat {
+            openRenameWindow?(RenameManyRequest(
+                folder: flat.root, selected: selected,
+                flatRows: pane.rows.filter { !$0.isParent }.map(\.url),
+                flatExpression: flat.expression))
+        } else {
+            openRenameWindow?(RenameManyRequest(folder: pane.directory, selected: selected))
+        }
     }
 
     /// Text Edit: the file as plain text, in Diptych's own editor, whatever
@@ -704,8 +785,18 @@ final class AppModel {
     private func transfer(_ kind: FileOperations.Transfer) {
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        guard !refusedAsFlatTarget(inactive, kind == .copy ? "copied into" : "moved into")
+        else { return }
         performTransfer(urls, to: inactive.directory, kind: kind,
                         into: inactive, from: kind == .move ? active : nil)
+    }
+
+    /// A flat view lists many folders and is none of them: nothing can be
+    /// copied, moved or made into it. Says so, and is true, when `pane` is one.
+    func refusedAsFlatTarget(_ pane: PaneModel, _ what: String) -> Bool {
+        guard pane.isFlat else { return false }
+        flash("Nothing can be \(what) a flat view: it is many folders, not one", error: true)
+        return true
     }
 
     func flash(_ message: String, error: Bool = true) {
@@ -773,6 +864,7 @@ final class AppModel {
 
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
+        guard !refusedAsFlatTarget(active, "made in") else { return }
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
@@ -1042,11 +1134,13 @@ final class AppModel {
     @ObservationIgnored private var scriptProblemsWaiting = false
 
     func requestNewFolder() {
+        guard !refusedAsFlatTarget(active, "made in") else { return }
         textInput = suggestedName("untitled folder")
         dialog = .newFolder
     }
 
     func requestNewFile() {
+        guard !refusedAsFlatTarget(active, "made in") else { return }
         textInput = suggestedName("untitled.txt")
         dialog = .newFile
     }
@@ -1308,7 +1402,9 @@ final class AppModel {
                 FileHistory.shared.recordRename(from: item.url, to: url)
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
-                pane.reload()
+                // A flat view shows the new name where the old one was, and
+                // keeps it even if the expression would not list it now.
+                pane.refreshRows([], renamed: [(item.url, url)])
             } catch {
                 dialog = .message(error.localizedDescription)
             }
@@ -2403,6 +2499,7 @@ final class AppModel {
     /// A cut on the clipboard is left alone: linking to something is not moving
     /// it, so the pending move stays pending and Paste can still perform it.
     func pasteAsLink() {
+        guard !refusedAsFlatTarget(active, "pasted into") else { return }
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else {
             flash("The clipboard holds no files", error: true)
@@ -2427,6 +2524,7 @@ final class AppModel {
 
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
+        guard !refusedAsFlatTarget(active, "pasted into") else { return }
 
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else { return }
@@ -2739,6 +2837,12 @@ final class AppModel {
         let pane = paneUnderPointer() ?? active
         let destination = dropDestination(in: pane)
         cancelSpringLoad()
+        // Onto a folder's row it is that folder; onto the flat view itself
+        // there is no one folder for it to go in.
+        if pane.isFlat, destination == pane.directory {
+            _ = refusedAsFlatTarget(pane, "dropped into")
+            return false
+        }
         drop(urls, into: pane, destination: destination)
         return true
     }
@@ -3117,7 +3221,8 @@ final class AppModel {
             FileHistory.shared.recordPermissions(outcome.succeeded.enumerated().map { index, url in
                 (url, before[urls.firstIndex(of: url) ?? 0], after[index])
             })
-            pane.reload()
+            // In a flat view, only these rows: they stay, passing or not.
+            pane.refreshRows(outcome.succeeded)
             report(outcome, verb: "change permissions for")
         }
     }
@@ -3420,6 +3525,12 @@ final class AppModel {
     }
 
     /// Exchange the two panes wholesale, with everything they contain.
+    /// View ▸ Flat View, and the button beside Back and Forward.
+    func toggleFlatView() {
+        active.toggleFlat()
+        persist()
+    }
+
     func goBack()    { active.goBack() }
     func goForward() { active.goForward() }
 

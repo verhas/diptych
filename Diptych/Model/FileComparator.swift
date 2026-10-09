@@ -22,7 +22,11 @@ struct FileComparator: SortComparator, Hashable {
             result = Self.compare(lhs.created, rhs.created)
         case .added:
             result = Self.compare(lhs.added, rhs.added)
-        case .name, .kind, .fileExtension, .permissions, .owner, .group, .tags, .git:
+        case .name:
+            // By folder and then name, in a flat view: a folder's files stay
+            // together.
+            result = lhs.relativePath.localizedStandardCompare(rhs.relativePath)
+        case .kind, .fileExtension, .permissions, .owner, .group, .tags, .git:
             // localizedStandardCompare is the Finder-ish one: case-insensitive,
             // and "file10" sorts after "file9" rather than before it.
             result = lhs.text(for: column).localizedStandardCompare(rhs.text(for: column))

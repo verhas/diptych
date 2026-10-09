@@ -160,7 +160,9 @@ struct CellView: View {
                 // Deliberately no gesture here. Clicks are observed by
                 // ClickRouter, outside the view hierarchy, because every
                 // gesture attached to a cell so far has broken row selection.
-                Text(item.name)
+                // In a flat view, the folder it is in first, in grey.
+                (Text(item.folderPrefix).foregroundStyle(.secondary).fontWeight(.regular)
+                 + Text(item.name))
                     .fontWeight(item.isEnterable ? .semibold : .regular)
                     .lineLimit(1)
                     // On the text, not the row: the row background is already

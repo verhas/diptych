@@ -13,13 +13,20 @@ struct PaneState: Codable, Equatable {
     var sortAscending: Bool = true
     /// The folders it has been in, most recent first, each once.
     var recent: [String] = []
+    /// What was typed in the flat view's expression field.
+    var flatDraft: String = ""
+    /// The expression of the flat view the pane is showing; nil when it is
+    /// an ordinary folder.
+    var flatExpression: String?
 
     init(directory: String, sortField: String = "name", sortAscending: Bool = true,
-         recent: [String] = []) {
+         recent: [String] = [], flatDraft: String = "", flatExpression: String? = nil) {
         self.directory = directory
         self.sortField = sortField
         self.sortAscending = sortAscending
         self.recent = recent
+        self.flatDraft = flatDraft
+        self.flatExpression = flatExpression
     }
 
     /// Tolerant, like Configuration's: the synthesized decoder throws on a
@@ -30,6 +37,8 @@ struct PaneState: Codable, Equatable {
         sortField = (try? container.decode(String.self, forKey: .sortField)) ?? "name"
         sortAscending = (try? container.decode(Bool.self, forKey: .sortAscending)) ?? true
         recent = (try? container.decode([String].self, forKey: .recent)) ?? []
+        flatDraft = (try? container.decode(String.self, forKey: .flatDraft)) ?? ""
+        flatExpression = try? container.decode(String.self, forKey: .flatExpression)
     }
 }
 

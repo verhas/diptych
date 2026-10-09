@@ -52,6 +52,8 @@ extension KeyboardShortcut {
     static let copyContent      = KeyboardShortcut("c", modifiers: [.command, .control])
 
     static let refresh          = KeyboardShortcut("r", modifiers: .command)
+    /// The active pane as one list of its folder and everything under it.
+    static let flatView         = KeyboardShortcut("f", modifiers: [.command, .shift])
 
     /// Control-backquote, as in VS Code. Nothing else in Diptych uses the key.
     static let toggleTerminal   = KeyboardShortcut("`", modifiers: .control)
