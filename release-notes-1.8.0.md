@@ -4,8 +4,10 @@ A pane can show a folder and everything under it as one list, filtered by an
 expression much like `find`'s; images get an EXIF editor — with a map, pasting
 places from Google Maps, and an erase that Undo takes back — and any picture
 can be turned without loss, converted, resized, cut out of its background or
-have its text read; Rename Many works
-on the selection and on a flat view; the path bar becomes links to the folders
+have its text read; Text Edit gets a gutter that shows what changed since the
+last commit and since the last save, folds JSON, XML, TOML and YAML, and says
+where such a file breaks; Rename Many works on the selection and on a flat
+view; the path bar becomes links to the folders
 above while Option is held, a circle between Back and Forward lists the folders
 you have been in, and what a dialog or an alert says can be selected and
 copied.
@@ -229,6 +231,42 @@ Recognize Text: they make new files, which Undo moves to the Trash.
 
 ---
 
+## Text Edit
+
+**A gutter** left of the text, from left to right:
+
+- **What changed since the last commit**, as IntelliJ shows it: green beside
+  added lines, blue beside changed ones, a red wedge where lines were deleted.
+  Shown when Version Tracking is on and the file is in a repository; the
+  commit is read again whenever the window comes to the front.
+- **What changed since the last save**, in a thinner bar, because Text Edit
+  does not save by itself: teal added, orange changed, an orange wedge for
+  deleted. Saving clears it. Hovering over the bars explains the colours.
+- **Line numbers**, switched by a new button in the bar between absolute,
+  relative to the caret's line -- as vi's `relativenumber` -- and off.
+  Remembered for every window.
+- **Chevrons that fold** JSON, XML, TOML and YAML: an object or array between
+  its brackets (`"windows": [ 4 items ]`), an element between its tags, a TOML
+  table down to the next, what is indented under a YAML line. Click the badge
+  to open it again; Find and typing open it too. **Fold All** and **Unfold
+  All** are in the bar. Nothing leaves the text: saving, undo and find see all
+  of it.
+
+**The format comes from the extension**: `json`, `xml`, `toml`, `yml` and
+`yaml`. **Settings ▸ Behaviour ▸ Text Edit** adds more -- `geojson, jsonc`,
+say -- or empties a format to treat its files as plain text.
+
+**A file that breaks its format says where**, as it is typed: a red line
+under the bar -- *Not valid JSON — line 12, column 5: A comma or } is expected
+after the value* -- with **Show** to go there, the line's number in red, and
+the place underlined. A good file shows its format with a green tick. JSON and
+TOML are checked completely, XML for being well formed, YAML for the common
+mistakes: tabs, a line indented to no level above it, a key under a line that
+already has its value, a key set twice, a quote or bracket not closed. After
+a problem, only what comes before it folds, until the file is right again.
+
+---
+
 ## The path bar
 
 - **Hold Option** over the path bar, or while typing in it, and the path
@@ -267,4 +305,4 @@ Nothing to do.
 
 ---
 
-*991 tests.*
+*1003 tests.*
