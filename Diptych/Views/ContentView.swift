@@ -155,6 +155,7 @@ struct ContentView: View {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.openSiblingsWindow = { openWindow(id: DiptychApp.siblingsWindowID, value: $0) }
+            model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
@@ -602,6 +603,7 @@ struct DialogSheet: View {
                         selection.wrappedValue = on ? Set(items.map(\.path)) : []
                     })) { Text(title).font(.subheadline).bold().foregroundStyle(tint) }
                     .toggleStyle(.checkbox)
+                    .textSelection(.disabled)   // a click ticks it, not selects
                 Spacer()
             }
             if let note {
@@ -621,6 +623,7 @@ struct DialogSheet: View {
                     .font(.system(size: 11))
                 }
                 .toggleStyle(.checkbox)
+                .textSelection(.disabled)   // a click ticks it, not selects
                 .padding(.leading, 16)
             }
         }
@@ -859,6 +862,10 @@ struct DialogSheet: View {
                 ) { UpdateChecker.shared.installPendingRelease() }
             }
         }
+        // Anything a dialog says can be selected and copied -- a tip worth
+        // keeping, a path in a question, a message to pass on. Not the rows
+        // that are clicked to choose: those turn it off again.
+        .textSelection(.enabled)
         .padding(20)
         // Wider for the history sheets: their sentences name two files and a
         // folder, and at 470 a rename was broken over three lines.
@@ -1039,6 +1046,7 @@ struct DialogSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .textSelection(.disabled)   // a click ticks it, not selects
             }
         }
     }
@@ -1136,6 +1144,7 @@ struct DialogSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .textSelection(.disabled)   // a click ticks it, not selects
     }
 
     @ViewBuilder
@@ -1178,6 +1187,7 @@ struct DialogSheet: View {
                      + "\(model.gitClashRemaining == 1 ? "file" : "files")")
             }
             .toggleStyle(.checkbox)
+            .textSelection(.disabled)   // a click ticks it, not selects
 
             // Said plainly, because "all" reaches further than the folder on
             // screen: the whole tracked folder, above and below.

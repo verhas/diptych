@@ -11,11 +11,15 @@ struct PaneState: Codable, Equatable {
     var directory: String
     var sortField: String = "name"
     var sortAscending: Bool = true
+    /// The folders it has been in, most recent first, each once.
+    var recent: [String] = []
 
-    init(directory: String, sortField: String = "name", sortAscending: Bool = true) {
+    init(directory: String, sortField: String = "name", sortAscending: Bool = true,
+         recent: [String] = []) {
         self.directory = directory
         self.sortField = sortField
         self.sortAscending = sortAscending
+        self.recent = recent
     }
 
     /// Tolerant, like Configuration's: the synthesized decoder throws on a
@@ -25,6 +29,7 @@ struct PaneState: Codable, Equatable {
         directory = (try? container.decode(String.self, forKey: .directory)) ?? ""
         sortField = (try? container.decode(String.self, forKey: .sortField)) ?? "name"
         sortAscending = (try? container.decode(Bool.self, forKey: .sortAscending)) ?? true
+        recent = (try? container.decode([String].self, forKey: .recent)) ?? []
     }
 }
 

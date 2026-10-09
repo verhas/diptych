@@ -26,6 +26,9 @@ struct PaneView: View {
     /// its end. Set by whichever command opened it.
     @State private var pathSelectsAll = false
     @FocusState private var pathFieldFocused: Bool
+    /// The mouse is over the path bar: Option then shows the links too,
+    /// without clicking into the text first.
+    @State private var pathBarHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,6 +83,8 @@ struct PaneView: View {
             .buttonStyle(.borderless)
             .disabled(!pane.canGoBack)
             .help("Back")
+
+            recentMenu
 
             Button {
                 activate()
@@ -141,6 +146,26 @@ struct PaneView: View {
         .padding(.top, 6)
     }
 
+    /// The folders this pane has been in, most recent first -- also the ones
+    /// Back and Forward have lost after going back and then somewhere new.
+    private var recentMenu: some View {
+        Menu {
+            ForEach(pane.recentElsewhere, id: \.self) { folder in
+                Button((folder.path as NSString).abbreviatingWithTildeInPath) {
+                    activate()
+                    pane.navigate(to: folder)
+                }
+            }
+        } label: {
+            Image(systemName: "circle")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(pane.recentElsewhere.isEmpty)
+        .help("Recent folders")
+    }
+
     private var pathBar: some View {
         HStack(spacing: 6) {
             Button {
@@ -158,45 +183,60 @@ struct PaneView: View {
             // loop, so the table never got focus and the arrow keys typed into
             // the path bar. Showing a button until you ask to edit -- Finder's
             // "Go to Folder" model -- leaves the table as the only focus target.
-            if pane.isEditingPath {
-                // AppKit, for Tab completion and a coloured suggestion --
-                // neither of which a SwiftUI TextField can express.
-                PathField(text: $pathText,
-                          selectsAll: pathSelectsAll,
-                          base: pane.directory.path,
-                          onCommit: { commitPath() },
-                          onCancel: { endPathEdit() })
-                    .frame(height: 21)
-            } else {
-                Button {
-                    beginPathEdit()
-                } label: {
-                    Text(displayPath)
-                        .font(.system(size: 11, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        // Without this the button only responds where glyphs are
-                        // actually drawn, so a short path like "~" left almost
-                        // the whole bar dead. contentShape makes the full frame
-                        // clickable -- this is the legitimate use of it, on a
-                        // button's own label rather than over a table row.
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Click to type a path (Cmd-Shift-G)")
-                // A plain button with no menu of its own passes a right-click
-                // straight through to whatever is behind it -- which, without
-                // this, was the pane's own empty-space menu. This is also the
-                // only way to favourite "/" itself: nothing about the root
-                // directory can be dragged into the sidebar the way a row
-                // inside a pane can.
-                .contextMenu {
-                    Button("Add to Favourites") { model.addFavourites([pane.directory]) }
-                        .disabled(ConfigStore.shared.configuration.favourites
-                                    .contains(pane.directory.path))
+            // Option over the bar, or while typing in it, turns the path
+            // into links to the folders above -- the text stays underneath,
+            // with whatever was typed and selected, for when Option is let go.
+            ZStack(alignment: .leading) {
+                if pane.isEditingPath {
+                    // AppKit, for Tab completion and a coloured suggestion --
+                    // neither of which a SwiftUI TextField can express.
+                    PathField(text: $pathText,
+                              selectsAll: pathSelectsAll,
+                              base: pane.directory.path,
+                              onCommit: { commitPath() },
+                              onCancel: { endPathEdit() })
+                        .frame(height: 21)
+                } else {
+                    Button {
+                        beginPathEdit()
+                    } label: {
+                        Text(displayPath)
+                            .font(.system(size: 11, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Without this the button only responds where glyphs are
+                            // actually drawn, so a short path like "~" left almost
+                            // the whole bar dead. contentShape makes the full frame
+                            // clickable -- this is the legitimate use of it, on a
+                            // button's own label rather than over a table row.
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Click to type a path (Cmd-Shift-G)")
+                    // A plain button with no menu of its own passes a right-click
+                    // straight through to whatever is behind it -- which, without
+                    // this, was the pane's own empty-space menu. This is also the
+                    // only way to favourite "/" itself: nothing about the root
+                    // directory can be dragged into the sidebar the way a row
+                    // inside a pane can.
+                    .contextMenu {
+                        Button("Add to Favourites") { model.addFavourites([pane.directory]) }
+                            .disabled(ConfigStore.shared.configuration.favourites
+                                        .contains(pane.directory.path))
+                    }
                 }
             }
+            .opacity(showsCrumbs ? 0 : 1)
+            .allowsHitTesting(!showsCrumbs)
+            .overlay(alignment: .leading) {
+                if showsCrumbs {
+                    PathCrumbs(directory: pane.directory) { folder, cameFrom in
+                        goToCrumb(folder, cameFrom: cameFrom)
+                    }
+                }
+            }
+            .onHover { pathBarHovered = $0 }
 
             if pane.isLoading {
                 ProgressView().controlSize(.small).scaleEffect(0.6)
@@ -204,6 +244,19 @@ struct PaneView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+    }
+
+    private var showsCrumbs: Bool {
+        OptionKey.shared.isDown && (pane.isEditingPath || pathBarHovered)
+    }
+
+    /// A folder above, from the links: the folder it came out of is selected,
+    /// as going up does, and any typing in the path bar is given up.
+    private func goToCrumb(_ folder: URL, cameFrom: URL) {
+        activate()
+        endPathEdit()
+        pane.navigate(to: folder)
+        pane.pendingSelection = [cameFrom]
     }
 
     /// `/Users/verhasp/Documents` shown as `~/Documents`.
@@ -489,6 +542,21 @@ struct PaneView: View {
                item.hardLinkCount > 1 {
                 Button("Find Sibling Names (Hard Links to the Same File)\u{2026}") {
                     act(ids) { model.findSiblingNames(of: item) }
+                }
+            }
+            // Only when an image whose EXIF can be changed is selected; the
+            // editor takes those and leaves anything else out.
+            let images = AppModel.exifEditable(pane.rows.filter { ids.contains($0.id) })
+            if !images.isEmpty {
+                Menu("Image") {
+                    Button(images.count == 1 ? "Edit EXIF\u{2026}"
+                                             : "Edit EXIF of \(images.count) Images\u{2026}") {
+                        act(ids) { model.editExif(of: images) }
+                    }
+                    Button(images.count == 1 ? "Delete All EXIF Data"
+                                             : "Delete All EXIF Data of \(images.count) Images") {
+                        act(ids) { model.eraseExif(of: images) }
+                    }
                 }
             }
 

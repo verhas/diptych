@@ -820,7 +820,7 @@ extension BatchOperationsModel {
         // Skipping is the safe default, so a stray Return changes nothing.
         alert.buttons.last?.keyEquivalent = "\r"
         alert.buttons.first?.keyEquivalent = ""
-        let index = alert.runModal().rawValue
+        let index = alert.runSelectable().rawValue
             - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         let choice = choices.indices.contains(index) ? choices[index] : .skip
 

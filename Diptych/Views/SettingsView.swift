@@ -841,7 +841,7 @@ struct GitSettingsView: View {
             alert.messageText = "That file is not named \u{201C}git\u{201D}."
             alert.informativeText = "Diptych only accepts a program with that name. It stops "
                                   + "you picking the wrong file by accident."
-            alert.runModal()
+            alert.runSelectable()
             return
         }
         store.configuration.gitPath = url.path

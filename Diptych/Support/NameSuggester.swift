@@ -212,6 +212,49 @@ enum NameSuggester {
         return tidy(raw, style: style).map(Outcome.name) ?? .unusable
     }
 
+    // MARK: - A description for a photo
+
+    /// A sentence saying what a photo shows, for its EXIF description: what
+    /// Vision sees in it, put into words by the same model on this Mac. Nil
+    /// when there is nothing to go on or the model is not to be had -- it is
+    /// only ever a suggestion, and none is better than a wrong excuse for one.
+    static func caption(forImageAt url: URL) async -> String? {
+        guard status == .ready, #available(macOS 26, *) else { return nil }
+        let words = await BlockingWork.run { () -> String? in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 1600,
+                  ] as CFDictionary) else { return nil }
+            return describe(SendableImage(image))
+        }
+        guard let words else { return nil }
+        let answer = await withTaskGroup(of: String?.self) { group in
+            group.addTask { await Model.caption(of: words) }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(patience))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        return answer.flatMap(tidyCaption)
+    }
+
+    /// One line, no control characters, not a page: what came back was
+    /// written from a picture, which can hold text written to steer a model.
+    static func tidyCaption(_ raw: String) -> String? {
+        let line = raw.unicodeScalars
+            .map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }
+            .joined()
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'\u{201C}\u{201D} "))
+        guard !line.isEmpty else { return nil }
+        return line.count > 200 ? String(line.prefix(200)) : line
+    }
+
     // MARK: - What is known about the file
 
     /// The values for a template's placeholders, other than the content.
@@ -530,6 +573,31 @@ private enum Model {
         @Guide(description: "The words of the file name, as the instructions ask.",
                .count(2...6))
         var words: [String]
+    }
+
+    @Generable
+    struct Caption {
+        @Guide(description: "One short sentence saying what the photo shows.")
+        var sentence: String
+    }
+
+    /// The system model, as for a name; nil on any refusal or failure, since
+    /// a description is only offered, never needed.
+    static func caption(of words: String) async -> String? {
+        let session = LanguageModelSession(
+            model: SystemLanguageModel.default,
+            instructions: "You write the description stored in a photo's EXIF data. From "
+                + "what you are told the photo shows, write one short, plain sentence, as a "
+                + "caption. Describe only what is listed; do not guess who people are, where "
+                + "it was taken, or when.")
+        do {
+            let reply = try await session.respond(
+                to: words, generating: Caption.self,
+                options: GenerationOptions(samplingMode: .greedy))
+            return reply.content.sentence
+        } catch {
+            return nil
+        }
     }
 
     /// Both halves are the user's template, filled in: nothing is added to

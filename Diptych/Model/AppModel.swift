@@ -215,6 +215,7 @@ final class AppModel {
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openSiblingsWindow: ((URL) -> Void)?
+    @ObservationIgnored var openExifWindow: (([URL]) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((URL) -> Void)?
@@ -303,12 +304,16 @@ final class AppModel {
         }
         // A Rename Many window has renamed files in some folder -- possibly
         // the one a pane is showing, since that is where it was opened from.
-        NotificationCenter.default.addObserver(
-            forName: RenameManyModel.renamed, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.left.reload()
-                self?.right.reload()
+        // An EXIF editor has rewritten images, which changes their size and
+        // date but not their folder, so the folder's watcher says nothing.
+        for name in [RenameManyModel.renamed, ExifEditorModel.saved] {
+            NotificationCenter.default.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.left.reload()
+                    self?.right.reload()
+                }
             }
         }
         Task { await GitService.shared.locateIfNeeded() }
@@ -3240,6 +3245,101 @@ final class AppModel {
     /// file's other names, its hard links, outwards from its folder.
     func findSiblingNames(of item: FileItem) {
         openSiblingsWindow?(item.url)
+    }
+
+    /// The selected images whose EXIF can be edited: not every image, only
+    /// those ImageIO can change without re-encoding the picture.
+    static func exifEditable(_ items: [FileItem]) -> [URL] {
+        items.filter { !$0.isParent && !$0.isDirectory && !$0.isSymlink
+            && ExifFields.canEdit($0.url) }.map(\.url)
+    }
+
+    /// Right-click ▸ Image ▸ Edit EXIF: a window for the selected images.
+    func editExif(of urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        openExifWindow?(urls)
+    }
+
+    /// Right-click ▸ Image ▸ Delete All EXIF Data: no question asked, since
+    /// Undo puts it all back -- the message says so.
+    func eraseExif(of urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        Task {
+            let saved = await Self.eraseExif(urls)
+            if !saved.failures.isEmpty {
+                dialog = .notice(title: saved.done.isEmpty ? "The EXIF data was not erased"
+                                                           : "Some EXIF data was not erased",
+                                 text: (saved.failures + (saved.done.isEmpty ? []
+                                : ["The others were erased; Undo puts them back."]))
+                                .joined(separator: "\n"))
+            } else {
+                flash(Self.erasedMessage(saved.done.count), error: false)
+            }
+        }
+    }
+
+    /// The erasing itself, recorded as one step of Undo.
+    static func eraseExif(_ urls: [URL],
+                          history: FileHistory = .shared) async -> ExifEditorModel.Saved {
+        let saved = await ExifEditorModel.rewriteInPlace(urls) { data, name throws(ExifWrite.Failure) in
+            try ExifWrite.eraseAll(data, name: name)
+        }
+        history.recordContents(saved.done, name: "Delete EXIF",
+                               told: toldErased(saved.done.map(\.url)))
+        if !saved.done.isEmpty {
+            NotificationCenter.default.post(name: ExifEditorModel.saved, object: nil)
+        }
+        return saved
+    }
+
+    /// "3 files' EXIF data was erased, undoable".
+    nonisolated static func erasedMessage(_ count: Int) -> String {
+        count == 0 ? "There was no EXIF data to erase"
+            : count == 1 ? "1 file\u{2019}s EXIF data was erased, undoable"
+            : "\(count) files\u{2019} EXIF data was erased, undoable"
+    }
+
+    private static func toldErased(_ urls: [URL]) -> String {
+        guard let first = urls.first else { return "" }
+        let folder = FileHistory.folder(of: first)
+        return urls.count == 1
+            ? "The EXIF of \(FileHistory.quoted(first.lastPathComponent)) in \(folder) was erased."
+            : "The EXIF of \(urls.count) images in \(folder) was erased. "
+              + "The images: \(FileHistory.Plan.names(urls))."
+    }
+
+    /// The EXIF editor on explicit paths, for MCP's `open_exif_editor` --
+    /// from any folders, not only the ones a pane shows. Nil when it opened;
+    /// otherwise what is wrong with which paths, and nothing is opened.
+    func openExifEditor(on paths: [String]) -> String? {
+        let (urls, problems) = Self.exifImages(at: paths)
+        guard problems.isEmpty else { return problems.joined(separator: "\n") }
+        openExifWindow?(urls)
+        return nil
+    }
+
+    /// The images among `paths`, each once, and what is wrong with the rest.
+    static func exifImages(at paths: [String]) -> (urls: [URL], problems: [String]) {
+        guard !paths.isEmpty else { return ([], ["No paths were given."]) }
+        var problems: [String] = []
+        var urls: [URL] = []
+        for path in paths {
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            if !path.hasPrefix("/") {
+                problems.append("\(path): not an absolute path")
+            } else if !FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) {
+                problems.append("\(path): does not exist")
+            } else if isDirectory.boolValue {
+                problems.append("\(path): is a folder")
+            } else if !ExifFields.canEdit(url) {
+                problems.append("\(path): not a JPEG or HEIC image, whose EXIF can be "
+                                + "changed without re-encoding it")
+            } else if !urls.contains(url) {
+                urls.append(url)
+            }
+        }
+        return (urls, problems)
     }
 
     /// A double-click on a link's arrow: Go to Link Target, rather than

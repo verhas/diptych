@@ -287,6 +287,30 @@ final class PaneModel {
         historyIndex = min(max(historyIndex, history.isEmpty ? -1 : 0), history.count - 1)
     }
 
+    // MARK: - Recent folders
+
+    /// Every folder this pane has been in, most recent first, each once --
+    /// for the circle between Back and Forward. Not the history: going back
+    /// and then somewhere new drops the forward trail from that, as a browser
+    /// does, and a folder dropped that way is still here.
+    private(set) var recent: [URL] = []
+
+    nonisolated static let recentLimit = 30
+
+    /// `url` moved to the front, its older visit taken out.
+    nonisolated static func remembering(_ url: URL, in recent: [URL]) -> [URL] {
+        let key = url.standardizedFileURL.path
+        return Array(([url] + recent.filter { $0.standardizedFileURL.path != key })
+            .prefix(recentLimit))
+    }
+
+    /// What the circle offers: the recent folders that are not this one and
+    /// are still there.
+    var recentElsewhere: [URL] {
+        recent.filter { $0.standardizedFileURL.path != directory.standardizedFileURL.path
+            && FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     private func updateHistoryFlags() {
         // Somewhere *else*, not merely somewhere. After a deletion the trail
         // can hold the folder you are standing in on both sides of the hole,
@@ -371,6 +395,7 @@ final class PaneModel {
         selection = []
         renamingID = nil
         if recordingHistory { record(url) } else { updateHistoryFlags() }
+        recent = Self.remembering(url, in: recent)
         reload(navigatingFrom: previous == url ? nil : previous)
         owner?.persist()
     }
@@ -421,7 +446,8 @@ final class PaneModel {
     var snapshot: PaneState {
         PaneState(directory: directory.path,
                   sortField: (sortOrder.first?.column ?? .name).rawValue,
-                  sortAscending: (sortOrder.first?.order ?? .forward) == .forward)
+                  sortAscending: (sortOrder.first?.order ?? .forward) == .forward,
+                  recent: recent.map(\.path))
     }
 
     func restore(_ state: PaneState) {
@@ -429,6 +455,7 @@ final class PaneModel {
         history = [directory]
         historyIndex = 0
         updateHistoryFlags()
+        recent = Self.remembering(directory, in: state.recent.map { URL(fileURLWithPath: $0) })
         sortOrder = [FileComparator(column: FileColumn(rawValue: state.sortField) ?? .name,
                                     order: state.sortAscending ? .forward : .reverse)]
     }

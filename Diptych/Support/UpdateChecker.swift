@@ -142,11 +142,11 @@ final class UpdateChecker {
             alert.informativeText = Self.installExplanation
             alert.addButton(withTitle: "Download and Install")
             alert.addButton(withTitle: "Later")
-            if alert.runModal() == .alertFirstButtonReturn { installPendingRelease() }
+            if alert.runSelectable() == .alertFirstButtonReturn { installPendingRelease() }
         case .notice(let title, let text):
             alert.messageText = title
             alert.informativeText = text
-            alert.runModal()
+            alert.runSelectable()
         default:
             break
         }
@@ -265,7 +265,7 @@ final class UpdateChecker {
             let alert = NSAlert()
             alert.messageText = "\u{201C}\(release.asset.name)\u{201D} could not be downloaded."
             alert.informativeText = error.localizedDescription
-            alert.runModal()
+            alert.runSelectable()
         }
     }
 }

@@ -658,7 +658,7 @@ struct DiffView: View {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Don't Save")
 
-        switch alert.runModal() {
+        switch alert.runSelectable() {
         case .alertFirstButtonReturn:
             saveNow()
             // A save that could not go through must not take the window with

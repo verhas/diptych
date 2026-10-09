@@ -82,7 +82,20 @@ final class FileHistory {
         let toGroup: String?
     }
 
-    /// What doing a step does. Undo and redo are the same three things in
+    /// A file whose bytes were changed in place -- its EXIF, say -- and a
+    /// copy of what it held before, to put back. Nothing short of the copy can
+    /// bring back the exact file.
+    struct ContentChange: Sendable {
+        let url: URL
+        let identity: Identity?
+        /// When it was last changed, as the step left it: a later date means
+        /// somebody has changed it since.
+        let modified: Date?
+        /// What it is to hold once the step is done.
+        let snapshot: URL
+    }
+
+    /// What doing a step does. Undo and redo are the same things in
     /// opposite directions.
     enum Action: Sendable {
         case relocate([Relocation])
@@ -90,6 +103,7 @@ final class FileHistory {
         case permissions([PermissionChange])
         case ownership([OwnershipChange])
         case attributes([AttributeChange])
+        case contents([ContentChange])
     }
 
     struct Entry: Sendable, Identifiable {
@@ -251,6 +265,16 @@ final class FileHistory {
         guard !real.isEmpty else { return }
         record(name, told: told, .attributes(real.map {
             AttributeChange(url: $0.url, name: $0.name, from: $0.after, to: $0.before)
+        }))
+    }
+
+    /// Files whose contents were changed in place: `before` is a copy of each
+    /// as it was, from `UndoSnapshots`.
+    func recordContents(_ changes: [(url: URL, before: URL)], name: String, told: String) {
+        guard !changes.isEmpty else { return }
+        record(name, told: told, .contents(changes.map {
+            ContentChange(url: $0.url, identity: Self.identity(of: $0.url),
+                          modified: Self.modified($0.url), snapshot: $0.before)
         }))
     }
 
@@ -558,6 +582,28 @@ final class FileHistory {
                 warnings.append("\(name) has had its attributes or tags changed since.")
             }
             doable = .attributes(ok)
+
+        case .contents(let changes):
+            var ok: [ContentChange] = []
+            for change in changes {
+                let name = quoted(change.url.lastPathComponent)
+                if !exists(change.url) {
+                    problems.append("\(name) is no longer in \(folder(of: change.url)).")
+                } else if let expected = change.identity, identity(of: change.url) != expected {
+                    problems.append("\(name) in \(folder(of: change.url)) is a different item "
+                                    + "now, so it is left alone.")
+                } else if !exists(change.snapshot) {
+                    problems.append("The copy of \(name) to put back is gone.")
+                } else {
+                    ok.append(change)
+                    if let then = change.modified, let now = modified(change.url),
+                       abs(now.timeIntervalSince(then)) > 1 {
+                        warnings.append("\(name) has changed since. What was changed in it "
+                                        + "since is lost when it is put back.")
+                    }
+                }
+            }
+            doable = .contents(ok)
         }
 
         return Plan(direction: direction, entry: entry, doable: doable,
@@ -697,6 +743,35 @@ final class FileHistory {
             }
             return Done(inverse: .attributes(outcome.0), touched: outcome.0.map(\.url),
                         failures: outcome.1)
+
+        case .contents(let changes):
+            let outcome = await BlockingWork.run { () -> ([ContentChange], [String]) in
+                var done: [ContentChange] = []
+                var failures: [String] = []
+                for change in changes {
+                    let name = quoted(change.url.lastPathComponent)
+                    do {
+                        // What it holds now, for the way back again.
+                        let now = try UndoSnapshots.keep(change.url)
+                        do {
+                            try UndoSnapshots.putBack(change.snapshot, into: change.url)
+                        } catch {
+                            try? FileManager.default.removeItem(at: now)
+                            throw error
+                        }
+                        done.append(ContentChange(url: change.url,
+                                                  identity: identity(of: change.url),
+                                                  modified: modified(change.url),
+                                                  snapshot: now))
+                    } catch {
+                        failures.append("\(name) could not be put back: "
+                                        + "\(error.localizedDescription)")
+                    }
+                }
+                return (done, failures)
+            }
+            return Done(inverse: .contents(outcome.0), touched: outcome.0.map(\.url),
+                        failures: outcome.1)
         }
     }
 
@@ -755,6 +830,7 @@ extension FileHistory.Action {
         case .permissions(let changes): changes.count
         case .ownership(let changes): changes.count
         case .attributes(let changes): changes.count
+        case .contents(let changes): changes.count
         }
     }
 }

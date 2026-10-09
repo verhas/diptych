@@ -117,12 +117,12 @@ struct TextEditView: View {
                 + "replaces that version with what is in this window."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Save Anyway")
-            if alert.runModal() == .alertSecondButtonReturn { saveNow(overwriting: true) }
+            if alert.runSelectable() == .alertSecondButtonReturn { saveNow(overwriting: true) }
         case .failed(let message):
             let alert = NSAlert()
             alert.messageText = "\u{201C}\(url.lastPathComponent)\u{201D} was not saved."
             alert.informativeText = message
-            alert.runModal()
+            alert.runSelectable()
         }
     }
 
@@ -138,7 +138,7 @@ struct TextEditView: View {
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Don't Save")
 
-        switch alert.runModal() {
+        switch alert.runSelectable() {
         case .alertFirstButtonReturn:
             saveNow()
             // A save that did not go through must not take the window with it.

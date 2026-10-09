@@ -15,6 +15,9 @@ final class AppWindows {
 
     private struct WeakWindow { weak var window: NSWindow? }
     private var windows: [WeakWindow] = []
+    /// Every window ever registered, closed ones included, so one that
+    /// SwiftUI shows again can be put back on the list.
+    private var known: [WeakWindow] = []
 
     /// A `WindowGroup(for:)` scene can hold onto a "closed" window's state --
     /// `NSWindow.willCloseNotification` still fires the moment AppKit closes
@@ -28,6 +31,20 @@ final class AppWindows {
             guard let window = notification.object as? NSWindow else { return }
             MainActor.assumeIsolated { self?.unregister(window) }
         }
+        // A `WindowGroup` asked again for the same value -- the same images
+        // in the EXIF editor, the same file's siblings -- shows the window it
+        // closed before, and its view is not built again, so nothing in it
+        // registers it a second time. It was left out of Option-Tab and the
+        // Dock's list. Coming to the front is what puts it back.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            MainActor.assumeIsolated {
+                guard let self, self.known.contains(where: { $0.window === window }) else { return }
+                self.register(window)
+            }
+        }
     }
 
     /// Kept in the order each window first opened, not most-recently-used:
@@ -37,6 +54,13 @@ final class AppWindows {
     /// *through all of them* mean something, rather than just "the next one
     /// AppKit happens to remember".
     func register(_ window: NSWindow) {
+        // In the Window menu, which is also the list the Dock shows: a
+        // SwiftUI `Window` scene leaves its window out of it.
+        if window.isExcludedFromWindowsMenu { window.isExcludedFromWindowsMenu = false }
+        known.removeAll { $0.window == nil }
+        if !known.contains(where: { $0.window === window }) {
+            known.append(WeakWindow(window: window))
+        }
         windows.removeAll { $0.window == nil }
         guard !windows.contains(where: { $0.window === window }) else { return }
         windows.append(WeakWindow(window: window))

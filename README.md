@@ -174,6 +174,18 @@ is being *deleted*. Backspace leaves the cursor at the end just as typing does,
 so without suppressing it every backspace grew the completion straight back and
 the path could not be shortened.
 
+### Links to the folders above: hold Option
+
+**Hold Option** with the mouse over the path bar, or while typing in it, and
+the path turns into links, one per folder, like a web page:
+`/ Users / verhasp / github`. Click one to go straight there -- several levels up
+in one click, with the folder you came out of selected, as going up does. The
+last name is where the pane already is, so it is not a link. Let Option go and
+the text comes back; anything you had typed, and the selection, is still there.
+
+Option with Command or Control is a shortcut being typed, so it leaves the bar
+alone.
+
 ## Sidebar
 
 `⌃⌘S`, or the toolbar icon, shows a sidebar of **Volumes** and **Favourites**.
@@ -238,11 +250,18 @@ is switched on, since the colour is part of drawing the row.
 ## History and filtering
 
 Each pane has its own bar above the path: back and forward arrows on the left,
-a filter on the right.
+with a circle between them for the recent folders, and a filter on the right.
 
 **Back / Forward** (`⌘[` and `⌘]`) walk that pane's own history of visited
 directories. Going somewhere new after going back discards the forward trail,
 as a browser does. History is per-session; it is not saved.
+
+**The circle between them** lists the folders that pane has been in, most
+recent first, each only once -- a folder visited again moves to the top. Pick
+one to go there. Unlike Back and Forward it forgets nothing: go to A, B and C,
+back to B, on to D, and back to B, and Back and Forward no longer reach C, but
+the circle lists D, C and A -- B is where you are. Folders that are gone are left out. It keeps the last 30, and is saved with
+the pane, so it is still there after a restart.
 
 **The filter** matches a fragment of the name by default: `inv` lists every
 invoice, because typing two stars around every word was the common case and the
@@ -364,9 +383,9 @@ nothing left to show, the panel closes rather than sitting there looking broken.
 
 **Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
 did to files: a copy, a move (by F5/F6, paste or drag), a rename, a new file or
-folder, New from Clipboard, a link, **Move to Trash**, a permission change, and
-an **owner or group change** — from the panes or from the Info window. The menu
-names the step: *Undo Move*, *Redo Rename*.
+folder, New from Clipboard, a link, **Move to Trash**, a permission change, an
+**owner or group change** — from the panes or from the Info window — and an
+**EXIF change**. The menu names the step: *Undo Move*, *Redo Rename*.
 
 **Edit ▸ Undo or Redo Many…** (⌃⌘Z, caught in `KeyRouter` because the menu
 never receives that combination — something between the keyboard and the menu
@@ -404,11 +423,151 @@ one line.
   item, why, and that Change Owner… can do it with authorisation. Everything
   else in that same undo still goes ahead, and the next undo still works.
 * A renamed or moved file in a Git folder stays tracked when it goes back.
+* **A change inside a file comes back byte for byte.** An EXIF change rewrites
+  the file, so before it is written a copy is kept — a clone on the same disk,
+  costing no space until the file changes — and undoing puts that copy's bytes
+  back into the same file. Redo keeps a copy the same way before undoing it.
+  The copies live in `~/Library/Caches/dev.verhas.Diptych/Undo/`, one folder
+  per running Diptych, and go when the history does: a folder left by a
+  Diptych that has quit is removed at the next start. If the file has been
+  changed since, the question says that what was changed in it is lost.
 
 One history for the whole application, as in Finder, fifty steps deep, kept in
 memory: after a restart the paths it holds may describe a world that has moved
 on. While a rename field or the path bar is being typed in, ⌘Z undoes the
 typing, and in a comparison window it is that window's own undo.
+
+## Editing EXIF
+
+**Right-click ▸ Image ▸ Edit EXIF…** appears when the selection holds a JPEG or
+HEIC image, and opens a window for every such image selected; anything else in
+the selection is left out. The images are listed at the top, each with its
+full path — the window lives on its own, apart from the pane it came from, and
+an agent can open it on images from different folders. Click one to pick it:
+**Space** shows it in Quick Look, **Return** or **F3** opens it, and a
+double-click opens it too. Their fields are below, in three groups: Image and Camera (the TIFF fields — description,
+artist, copyright, make, model), Photo (dates, time zone, lens, exposure, ISO)
+and Location (GPS).
+
+- **A field shows its value** when every image has the same one. When they
+  differ, or only some have it, the field is **grey and empty** —
+  *Different in each file* — and what you type replaces every image's value.
+- **Typing in a field ticks its box**: ticked fields, and only those, are
+  written on **Save**. Untick it and the field greys out, keeping what you
+  typed; click back into it and the box is ticked again and the editing
+  carries on, with no need to tick the box first.
+- **A description from Apple Intelligence.** Opened on one image with no
+  description, the editor asks Apple Intelligence for one in the background —
+  Vision says what the picture shows, and the model on this Mac (never Private
+  Cloud Compute) puts it into a sentence. While it works the field says so.
+  The sentence arrives grey and unticked, as if typed and then unticked, and
+  is written only if you tick it; it goes only into a field you have not typed
+  in meanwhile. Off when Apple Intelligence is off in Settings.
+- **The minus button** removes a field from every image (the value is struck
+  through; the arrow takes the mark off), and an emptied field is removed too.
+  **Add Field** shows a field the list does not have yet; a field added and not
+  wanted goes again with the same button. Values ImageIO keeps for itself —
+  pixel dimensions, versions, the Flash structure — are shown but not editable.
+- Numbers take fractions — an exposure time of `1/125`.
+- **Save** is an **EXIF Change** in Undo, for all the images at once.
+  Its shortcut is **⌘S**, not Return, which saved half-finished typing too
+  easily. **Escape does not close the window**, so a slip of the finger does
+  not lose what you typed: close it with Cancel, ⌘W or its close button.
+
+**Right-click ▸ Image ▸ Delete All EXIF Data** takes every EXIF, TIFF and GPS
+field out of the selected images at once — and the XMP copy of camera
+details EXIF has no field for, such as the lens and its serial number — with no
+question asked: a message says *3 files' EXIF data was erased, undoable*, and
+it is one **Delete EXIF** step in Undo. Orientation stays, or the picture would
+show turned; the picture itself is not re-encoded. Other XMP — Lightroom's
+settings, a rating — is not EXIF and stays.
+
+**Help with the values**, and a way past it. Each helper has a keyboard button
+beside it for typing the value instead, and a button back:
+
+- **Dates and times** are edited a part at a time — year, month, day, hour,
+  minute, second: click a part, or move with Tab and the arrow keys, type, or
+  step with Up and Down. A new number starts only when a part is full or
+  another part is chosen, never after a pause: `NSDatePicker`, used at first,
+  starts again after a moment, so "202", a breath, "6" made the year 6. A digit
+  no other can follow completes its part (a 4 in a month is April), and the
+  day keeps within its month. Delete takes back the last digit of a part even
+  after it is complete, so 1976, Delete, 7 is 1977. A date also has a calendar
+  button, for picking the day on a month; the time of day stays as it was. The date is shown as written: EXIF dates have no
+  zone, so nothing moves them into this Mac's. An empty one has **Set**, which
+  starts from now.
+- **Time zones** are picked by name, from a menu by region — *Europe ▸
+  Budapest (+02:00)*. What is written is the zone's offset **on each image's
+  own date**, so a summer photo gets +02:00 and a winter one +01:00 from the
+  same choice.
+- **Fields with a list of values** — Metering Mode, Exposure Program, Light
+  Source, Orientation, White Balance, the N/S and E/W of a coordinate, and the
+  rest — have a menu of what EXIF defines: *Spot (3)*.
+- **Latitude and longitude** are checked: at most 90° and 180°, the hemisphere
+  being its own field. They are typed as decimal degrees, degrees and minutes,
+  or degrees, minutes and seconds — `47.4979`, `47° 29.874′`, `47 29 52.44 N` —
+  and a minus sign or a letter sets the N/S or E/W field to match. An `o`
+  typed in a coordinate becomes the degree sign as it is typed. The button in
+  the **Location** heading goes round the three ways of writing them and
+  rewrites the coordinates on show, without ticking them: the value is the same.
+  **Pasting a place** into either fills all four fields — latitude, longitude
+  and their N/S and E/W — from what Google Maps copies: a pair like
+  `47.469405929393155, 8.673649728835294` (or `47°28'09.9"N 8°40'25.1"E`), a
+  link like `https://maps.app.goo.gl/…` (Apple Maps links too), or a plus code
+  like `FM9F+MFR Brütten`. A short link is followed to the map it stands for,
+  and the town after a short plus code is looked up with Apple's geocoder:
+  those two need the network, and the field says *Looking up the place…*
+  meanwhile. A full plus code (`8FVCFM9F+MFR`) and a pair need nothing.
+  When both are there, a small world map under them pins the place; click it
+  to open the place in Google Maps in the browser. The map is drawn from
+  [Natural Earth](https://www.naturalearthdata.com)'s public-domain coastlines
+  shipped in the app, so it needs no network.
+
+**Orange is unusual, red is wrong.** A value EXIF can hold but a camera would
+not write is shown in orange, with why, and is saved if you leave it: a date in
+the future or before 1975, when the first digital camera was made (a scan of an
+old photo may well say 1962); a GPS date before 6 January 1980, when GPS time
+began; a date not written as EXIF writes it; an offset
+no time zone has; a value not on a field's list; a direction of 400°. A value
+that cannot be written as it is — a latitude of 4637299321312, a word where a
+number goes, a GPS time of 25:00 (stored as numbers, not text) — is red, and
+Save waits until it is put right.
+
+**Image Width and Image Height** are worked out by ImageIO from the picture. They
+can be removed, and **Add Field** puts them back with each image's own size;
+they are never typed.
+
+**The picture is not touched.** The EXIF is changed with ImageIO's lossless
+route, `CGImageDestinationCopyImageSource`: the image data is copied across as
+it is, not decoded and encoded again. The file is written in place, so it stays
+the same file, with its other names, permissions and attributes.
+
+**What is written is read back first.** ImageIO accepts some changes and then
+drops them on the way out, without a word, so the new file is read back in
+memory and compared field by field; an image where something did not take is
+left as it was, and the window says which fields. Finding the ones it drops is
+why some fields are written the way they are:
+
+- A number that is not whole is written as a fraction, `14/5`: handed over as a
+  number, 2.8 was written as 2. Latitude and longitude are the exception — XMP
+  writes them as degrees and minutes, and they take a plain number.
+- Artist is written as a list of one name, and with an Orientation of 1 beside
+  it when the image has none (which means the same: upright). A HEIC image
+  dropped it otherwise, and so did a JPEG without other TIFF fields.
+- GPS date and time are one value in XMP, so they are written together: one at
+  a time, the date came out as 1916:01:00.
+- ISO is written as one number, not a list of one, which HEIC drops.
+- A HEIC image keeps altitude, direction and speed only with a latitude, and
+  the window says so.
+
+**From an agent**, `open_exif_editor` opens the same window on images from
+any folders at once (see *Local agent access*).
+
+**Why only JPEG and HEIC.** PNG and TIFF are written too, but ImageIO keeps some
+of their old EXIF values whatever is written — a changed comment stays as it
+was, a removed lens stays put — and AVIF it refuses outright. A test writes
+every field the window offers, alone and all together, into both JPEG and HEIC
+and checks each one stays.
 
 ## Comparing two files that are not text
 
@@ -1200,7 +1359,7 @@ window go to "the" Diptych, which only means something if there is one.
 
 | Tool | Does |
 | --- | --- |
-| `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / Settings windows with what each is showing |
+| `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
 | `get_pane` | A pane's current directory and listing |
 | `get_selection` | The files currently selected in a pane |
 | `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
@@ -1209,6 +1368,7 @@ window go to "the" Diptych, which only means something if there is one.
 | `set_active_pane` | Makes a window's left or right pane the focused one |
 | `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly, and for two files, so can `ignoreWhitespace`/`wraps` -- reopening a pair already open updates that window instead of refusing |
 | `open_info_window` | Opens the Info window for one explicit path |
+| `open_exif_editor` | Opens the EXIF editor on explicit JPEG/HEIC paths, which may be in different folders -- something a right-click on one pane's selection cannot do. Nothing is written by the tool: you edit, tick and save (or cancel) in the window, and a save is one EXIF Change in Undo. A path that is missing, a folder, or another kind of file is reported, and then nothing is opened |
 | `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
 | `set_setting` | Changes one setting by key, from `list_settings` |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |

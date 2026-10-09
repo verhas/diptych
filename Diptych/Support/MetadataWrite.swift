@@ -158,7 +158,7 @@ struct MetadataWrite {
         alert.buttons.last?.keyEquivalent = "\r"
         if choices.count > 1 { alert.buttons.first?.keyEquivalent = "" }
 
-        let index = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        let index = alert.runSelectable().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
         return choices.indices.contains(index) ? choices[index] : .cancel
     }
 

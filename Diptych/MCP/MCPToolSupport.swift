@@ -94,6 +94,13 @@ enum MCPToolSupport {
         return .opened
     }
 
+    /// The EXIF editor on explicit paths, which may be in different folders.
+    static func openExifEditor(windowId: String?, paths: [String]) -> OpenResult {
+        guard let model = resolveModel(windowId: windowId) else { return .windowNotFound }
+        if let error = model.openExifEditor(on: paths) { return .failed(error) }
+        return .opened
+    }
+
     /// `performClose`, not `close`: it runs the same "you have unsaved
     /// changes" prompt (Text Edit, Bin Edit) that Cmd-W does, rather than
     /// discarding edits an agent was never told about. Returns whether a

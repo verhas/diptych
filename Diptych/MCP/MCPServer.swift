@@ -497,6 +497,30 @@ extension MCPServer {
                         ],
                         "required": ["path"],
                      ])),
+                Tool(name: "open_exif_editor",
+                     description: "Opens the EXIF editor window (the one behind right-click "
+                        + "> Image > Edit EXIF) on explicit image paths, which may be in "
+                        + "different folders. JPEG and HEIC only. Nothing is written: the user "
+                        + "edits the fields, ticks what is to be written and saves -- or "
+                        + "cancels -- in the window, and a save is one EXIF Change in Undo. "
+                        + "Asking again for the same paths brings that window forward. If any "
+                        + "path is missing, a folder, or not a JPEG/HEIC image, nothing is "
+                        + "opened and every bad path is reported.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "paths": [
+                                "type": "array",
+                                "items": ["type": "string"],
+                                "description": "Absolute paths of the images, in the order to list them.",
+                            ],
+                        ],
+                        "required": ["paths"],
+                     ])),
                 Tool(name: "list_settings",
                      description: "Every setting an agent can read or change: a deliberately "
                         + "curated, scalar subset of Diptych's own Settings window -- not "
@@ -708,6 +732,28 @@ extension MCPServer {
                                             textOptions: textOptions)
                 }
                 switch result {
+                case .windowNotFound:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .failed(let message):
+                    return .init(content: [.text(text: message, annotations: nil, _meta: nil)],
+                                isError: true)
+                case .opened:
+                    return .init(content: [.text(text: "Opened.", annotations: nil, _meta: nil)],
+                                isError: false)
+                }
+
+            case "open_exif_editor":
+                guard let paths = params.arguments?["paths"]?.arrayValue?
+                    .compactMap({ $0.stringValue }), !paths.isEmpty else {
+                    return .init(content: [.text(text: "paths is required: a list of absolute "
+                                                 + "paths.", annotations: nil, _meta: nil)],
+                                 isError: true)
+                }
+                let exifResult = await MainActor.run {
+                    MCPToolSupport.openExifEditor(windowId: windowId, paths: paths)
+                }
+                switch exifResult {
                 case .windowNotFound:
                     return .init(content: [.text(text: "No matching Diptych window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)

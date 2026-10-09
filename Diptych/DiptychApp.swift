@@ -18,6 +18,7 @@ struct DiptychApp: App {
     static let batchOperationsWindowID = "diptych.batchOperations"
     static let runWindowID = "diptych.run"
     static let siblingsWindowID = "diptych.siblings"
+    static let exifWindowID = "diptych.exif"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -62,6 +63,14 @@ struct DiptychApp: App {
             if let url { SiblingsView(url: url) }
         }
         .defaultSize(width: 680, height: 380)
+        .restorationBehavior(.disabled)
+
+        // One EXIF editor per set of images: asking again for the same ones
+        // brings it forward.
+        WindowGroup(id: DiptychApp.exifWindowID, for: [URL].self) { $urls in
+            if let urls { ExifEditorView(urls: urls) }
+        }
+        .defaultSize(width: 760, height: 680)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder.
@@ -143,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.suppressionButton?.title = "Do not ask anymore"
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
-        let response = alert.runModal()
+        let response = alert.runSelectable()
         // Applied whichever button was pressed: ticking the box is its own
         // decision, not conditional on quitting actually going through.
         if alert.suppressionButton?.state == .on {
@@ -173,6 +182,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // sense a person means, and the whole test run silently produces no
         // test output at all if this quits it.
         let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
+        // Copies kept for undoing a change to a file's contents, by a
+        // Diptych that has since quit: its history went with it.
+        DispatchQueue.global(qos: .utility).async { UndoSnapshots.removeAbandoned() }
         if !isRunningTests, let bundleID = Bundle.main.bundleIdentifier {
             let myPID = ProcessInfo.processInfo.processIdentifier
             let other = NSRunningApplication

@@ -178,7 +178,7 @@ struct RunsView: View {
         alert.buttons[0].hasDestructiveAction = true
         alert.buttons[0].keyEquivalent = ""
         alert.buttons[1].keyEquivalent = "\r"
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert.runSelectable() == .alertFirstButtonReturn
     }
 }
 
@@ -401,6 +401,6 @@ enum RunLauncher {
         alert.addButton(withTitle: "Cancel")
         alert.buttons[0].keyEquivalent = ""
         alert.buttons[1].keyEquivalent = "\r"
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert.runSelectable() == .alertFirstButtonReturn
     }
 }

@@ -127,7 +127,7 @@ final class BrowserCloseGuard: NSObject, NSWindowDelegate {
         // Cancel on Return: closing is the one that cannot be taken back.
         alert.buttons[0].keyEquivalent = ""
         alert.buttons[1].keyEquivalent = "\r"
-        return alert.runModal() == .alertFirstButtonReturn
+        return alert.runSelectable() == .alertFirstButtonReturn
     }
 
     // Everything else is SwiftUI's business.

@@ -20,7 +20,9 @@ final class QuickLookController: NSObject {
     private(set) weak var owner: AppModel?
 
     /// Space toggles: a second press closes the panel, as in Finder.
-    func toggle(_ urls: [URL], owner: AppModel) {
+    /// `owner` is nil for a window with no pane behind it -- the EXIF
+    /// editor's list of images -- whose arrow keys the panel keeps.
+    func toggle(_ urls: [URL], owner: AppModel?) {
         guard let panel = QLPreviewPanel.shared() else { return }
 
         if panel.isVisible {
