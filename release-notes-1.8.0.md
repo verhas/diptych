@@ -2,7 +2,9 @@
 
 A pane can show a folder and everything under it as one list, filtered by an
 expression much like `find`'s; images get an EXIF editor — with a map, pasting
-places from Google Maps, and an erase that Undo takes back; Rename Many works
+places from Google Maps, and an erase that Undo takes back — and any picture
+can be turned without loss, converted, resized, cut out of its background or
+have its text read; Rename Many works
 on the selection and on a flat view; the path bar becomes links to the folders
 above while Option is held, a circle between Back and Forward lists the folders
 you have been in, and what a dialog or an alert says can be selected and
@@ -55,7 +57,13 @@ modified >= 2026-01-01 and access = "***r**r**" and not xattr("com.apple.quarant
 - **Control-Space** offers what can come next; when only one thing can, it is
   inserted at once. After `access =` it offers `"*********"`, and inside those
   quotes typing overwrites, as in the pane's permission editor.
+- **Control-Space where a date goes** -- after `created` or `modified` and a
+  comparison, or on a date already written -- opens a calendar instead, with
+  the time when it is ticked.
 - **A long expression gets every line it needs** while it is being edited.
+- **The right-click menu is the expression's own**, from the first click:
+  Expand, Save Expression, and Cut, Copy, Paste, Select All -- no calendar
+  events, Services, AutoFill or Writing Tools in an expression.
 
 ### Saved expressions
 
@@ -184,6 +192,43 @@ artist, copyright, dates, lens, exposure, location and more.
 
 ---
 
+## Pictures
+
+**Right-click ▸ Image** is now there for any picture macOS reads -- PNG, TIFF,
+GIF and the rest -- with the EXIF items for JPEG and HEIC only. Each of these
+is one step of Undo:
+
+- **Remove Location** takes out where the pictures were taken: every GPS field,
+  and the city, state, country and location names photo software keeps beside
+  them. Nothing else is touched.
+- **Rotate Left, Rotate Right, Flip Horizontally, Flip Vertically.** A JPEG or
+  HEIC is turned by its orientation alone, never decoded or compressed again,
+  so nothing of the quality is lost; any other picture by its pixels, which PNG
+  and TIFF keep exactly. An animated picture is left as it is.
+- **Convert… and Resize…**, one dialog: JPEG, HEIC, PNG or TIFF, a quality,
+  a longest side, the metadata kept or not, the new images next to the
+  originals or in the other pane's folder -- `IMG_1.heic` becomes `IMG_1.jpg`,
+  resized `IMG_1 (2048).jpg`. Turned upright on the way, never made larger,
+  transparency on white for JPEG.
+- **Remove Background** finds the subject with Vision, on this Mac, and saves
+  it on a transparent background as `IMG_1 (cut out).png`. A landscape or a
+  texture with no subject says so and makes nothing.
+- **Recognize Text…** reads the text in the pictures with Vision, and asks
+  where to keep it: in a text file beside each, `IMG_1.jpg.txt`, which
+  Spotlight, `grep` and the flat view's `contains` find; or as the picture's
+  Spotlight comment attribute, which the flat view's `xattr` finds -- offering
+  to unlock a read-only picture for the moment of the change.
+- **Set as Desktop Picture**, for one, on every screen.
+
+The originals are never changed by Convert, Resize, Remove Background or
+Recognize Text: they make new files, which Undo moves to the Trash.
+
+- **Quick Look stays on what you are looking at**: changing a picture no
+  longer takes the panel to what the other pane has selected, and a picture
+  turned in place is shown turned.
+
+---
+
 ## The path bar
 
 - **Hold Option** over the path bar, or while typing in it, and the path
@@ -222,4 +267,4 @@ Nothing to do.
 
 ---
 
-*975 tests.*
+*991 tests.*
