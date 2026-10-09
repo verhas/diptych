@@ -396,6 +396,7 @@
     <span class="brand">Diptych</span>
     <div class="links">
       <a href="#agent">Agent</a>
+      <a href="#new">New</a>
       <a href="#features">Features</a>
       <a href="#compare">Compare</a>
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">Source</a>
@@ -504,7 +505,54 @@
   </div>
 </section>
 
-<section id="features">
+<section id="new">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">New in 1.8</p>
+      <h2>A whole tree in one list, and pictures you can fix</h2>
+      <p class="lede">
+        A pane can show a folder and everything under it, filtered by an
+        expression much like <code>find</code>'s. Pictures get an EXIF editor
+        and the everyday fixes, done on this Mac. And Text Edit learns what
+        your JSON, XML, TOML and YAML files are meant to look like.
+      </p>
+    </div>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Flat view</b>
+        <span class="desc">One list of a folder and all below it, filtered by <code>size &gt; 10MB and name = "*.mov"</code> or <code>contains /todo/i</code> — completed on <kbd>Ctrl</kbd>-<kbd>Space</kbd>, warned when it can never match, saved by name and reused inside other expressions.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Rename Many, where you need it</b>
+        <span class="desc">On the selected files, or on everything a flat view found, wherever in the tree they are.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>An EXIF editor</b>
+        <span class="desc">Dates, camera, description and location on a map — paste a place from Google Maps — for many pictures at once, and an erase that Undo takes back.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Pictures, fixed in place</b>
+        <span class="desc">Rotate and flip without losing quality, convert and resize, remove the location, cut the subject out of its background, read the text in it — with Vision, never sent anywhere.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>A gutter in Text Edit</b>
+        <span class="desc">What changed since the last commit, as IntelliJ shows it, and since the last save; line numbers absolute, relative or off.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Structured files fold, and say where they break</b>
+        <span class="desc">JSON, XML, TOML and YAML fold by their structure, and a mistake is pointed out as you type: line, column, and what is wrong.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="alt" id="features">
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Everyday driving</p>
@@ -531,8 +579,8 @@
       <div class="card">
         <div class="glyph">✎</div>
         <h3>Rename Many</h3>
-        <p>One regular expression over a whole folder, with every new name
-          shown before anything happens. Nothing is renamed until all of it
+        <p>One regular expression over a folder, the selection, or everything
+          a flat view found, with every new name shown before anything happens. Nothing is renamed until all of it
           can be — no half-finished batch left to sort out by hand.</p>
       </div>
       <div class="card">
@@ -546,7 +594,8 @@
         <div class="glyph">▤</div>
         <h3>Text Edit &amp; Bin Edit</h3>
         <p>A small, honest text editor that never “corrects” a quote or a
-          dash, and a hex editor for the files that aren’t text at all —
+          dash — with git change bars, folding and syntax checks for JSON,
+          XML, TOML and YAML — and a hex editor for the files that aren’t text at all —
           both built in, no other app needed.</p>
       </div>
       <div class="card">
@@ -560,7 +609,7 @@
   </div>
 </section>
 
-<section class="alt" id="compare">
+<section id="compare">
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">New in 1.3</p>
@@ -602,7 +651,7 @@
   </div>
 </section>
 
-<section id="gallery">
+<section class="alt" id="gallery">
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">In practice</p>
