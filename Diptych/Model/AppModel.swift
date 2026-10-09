@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Observation
+import UniformTypeIdentifiers
 
 
 /// Owns both panes, which one is active, and every command the UI can issue.
@@ -44,6 +45,8 @@ final class AppModel {
         case updateCheckConsent
         case updateAvailable(version: String)
         case runArguments
+        case convertImages
+        case recognizeText
 
         var id: String {
             switch self {
@@ -65,6 +68,8 @@ final class AppModel {
             case .updateCheckConsent: return "updateCheckConsent"
             case .updateAvailable:    return "updateAvailable"
             case .runArguments:       return "runArguments"
+            case .convertImages:      return "convertImages"
+            case .recognizeText:      return "recognizeText"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -3359,6 +3364,21 @@ final class AppModel {
             && ExifFields.canEdit($0.url) }.map(\.url)
     }
 
+    /// Any picture ImageIO reads -- PNG, TIFF, GIF and the rest, not only
+    /// the ones with EXIF to edit: what can be turned, converted, resized,
+    /// cut out.
+    static func imageFiles(_ items: [FileItem]) -> [URL] {
+        items.filter { !$0.isParent && !$0.isDirectory && !$0.isSymlink
+            && isReadableImage($0.url) }.map(\.url)
+    }
+
+    nonisolated static func isReadableImage(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()),
+              type.conforms(to: .image) else { return false }
+        let readable = CGImageSourceCopyTypeIdentifiers() as? [String] ?? []
+        return readable.contains { UTType($0).map { type.conforms(to: $0) } ?? false }
+    }
+
     /// Right-click ▸ Image ▸ Edit EXIF: a window for the selected images.
     func editExif(of urls: [URL]) {
         guard !urls.isEmpty else { return }
@@ -3395,6 +3415,320 @@ final class AppModel {
             NotificationCenter.default.post(name: ExifEditorModel.saved, object: nil)
         }
         return saved
+    }
+
+    /// Images changed in place, one step of Undo, and a word on how it went:
+    /// Remove Location, Rotate, Flip.
+    private func rewriteImages(_ urls: [URL], undoName: String, told: String,
+                               done: @escaping (Int) -> String, failed: String,
+                               change: @escaping @Sendable (Data, String) throws(ExifWrite.Failure)
+                                   -> Data?) {
+        guard !urls.isEmpty else { return }
+        Task {
+            let saved = await Self.rewriteImages(urls, undoName: undoName, told: told,
+                                                 change: change)
+            if !saved.failures.isEmpty {
+                dialog = .notice(title: failed,
+                                 text: (saved.failures + (saved.done.isEmpty ? []
+                                     : ["The others were changed; Undo puts them back."]))
+                                     .joined(separator: "\n"))
+            } else {
+                flash(done(saved.done.count), error: false)
+            }
+            QuickLookController.shared.refresh()
+        }
+    }
+
+    static func rewriteImages(_ urls: [URL], undoName: String, told: String,
+                              history: FileHistory = .shared,
+                              change: @escaping @Sendable (Data, String) throws(ExifWrite.Failure)
+                                  -> Data?) async -> ExifEditorModel.Saved {
+        let saved = await ExifEditorModel.rewriteInPlace(urls, change: change)
+        history.recordContents(saved.done, name: undoName, told: told)
+        if !saved.done.isEmpty {
+            NotificationCenter.default.post(name: ExifEditorModel.saved, object: nil)
+        }
+        return saved
+    }
+
+    /// "3 images", "IMG_1.jpg".
+    private static func imagesTold(_ urls: [URL]) -> String {
+        guard let first = urls.first else { return "" }
+        return urls.count == 1 ? FileHistory.quoted(first.lastPathComponent)
+            : "\(urls.count) images in \(FileHistory.folder(of: first))"
+    }
+
+    func removeLocation(of urls: [URL]) {
+        rewriteImages(urls, undoName: "Remove Location",
+                      told: "The location of \(Self.imagesTold(urls)) was removed.",
+                      done: { count in
+                          count == 0 ? "None of them had a location"
+                              : "The location was removed from \(count) image"
+                                + (count == 1 ? "" : "s") + ", undoable"
+                      },
+                      failed: "The location was not removed") { data, name throws(ExifWrite.Failure) in
+            try ExifWrite.removeLocation(data, name: name)
+        }
+    }
+
+    func turn(_ urls: [URL], _ turn: ExifWrite.Turn) {
+        let verb = switch turn {
+        case .left: "turned left"
+        case .right: "turned right"
+        case .flipHorizontal: "flipped horizontally"
+        case .flipVertical: "flipped vertically"
+        }
+        let undoName = switch turn {
+        case .left, .right: "Rotate"
+        case .flipHorizontal, .flipVertical: "Flip"
+        }
+        rewriteImages(urls, undoName: undoName,
+                      told: "\(Self.imagesTold(urls)) \(urls.count == 1 ? "was" : "were") \(verb).",
+                      done: { count in
+                          "\(count) image\(count == 1 ? "" : "s") \(verb), undoable"
+                      },
+                      failed: "Not every image was \(verb)") { data, name throws(ExifWrite.Failure) in
+            try ExifWrite.turn(data, name: name, turn)
+        }
+    }
+
+    // MARK: - New images from images
+
+    /// The images Convert or Resize is about to make new ones from, while
+    /// its dialog is open.
+    var convertingImages: [URL] = []
+    var convertOptions = ImageMaking.Options()
+    /// Where the inactive pane is, for "into the other pane".
+    var otherPaneFolder: URL? { inactive.isFlat ? nil : inactive.directory }
+
+    /// Convert… and Resize…: one dialog, Resize starting with a size.
+    func requestConvert(_ urls: [URL], resizing: Bool) {
+        guard !urls.isEmpty else { return }
+        convertingImages = urls
+        convertOptions.folder = nil
+        if resizing {
+            convertOptions.format = .same
+            if convertOptions.longestSide == nil { convertOptions.longestSide = 2048 }
+        } else if convertOptions.format == .same {
+            convertOptions.format = .jpeg
+        }
+        if !convertOptions.format.isWritable { convertOptions.format = .jpeg }
+        dialog = .convertImages
+    }
+
+    func convertImages() {
+        let urls = convertingImages
+        let options = convertOptions
+        dialog = nil
+        makeImages(urls, undoName: options.longestSide != nil && options.format == .same
+                   ? "Resize" : "Convert") { url throws(ImageMaking.Failure) in
+            try ImageMaking.convert(url, options)
+        }
+    }
+
+    // MARK: - Text in pictures
+
+    /// The pictures Recognize Text is asked about, while its dialog is open.
+    var recognizingImages: [URL] = []
+    /// Asked each time; what was chosen last is offered first.
+    var textPlace: ImageMaking.TextPlace = UserDefaults.standard
+        .string(forKey: "recognizeTextPlace")
+        .flatMap(ImageMaking.TextPlace.init(rawValue:)) ?? .sidecar {
+        didSet { UserDefaults.standard.set(textPlace.rawValue, forKey: "recognizeTextPlace") }
+    }
+
+    func requestRecognizeText(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        recognizingImages = urls
+        dialog = .recognizeText
+    }
+
+    func recognizeText() {
+        let urls = recognizingImages
+        let place = textPlace
+        dialog = nil
+        let pane = active
+        flash("Reading the text of \(urls.count) image\(urls.count == 1 ? "" : "s")\u{2026}",
+              error: false)
+        Task {
+            let outcome = await Self.recognizeText(urls, place: place)
+            if place == .sidecar, !outcome.kept.isEmpty {
+                pane.pendingSelection = Set(outcome.kept)
+                pane.reload()
+            }
+            if !outcome.failures.isEmpty {
+                dialog = .notice(title: outcome.kept.isEmpty ? "No text was kept"
+                                                             : "Not every text was kept",
+                                 text: outcome.failures.joined(separator: "\n"))
+            } else {
+                flash(Self.textMessage(kept: outcome.kept.count, without: outcome.without,
+                                       place: place), error: false)
+            }
+        }
+    }
+
+    /// Read and kept, one step of Undo; the pictures with no text are only
+    /// counted. Reading happens off the main thread; a comment is written
+    /// on it, through `MetadataWrite`, which offers to lift a read-only
+    /// file's permission for the moment of the change -- or to do it as an
+    /// administrator -- and says why when it cannot.
+    static func recognizeText(_ urls: [URL], place: ImageMaking.TextPlace,
+                              history: FileHistory = .shared)
+        async -> (kept: [URL], without: Int, failures: [String]) {
+        let read = await BlockingWork.run { () -> ([(URL, String)], Int, [String], [URL]) in
+            var texts: [(URL, String)] = []
+            var without = 0
+            var failures: [String] = []
+            var files: [URL] = []
+            for url in urls {
+                do {
+                    let text = try ImageMaking.text(in: url)
+                    guard !text.isEmpty else { without += 1; continue }
+                    guard place == .sidecar else {
+                        texts.append((url, text))
+                        continue
+                    }
+                    let file = ImageMaking.sidecar(for: url)
+                    guard !FileManager.default.fileExists(atPath: file.path) else {
+                        failures.append("\u{201C}\(file.lastPathComponent)\u{201D} is there "
+                                        + "already, and is left as it is.")
+                        continue
+                    }
+                    do {
+                        try Data((text + "\n").utf8).write(to: file, options: .withoutOverwriting)
+                        files.append(file)
+                    } catch {
+                        failures.append("\u{201C}\(file.lastPathComponent)\u{201D} could not be "
+                                        + "written: \(error.localizedDescription)")
+                    }
+                } catch let failure as ImageMaking.Failure {
+                    failures.append(failure.message)
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
+            }
+            return (texts, without, failures, files)
+        }
+        var failures = read.2
+        switch place {
+        case .sidecar:
+            history.recordCreation(.images("Recognize Text"), of: read.3)
+            return (read.3, read.1, failures)
+        case .comment:
+            var kept: [URL] = []
+            var changes: [(url: URL, name: String, before: Data?, after: Data?)] = []
+            let name = ImageMaking.commentAttribute
+            for (url, text) in read.0 {
+                guard let data = ImageMaking.commentData(text) else { continue }
+                let before = ExtendedAttributes.data(of: url.path, name: name)
+                let write = MetadataWrite.xattrs([XattrWrite(name: name, data: data)], on: url,
+                                                 action: "keep the text of "
+                                                     + "\u{201C}\(url.lastPathComponent)\u{201D} "
+                                                     + "as its comment")
+                switch write.perform() {
+                case .succeeded(let warning):
+                    kept.append(url)
+                    changes.append((url, name, before, data))
+                    if let warning { failures.append(warning) }
+                case .cancelled:
+                    failures.append("The text of \u{201C}\(url.lastPathComponent)\u{201D} was "
+                                    + "not kept: you cancelled.")
+                case .failed(let reason):
+                    failures.append("The text of \u{201C}\(url.lastPathComponent)\u{201D} could "
+                                    + "not be kept as its comment: \(reason)")
+                }
+            }
+            history.recordAttributes(changes, name: "Recognize Text",
+                                     told: "The text of \(changes.count) image"
+                                         + (changes.count == 1 ? " was" : "s were")
+                                         + " kept as the comment.")
+            return (kept, read.1, failures)
+        }
+    }
+
+    nonisolated static func textMessage(kept: Int, without: Int,
+                                        place: ImageMaking.TextPlace) -> String {
+        guard kept > 0 else {
+            return without == 1 ? "No text was found in the image" : "No text was found"
+        }
+        let what = place == .comment ? "as the comment" : "in a text file beside it"
+        return "The text of \(kept) image\(kept == 1 ? " was" : "s were") kept \(what)"
+            + (without > 0 ? "; \(without) had none" : "") + ", undoable"
+    }
+
+    func removeBackground(of urls: [URL]) {
+        makeImages(urls, undoName: "Remove Background") { url throws(ImageMaking.Failure) in
+            try ImageMaking.cutOut(url)
+        }
+    }
+
+    /// New images, made off the main thread, one Undo step that trashes
+    /// them; the pane selects them.
+    private func makeImages(_ urls: [URL], undoName: String,
+                            make: @escaping @Sendable (URL) throws(ImageMaking.Failure) -> URL) {
+        guard !urls.isEmpty else { return }
+        let pane = active
+        flash("Making \(urls.count) image\(urls.count == 1 ? "" : "s")\u{2026}", error: false)
+        Task {
+            let (made, failures) = await Self.makeImages(urls, undoName: undoName, make: make)
+            if !made.isEmpty {
+                pane.pendingSelection = Set(made)
+                pane.reload()
+                other(than: pane).reload()
+            }
+            if !failures.isEmpty {
+                dialog = .notice(title: made.isEmpty ? "No image was made"
+                                                     : "Not every image was made",
+                                 text: failures.joined(separator: "\n"))
+            } else {
+                flash("\(made.count) image\(made.count == 1 ? "" : "s") made, undoable",
+                      error: false)
+            }
+        }
+    }
+
+    static func makeImages(_ urls: [URL], undoName: String, history: FileHistory = .shared,
+                           make: @escaping @Sendable (URL) throws(ImageMaking.Failure) -> URL)
+        async -> (made: [URL], failures: [String]) {
+        let outcome = await BlockingWork.run { () -> ([URL], [String]) in
+            var made: [URL] = []
+            var failures: [String] = []
+            for url in urls {
+                do {
+                    made.append(try make(url))
+                } catch let failure as ImageMaking.Failure {
+                    failures.append(failure.message)
+                } catch {
+                    failures.append(error.localizedDescription)
+                }
+            }
+            return (made, failures)
+        }
+        history.recordCreation(.images(undoName), of: outcome.0)
+        return outcome
+    }
+
+    private func other(than pane: PaneModel) -> PaneModel {
+        pane === left ? right : left
+    }
+
+    /// The picture on every screen's desktop. Not a change to any file, so
+    /// not in Undo; System Settings puts another one back.
+    func setDesktopPicture(_ url: URL) {
+        var failed: [String] = []
+        for screen in NSScreen.screens {
+            let options = NSWorkspace.shared.desktopImageOptions(for: screen) ?? [:]
+            do {
+                try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: options)
+            } catch {
+                failed.append(error.localizedDescription)
+            }
+        }
+        if let reason = failed.first {
+            flash("Not set as the desktop picture: \(reason)", error: true)
+        } else {
+            flash("\u{201C}\(url.lastPathComponent)\u{201D} is the desktop picture", error: false)
+        }
     }
 
     /// "3 files' EXIF data was erased, undoable".

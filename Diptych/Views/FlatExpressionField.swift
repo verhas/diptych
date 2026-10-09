@@ -40,6 +40,10 @@ struct FlatExpressionField: NSViewRepresentable {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.delegate = context.coordinator
         field.stringValue = text
+        field.extraMenu = { [weak coordinator = context.coordinator] editor in
+            guard let coordinator else { return [] }
+            return coordinator.expandMenu(editor) + coordinator.saveMenu()
+        }
         return field
     }
 
@@ -67,6 +71,16 @@ struct FlatExpressionField: NSViewRepresentable {
             set {}
         }
 
+        /// The expression's own items, for the right-click menu.
+        var extraMenu: (NSTextView) -> [NSMenuItem] = { _ in [] }
+
+        /// A right-click before any typing: the field is edited from then on,
+        /// so its menu is the expression's, not a bare field's.
+        override func menu(for event: NSEvent) -> NSMenu? {
+            if currentEditor() == nil { window?.makeFirstResponder(self) }
+            return currentEditor()?.menu(for: event) ?? super.menu(for: event)
+        }
+
         /// Wrapping before the editor is set up: it takes its lines from the
         /// field as it is at that moment.
         override func becomeFirstResponder() -> Bool {
@@ -85,6 +99,19 @@ struct FlatExpressionField: NSViewRepresentable {
             if editor == nil {
                 let editor = Editor()
                 editor.isFieldEditor = true
+                // An expression, not prose: dates are not events, words are
+                // not misspelt, and nothing is rewritten.
+                editor.isAutomaticDataDetectionEnabled = false
+                editor.isAutomaticSpellingCorrectionEnabled = false
+                editor.isContinuousSpellCheckingEnabled = false
+                editor.isAutomaticTextReplacementEnabled = false
+                editor.isAutomaticQuoteSubstitutionEnabled = false
+                editor.isAutomaticDashSubstitutionEnabled = false
+                editor.isAutomaticLinkDetectionEnabled = false
+                editor.writingToolsBehavior = .none
+                editor.extraMenu = { [weak controlView] editor in
+                    (controlView as? Field)?.extraMenu(editor) ?? []
+                }
                 self.editor = editor
             }
             return editor
@@ -100,6 +127,11 @@ struct FlatExpressionField: NSViewRepresentable {
             // Control-Space: what can come next, as in an IDE -- and when
             // only one thing can, that, without a list to pick it from.
             if event.modifierFlags.contains(.control), event.charactersIgnoringModifiers == " " {
+                // Where a date goes, a calendar rather than a list.
+                if let slot = FlatQuery.dateSlot(in: string, at: selectedRange().location) {
+                    pickDate(for: slot.range, written: slot.written)
+                    return
+                }
                 let found = FlatQuery.completions(in: string, at: selectedRange().location)
                 if found.words.count == 1 {
                     insertCompletion(found.words[0], forPartialWordRange: found.range,
@@ -111,6 +143,59 @@ struct FlatExpressionField: NSViewRepresentable {
             }
             if typeInAccessPattern(event) { return }
             super.keyDown(with: event)
+        }
+
+        // MARK: Picking a date
+
+        private(set) var datePopover: NSPopover?
+
+        /// A calendar and a time under the date's place; Insert writes the
+        /// date there -- the day alone unless Time is ticked -- and Escape
+        /// leaves the text as it was.
+        private func pickDate(for range: NSRange, written: String) {
+            let picker = DatePickerController()
+            // What is there already, if it is a date; otherwise today.
+            if let moment = FlatQuery.moment(written) {
+                picker.date = moment.start
+                picker.withTime = moment.end.timeIntervalSince(moment.start) < 24 * 3600
+            }
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.contentViewController = picker
+            picker.onInsert = { [weak self, weak popover] date, withTime in
+                popover?.close()
+                guard let self else { return }
+                let text = FlatQuery.written(date, withTime: withTime)
+                guard NSMaxRange(range) <= (self.string as NSString).length,
+                      self.shouldChangeText(in: range, replacementString: text) else { return }
+                self.replaceCharacters(in: range, with: text)
+                self.didChangeText()
+                self.setSelectedRange(NSRange(location: range.location
+                                              + (text as NSString).length, length: 0))
+                self.window?.makeFirstResponder(self)
+            }
+            datePopover = popover
+            popover.show(relativeTo: caretRect(at: range), of: self, preferredEdge: .maxY)
+        }
+
+        /// Where the text in `range` is drawn, or the caret when it is empty.
+        private func caretRect(at range: NSRange) -> NSRect {
+            guard let layout = layoutManager, let container = textContainer else {
+                return NSRect(x: 0, y: 0, width: 1, height: bounds.height)
+            }
+            let length = (string as NSString).length
+            let probe = range.length > 0 ? range
+                : NSRange(location: max(min(range.location, length) - 1, 0),
+                          length: length > 0 ? 1 : 0)
+            let glyphs = layout.glyphRange(forCharacterRange: probe, actualCharacterRange: nil)
+            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            if range.length == 0, length > 0 {
+                rect.origin.x = range.location == 0 ? rect.minX : rect.maxX
+                rect.size.width = 1
+            }
+            rect.origin.x += textContainerOrigin.x
+            rect.origin.y += textContainerOrigin.y
+            return rect.isEmpty ? NSRect(x: 0, y: 0, width: 1, height: bounds.height) : rect
         }
 
         /// In the quotes of `access = "rwx------"` typing overwrites, as in
@@ -176,19 +261,111 @@ struct FlatExpressionField: NSViewRepresentable {
             }
         }
 
+        /// The expression's own menu -- Expand, Save Expression -- and the
+        /// editing ones, nothing else: no calendar for a date, no Writing
+        /// Tools, no spelling of a regular expression.
         override func menu(for event: NSEvent) -> NSMenu? {
-            let menu = super.menu(for: event) ?? NSMenu()
+            let menu = NSMenu()
+            // No Services -- someone's GPG "Insert My Fingerprint" -- and no
+            // Writing Tools: AppKit adds them to a text view's menu itself.
+            menu.allowsContextMenuPlugIns = false
+            if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
             let extra = extraMenu(self)
-            guard !extra.isEmpty else { return menu }
-            for (index, item) in extra.enumerated() { menu.insertItem(item, at: index) }
-            menu.insertItem(.separator(), at: extra.count)
+            for item in extra { menu.addItem(item) }
+            if !extra.isEmpty { menu.addItem(.separator()) }
+            let editing: [(String, Selector, String)] = [
+                ("Cut", #selector(NSText.cut(_:)), "x"),
+                ("Copy", #selector(NSText.copy(_:)), "c"),
+                ("Paste", #selector(NSText.paste(_:)), "v"),
+                ("Select All", #selector(NSText.selectAll(_:)), "a"),
+            ]
+            for (title, action, key) in editing {
+                let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+                item.target = self
+                menu.addItem(item)
+            }
+            for item in menu.items { item.tag = Self.ownItem }
             return menu
+        }
+
+        /// What the menu was built with, to tell it from what is added later.
+        static let ownItem = 0x5EED
+
+        /// The last word before it opens: AutoFill and whatever else the
+        /// system appends after `menu(for:)` are taken out again, separators
+        /// left dangling with them.
+        override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+            super.willOpenMenu(menu, with: event)
+            Self.keepOwn(menu)
+        }
+
+        static func keepOwn(_ menu: NSMenu) {
+            for item in menu.items.reversed() where item.tag != ownItem && !item.isSeparatorItem {
+                menu.removeItem(item)
+            }
+            // Separators only between items of our own.
+            while let last = menu.items.last, last.isSeparatorItem { menu.removeItem(last) }
+            var previousWasSeparator = true
+            for item in menu.items {
+                if item.isSeparatorItem, previousWasSeparator { menu.removeItem(item) }
+                previousWasSeparator = item.isSeparatorItem
+            }
         }
 
         override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity,
                                         stillSelecting: Bool) {
             super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
             if !stillSelecting { onCaret(selectedRange().location) }
+        }
+    }
+
+    /// The calendar, a time, and whether the time counts.
+    final class DatePickerController: NSViewController {
+        var date = Date()
+        var withTime = false
+        var onInsert: (Date, Bool) -> Void = { _, _ in }
+
+        private let calendar = NSDatePicker()
+        private let clock = NSDatePicker()
+        private let timeBox = NSButton(checkboxWithTitle: "Time", target: nil, action: nil)
+
+        override func loadView() {
+            calendar.datePickerStyle = .clockAndCalendar
+            calendar.datePickerElements = .yearMonthDay
+            calendar.dateValue = date
+            clock.datePickerStyle = .textFieldAndStepper
+            clock.datePickerElements = .hourMinute
+            clock.dateValue = date
+            clock.isEnabled = withTime
+            timeBox.state = withTime ? .on : .off
+            timeBox.target = self
+            timeBox.action = #selector(timeToggled)
+            let insert = NSButton(title: "Insert", target: self, action: #selector(insertDate))
+            insert.keyEquivalent = "\r"
+            let row = NSStackView(views: [timeBox, clock, NSView(), insert])
+            row.orientation = .horizontal
+            let stack = NSStackView(views: [calendar, row])
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+            row.widthAnchor.constraint(equalTo: calendar.widthAnchor).isActive = true
+            view = stack
+        }
+
+        @objc private func timeToggled() {
+            clock.isEnabled = timeBox.state == .on
+        }
+
+        @objc private func insertDate() {
+            let calendar = Calendar.current
+            var parts = calendar.dateComponents([.year, .month, .day], from: self.calendar.dateValue)
+            let withTime = timeBox.state == .on
+            if withTime {
+                let time = calendar.dateComponents([.hour, .minute], from: clock.dateValue)
+                parts.hour = time.hour
+                parts.minute = time.minute
+            }
+            onInsert(calendar.date(from: parts) ?? self.calendar.dateValue, withTime)
         }
     }
 
@@ -204,10 +381,6 @@ struct FlatExpressionField: NSViewRepresentable {
             editor.onCaret = { [weak self] caret in
                 guard let self, self.parent.caret != caret else { return }
                 DispatchQueue.main.async { self.parent.caret = caret }
-            }
-            editor.extraMenu = { [weak self] editor in
-                guard let self else { return [] }
-                return self.expandMenu(editor) + self.saveMenu()
             }
             editing = true
             (notification.object as? NSTextField).map(fit)
@@ -250,7 +423,7 @@ struct FlatExpressionField: NSViewRepresentable {
 
         /// Expand, when what is selected is a saved expression's name: the
         /// name replaced by what it stands for, to edit.
-        private func expandMenu(_ editor: NSTextView) -> [NSMenuItem] {
+        func expandMenu(_ editor: NSTextView) -> [NSMenuItem] {
             let range = editor.selectedRange()
             guard range.length > 0 else { return [] }
             let selected = (editor.string as NSString).substring(with: range)
@@ -291,7 +464,7 @@ struct FlatExpressionField: NSViewRepresentable {
 
         /// Save Expression: the names already in use, to replace one, and a
         /// new one. Only an expression that parses can be saved.
-        private func saveMenu() -> [NSMenuItem] {
+        func saveMenu() -> [NSMenuItem] {
             let item = NSMenuItem(title: "Save Expression", action: nil, keyEquivalent: "")
             guard parent.onSave != nil else {
                 item.isEnabled = false

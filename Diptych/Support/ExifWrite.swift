@@ -1,5 +1,7 @@
 import Foundation
+import CoreImage
 import ImageIO
+import UniformTypeIdentifiers
 
 /// Reading an image's EXIF, and writing it back changed -- without decoding
 /// and re-encoding the picture, so not a pixel of it changes.
@@ -69,9 +71,146 @@ enum ExifWrite {
         return try rewrite(data, name: name, changes: changes, stripping: stripped)
     }
 
+    /// The image in `data` without where it was taken: every GPS field, and
+    /// the place names photo software writes beside them; checked. Nil when
+    /// it has none.
+    nonisolated static func removeLocation(_ data: Data, name: String) throws(Failure) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let values = values(in: source) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be read as an image.")
+        }
+        var changes: [ExifKey: Change] = [:]
+        for key in values.keys where key.group == .gps {
+            changes[key] = .remove
+        }
+        let places = (CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+            .flatMap { CGImageMetadataCopyTags($0) as? [CGImageMetadataTag] } ?? [])
+            .contains { tag in
+                guard let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
+                      let tagName = CGImageMetadataTagCopyName(tag) as String? else { return false }
+                return placeTags.contains("\(prefix):\(tagName)")
+            }
+        guard !changes.isEmpty || places else { return nil }
+        return try rewrite(data, name: name, changes: changes, removingPaths: placeTags)
+    }
+
+    /// Where IPTC and Photoshop keep a place by its name.
+    nonisolated static let placeTags: Set<String> = [
+        "photoshop:City", "photoshop:State", "photoshop:Country",
+        "Iptc4xmpCore:Location", "Iptc4xmpCore:CountryCode",
+    ]
+
+    /// Turning or mirroring a picture as it is shown, by its Orientation
+    /// alone: the pixels are not decoded, so nothing of the quality is lost.
+    enum Turn: Sendable, CaseIterable {
+        case left, right, flipHorizontal, flipVertical
+
+        /// The Orientation after the turn, for each of the eight before it.
+        func applied(to orientation: Int) -> Int {
+            let table: [Int: Int] = switch self {
+            case .right:          [1: 6, 6: 3, 3: 8, 8: 1, 2: 7, 7: 4, 4: 5, 5: 2]
+            case .left:           [1: 8, 8: 3, 3: 6, 6: 1, 2: 5, 5: 4, 4: 7, 7: 2]
+            case .flipHorizontal: [1: 2, 2: 1, 3: 4, 4: 3, 5: 6, 6: 5, 7: 8, 8: 7]
+            case .flipVertical:   [1: 4, 4: 1, 2: 3, 3: 2, 5: 8, 8: 5, 6: 7, 7: 6]
+            }
+            return table[orientation] ?? table[1]!
+        }
+    }
+
+    nonisolated static let orientationKey = ExifKey(group: .tiff,
+                                                    name: kCGImagePropertyTIFFOrientation as String)
+
+    /// The image in `data` turned; checked. JPEG and HEIC by their
+    /// Orientation, other formats by their pixels -- PNG and TIFF lose
+    /// nothing by it either.
+    nonisolated static func turn(_ data: Data, name: String, _ turn: Turn) throws(Failure) -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be read as an image.")
+        }
+        let now = orientation(of: source)
+        let next = turn.applied(to: (1...8).contains(now) ? now : 1)
+        guard let type = CGImageSourceGetType(source) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be read as an image.")
+        }
+        let byOrientation = [UTType.jpeg, .heic, .heif].map(\.identifier).contains(type as String)
+        guard byOrientation else {
+            return try turnPixels(source, type: type, to: next, name: name)
+        }
+        // The orientation option alone, not new metadata: HEIC keeps its
+        // turn in the container rather than in EXIF, and only this option
+        // writes it there. The rest of the metadata is copied as it is.
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} cannot be written in its format.")
+        }
+        var error: Unmanaged<CFError>?
+        guard CGImageDestinationCopyImageSource(
+            destination, source, [kCGImageDestinationOrientation: next] as CFDictionary, &error)
+        else {
+            let reason = (error?.takeRetainedValue()).map { CFErrorCopyDescription($0) as String }
+            throw Failure(message: "\u{201C}\(name)\u{201D} cannot be turned"
+                          + (reason.map { ": \($0)" } ?? "."))
+        }
+        let result = output as Data
+        guard let written = CGImageSourceCreateWithData(result as CFData, nil),
+              orientation(of: written) == next else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} would not keep its new "
+                          + "orientation, so it was left as it was.")
+        }
+        return result
+    }
+
+    /// A format that keeps no turn of its own, or that viewers ignore:
+    /// the pixels drawn as `orientation` says, and the image upright.
+    private nonisolated static func turnPixels(_ source: CGImageSource, type: CFString,
+                                               to orientation: Int,
+                                               name: String) throws(Failure) -> Data {
+        guard CGImageSourceGetCount(source) == 1 else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} has several frames, which are not "
+                          + "turned.")
+        }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let exif = CGImagePropertyOrientation(rawValue: UInt32(orientation)) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be decoded.")
+        }
+        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        let turned = CIImage(cgImage: image).oriented(exif)
+        let format: CIFormat = image.bitsPerComponent > 8 ? .RGBA16 : .RGBA8
+        guard let pixels = CIContext().createCGImage(turned, from: turned.extent, format: format,
+                                                     colorSpace: space) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be turned.")
+        }
+        var properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            ?? [:]
+        properties[kCGImagePropertyOrientation] = 1
+        properties.removeValue(forKey: kCGImagePropertyPixelWidth)
+        properties.removeValue(forKey: kCGImagePropertyPixelHeight)
+        if var tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
+            tiff[kCGImagePropertyTIFFOrientation] = 1
+            properties[kCGImagePropertyTIFFDictionary] = tiff
+        }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} cannot be written in its format, so "
+                          + "it cannot be turned.")
+        }
+        CGImageDestinationAddImage(destination, pixels, properties as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else {
+            throw Failure(message: "\u{201C}\(name)\u{201D} could not be written turned.")
+        }
+        return output as Data
+    }
+
+    /// How the picture is to be turned to be shown: 1 to 8, 1 upright.
+    nonisolated static func orientation(of source: CGImageSource) -> Int {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        return (properties?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+    }
+
     /// The image in `data` with `changes` made, checked.
     nonisolated static func rewrite(_ data: Data, name: String, changes: [ExifKey: Change],
-                                    stripping prefixes: Set<String> = []) throws(Failure) -> Data {
+                                    stripping prefixes: Set<String> = [],
+                                    removingPaths paths: Set<String> = []) throws(Failure) -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let type = CGImageSourceGetType(source) else {
             throw Failure(message: "\u{201C}\(name)\u{201D} could not be read as an image.")
@@ -132,6 +271,10 @@ enum ExifWrite {
                                                      "exifEX:PhotographicSensitivity" as CFString)
                 }
             }
+        }
+
+        for path in paths {
+            CGImageMetadataRemoveTagWithPath(metadata, nil, path as CFString)
         }
 
         if !prefixes.isEmpty, let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] {

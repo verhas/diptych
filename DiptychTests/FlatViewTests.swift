@@ -333,6 +333,53 @@ final class FlatQueryTests: XCTestCase {
         }
     }
 
+    // MARK: - The field's menu
+
+    @MainActor
+    func testOnlyTheExpressionsOwnItemsStayInTheMenu() {
+        let menu = NSMenu()
+        for title in ["Save Expression", "-", "Cut", "Copy", "Paste", "Select All"] {
+            let item = title == "-" ? NSMenuItem.separator() : NSMenuItem(title: title, action: nil,
+                                                                         keyEquivalent: "")
+            item.tag = FlatExpressionField.Editor.ownItem
+            menu.addItem(item)
+        }
+        // What the system appends when the menu opens.
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "AutoFill", action: nil, keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "OpenPGP: Insert My Fingerprint", action: nil,
+                                keyEquivalent: ""))
+        FlatExpressionField.Editor.keepOwn(menu)
+        XCTAssertEqual(menu.items.map { $0.isSeparatorItem ? "-" : $0.title },
+                       ["Save Expression", "-", "Cut", "Copy", "Paste", "Select All"])
+    }
+
+    // MARK: - Where a date goes
+
+    func testADateSlotIsAfterADateComparison() {
+        let text = "file and modified >= 2026-01-31T14:30 and created < "
+        let ns = text as NSString
+        let written = ns.range(of: "2026-01-31T14:30")
+        XCTAssertEqual(FlatQuery.dateSlot(in: text, at: written.location + 3)?.range, written,
+                       "the whole date, from inside it")
+        XCTAssertEqual(FlatQuery.dateSlot(in: text, at: NSMaxRange(written))?.written,
+                       "2026-01-31T14:30")
+        XCTAssertEqual(FlatQuery.dateSlot(in: text, at: ns.length)?.range,
+                       NSRange(location: ns.length, length: 0), "none yet: where it goes")
+        XCTAssertNil(FlatQuery.dateSlot(in: text, at: 2))
+        XCTAssertNil(FlatQuery.dateSlot(in: "size > 10", at: 9), "a size, not a date")
+        XCTAssertNotNil(FlatQuery.dateSlot(in: "MODIFIED != ", at: 12))
+    }
+
+    func testADateIsWrittenToItsPrecision() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Budapest"))
+        let moment = try XCTUnwrap(FlatQuery.moment("2026-03-05T07:09", zone: zone))
+        XCTAssertEqual(FlatQuery.written(moment.start, withTime: true, zone: zone),
+                       "2026-03-05T07:09")
+        XCTAssertEqual(FlatQuery.written(moment.start, withTime: false, zone: zone), "2026-03-05")
+    }
+
     // MARK: - Typing an access pattern
 
     func testTheAccessPatternIsFoundAroundTheCaret() {

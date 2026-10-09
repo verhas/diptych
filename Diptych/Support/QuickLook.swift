@@ -88,6 +88,14 @@ final class QuickLookController: NSObject {
         panel.refreshCurrentPreviewItem()
     }
 
+    /// The same files, changed in place -- turned, their location removed:
+    /// drawn again rather than from what the panel kept of them.
+    func refresh() {
+        guard isVisible, let panel = QLPreviewPanel.shared() else { return }
+        panel.reloadData()
+        panel.refreshCurrentPreviewItem()
+    }
+
     // MARK: - Text fallback
 
     /// Files whose extension the system does not recognise get no preview at

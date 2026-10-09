@@ -684,16 +684,58 @@ struct PaneView: View {
             }
             // Only when an image whose EXIF can be changed is selected; the
             // editor takes those and leaves anything else out.
-            let images = AppModel.exifEditable(pane.rows.filter { ids.contains($0.id) })
-            if !images.isEmpty {
+            // Any picture; the EXIF items only for the ones whose EXIF can be
+            // changed -- JPEG and HEIC.
+            let selectedRows = pane.rows.filter { ids.contains($0.id) }
+            let pictures = AppModel.imageFiles(selectedRows)
+            let images = AppModel.exifEditable(selectedRows)
+            if !pictures.isEmpty {
                 Menu("Image") {
-                    Button(images.count == 1 ? "Edit EXIF\u{2026}"
-                                             : "Edit EXIF of \(images.count) Images\u{2026}") {
-                        act(ids) { model.editExif(of: images) }
+                    if !images.isEmpty {
+                        Button(images.count == 1 ? "Edit EXIF\u{2026}"
+                                                 : "Edit EXIF of \(images.count) Images\u{2026}") {
+                            act(ids) { model.editExif(of: images) }
+                        }
+                        Button(images.count == 1 ? "Delete All EXIF Data"
+                                                 : "Delete All EXIF Data of \(images.count) Images") {
+                            act(ids) { model.eraseExif(of: images) }
+                        }
+                        Button(images.count == 1 ? "Remove Location"
+                                                 : "Remove Location of \(images.count) Images") {
+                            act(ids) { model.removeLocation(of: images) }
+                        }
+                        Divider()
                     }
-                    Button(images.count == 1 ? "Delete All EXIF Data"
-                                             : "Delete All EXIF Data of \(images.count) Images") {
-                        act(ids) { model.eraseExif(of: images) }
+                    // JPEG and HEIC by their orientation alone; the rest by
+                    // their pixels, losslessly for PNG and TIFF.
+                    Button("Rotate Left") { act(ids) { model.turn(pictures, .left) } }
+                    Button("Rotate Right") { act(ids) { model.turn(pictures, .right) } }
+                    Button("Flip Horizontally") {
+                        act(ids) { model.turn(pictures, .flipHorizontal) }
+                    }
+                    Button("Flip Vertically") { act(ids) { model.turn(pictures, .flipVertical) } }
+                    Divider()
+                    // New images beside the originals; these are untouched.
+                    Button(pictures.count == 1 ? "Convert\u{2026}"
+                                             : "Convert \(pictures.count) Images\u{2026}") {
+                        act(ids) { model.requestConvert(pictures, resizing: false) }
+                    }
+                    Button(pictures.count == 1 ? "Resize\u{2026}"
+                                             : "Resize \(pictures.count) Images\u{2026}") {
+                        act(ids) { model.requestConvert(pictures, resizing: true) }
+                    }
+                    Button("Remove Background") {
+                        act(ids) { model.removeBackground(of: pictures) }
+                    }
+                    Button(pictures.count == 1 ? "Recognize Text\u{2026}"
+                                               : "Recognize Text of \(pictures.count) Images\u{2026}") {
+                        act(ids) { model.requestRecognizeText(pictures) }
+                    }
+                    if pictures.count == 1 {
+                        Divider()
+                        Button("Set as Desktop Picture") {
+                            act(ids) { model.setDesktopPicture(pictures[0]) }
+                        }
                     }
                 }
             }

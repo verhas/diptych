@@ -34,13 +34,15 @@ final class ExifEditorTests: XCTestCase {
     }
 
     private func image(_ name: String, type: UTType = .jpeg,
-                       exif: [CFString: Any] = [:], tiff: [CFString: Any] = [:]) -> URL {
+                       exif: [CFString: Any] = [:], tiff: [CFString: Any] = [:],
+                       gps: [CFString: Any] = [:]) -> URL {
         let url = folder.appendingPathComponent(name)
         let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString,
                                                           1, nil)!
         var properties: [CFString: Any] = [:]
         if !exif.isEmpty { properties[kCGImagePropertyExifDictionary] = exif }
         if !tiff.isEmpty { properties[kCGImagePropertyTIFFDictionary] = tiff }
+        if !gps.isEmpty { properties[kCGImagePropertyGPSDictionary] = gps }
         CGImageDestinationAddImage(destination, picture(), properties as CFDictionary)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         return url
@@ -862,5 +864,85 @@ extension ExifEditorTests {
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         XCTAssertTrue(AppWindows.shared.live.contains(window))
         AppWindows.shared.unregister(window)
+    }
+
+    // MARK: - Turning, and the location
+
+    /// The size the picture is shown at, its Orientation applied.
+    private func shown(_ url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 400,
+              ] as CFDictionary) else { return nil }
+        return CGSize(width: image.width, height: image.height)
+    }
+
+    func testTheTurnsFollowTheEightOrientations() {
+        for orientation in 1...8 {
+            XCTAssertEqual(ExifWrite.Turn.left.applied(to: ExifWrite.Turn.right.applied(to: orientation)),
+                           orientation, "left undoes right")
+            XCTAssertEqual(ExifWrite.Turn.flipHorizontal.applied(
+                to: ExifWrite.Turn.flipHorizontal.applied(to: orientation)), orientation)
+            var turned = orientation
+            for _ in 0..<4 { turned = ExifWrite.Turn.right.applied(to: turned) }
+            XCTAssertEqual(turned, orientation, "four quarter turns are none")
+        }
+        // Both flips are half a turn.
+        XCTAssertEqual(ExifWrite.Turn.flipVertical.applied(to: ExifWrite.Turn.flipHorizontal.applied(to: 1)),
+                       ExifWrite.Turn.right.applied(to: ExifWrite.Turn.right.applied(to: 1)))
+    }
+
+    func testTurningChangesOnlyHowItIsShown() async throws {
+        for type in [UTType.jpeg, .heic] {
+            let url = image("turn.\(type.preferredFilenameExtension!)", type: type,
+                            tiff: [kCGImagePropertyTIFFMake: "Acme"])
+            let before = try XCTUnwrap(shown(url))
+            let picture = pixels(url)
+            let history = FileHistory()
+            let saved = await AppModel.rewriteImages([url], undoName: "Rotate", told: "",
+                                                     history: history) { data, name throws(ExifWrite.Failure) in
+                try ExifWrite.turn(data, name: name, .right)
+            }
+            XCTAssertTrue(saved.failures.isEmpty, saved.failures.joined())
+            let after = try XCTUnwrap(shown(url))
+            XCTAssertEqual(after.width, before.height, "\(type): shown turned")
+            XCTAssertEqual(after.height, before.width)
+            XCTAssertEqual(pixels(url), picture, "\(type): the pixels are not touched")
+            XCTAssertEqual((ExifWrite.values(of: url)?[ExifWrite.orientationKey] as? NSNumber)?.intValue, 6)
+            XCTAssertEqual(ExifWrite.values(of: url)?[key(.tiff, kCGImagePropertyTIFFMake)] as? String,
+                           "Acme", "\(type): the rest of the metadata stays")
+
+            _ = await history.perform(.undo) { _ in true }
+            XCTAssertEqual(shown(url), before, "\(type): Undo turns it back")
+        }
+    }
+
+    func testRemovingTheLocationLeavesTheRest() async throws {
+        let url = image("place.jpg", exif: [kCGImagePropertyExifLensModel: "50mm"],
+                        gps: [kCGImagePropertyGPSLatitude: 47.5, kCGImagePropertyGPSLatitudeRef: "N",
+                              kCGImagePropertyGPSLongitude: 8.7, kCGImagePropertyGPSLongitudeRef: "E"])
+        XCTAssertNotNil(ExifWrite.values(of: url)?[key(.gps, kCGImagePropertyGPSLatitude)])
+        let picture = pixels(url)
+        let history = FileHistory()
+        let saved = await AppModel.rewriteImages([url], undoName: "Remove Location", told: "",
+                                                 history: history) { data, name throws(ExifWrite.Failure) in
+            try ExifWrite.removeLocation(data, name: name)
+        }
+        XCTAssertTrue(saved.failures.isEmpty, saved.failures.joined())
+        let left = try XCTUnwrap(ExifWrite.values(of: url))
+        XCTAssertFalse(left.keys.contains { $0.group == .gps }, "\(left.keys)")
+        XCTAssertEqual(left[key(.exif, kCGImagePropertyExifLensModel)] as? String, "50mm")
+        XCTAssertEqual(pixels(url), picture)
+        // Nothing left to remove: not written, no Undo step.
+        let again = await AppModel.rewriteImages([url], undoName: "Remove Location", told: "",
+                                                 history: FileHistory()) { data, name throws(ExifWrite.Failure) in
+            try ExifWrite.removeLocation(data, name: name)
+        }
+        XCTAssertTrue(again.done.isEmpty)
+
+        _ = await history.perform(.undo) { _ in true }
+        XCTAssertNotNil(ExifWrite.values(of: url)?[key(.gps, kCGImagePropertyGPSLatitude)])
     }
 }

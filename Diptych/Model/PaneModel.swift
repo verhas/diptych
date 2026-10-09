@@ -84,6 +84,9 @@ final class PaneModel {
             // folder like any other, and Diptych previews a folder by listing
             // it -- which is exactly what somebody about to go up wants to see.
             guard QuickLookController.shared.isVisible else { return }
+            // Only the pane the panel follows: the other one, reloaded after
+            // a change made here, took the panel to its own selection.
+            if let owner, owner.active !== self { return }
             QuickLookController.shared.update(selectedRows.map(\.url))
         }
     }

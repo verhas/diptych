@@ -203,6 +203,8 @@ final class FileHistory {
 
     enum Creation: Sendable {
         case newFile, newFolder, clipboard, link
+        /// New images made from others: "Convert", "Remove Background".
+        case images(String)
 
         var name: String {
             switch self {
@@ -210,6 +212,7 @@ final class FileHistory {
             case .newFolder: "New Folder"
             case .clipboard: "New from Clipboard"
             case .link:      "Link"
+            case .images(let name): name
             }
         }
 
@@ -223,6 +226,10 @@ final class FileHistory {
                 urls.count == 1
                     ? "\(names) was linked in \(folder)."
                     : "\(urls.count) links were made in \(folder): \(names)."
+            case .images:
+                urls.count == 1
+                    ? "\(names) was made in \(folder)."
+                    : "\(urls.count) files were made in \(folder): \(names)."
             }
         }
     }

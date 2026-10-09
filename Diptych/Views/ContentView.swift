@@ -853,6 +853,12 @@ struct DialogSheet: View {
                     RunArgumentsView(model: model, request: request)
                 }
 
+            case .convertImages:
+                ConvertImagesView(model: model)
+
+            case .recognizeText:
+                recognizeText
+
             case .updateAvailable(let version):
                 confirmation(
                     title: "Diptych \(version) Is Available",
@@ -871,6 +877,36 @@ struct DialogSheet: View {
         // folder, and at 470 a rename was broken over three lines.
         .frame(width: dialog == .historyStep || dialog == .historyMany || dialog == .runArguments
                ? 600 : 470)
+    }
+
+    /// Recognize Text: where to keep what is read. Asked each time, the last
+    /// answer first.
+    @ViewBuilder
+    private var recognizeText: some View {
+        let count = model.recognizingImages.count
+        Text(count == 1
+             ? "Recognize the Text of \u{201C}\(model.recognizingImages[0].lastPathComponent)\u{201D}"
+             : "Recognize the Text of \(count) Images")
+            .font(.headline)
+        Text("Apple\u{2019}s Vision reads it, on this Mac. Where should it be kept?")
+            .font(.subheadline).foregroundStyle(.secondary)
+        Picker("", selection: $model.textPlace) {
+            Text("In a text file beside each image \u{2014} IMG_1.jpg.txt. Every tool finds "
+                 + "it: Spotlight, grep, the flat view\u{2019}s contains.")
+                .tag(ImageMaking.TextPlace.sidecar)
+            Text("As the image\u{2019}s Spotlight comment attribute. Spotlight and the flat "
+                 + "view\u{2019}s xattr see it; Finder\u{2019}s Get Info does not.")
+                .tag(ImageMaking.TextPlace.comment)
+        }
+        .pickerStyle(.radioGroup)
+        .labelsHidden()
+        HStack {
+            Spacer()
+            Button("Cancel") { model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Recognize") { model.recognizeText() }
+                .keyboardShortcut(.defaultAction)
+        }
     }
 
     /// One random fact, shown once at startup, with "Next" cycling through the

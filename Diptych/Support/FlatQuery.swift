@@ -391,10 +391,10 @@ nonisolated struct FlatQuery: Sendable {
                 + "xattr(\"name\") ~ /regex/"
         case "created":
             "created <, <=, =, !=, >=, > 2026-01-31, or 2026-01-31T14:30, with +02:00 or Z "
-                + "for a zone; a date alone is the whole day"
+                + "for a zone; a date alone is the whole day. Control-Space for a calendar"
         case "modified":
             "modified <, <=, =, !=, >=, > 2026-01-31, or 2026-01-31T14:30, with +02:00 or Z "
-                + "for a zone; a date alone is the whole day"
+                + "for a zone; a date alone is the whole day. Control-Space for a calendar"
         case "contains", "content":
             "contains \"text\" the file has the text in it; contains ~ /regex/ a line of it "
                 + "matches, as grep, /\u{2026}/i ignoring case. Binary files are never "
@@ -1369,6 +1369,45 @@ nonisolated extension FlatQuery {
             }
         }
         return nil
+    }
+}
+
+// MARK: - Where a date goes
+
+nonisolated extension FlatQuery {
+
+    /// Where a date belongs at `caret` -- after `created` or `modified` and
+    /// a comparison -- as the range of the date already there (empty when
+    /// there is none yet) and that date as written; nil anywhere else.
+    static func dateSlot(in text: String, at caret: Int) -> (range: NSRange, written: String)? {
+        let ns = text as NSString
+        let caret = min(max(caret, 0), ns.length)
+        func isWord(_ index: Int) -> Bool {
+            guard let scalar = UnicodeScalar(ns.character(at: index)) else { return false }
+            return isWordCharacter(Character(scalar))
+        }
+        var start = caret
+        while start > 0, isWord(start - 1) { start -= 1 }
+        var end = caret
+        while end < ns.length, isWord(end) { end += 1 }
+        guard case .success(let tokens) = tokenize(ns.substring(to: start)), tokens.count >= 2,
+              let comparison = tokens.last, comparison.kind == .symbol,
+              Comparison(rawValue: comparison.text) != nil,
+              tokens[tokens.count - 2].isWord("created")
+                || tokens[tokens.count - 2].isWord("modified") else { return nil }
+        let range = NSRange(location: start, length: end - start)
+        return (range, ns.substring(with: range))
+    }
+
+    /// A date as the expression writes it, in this Mac's time: the day
+    /// alone, or with the minute when there is a time.
+    static func written(_ date: Date, withTime: Bool, zone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = zone
+        formatter.dateFormat = withTime ? "yyyy-MM-dd'T'HH:mm" : "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }
 

@@ -345,8 +345,8 @@ switches a part off without deleting it, and no warning is given for what it
 makes impossible. So does a comment, `/* … */`, which may be anywhere and
 span lines.
 
-**Saved expressions.** Right-click the field while editing it: **Save
-Expression** lists the names already in use, to replace one, and **New Name…**.
+**Saved expressions.** Right-click the field -- its menu has the expression's
+own items and the editing ones, nothing else: **Save Expression** lists the names already in use, to replace one, and **New Name…**.
 Only an expression that parses can be saved. A name is a letter, then letters,
 digits, `_` or `-`, and not one of the language's words; case does not matter.
 A saved name can then be the expression, or part of one, and stands for its
@@ -402,7 +402,11 @@ Not every impossible expression is caught, only the common shapes. A run that
 finds nothing says so under the field. Otherwise the line under the field says
 what the word at the caret takes. **Control-Space** offers what can come next
 -- a test, a comparison, a unit, a keyword, a saved name -- starting with what
-is typed of it; when only one thing can come next, it is inserted at once. After `access =` it offers
+is typed of it; when only one thing can come next, it is inserted at once.
+Where a date goes -- after `created` or `modified` and a comparison, or on a
+date already there -- it opens a **calendar** instead, starting at the date
+written; tick **Time** for a minute too, and **Insert** (Return) writes it in
+this Mac's time. After `access =` it offers
 `"*********"`, and inside those quotes typing overwrites, as in the pane's
 permission editor: `r`, `w`, `x` set that letter in the caret's three places
 (Shift makes it `-`, Option toggles), `s` and `t` the special bits, and `-`,
@@ -639,6 +643,44 @@ question asked: a message says *3 files' EXIF data was erased, undoable*, and
 it is one **Delete EXIF** step in Undo. Orientation stays, or the picture would
 show turned; the picture itself is not re-encoded. Other XMP — Lightroom's
 settings, a rating — is not EXIF and stays.
+
+**Right-click ▸ Image** is there for any picture -- PNG, TIFF, GIF and the
+rest too; the EXIF items only for JPEG and HEIC. Each of these is one step of
+Undo:
+
+- **Remove Location** takes out where the images were taken -- every GPS
+  field, and the city, state, country and location names photo software keeps
+  beside them -- and nothing else: for sharing a picture without the place.
+- **Rotate Left, Rotate Right, Flip Horizontally, Flip Vertically**: a JPEG or
+  HEIC is turned by its orientation alone -- nothing is decoded or compressed
+  again, so nothing of the quality is lost -- and any other picture by its
+  pixels, which PNG and TIFF keep exactly. The rest of the metadata stays. An
+  open Quick Look shows the picture turned.
+- **Set as Desktop Picture**, for one image, on every screen. It changes no
+  file, so it is not in Undo.
+
+And three that make **new images**, next to the originals -- or into the other
+pane's folder -- never touching them; one Undo step moves what was made to the
+Trash:
+
+- **Convert…** to JPEG, HEIC (where this Mac can write it), PNG or TIFF, with
+  a quality for JPEG and HEIC, the metadata kept or left out. `IMG_1.heic`
+  becomes `IMG_1.jpg`; a name already taken gets a number, `IMG_1-1.jpg`. A
+  transparent picture goes onto white for JPEG.
+- **Resize…** to a longest side -- 4096 down to 640 pixels -- in the same
+  format or another: `IMG_1 (2048).jpg`. The picture is turned upright on the
+  way, and an image already smaller is not made larger. Convert and Resize are
+  one dialog.
+- **Remove Background** finds the subject with Apple's Vision, on this Mac, and
+  saves it on a transparent background as `IMG_1 (cut out).png`. A picture with
+  no clear subject -- a landscape, a texture -- says so and makes nothing.
+- **Recognize Text…** reads the text in the pictures with Vision, and asks
+  where to keep it: in a text file beside each, `IMG_1.jpg.txt`, which
+  Spotlight, `grep` and the flat view's `contains` all find; or as the
+  picture's Spotlight comment attribute,
+  `com.apple.metadata:kMDItemFinderComment`, which the flat view's `xattr`
+  finds but Finder's Get Info does not show. A picture without text is only
+  counted; an existing text file is left alone.
 
 **Help with the values**, and a way past it. Each helper has a keyboard button
 beside it for typing the value instead, and a button back:
