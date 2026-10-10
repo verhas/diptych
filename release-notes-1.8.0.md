@@ -1,7 +1,8 @@
 # Diptych 1.8.0
 
 A pane can show a folder and everything under it as one list, filtered by an
-expression much like `find`'s; images get an EXIF editor — with a map, pasting
+expression much like `find`'s -- which also asks pictures and videos when,
+where and with what they were taken; images get an EXIF editor — with a map, pasting
 places from Google Maps, and an erase that Undo takes back — and any picture
 can be turned without loss, converted, resized, cut out of its background or
 have its text read; Text Edit gets a gutter that shows what changed since the
@@ -59,13 +60,56 @@ modified >= 2026-01-01 and access = "***r**r**" and not xattr("com.apple.quarant
 - **Control-Space** offers what can come next; when only one thing can, it is
   inserted at once. After `access =` it offers `"*********"`, and inside those
   quotes typing overwrites, as in the pane's permission editor.
-- **Control-Space where a date goes** -- after `created` or `modified` and a
+- **Control-Space where a date goes** -- after a date test and a
   comparison, or on a date already written -- opens a calendar instead, with
   the time when it is ticked.
 - **A long expression gets every line it needs** while it is being edited.
 - **The right-click menu is the expression's own**, from the first click:
   Expand, Save Expression, and Cut, Copy, Paste, Select All -- no calendar
   events, Services, AutoFill or Writing Tools in an expression.
+
+### Pictures and videos
+
+The expression can ask what a picture or a video says about itself, read from
+its header -- never its pixels -- so a file is known by its bytes, not its name.
+
+- **What it is:** `image` (raw files and SVG drawings too), `video`, `exif`,
+  `located`, `flash`, `landscape`, `portrait`, `square`, `rotated`,
+  `transparent`, `animated`, and `format = "heic"` -- the formats are listed
+  in the README; `"raw"` is any camera's raw.
+- **What it says:** `camera = "*iPhone*"`, `lens`, `software`, `artist`,
+  `copyright`, `description`; `taken` and `digitized` dates; `iso`, `aperture`
+  (`2.8` or `f/2.8`), `shutter` (`1/250`, `2s`), `focal` and `focal35`,
+  `width`, `height`, `megapixels`, `altitude`, `rating`, a video's `duration`.
+- **Where:** `near(47.4979, 19.0402, 5km)`, and `city`, `state` and `country`
+  -- as written in the file, or else the nearest town of 15,000 people or more
+  within 50 km, from a GeoNames list in the app: looked up on this Mac, never
+  asked of a service. The list is `~/.diptych/exif/places.json`, to correct:
+  a town can be disabled, or fixed and marked `manual`, which a later version
+  then leaves alone.
+- **Videos** -- MOV, MP4, M4V, 3GP -- say when and where they were taken, the
+  camera, their size and their length.
+- **Metric and imperial**: `5km` or `3mi`, `2000m` or `6000ft`, `50mm` or `2in`.
+- **What a file does not say makes its test false**, with `!=` too: a text
+  file is not `camera != "x"`. Only NOT makes it true, so `not located` lists
+  every text file as well -- the line under the field says so, and `image and
+  not located` keeps to pictures.
+- **New warnings**: a picture and a video at once, landscape and portrait, two
+  formats, numbers or dates in ranges that do not meet.
+- **Control-Space** offers the usual ISO values, f-stops, shutter speeds and
+  focal lengths, the units after a number, the formats, and -- after `camera
+  =`, `lens =` and the like -- what the flat view found, commonest first. A
+  calendar after `taken` and `digitized` too.
+- **The cheap tests first**: `name = "*.heic" and iso > 1600` opens only the
+  HEIC files.
+
+### Dates and ranges
+
+- **A year or a month is a date**, for every date test: `modified = 2026` is
+  the whole year, `taken = 2024-07` July.
+- **`between`** for anything that has an order: `iso between [100, 800)`,
+  `taken between [2024-06, 2024-08]`, `size between (1MB, 10MB]` -- a square
+  bracket takes the end in, a round one leaves it out.
 
 ### Saved expressions
 
@@ -80,6 +124,8 @@ modified >= 2026-01-01 and access = "***r**r**" and not xattr("com.apple.quarant
   undoable.
 - **If one that others use goes**, Diptych says at once which stop working,
   and an expression using them says which name is missing, and through which.
+- **A file whose name is not allowed is ignored, and said so**, as Diptych
+  starts or when one turns up: the name, why, and the file's full path.
 
 ### Walking, and holding still
 
@@ -95,7 +141,9 @@ modified >= 2026-01-01 and access = "***r**r**" and not xattr("com.apple.quarant
   folders; with Option held, the path bar's last folder is a link back to the
   folder too. A flat pane is saved as flat.
 - **A source, not a target**: rows can be copied, moved, renamed and trashed;
-  nothing can be copied, moved, pasted or made *into* a flat view.
+  nothing can be copied, moved, pasted or made *into* a flat view. F5 and F6
+  on the function bar are greyed while the other pane is flat, F7 while this
+  one is.
 
 ---
 
@@ -157,6 +205,27 @@ artist, copyright, dates, lens, exposure, location and more.
   date, summer time included.
 - **Lists for fields with defined values**, such as Metering Mode or
   Orientation.
+- **Copy and Paste as JSON**: every field with a value to the clipboard, and
+  fields from JSON there typed into the window -- to keep an edit that cannot
+  be saved, or to give one picture's values to another.
+- **A save that fails keeps what was typed**, and says which field by name.
+- **Comment takes no accented letters** -- macOS garbles them there -- and
+  says so before Save; Description keeps them.
+- **Control-Space in Camera Make, Camera Model, Lens Make and Lens Model**
+  offers the usual values, spelt as cameras write them (`NIKON CORPORATION`,
+  `ILCE-7M4`), narrowed by what is typed; a model's list follows the make.
+
+### Lists to correct, in ~/.diptych/exif
+
+- **`cameras.json`, `lenses.json` and `places.json`** are written on the
+  first start, one item to a line, and read on every start.
+- **`"disabled": true` takes an item out of use** for good: a new version
+  merges its own lists in, keeping what you added and never enabling what
+  you disabled.
+- **A town, region or country takes a new version's corrections** unless
+  you set its `"manual"` to `true`.
+- **A file that is not valid JSON is left alone**, Diptych says where it is
+  wrong, and uses its own list meanwhile.
 - Any of them can be typed instead. **Unusual values are orange** — a date in
   the future or before 1975, a GPS date before GPS time began in January
   1980, a value not on a field's list — and can still be saved. **Impossible
@@ -267,6 +336,73 @@ a problem, only what comes before it folds, until the file is right again.
 
 ---
 
+## Columns for pictures and videos
+
+**Settings ▸ Columns** offers what pictures and videos say about themselves,
+for every pane and not only a flat view: Format, Date Taken, Date Digitized,
+Camera, Lens, Software, Artist, Copyright, Description, ISO, Aperture, Shutter,
+Focal Length and its 35mm equivalent, Dimensions, Megapixels, Duration,
+Location, Altitude (in metres or feet, as the Mac's region measures), City,
+State, Country and Rating. They sort by their values. All are off until
+switched on: each reads the header of every picture and video in the folder,
+once while the file stays as it is.
+
+- **Arranged in the pane too**: drag a column header left or right to move
+  it, Name staying first, and right-click a header for every column in its
+  order, to tick on or off. It is the same setting as in Settings, and kept.
+  A column with nothing in it for any row of the pane is greyed in that menu,
+  and can still be ticked.
+
+## Directory sizes
+
+- **View ▸ Calculate Directory Sizes** works out how much is in every folder
+  in the pane, everything under it counted, into the Size column -- in teal,
+  so it is not taken for a file's size. Greyed while the Size column is
+  hidden; a toolbar button, ∑, can be switched on in Settings ▸ Toolbar.
+- **Early, then better**: a folder shows a total once its own files are
+  counted, `??` before, and the total grows as what is under it is read. A
+  folder counted before counts at its old total, in orange, until it is read
+  again, and every folder above follows the difference.
+- **In the background, one volume at a time**: it carries on when the pane
+  goes elsewhere, the totals are there when it comes back, and a second
+  request waits for the first. Kept in memory only. The Info window of a
+  folder shows its total too.
+- **Sorting by Size** puts a folder by its total as worked out so far, so the
+  rows move while the totals grow.
+- **View ▸ Clear Directory Sizes** forgets them all and stops the work: `--`
+  again.
+
+---
+
+## Values edited in place
+
+- **Click a date, or a picture's or video's value, in a selected row** and
+  type over it, as with a name: Return sets it for the whole selection, and
+  Undo takes it back.
+- **Date Modified and Date Created** for any file or folder; **Date Taken and
+  Date Digitized, Lens, ISO, Aperture, Shutter, Focal Length, Software,
+  Artist, Copyright and Description** in a JPEG's or HEIC's EXIF; **Date
+  Taken, Software, Artist, Copyright and Description** in a QuickTime or MP4
+  video.
+- **Typed as shown**: `2024-07-14 18:30 +02:00`, `f/2.8`, `1/250 s`, `24 mm`.
+  Emptied, a value is removed.
+
+---
+
+## Editing video metadata
+
+- **Right-click ▸ Video ▸ Edit Metadata…** opens the EXIF editor on QuickTime
+  and MP4 videos: the same fields, pickers and map -- date taken with its time
+  zone, the location in four fields with pasting from a map, camera make and
+  model with Control-Space, description, title, artist, copyright, software.
+- **The picture and sound are not touched**: they are copied as they are,
+  the file is written in place, and Undo puts each video back exactly.
+- **No camera fields where they cannot be kept**: an MP4 has no place for a
+  make or model, so they are shown only when a QuickTime movie is among the
+  videos, or one already has them.
+
+---
+
 ## The path bar
 
 - **Hold Option** over the path bar, or while typing in it, and the path
@@ -274,6 +410,11 @@ a problem, only what comes before it folds, until the file is right again.
   go there -- several levels up in one click, with the folder you came out of
   selected, as going up does. Let Option go and the text is back, with what
   you had typed and selected.
+- **A path typed or pasted is the one linked**: paste the path of a file,
+  press Option, and click its folder -- the file selected there.
+- **In a flat view, the rows' folders too**: hold Option and the folders before
+  each name are links. Click one to go there, the file selected; Back returns
+  to the flat view.
 - **The circle between Back and Forward** lists the folders the pane has been
   in, most recent first, each once. Unlike Back and Forward it keeps a folder
   you went back from and then left for somewhere else. Folders that are gone
@@ -295,14 +436,28 @@ a problem, only what comes before it folds, until the file is right again.
   questions before moving to the Trash or running a script, notices, and the
   rest. Clicking a checkbox or an option still ticks it.
 - **Alerts too** -- the ones about unsaved changes, updates, files changed on
-  disk, and the others: their title and message can be selected.
+  disk, and the others: their title and message can be selected, and **⌘C
+  copies the selection** (⌘A selects it all). Anywhere else too, ⌘C copies
+  the text selected in the window in front, never the files behind it.
+
+---
+
+## The Info window
+
+- **Details**: a picture's or video's place is a link that opens it in Google
+  Maps.
 
 ---
 
 ## Upgrading
 
-Nothing to do.
+A saved expression whose name is now one of the language's words -- `image`,
+`video`, `format`, `camera`, `taken`, `near` and the others -- is the word from
+now on: `image` is the new test, which knows pictures by their bytes. Diptych
+says so as it starts, naming each such file with its full path; to use the
+saved one, change the name in its file in `~/.diptych/filters`. Control-Space
+no longer offers such a name.
 
 ---
 
-*1003 tests.*
+*1063 tests.*
