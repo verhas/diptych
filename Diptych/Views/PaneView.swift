@@ -157,6 +157,14 @@ struct PaneView: View {
                                 onSave: flatProblem == nil ? { name in
                                     model.saveFlatExpression(pane.flatDraft, as: name)
                                 } : nil,
+                                knownValues: { field in
+                                    // What it has found: nothing before it ran.
+                                    guard pane.isFlat, !pane.items.isEmpty
+                                            || pane.flatProgress == nil else { return nil }
+                                    return MediaInfo.values(
+                                        of: field,
+                                        in: pane.items.filter { !$0.isDirectory }.map(\.url))
+                                },
                                 onRun: { runFlat() })
                 .frame(height: flatFieldHeight)
                 .frame(maxWidth: .infinity)
@@ -369,7 +377,8 @@ struct PaneView: View {
             .allowsHitTesting(!showsCrumbs)
             .overlay(alignment: .leading) {
                 if showsCrumbs {
-                    PathCrumbs(directory: pane.directory, lastIsLink: pane.isFlat) { folder, cameFrom in
+                    let crumbs = crumbTarget
+                    PathCrumbs(directory: crumbs.url, lastIsLink: crumbs.lastIsLink) { folder, cameFrom in
                         goToCrumb(folder, cameFrom: cameFrom)
                     }
                 }
@@ -386,6 +395,22 @@ struct PaneView: View {
 
     private var showsCrumbs: Bool {
         OptionKey.shared.isDown && (pane.isEditingPath || pathBarHovered)
+    }
+
+    /// What the links lead along: while a path is typed or pasted in the
+    /// bar, that path -- its folders all links, its file's name the end of
+    /// them -- so a path to a file is one click from its folder.
+    private var crumbTarget: (url: URL, lastIsLink: Bool) {
+        let here = pane.directory.standardizedFileURL.path
+        guard pane.isEditingPath else { return (pane.directory, pane.isFlat) }
+        let typed = URL(fileURLWithPath: PathCompletion.resolve(pathText, base: pane.directory.path))
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: typed.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else { return (typed, false) }
+            return (typed, typed.standardizedFileURL.path != here || pane.isFlat)
+        }
+        let existing = PaneModel.nearestExistingAncestor(of: typed)
+        return (existing, existing.standardizedFileURL.path != here || pane.isFlat)
     }
 
     /// A folder above, from the links: the folder it came out of is selected,
@@ -689,6 +714,15 @@ struct PaneView: View {
             let selectedRows = pane.rows.filter { ids.contains($0.id) }
             let pictures = AppModel.imageFiles(selectedRows)
             let images = AppModel.exifEditable(selectedRows)
+            let videos = AppModel.videoEditable(selectedRows)
+            if !videos.isEmpty {
+                Menu("Video") {
+                    Button(videos.count == 1 ? "Edit Metadata\u{2026}"
+                                             : "Edit Metadata of \(videos.count) Videos\u{2026}") {
+                        act(ids) { model.editVideoMetadata(of: videos) }
+                    }
+                }
+            }
             if !pictures.isEmpty {
                 Menu("Image") {
                     if !images.isEmpty {

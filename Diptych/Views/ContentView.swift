@@ -156,6 +156,7 @@ struct ContentView: View {
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.openSiblingsWindow = { openWindow(id: DiptychApp.siblingsWindowID, value: $0) }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
+            model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
@@ -430,6 +431,7 @@ struct ContentView: View {
         case .singlePane:      model.isSinglePane.toggle()
         case .hiddenFiles:     model.showHidden.toggle()
         case .refresh:         model.refreshPanes()
+        case .directorySizes:  model.calculateDirectorySizes()
         case .swapPanes:       model.swapPanes()
         case .sameFolder:      model.syncPanes()
         case .back:            model.goBack()
@@ -472,6 +474,7 @@ struct ContentView: View {
         case .actualSize:               PaneFont.size == Configuration.defaultFontSize
         case .sendWork, .getLatest,
              .checkForChanges:          model.gitBusy
+        case .directorySizes:           !model.canCalculateDirectorySizes
         default:                        false
         }
     }
@@ -1304,9 +1307,13 @@ struct FunctionBar: View {
             key("F2", "Rename")   { model.requestRename() }
             key("F3", "View")     { model.viewSelection() }
             key("F4", "Access")   { model.requestPermissionEdit() }
+            // A flat view is many folders, not one: nothing goes into it.
             key("F5", "Copy")     { model.copySelection() }
+                .disabled(model.inactive.isFlat)
             key("F6", "Move")     { model.moveSelection() }
+                .disabled(model.inactive.isFlat)
             key("F7", "Folder")   { model.requestNewFolder() }
+                .disabled(model.active.isFlat)
             key("F8", "Trash")    { model.requestTrash() }
             Spacer()
             Text("Tab switches panes")

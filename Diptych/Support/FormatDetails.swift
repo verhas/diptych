@@ -22,6 +22,8 @@ enum FormatDetails {
     struct Row: Identifiable, Sendable, Equatable {
         let name: String
         let value: String
+        /// Where a click on the value goes: a place, in Google Maps.
+        var link: URL?
         var id: String { name }
     }
 
@@ -77,7 +79,35 @@ enum FormatDetails {
         if report.sections.isEmpty {
             report.sections += await BlockingWork.run { spotlight(url) }
         }
+        if let info = await BlockingWork.run({ MediaCache.shared.info(for: url) }),
+           let latitude = info.latitude, let longitude = info.longitude {
+            report.sections = located(report.sections, latitude: latitude, longitude: longitude)
+        }
         return report
+    }
+
+    /// Where the file was taken, as a link to the place: the Location row
+    /// a video has, or one put first among the picture's GPS fields.
+    static func located(_ sections: [Section], latitude: Double, longitude: Double) -> [Section] {
+        let place = ExifEditorModel.Location(latitude: latitude, longitude: longitude)
+        let link = LocationMap.googleMaps(place)
+        var sections = sections
+        for (index, section) in sections.enumerated() {
+            guard let at = section.rows.firstIndex(where: { $0.name == "Location" }) else { continue }
+            var rows = section.rows
+            rows[at].link = link
+            sections[index] = Section(title: section.title, rows: rows)
+            return sections
+        }
+        let row = Row(name: "Location", value: LocationMap.text(place).replacingOccurrences(
+            of: ",", with: ", "), link: link)
+        if let index = sections.firstIndex(where: { $0.title == "Location (GPS)" }) {
+            sections[index] = Section(title: sections[index].title,
+                                      rows: [row] + sections[index].rows)
+        } else {
+            sections.append(Section(title: "Location", rows: [row]))
+        }
+        return sections
     }
 
     // MARK: - Pictures

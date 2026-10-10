@@ -22,6 +22,7 @@ final class DirectoryComparisonTests: XCTestCase {
         try? fm.removeItem(at: root)
     }
 
+    @discardableResult
     private func write(_ text: String, at relative: String, in base: URL) throws -> URL {
         let url = base.appendingPathComponent(relative)
         try fm.createDirectory(at: url.deletingLastPathComponent(),

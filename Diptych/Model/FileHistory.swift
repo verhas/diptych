@@ -82,6 +82,16 @@ final class FileHistory {
         let toGroup: String?
     }
 
+    /// A file's own date -- created or modified -- set by hand.
+    struct DateChange: Sendable {
+        enum Which: Sendable { case created, modified }
+        let url: URL
+        let which: Which
+        /// What it should be now, for the step to apply cleanly.
+        let from: Date
+        let to: Date
+    }
+
     /// A file whose bytes were changed in place -- its EXIF, say -- and a
     /// copy of what it held before, to put back. Nothing short of the copy can
     /// bring back the exact file.
@@ -105,6 +115,7 @@ final class FileHistory {
         case attributes([AttributeChange])
         case contents([ContentChange])
         case savedExpressions([SavedExpressionChange])
+        case dates([DateChange])
     }
 
     /// A flat view expression saved under a name: what its file is to hold
@@ -291,6 +302,23 @@ final class FileHistory {
         record(name, told: told, .contents(changes.map {
             ContentChange(url: $0.url, identity: Self.identity(of: $0.url),
                           modified: Self.modified($0.url), snapshot: $0.before)
+        }))
+    }
+
+    /// Created or modified dates set: `before` each file's as it was.
+    func recordDates(_ changes: [(url: URL, before: Date, after: Date)],
+                     which: DateChange.Which) {
+        let real = changes.filter { abs($0.before.timeIntervalSince($0.after)) >= 1 }
+        guard let first = real.first else { return }
+        let what = which == .created ? "creation date" : "modification date"
+        let when = first.after.formatted(date: .abbreviated, time: .standard)
+        let told = real.count == 1
+            ? "The \(what) of \(quoted(first.url.lastPathComponent)) in "
+              + "\(folder(of: first.url)) was set to \(when)."
+            : "The \(what) of \(real.count) items in \(folder(of: first.url)) was set to "
+              + "\(when): \(names(real.map(\.url)))."
+        record("Date Change", told: told, .dates(real.map {
+            DateChange(url: $0.url, which: which, from: $0.after, to: $0.before)
         }))
     }
 
@@ -631,6 +659,21 @@ final class FileHistory {
                 }
             }
             doable = .contents(ok)
+
+        case .dates(let changes):
+            var ok: [DateChange] = []
+            for change in changes {
+                let name = quoted(change.url.lastPathComponent)
+                guard let now = date(change.which, of: change.url) else {
+                    problems.append("\(name) is no longer in \(folder(of: change.url)).")
+                    continue
+                }
+                ok.append(change)
+                if abs(now.timeIntervalSince(change.from)) >= 1 {
+                    warnings.append("\(name) has had its date changed since.")
+                }
+            }
+            doable = .dates(ok)
         }
 
         return Plan(direction: direction, entry: entry, doable: doable,
@@ -639,9 +682,37 @@ final class FileHistory {
 
     // MARK: - Doing
 
+    nonisolated static func date(_ which: DateChange.Which, of url: URL) -> Date? {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey,
+                                                       .contentModificationDateKey])
+        return which == .created ? values?.creationDate : values?.contentModificationDate
+    }
+
     /// Does an action and returns the one that reverses what was actually done.
     private static func run(_ action: Action) async -> Done {
         switch action {
+        case .dates(let changes):
+            let outcome = await BlockingWork.run { () -> ([DateChange], [String]) in
+                var done: [DateChange] = []
+                var failures: [String] = []
+                for change in changes {
+                    let key: FileAttributeKey = change.which == .created ? .creationDate
+                                                                         : .modificationDate
+                    do {
+                        try FileManager.default.setAttributes([key: change.to],
+                                                              ofItemAtPath: change.url.path)
+                        done.append(DateChange(url: change.url, which: change.which,
+                                               from: change.to, to: change.from))
+                    } catch {
+                        failures.append("The date of \(quoted(change.url.lastPathComponent)) "
+                                        + "could not be set back: \(error.localizedDescription)")
+                    }
+                }
+                return (done, failures)
+            }
+            return Done(inverse: .dates(outcome.0), touched: outcome.0.map(\.url),
+                        failures: outcome.1)
+
         case .relocate(let moves):
             var done: [Relocation] = []
             var failures: [String] = []
@@ -874,6 +945,7 @@ extension FileHistory.Action {
         case .attributes(let changes): changes.count
         case .contents(let changes): changes.count
         case .savedExpressions(let changes): changes.count
+        case .dates(let changes): changes.count
         }
     }
 }

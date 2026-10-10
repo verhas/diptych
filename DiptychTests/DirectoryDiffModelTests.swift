@@ -11,7 +11,7 @@ final class DirectoryDiffModelTests: XCTestCase {
     private var right: URL!
     private let fm = FileManager.default
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         LiveSettings.protect()
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychDirDiffModel-\(UUID().uuidString)")
@@ -21,7 +21,7 @@ final class DirectoryDiffModelTests: XCTestCase {
         try fm.createDirectory(at: right, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? fm.removeItem(at: root)
         LiveSettings.putBack()
     }

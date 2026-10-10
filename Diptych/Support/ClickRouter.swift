@@ -51,6 +51,15 @@ final class ClickRouter {
             if event.type == .rightMouseDown {
                 let location = event.locationInWindow
                 let number = event.windowNumber
+                // On a pane's column headers: which columns to show.
+                let onHeader = MainActor.assumeIsolated { () -> Bool in
+                    guard let header = self?.paneHeader(windowNumber: number, location: location)
+                    else { return false }
+                    let rows = self?.pane(of: header, windowNumber: number)?.rows ?? []
+                    ColumnArrangement.showMenu(for: event, in: header, rows: rows)
+                    return true
+                }
+                if onHeader { return nil }
                 let handled = MainActor.assumeIsolated {
                     self?.anticipateNewFromClipboard(windowNumber: number, location: location)
                     return self?.offerFolderMenu(windowNumber: number, location: location) ?? false
@@ -61,6 +70,17 @@ final class ClickRouter {
             let location = event.locationInWindow
             let number = event.windowNumber
             let clicks = event.clickCount
+
+            // A pane's column header dragged: Diptych moves the column, as
+            // SwiftUI's table will not.
+            if event.type == .leftMouseDown, clicks == 1 {
+                let dragged = MainActor.assumeIsolated { () -> Bool in
+                    guard let header = self?.paneHeader(windowNumber: number, location: location)
+                    else { return false }
+                    return ColumnArrangement.drag(from: event, in: header)
+                }
+                if dragged { return nil }
+            }
 
             let consumed = MainActor.assumeIsolated {
                 self?.dispatch(windowNumber: number, location: location, clickCount: clicks)
@@ -89,6 +109,26 @@ final class ClickRouter {
         return (model, table, pane)
     }
 
+    /// The header of a pane's table, when the point is on it.
+    private func paneHeader(windowNumber: Int, location: NSPoint) -> NSTableHeaderView? {
+        guard let window = NSApp.window(withWindowNumber: windowNumber) else { return nil }
+        for table in TableFinder.tables(in: window) {
+            guard let header = table.headerView, header.window === window else { continue }
+            if header.bounds.contains(header.convert(location, from: nil)) { return header }
+        }
+        return nil
+    }
+
+    /// The pane whose table has this header.
+    private func pane(of header: NSTableHeaderView, windowNumber: Int) -> PaneModel? {
+        guard let window = NSApp.window(withWindowNumber: windowNumber),
+              let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
+              let table = header.tableView else { return nil }
+        let tables = TableFinder.tables(in: window)
+        guard let index = tables.firstIndex(of: table) else { return nil }
+        return tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+    }
+
     /// Every menu a right-click on a pane opens offers New from Clipboard, for
     /// the pane clicked -- so its name can start being worked out now.
     private func anticipateNewFromClipboard(windowNumber: Int, location: NSPoint) {
@@ -102,6 +142,17 @@ final class ClickRouter {
     private func offerFolderMenu(windowNumber: Int, location: NSPoint) -> Bool {
         guard let (model, table, pane) = paneHit(windowNumber: windowNumber, location: location)
         else { return false }
+
+        // The column headers have their own menu: which columns to show.
+        if let header = table.headerView, header.window != nil,
+           header.bounds.contains(header.convert(location, from: nil)) {
+            return false
+        }
+        if let window = NSApp.window(withWindowNumber: windowNumber),
+           let content = window.contentView,
+           let hit = Self.view(in: content, at: location), isInHeader(hit) {
+            return false
+        }
 
         let point = table.convert(location, from: nil)
         // `row(at:)` answers -1 for *any* point that is not exactly on a row --
@@ -210,6 +261,19 @@ final class ClickRouter {
             return true
         }
 
+        // Option-click on a folder before a flat view's name: go there, the
+        // cursor on what led there. Back returns to the flat view.
+        if clickCount == 1, column == .name, OptionKey.shared.isDown, let rowID, row >= 0,
+           let rowView = table.rowView(atRow: row, makeIfNecessary: false),
+           let folder = FolderLinkMarkerView.folder(at: location, in: rowView) {
+            let below = rowID.pathComponents.dropFirst(folder.pathComponents.count)
+            pane.navigate(to: folder)
+            if let next = below.first {
+                pane.pendingSelection = [folder.appendingPathComponent(next)]
+            }
+            return true
+        }
+
         model.tableClicked(pane: pane, rowID: rowID, column: column, clickCount: clickCount)
         return false
     }
@@ -259,6 +323,15 @@ final class ClickRouter {
             return table.visibleRect.contains(table.convert(location, from: nil))
         }
         return clip.bounds.contains(clip.convert(location, from: nil))
+    }
+
+    private func isInHeader(_ view: NSView) -> Bool {
+        var candidate: NSView? = view
+        while let current = candidate {
+            if current is NSTableHeaderView { return true }
+            candidate = current.superview
+        }
+        return false
     }
 
     private func enclosingTerminal(of view: NSView) -> DiptychTerminalView? {

@@ -18,7 +18,15 @@ final class ExifEditorModel {
     /// not notice.
     static let saved = Notification.Name("dev.verhas.Diptych.exifSaved")
 
+    /// Pictures' EXIF, or videos' metadata shown as the same fields.
+    enum Kind: Sendable { case images, videos }
+
     let files: [URL]
+    let kind: Kind
+    /// The fields there are: EXIF's, or the ones a video has.
+    private(set) var catalogue: [ExifField] = ExifFields.catalogue
+    /// Each video's values as read, for what Save leaves as it was.
+    @ObservationIgnored private var videoValues: [URL: [ExifKey: Any]] = [:]
     private(set) var rows: [Row] = []
     /// How latitude and longitude are written, for the Location heading's
     /// button to go round.
@@ -92,8 +100,9 @@ final class ExifEditorModel {
         }
     }
 
-    init(files: [URL]) {
+    init(files: [URL], kind: Kind = .images) {
         self.files = files
+        self.kind = kind
         Task { await load() }
     }
 
@@ -104,10 +113,18 @@ final class ExifEditorModel {
     /// The catalogue's fields not on show yet, for Add Field.
     var addable: [ExifField] {
         let shown = Set(rows.map(\.id))
-        return ExifFields.catalogue.filter { !shown.contains($0.key) }
+        return catalogue.filter { !shown.contains($0.key) }
     }
 
     func rows(in group: ExifGroup) -> [Row] { rows.filter { $0.field.key.group == group } }
+
+    /// What Control-Space offers in a make or model field, from
+    /// ~/.diptych/exif: for a model, those of the make written beside it.
+    func suggestions(for key: ExifKey) -> [String] {
+        let makeName = key.name == "Model" ? "Make" : key.name == "LensModel" ? "LensMake" : nil
+        let make = makeName.flatMap { name in rows.first { $0.field.key.name == name }?.text }
+        return ExifDatabase.values(for: key, make: make)
+    }
 
     // MARK: - Reading
 
@@ -116,6 +133,7 @@ final class ExifEditorModel {
     }
 
     func load() async {
+        if kind == .videos { return await loadVideos() }
         isLoading = true
         let files = files
         let read = await BlockingWork.run { () -> Read in
@@ -130,13 +148,34 @@ final class ExifEditorModel {
         suggestDescription()
     }
 
+    /// Videos: their metadata as the fields a video has. A camera only
+    /// where one of them is a QuickTime movie, which can hold it, or has
+    /// one.
+    private func loadVideos() async {
+        isLoading = true
+        var values: [URL: [ExifKey: Any]] = [:]
+        for url in files {
+            if let found = await VideoExif.values(of: url) { values[url] = found }
+        }
+        videoValues = values
+        unreadable = files.filter { values[$0] == nil }
+        let withCamera = readable.contains { VideoMetadata.format(of: $0) == "mov" }
+            || values.values.contains { $0.keys.contains { $0.name == "Make" || $0.name == "Model" } }
+        catalogue = VideoExif.catalogue(withCamera: withCamera)
+        rows = Self.rows(from: readable.compactMap { values[$0] }, catalogue: catalogue)
+        reformatCoordinates()
+        isLoading = false
+    }
+
     /// A row for every common field, and for every other field any file has.
-    static func rows(from values: [[ExifKey: Any]]) -> [Row] {
-        var keys = Set(ExifFields.catalogue.filter(\.common).map(\.key))
+    static func rows(from values: [[ExifKey: Any]],
+                     catalogue: [ExifField] = ExifFields.catalogue) -> [Row] {
+        var keys = Set(catalogue.filter(\.common).map(\.key))
         for file in values { keys.formUnion(file.keys) }
         return keys.map { key in
             let found = values.map { $0[key] }
-            let field = ExifFields.field(for: key, sample: found.compactMap { $0 }.first)
+            let field = catalogue.first { $0.key == key }
+                ?? ExifFields.field(for: key, sample: found.compactMap { $0 }.first)
             let current = current(of: found)
             if case .same(let text) = current {
                 return Row(field: field, current: current, text: text)
@@ -314,7 +353,7 @@ final class ExifEditorModel {
         func set(_ name: CFString, _ text: String) {
             let key = ExifKey(group: .gps, name: name as String)
             if !rows.contains(where: { $0.id == key }),
-               let field = ExifFields.catalogue.first(where: { $0.key == key }) {
+               let field = catalogue.first(where: { $0.key == key }) {
                 add(field)
             }
             choose(text, in: key)
@@ -390,6 +429,75 @@ final class ExifEditorModel {
         rows.sort(by: Self.order)
     }
 
+    // MARK: - As JSON, through the clipboard
+
+    /// Said under the fields after a copy or a paste: what it did.
+    private(set) var notice: String?
+
+    /// Every field with a value, as the window shows it -- typed, or shared
+    /// by all the files -- by group and name: `{"Exif": {"DateTimeOriginal":
+    /// "1978:01:01 00:00:00"}, "GPS": {...}, "TIFF": {...}}`. Fields the files
+    /// disagree on, and ones being removed, are left out.
+    func json() -> String {
+        var groups: [String: [String: String]] = [:]
+        for row in rows where !row.removing && !row.isEmpty {
+            if case .computed = row.field.input { continue }
+            groups[row.field.key.group.name, default: [:]][row.field.key.name] = row.text
+        }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: groups, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    func copyJSON() {
+        Clipboard.copyText(json())
+        let count = rows.filter { !$0.removing && !$0.isEmpty }.count
+        notice = count == 1 ? "1 field copied as JSON" : "\(count) fields copied as JSON"
+    }
+
+    /// Fields from JSON as `json()` writes it -- or with the names alone,
+    /// not grouped -- typed into the window, to be checked and saved as any
+    /// typing is. Names that are no field here are said.
+    func pasteJSON(_ text: String) {
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let top = object as? [String: Any] else {
+            notice = nil
+            problems = ["The clipboard holds no JSON object of fields."]
+            return
+        }
+        var values: [(ExifGroup?, String, Any)] = []
+        for (name, value) in top {
+            if let fields = value as? [String: Any], let group = ExifGroup(name: name) {
+                values += fields.map { (group, $0.key, $0.value) }
+            } else {
+                values.append((nil, name, value))
+            }
+        }
+        var set = 0
+        var unknown: [String] = []
+        for (group, name, value) in values.sorted(by: { $0.1 < $1.1 }) {
+            guard let field = catalogue.first(where: {
+                $0.key.name == name && (group == nil || $0.key.group == group)
+            }) ?? rows.first(where: {
+                $0.field.key.name == name && (group == nil || $0.field.key.group == group)
+            })?.field else {
+                unknown.append(name)
+                continue
+            }
+            if case .computed = field.input { continue }
+            let text = (value as? String) ?? (value as? NSNumber)?.stringValue ?? "\(value)"
+            if !rows.contains(where: { $0.id == field.key }) { add(field) }
+            choose(text, in: field.key)
+            set += 1
+        }
+        problems = unknown.isEmpty ? []
+            : ["Not fields here, so left out: " + unknown.joined(separator: ", ") + "."]
+        notice = set == 1 ? "1 field pasted from JSON \u{2014} Save writes it"
+            : "\(set) fields pasted from JSON \u{2014} Save writes them"
+    }
+
     // MARK: - A description from Apple Intelligence
 
     /// One image with no description: Apple Intelligence is asked for one in
@@ -400,7 +508,7 @@ final class ExifEditorModel {
     /// the description field focused.
     private func suggestDescription() {
         let key = ExifKey(group: .tiff, name: kCGImagePropertyTIFFImageDescription as String)
-        guard !suggestionAsked, readable.count == 1, let url = readable.first,
+        guard kind == .images, !suggestionAsked, readable.count == 1, let url = readable.first,
               ConfigStore.shared.configuration.useAppleIntelligence,
               NameSuggester.status == .ready,
               let row = rows.first(where: { $0.id == key }),
@@ -521,6 +629,7 @@ final class ExifEditorModel {
         guard let changes = changes(), !changes.isEmpty else { return false }
         isSaving = true
         defer { isSaving = false }
+        if kind == .videos { return await saveVideos(changes) }
 
         let boxed = ChangesBox(changes)
         let saved = await Self.rewriteInPlace(readable) { data, name throws(ExifWrite.Failure) in
@@ -533,9 +642,47 @@ final class ExifEditorModel {
             NotificationCenter.default.post(name: Self.saved, object: nil)
         }
         guard saved.failures.isEmpty else {
+            // What was typed stays, to be mended and saved again -- read
+            // afresh, the files would have taken it all away.
             problems = saved.failures
                 + (saved.done.isEmpty ? [] : ["The others were changed; Undo puts them back."])
-            await load()
+            return false
+        }
+        return true
+    }
+
+    /// Each video written with the changes as its own: a time zone's offset
+    /// on its own date, the place from its own fields and the ones changed.
+    private func saveVideos(_ changes: [ExifKey: ExifWrite.Change]) async -> Bool {
+        var done: [(url: URL, before: URL)] = []
+        var failures: [String] = []
+        for url in readable {
+            let video = VideoExif.changes(changes, existing: videoValues[url] ?? [:])
+            do {
+                done.append((url, try await VideoMetadata.rewrite(url, changes: video)))
+            } catch {
+                failures.append(error.message)
+            }
+        }
+        if let first = done.first {
+            let labels = rows.filter { changes[$0.id] != nil }.map { row -> String in
+                if case .remove? = changes[row.id] { return "\(row.field.label) (removed)" }
+                return row.field.label
+            }.joined(separator: ", ")
+            let urls = done.map(\.url)
+            let folder = FileHistory.folder(of: first.url)
+            FileHistory.shared.recordContents(
+                done, name: "Video Metadata Change",
+                told: urls.count == 1
+                    ? "The metadata of \(FileHistory.quoted(first.url.lastPathComponent)) in "
+                      + "\(folder) was changed: \(labels)."
+                    : "The metadata of \(urls.count) videos in \(folder) was changed: "
+                      + "\(labels). The videos: \(FileHistory.Plan.names(urls)).")
+            NotificationCenter.default.post(name: Self.saved, object: nil)
+        }
+        guard failures.isEmpty else {
+            problems = failures
+                + (done.isEmpty ? [] : ["The others were changed; Undo puts them back."])
             return false
         }
         return true

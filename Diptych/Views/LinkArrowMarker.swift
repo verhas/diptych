@@ -31,3 +31,35 @@ final class LinkArrowMarkerView: NSView {
         return view.subviews.contains { contains(location, in: $0) }
     }
 }
+
+/// Marks one folder of a flat view's row, drawn as a link while Option is
+/// down: ClickRouter finds it under a click and goes to `url`. Like the
+/// arrow's marker it refuses every hit, so the row selects as before.
+struct FolderLinkMarker: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> FolderLinkMarkerView { FolderLinkMarkerView() }
+    func updateNSView(_ view: FolderLinkMarkerView, context: Context) {
+        view.url = url
+        if view.toolTip != url.path { view.toolTip = url.path }
+    }
+}
+
+final class FolderLinkMarkerView: NSView {
+    var url: URL?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The folder of the marker under `location` (window coordinates)
+    /// inside `view`, if any.
+    static func folder(at location: NSPoint, in view: NSView) -> URL? {
+        if let marker = view as? FolderLinkMarkerView, !marker.isHiddenOrHasHiddenAncestor,
+           marker.bounds.contains(marker.convert(location, from: nil)) {
+            return marker.url
+        }
+        for subview in view.subviews {
+            if let url = folder(at: location, in: subview) { return url }
+        }
+        return nil
+    }
+}

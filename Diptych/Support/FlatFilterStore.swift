@@ -29,6 +29,19 @@ nonisolated final class FlatFilterStore: @unchecked Sendable {
     /// and others used them. User info: `gone` and `broken`, names.
     static let lost = Notification.Name("diptych.savedExpressionsLost")
 
+    /// A file in the folder that is not used: its name is not one an
+    /// expression can use -- a word the language took for itself since it
+    /// was saved, say -- or it is not a saved expression at all.
+    struct Ignored: Equatable, Sendable {
+        /// Nil for a file that could not be read as one.
+        let name: String?
+        let path: String
+        let reason: String
+    }
+
+    /// Files found ignored that `takeIgnored()` has not handed out yet.
+    static let ignoredFound = Notification.Name("diptych.savedExpressionsIgnored")
+
     let directory: URL
     private let lock = NSLock()
     private var cache: [String: Saved] = [:]
@@ -36,6 +49,10 @@ nonisolated final class FlatFilterStore: @unchecked Sendable {
     /// Read at least once: until then nothing can have gone.
     private var known = false
     private var watcher: DispatchSourceFileSystemObject?
+    /// Each ignored file is told about once while Diptych runs -- again
+    /// only after it is mended and broken anew.
+    private var told: Set<String> = []
+    private var untold: [Ignored] = []
 
     init(directory: URL) {
         self.directory = directory
@@ -58,8 +75,15 @@ nonisolated final class FlatFilterStore: @unchecked Sendable {
     private func all() -> [String: Saved] {
         lock.lock()
         var gone: [String] = []
+        var newlyIgnored = false
         if Date().timeIntervalSince(readAt) > 1 {
-            let fresh = Self.read(directory)
+            let (fresh, ignored) = Self.read(directory)
+            let keys = Set(ignored.map { $0.path + "\u{0}" + ($0.name ?? "") })
+            for item in ignored where !told.contains(item.path + "\u{0}" + (item.name ?? "")) {
+                untold.append(item)
+                newlyIgnored = true
+            }
+            told = keys
             if known {
                 gone = cache.filter { fresh[$0.key] == nil }.map(\.value.name).sorted()
             }
@@ -70,7 +94,23 @@ nonisolated final class FlatFilterStore: @unchecked Sendable {
         let current = cache
         lock.unlock()
         if !gone.isEmpty { tell(gone: gone, current) }
+        if newlyIgnored {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Self.ignoredFound, object: nil)
+            }
+        }
         return current
+    }
+
+    /// The files found ignored since last asked, read afresh first.
+    func takeIgnored() -> [Ignored] {
+        forget()
+        _ = all()
+        lock.lock()
+        defer { lock.unlock() }
+        let taken = untold
+        untold = []
+        return taken
     }
 
     /// Which of the rest no longer work for it, said to whoever listens.
@@ -139,19 +179,27 @@ nonisolated final class FlatFilterStore: @unchecked Sendable {
         readAt = .distantPast
     }
 
-    private static func read(_ directory: URL) -> [String: Saved] {
+    static func read(_ directory: URL) -> (found: [String: Saved], ignored: [Ignored]) {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil)) ?? []
         var found: [String: Saved] = [:]
+        var ignored: [Ignored] = []
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        for file in files where file.pathExtension == "json" {
+        for file in files.sorted(by: { $0.path < $1.path }) where file.pathExtension == "json" {
             guard let data = try? Data(contentsOf: file),
-                  let saved = try? decoder.decode(Saved.self, from: data),
-                  isUsable(saved.name) else { continue }
+                  let saved = try? decoder.decode(Saved.self, from: data) else {
+                ignored.append(Ignored(name: nil, path: file.path,
+                                       reason: "It cannot be read as a saved expression"))
+                continue
+            }
+            if let problem = problem(with: saved.name) {
+                ignored.append(Ignored(name: saved.name, path: file.path, reason: problem))
+                continue
+            }
             found[saved.name.lowercased()] = saved
         }
-        return found
+        return (found, ignored)
     }
 
     /// Where a name's file is: its own name, or the one already saved under

@@ -65,6 +65,10 @@ Release commands, in the order a release actually goes out:
                      locally -- unsigned, no .dmg. Packaging one to ship
                      is 'dmg', not this.
 
+build, run, release and dmg first make Diptych/Places.tsv afresh with
+make-places.sh when the version has changed since it was last made, or it
+is more than a month old.
+
 Environment variables:
   CONFIG             Debug or Release; build/run/clean read it, default Debug
   NOTARY_PROFILE     the notarytool keychain profile to submit under,
@@ -84,6 +88,34 @@ app_path() {
     printf '%s/%s.app\n' "$dir" "$SCHEME"
 }
 
+# When make-places.sh last made Diptych/Places.tsv, and for which version:
+# the file's date and the version in it.
+PLACES_STAMP="build/places-made"
+
+# The towns list is made afresh from GeoNames for each new version, and when
+# it is more than a month old. Without the network the build goes on with
+# the list already there -- it is committed, and only ever a little stale.
+refresh_places() {
+    local version made="" why=""
+    version=$(current_marketing_version)
+    [ -f "$PLACES_STAMP" ] && made=$(cat "$PLACES_STAMP")
+    if [ "$made" != "$version" ]; then
+        why="not made yet for $version"
+    elif [ -n "$(find "$PLACES_STAMP" -mtime +30)" ]; then
+        why="more than a month old"
+    fi
+    [ -n "$why" ] || return 0
+
+    info "Making Diptych/Places.tsv from GeoNames ($why)..."
+    if ./make-places.sh | sed 's/^/    /'; then
+        mkdir -p build
+        printf '%s\n' "$version" > "$PLACES_STAMP"
+    else
+        printf '%s==> Could not make Diptych/Places.tsv; building with the one there is%s\n' \
+            "$YELLOW" "$OFF"
+    fi
+}
+
 build() {
     local log
     log=$(mktemp -t twopane-build)
@@ -92,6 +124,7 @@ build() {
     trap 'rm -f "$log"' RETURN
 
     generate_release_notes
+    refresh_places
 
     # A Release build is stripped of its symbol table. Xcode only strips as
     # part of an archive or install, never on a plain `build`, so every

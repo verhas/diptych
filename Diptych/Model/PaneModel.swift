@@ -109,6 +109,12 @@ final class PaneModel {
     var renamingID: FileItem.ID?
     var renameText = ""
 
+    /// The cell whose value is being edited in place -- a date, a picture's
+    /// EXIF, a video's metadata -- the text typed, and what it was before.
+    var valueEdit: CellEdit.Spot?
+    var valueEditText = ""
+    var valueEditStart = ""
+
     /// Rows to select and scroll to once the next load finishes. Set before
     /// `reload()`: after a rename or a move the files may sort somewhere else
     /// entirely, and selecting them before the new listing arrives would land on
@@ -397,9 +403,17 @@ final class PaneModel {
     /// and directories always pinned above files. Sorting a mixed list purely by
     /// name is what separates a file *list* from a file *manager*.
     var rows: [FileItem] {
-        let visible = (hasFilter && filterHidesOthers && filterIsValid)
+        var visible = (hasFilter && filterHidesOthers && filterIsValid)
             ? items.filter { matchesFilter($0) }
             : items
+        // By Size, a folder goes by its total as worked out so far -- read
+        // once, so one sort sees one set of numbers -- and the rows are
+        // sorted again as the totals change.
+        if sortOrder.contains(where: { $0.column == .size }), !DirectorySizes.shared.isEmpty {
+            let folders = visible.indices.filter { visible[$0].isDirectory && !visible[$0].isParent }
+            let sizes = DirectorySizes.shared.store.sizes(folders.map { visible[$0].url.path })
+            for index in folders { visible[index].folderTotal = sizes[visible[index].url.path] }
+        }
         let sorted = visible.sorted(using: sortOrder)
 
         // `..` stays on top either way: it is navigation, not content, and a
@@ -768,7 +782,7 @@ final class PaneModel {
         let stopped = flatStopped
         loadTask?.cancel()
         loadTask = Task { [weak self] in
-            let fresh = try? await BlockingWork.run { () -> (rows: [FileItem], stale: Bool) in
+            let fresh = await BlockingWork.run { () -> (rows: [FileItem], stale: Bool) in
                 var stale = false
                 var rows: [FileItem] = []
                 for item in current {
@@ -789,7 +803,7 @@ final class PaneModel {
                 }
                 return (rows, stale)
             }
-            guard let self, let fresh, !Task.isCancelled, self.flat == view else { return }
+            guard let self, !Task.isCancelled, self.flat == view else { return }
             self.items = fresh.rows
             if fresh.stale { self.flatStale = true }
             if !stopped { self.remember(fresh.rows, for: key) }

@@ -9,6 +9,22 @@ extension NSAlert {
     func runSelectable() -> NSApplication.ModalResponse {
         layout()
         if let content = window.contentView { Self.makeSelectable(content) }
+        // Command-C and Command-A on the text selected: the menu bar's Copy
+        // is the Files menu's, which copies the files selected in the pane
+        // behind the alert -- or, while the alert is modal, nothing at all.
+        let alertWindow = window
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.window === alertWindow,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  let text = alertWindow.firstResponder as? NSText else { return event }
+            switch event.charactersIgnoringModifiers {
+            case "c": text.copy(nil)
+            case "a": text.selectAll(nil)
+            default:  return event
+            }
+            return nil
+        }
+        defer { monitor.map(NSEvent.removeMonitor) }
         return runModal()
     }
 

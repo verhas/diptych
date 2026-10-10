@@ -139,8 +139,9 @@ final class ImageMakingTests: XCTestCase {
         let made: URL
         do {
             made = try ImageMaking.cutOut(copy)
-        } catch let failure as ImageMaking.Failure {
-            return XCTFail(failure.message)
+        } catch {
+            // It throws nothing else.
+            return XCTFail(error.message)
         }
         XCTAssertEqual(made.lastPathComponent, "zebra (cut out).png")
         let found = info(made)

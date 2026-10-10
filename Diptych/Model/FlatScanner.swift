@@ -60,7 +60,7 @@ enum FlatScanner {
             if cancelled.isCancelled { return unreadable }
             folders += 1
             guard let urls = try? fm.contentsOfDirectory(at: folder,
-                                                         includingPropertiesForKeys: Array(keys),
+                                                         includingPropertiesForKeys: DirectoryLoader.fileSystemKeys(keys),
                                                          options: options) else {
                 unreadable.append(folder)
                 continue

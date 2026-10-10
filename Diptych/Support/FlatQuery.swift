@@ -133,6 +133,39 @@ nonisolated struct FlatQuery: Sendable {
         case containsMatch(Regex)
         /// `true` or `false`: to switch a part off, or on, without deleting it.
         case constant(Bool)
+        /// What a picture or a video is, or has: `image`, `located`.
+        case media(MediaFlag)
+        /// A text it says about itself: `camera = "*iPhone*"`.
+        case mediaText(MediaText, TextTest)
+        /// A number: `iso >= 1600`, in the field's own unit -- seconds,
+        /// millimetres, metres.
+        case mediaNumber(MediaNumber, Comparison, Double)
+        /// When it was taken or digitized.
+        case mediaDate(MediaDate, Comparison, Moment)
+        /// Taken within `metres` of a place.
+        case near(latitude: Double, longitude: Double, metres: Double)
+    }
+
+    /// Tests on what a picture or video is, standing alone.
+    enum MediaFlag: String, Sendable, CaseIterable {
+        case image, video, exif, located, flash, landscape, portrait, square, rotated
+        case transparent, animated
+    }
+
+    /// Texts a picture or video carries: compared with `=` and a shell
+    /// pattern, or `~` and a regular expression.
+    enum MediaText: String, Sendable, CaseIterable {
+        case format, camera, lens, software, artist, copyright, description, city, state, country
+    }
+
+    /// Numbers a picture or video carries, compared with `= != < <= > >=`.
+    enum MediaNumber: String, Sendable, CaseIterable {
+        case iso, aperture, shutter, focal, focal35, width, height, megapixels, altitude, rating
+        case duration
+    }
+
+    enum MediaDate: String, Sendable, CaseIterable {
+        case taken, digitized
     }
 
     // MARK: - Errors
@@ -309,7 +342,7 @@ nonisolated struct FlatQuery: Sendable {
                                     flags: flags))
                 continue
             }
-            if "()=<>~!,".contains(c) {
+            if "()[]=<>~!,".contains(c) {
                 var symbol = String(c)
                 index += 1; offset += width(c)
                 if index < characters.count, (c == "<" || c == ">" || c == "!"),
@@ -327,7 +360,8 @@ nonisolated struct FlatQuery: Sendable {
             }
             if isWordCharacter(c) {
                 var word = ""
-                while index < characters.count, isWordCharacter(characters[index]) {
+                while index < characters.count, isWordCharacter(characters[index])
+                        || isSlashInNumber(characters, at: index, word: word) {
                     word.append(characters[index])
                     offset += width(characters[index]); index += 1
                 }
@@ -346,18 +380,41 @@ nonisolated struct FlatQuery: Sendable {
         c.isLetter || c.isNumber || c == "_" || c == "." || c == ":" || c == "-" || c == "+"
     }
 
+    /// A slash that is part of a number, not the start of a regular
+    /// expression: a shutter's `1/250`, an aperture's `f/2.8`.
+    static func isSlashInNumber(_ characters: [Character], at index: Int, word: String) -> Bool {
+        guard characters[index] == "/", index + 1 < characters.count,
+              characters[index + 1].isNumber, let last = word.last else { return false }
+        return last.isNumber || word.lowercased() == "f"
+    }
+
     // MARK: - The keywords, for completion and hints
 
     static let primitives = ["size", "name", "directory", "file", "access", "owner", "group",
                              "xattr", "created", "modified", "contains", "true", "false"]
+        + MediaFlag.allCases.map(\.rawValue) + MediaText.allCases.map(\.rawValue)
+        + MediaNumber.allCases.map(\.rawValue) + MediaDate.allCases.map(\.rawValue) + ["near"]
     static let connectives = ["and", "or", "not"]
     /// What a saved expression cannot be called: the language's own words.
     static let reservedWords: Set<String> = Set(primitives + connectives + units.map {
         $0.lowercased()
-    } + ["dir", "content", "traversed", "traverse", "listed", "list"])
+    } + ["dir", "content", "traversed", "traverse", "listed", "list", "between"]
+      + Quantity.allUnits)
     /// What an access pattern starts as: every place either way.
     static let anyAccess = "*********"
     static let units = ["B", "KB", "KiB", "MB", "MiB", "GB", "GiB", "TB", "TiB"]
+
+    /// What can be compared with `<` and `>`, and so put `between` two values.
+    static func isOrdered(_ keyword: String) -> Bool {
+        let lower = keyword.lowercased()
+        return ["size", "created", "modified"].contains(lower)
+            || MediaNumber(rawValue: lower) != nil || MediaDate(rawValue: lower) != nil
+    }
+
+    static func isDateField(_ keyword: String) -> Bool {
+        let lower = keyword.lowercased()
+        return lower == "created" || lower == "modified" || MediaDate(rawValue: lower) != nil
+    }
 
     /// One line on what a keyword takes, for the hint under the field.
     static func hint(for keyword: String) -> String? {
@@ -402,6 +459,66 @@ nonisolated struct FlatQuery: Sendable {
         case "true", "false":
             "true, false: always so \u{2014} false and ( \u{2026} ) switches a part off without "
                 + "deleting it, as does a comment, /* \u{2026} */"
+        case "between":
+            "between [a, b]: from a to b, both included; ( or ) leaves that end out \u{2014} "
+                + "iso between [100, 800), taken between [2024-06, 2024-08]"
+        case "near":
+            "near(47.4979, 19.0402, 5km): taken within that distance of the place \u{2014} "
+                + "latitude, longitude as Google Maps copies them; m, km, ft, yd or mi"
+        case "image":
+            "image: a picture macOS can read \u{2014} JPEG, HEIC, PNG, raw, SVG and the rest, "
+                + "known by its bytes, not its name"
+        case "video":
+            "video: a movie \u{2014} MOV, MP4 and the rest, known by its bytes"
+        case "exif":
+            "exif: the picture carries EXIF at all"
+        case "located":
+            "located: the picture or video records where it was taken"
+        case "flash":
+            "flash: the flash fired"
+        case "landscape", "portrait", "square":
+            "landscape, portrait, square: wider than tall, taller than wide, or neither, as "
+                + "it is shown"
+        case "rotated":
+            "rotated: turned by its orientation tag rather than by its pixels"
+        case "transparent":
+            "transparent: the picture has an alpha channel"
+        case "animated":
+            "animated: a GIF, PNG, WebP or HEIC of several frames"
+        case "format":
+            "format = \"jpeg\": what the bytes are, whatever the name says \u{2014} "
+                + MediaFormat.all.map(\.name).joined(separator: ", ")
+                + "; \"raw\" is any camera\u{2019}s raw"
+        case "camera", "lens", "software", "artist", "copyright", "description":
+            "\(keyword.lowercased()) = \"*pattern*\", or ~ /regex/: as the picture or video "
+                + "says it; false where it says nothing. Control-Space offers what the flat "
+                + "view found"
+        case "city", "state", "country":
+            "\(keyword.lowercased()) = \"Budapest\": as written in the file, or else the "
+                + "nearest town of 15,000 people within 50 km of where it was taken"
+                + (keyword.lowercased() == "country" ? "; the name or its code, \"HU\"" : "")
+        case "taken", "digitized":
+            "\(keyword.lowercased()) <, <=, =, !=, >=, > 2024, 2024-07, 2024-07-14 or with a "
+                + "time; between [2024-06, 2024-08]. Control-Space for a calendar"
+        case "iso":
+            "iso >= 1600, iso between [100, 400]"
+        case "aperture":
+            "aperture <= 2.8, the f-number: 2.8, f2.8 or f/2.8"
+        case "shutter":
+            "shutter >= 1/30, in seconds: 1/250, 0.5, 2s"
+        case "focal", "focal35":
+            "\(keyword.lowercased()) >= 200mm: mm, cm or in"
+                + (keyword.lowercased() == "focal35" ? " \u{2014} the 35mm equivalent" : "")
+        case "width", "height":
+            "\(keyword.lowercased()) >= 1920: pixels, as the picture or video is shown"
+        case "megapixels":
+            "megapixels < 2: width times height, in millions"
+        case "altitude":
+            "altitude > 2000m: m, km, ft, yd or mi; below the sea is negative"
+        case "rating":
+            "rating >= 4: the stars, 0 to 5, Lightroom or Bridge wrote"
+        case "duration":
+            "duration > 10min: s, min, h, or 1:30"
         case "and":
             "a AND b: both \u{2014} binds tighter than OR"
         case "or":
@@ -525,6 +642,11 @@ nonisolated private struct Parser {
         if !FlatQuery.reservedWords.contains(token.lower), let text = saved[token.lower] {
             return try savedExpression(token, text)
         }
+        if FlatQuery.isOrdered(token.lower), let word = peek, word.isWord("between") {
+            position += 1
+            let expression = try interval(token)
+            return Node(expression: expression, range: span(from: start), parts: [])
+        }
         let primitive = try primitive(token)
         return Node(expression: .primitive(primitive), range: span(from: start), parts: [])
     }
@@ -560,9 +682,26 @@ nonisolated private struct Parser {
             return .constant(true)
         case "false":
             return .constant(false)
-        case "size":
+        case _ where FlatQuery.isOrdered(keyword.lower):
             let comparison = try comparison(after: keyword)
-            return .size(comparison, try size(after: keyword))
+            return try ordered(keyword, comparison)
+        case _ where FlatQuery.MediaFlag(rawValue: keyword.lower) != nil:
+            return .media(FlatQuery.MediaFlag(rawValue: keyword.lower)!)
+        case "format":
+            let test = try textTest(after: keyword)
+            if case .equals(let value, _) = test, !FlatQuery.isPattern(value),
+               MediaFormat.canonical(value) == nil {
+                throw Problem(message: "\u{201C}\(value)\u{201D} is not a format: "
+                              + MediaFormat.all.map(\.name).joined(separator: ", ")
+                              + ", or raw for any camera\u{2019}s raw",
+                              range: tokens[position - 1].range)
+            }
+            return .mediaText(.format, test)
+        case _ where FlatQuery.MediaText(rawValue: keyword.lower) != nil:
+            return .mediaText(FlatQuery.MediaText(rawValue: keyword.lower)!,
+                              try textTest(after: keyword))
+        case "near":
+            return try near(keyword)
         case "name":
             return .name(try textTest(after: keyword))
         case "owner":
@@ -611,19 +750,6 @@ nonisolated private struct Parser {
                 return .xattr(name.text, try textTest(after: keyword))
             }
             return .xattrExists(name.text)
-        case "created", "modified":
-            let comparison = try comparison(after: keyword)
-            guard let value = next(), value.kind != .symbol else {
-                throw Problem(message: "A date is missing: 2026-01-31, or 2026-01-31T14:30",
-                              range: lastOr(keyword, missing: true))
-            }
-            guard let moment = FlatQuery.moment(value.text) else {
-                throw Problem(message: "Not a date as ISO 8601 writes it: 2026-01-31, "
-                              + "2026-01-31T14:30, 2026-01-31T14:30:00+02:00",
-                              range: value.range)
-            }
-            return keyword.lower == "created" ? .created(comparison, moment)
-                                              : .modified(comparison, moment)
         case "contains", "content":
             // `contains ~ /re/`, or the expression straight after it.
             if let op = peek, op.is("~") {
@@ -646,9 +772,115 @@ nonisolated private struct Parser {
             }
             throw Problem(message: "\u{201C}\(keyword.text)\u{201D} is not a test: size, name, "
                           + "directory, file, access, owner, group, xattr, created, modified, "
-                          + "contains, true, false \u{2014} or a saved expression",
+                          + "contains, image, video, taken, camera, \u{2026} \u{2014} or a "
+                          + "saved expression \u{2014} Control-Space lists them",
                           range: keyword.range)
         }
+    }
+
+    // MARK: Values that have an order
+
+    /// The value after a comparison -- a size, a date, a number in its
+    /// field's unit -- as the test.
+    private mutating func ordered(_ keyword: Token,
+                                  _ comparison: FlatQuery.Comparison) throws -> FlatQuery.Primitive {
+        let lower = keyword.lower
+        if lower == "size" {
+            return .size(comparison, try size(after: keyword))
+        }
+        if FlatQuery.isDateField(lower) {
+            guard let value = next(), value.kind == .word else {
+                throw Problem(message: "A date is missing: 2026, 2026-01, 2026-01-31, or "
+                              + "2026-01-31T14:30", range: lastOr(keyword, missing: true))
+            }
+            guard let moment = FlatQuery.moment(value.text) else {
+                throw Problem(message: "Not a date as ISO 8601 writes it: 2026, 2026-01, "
+                              + "2026-01-31, 2026-01-31T14:30, 2026-01-31T14:30:00+02:00",
+                              range: value.range)
+            }
+            switch lower {
+            case "created": return .created(comparison, moment)
+            case "modified": return .modified(comparison, moment)
+            default: return .mediaDate(FlatQuery.MediaDate(rawValue: lower)!, comparison, moment)
+            }
+        }
+        let field = FlatQuery.MediaNumber(rawValue: lower)!
+        return .mediaNumber(field, comparison, try quantity(Quantity.of(field), for: keyword))
+    }
+
+    /// A number and, maybe, its unit -- `10km` or `10 km` -- in the
+    /// quantity's base unit.
+    private mutating func quantity(_ kind: Quantity, for keyword: Token) throws -> Double {
+        guard let token = next(), token.kind == .word else {
+            throw Problem(message: "\(kind.example) is missing here",
+                          range: position - 1 < tokens.count ? tokens[position - 1].range : atEnd)
+        }
+        var text = token.text
+        var range = token.range
+        if let unit = peek, unit.kind == .word, Double(text) != nil,
+           kind.factor(unit.lower) != nil {
+            text += unit.text
+            range = NSUnionRange(range, unit.range)
+            position += 1
+        }
+        guard let value = kind.value(text) else {
+            throw Problem(message: "Not \(kind.what): \(kind.example)", range: range)
+        }
+        return value
+    }
+
+    /// `field between [a, b)`: from a to b, `[` and `]` taking the end in,
+    /// `(` and `)` leaving it out -- as the two tests it stands for.
+    private mutating func interval(_ keyword: Token) throws -> FlatQuery.Expression {
+        guard let open = next(), open.is("[") || open.is("(") else {
+            throw Problem(message: "between takes two values in brackets: [a, b] includes "
+                          + "both, ( or ) leaves that end out",
+                          range: lastOr(keyword))
+        }
+        let low = try ordered(keyword, open.is("[") ? .greaterOrEqual : .greater)
+        guard let comma = next(), comma.is(",") else {
+            throw Problem(message: "A comma and the second value are missing: [a, b]",
+                          range: lastOr(keyword))
+        }
+        let high = try ordered(keyword, .less)
+        guard let close = next(), close.is("]") || close.is(")") else {
+            throw Problem(message: "The values are not closed with ] or ): [a, b] includes "
+                          + "both ends, [a, b) leaves b out", range: comma.range)
+        }
+        return .and(.primitive(low),
+                    .primitive(FlatQuery.with(close.is("]") ? .lessOrEqual : .less, high)))
+    }
+
+    /// `near(47.4979, 19.0402, 5km)`.
+    private mutating func near(_ keyword: Token) throws -> FlatQuery.Primitive {
+        let usage = "near takes a latitude, a longitude and a distance: near(47.4979, 19.0402, 5km)"
+        guard let open = next(), open.is("(") else {
+            throw Problem(message: usage, range: lastOr(keyword))
+        }
+        func coordinate(_ limit: Double, _ what: String) throws -> Double {
+            guard let token = next(), token.kind == .word, let value = Double(token.text),
+                  abs(value) <= limit else {
+                throw Problem(message: "\(what) is missing or out of range \u{2014} \(usage)",
+                              range: lastOr(keyword))
+            }
+            return value
+        }
+        let latitude = try coordinate(90, "The latitude")
+        guard let first = next(), first.is(",") else {
+            throw Problem(message: usage, range: lastOr(keyword))
+        }
+        let longitude = try coordinate(180, "The longitude")
+        guard let second = next(), second.is(",") else {
+            throw Problem(message: usage, range: lastOr(keyword))
+        }
+        let metres = try quantity(.distance, for: keyword)
+        guard let close = next(), close.is(")") else {
+            throw Problem(message: "The parenthesis after near is not closed", range: open.range)
+        }
+        guard metres > 0 else {
+            throw Problem(message: "The distance has to be more than nothing", range: second.range)
+        }
+        return .near(latitude: latitude, longitude: longitude, metres: metres)
     }
 
     /// The last token read, or the end of the text when what is missing comes
@@ -661,8 +893,8 @@ nonisolated private struct Parser {
     private mutating func comparison(after keyword: Token) throws -> FlatQuery.Comparison {
         guard let token = peek, token.kind == .symbol,
               let comparison = FlatQuery.Comparison(rawValue: token.text) else {
-            throw Problem(message: "\(keyword.lower) takes a comparison: =, !=, <, <=, >, >=",
-                          range: peek?.range ?? atEnd)
+            throw Problem(message: "\(keyword.lower) takes a comparison: =, !=, <, <=, >, >=, "
+                          + "or between [a, b]", range: peek?.range ?? atEnd)
         }
         position += 1
         return comparison
@@ -792,7 +1024,9 @@ nonisolated enum Analysis {
                 return pass == .traverse ? .yes : .no
             case .directory(.listed):
                 return pass == .list ? .yes : .no
-            case .size, .contains, .containsMatch:
+            case .size, .contains, .containsMatch, .media, .mediaText, .mediaNumber, .mediaDate,
+                 .near:
+                // A folder is no picture: it has no size, contents or EXIF.
                 return folder ? .no : .maybe
             default:
                 // `true` and `false` too: written on purpose, to switch a
@@ -809,6 +1043,8 @@ nonisolated enum Analysis {
         let primitive: Primitive
         let positive: Bool
         let range: NSRange
+        /// Under a NOT: true also where the file has no such value at all.
+        var underNot = false
     }
 
     /// What an AND chain asks for, each with where it was written; `not`
@@ -835,7 +1071,8 @@ nonisolated enum Analysis {
             return atom(inner, range, positive: !positive)
         case .primitive(let primitive):
             return Atom(primitive: normal(primitive).0,
-                        positive: positive != normal(primitive).1, range: range)
+                        positive: positive != normal(primitive).1, range: range,
+                        underNot: !positive)
         default:
             return nil
         }
@@ -868,6 +1105,18 @@ nonisolated enum Analysis {
             return (.created(.equal, moment), true)
         case .modified(.notEqual, let moment):
             return (.modified(.equal, moment), true)
+        case .mediaText(let field, let test):
+            var (t, n) = plain(test)
+            // `jpg` and `jpeg` are one format.
+            if field == .format, case .equals(let value, _) = t,
+               let canonical = MediaFormat.canonical(value) {
+                t = .equals(canonical, negated: false)
+            }
+            return (.mediaText(field, t), n)
+        case .mediaNumber(let field, .notEqual, let value):
+            return (.mediaNumber(field, .equal, value), true)
+        case .mediaDate(let field, .notEqual, let moment):
+            return (.mediaDate(field, .equal, moment), true)
         default:
             return (primitive, false)
         }
@@ -888,13 +1137,85 @@ nonisolated enum Analysis {
         }
         if let found = accessContradiction(atoms) { return found }
         if let found = sizeContradiction(atoms) { return found }
-        for which in ["created", "modified"] {
+        for which in ["created", "modified"] + FlatQuery.MediaDate.allCases.map(\.rawValue) {
             if let found = dateContradiction(atoms, which) { return found }
         }
-        for field in ["name", "owner", "group"] {
+        for field in FlatQuery.MediaNumber.allCases {
+            if let found = numberContradiction(atoms, field) { return found }
+        }
+        // Not the country: its name and its code are both it.
+        for field in ["name", "owner", "group"] + FlatQuery.MediaText.allCases
+            .filter({ $0 != .country }).map(\.rawValue) {
             if let found = textContradiction(atoms, field: field) { return found }
         }
         if let found = xattrContradiction(atoms) { return found }
+        if let found = flagContradiction(atoms) { return found }
+        return nil
+    }
+
+    /// Two things a file cannot be at once: a picture and a video, wider
+    /// and taller.
+    private static func flagContradiction(_ atoms: [Atom]) -> (String, NSRange)? {
+        let flags = atoms.compactMap { atom -> (FlatQuery.MediaFlag, Atom)? in
+            guard atom.positive, case .media(let flag) = atom.primitive else { return nil }
+            return (flag, atom)
+        }
+        let exclusive: [Set<FlatQuery.MediaFlag>] = [[.image, .video],
+                                                     [.landscape, .portrait, .square]]
+        for group in exclusive {
+            let found = flags.filter { group.contains($0.0) }
+            if let first = found.first, let other = found.first(where: { $0.0 != first.0 }) {
+                return ("Never true: nothing is both \(first.0.rawValue) and \(other.0.rawValue)",
+                        NSUnionRange(first.1.range, other.1.range))
+            }
+        }
+        return nil
+    }
+
+    /// A number of a picture's in ranges that do not meet. Only when one of
+    /// the tests is not under a NOT: those are true also for a file without
+    /// the number, which no range rules out.
+    private static func numberContradiction(_ atoms: [Atom],
+                                            _ field: FlatQuery.MediaNumber) -> (String, NSRange)? {
+        var tests: [(FlatQuery.Comparison, Double, Atom)] = []
+        for atom in atoms {
+            guard case .mediaNumber(field, let written, let value) = atom.primitive else { continue }
+            tests.append((atom.positive ? written : opposite(written), value, atom))
+        }
+        guard tests.count > 1, tests.contains(where: { !$0.2.underNot }) else { return nil }
+        var low = -Double.infinity, high = Double.infinity
+        var lowOpen = false, highOpen = false
+        var lowAtom: Atom?, highAtom: Atom?
+        var excluded: [(Double, Atom)] = []
+        for (comparison, value, atom) in tests {
+            func from(_ v: Double, open: Bool) {
+                if v > low || (v == low && open && !lowOpen) {
+                    low = v; lowOpen = open; lowAtom = atom
+                }
+            }
+            func until(_ v: Double, open: Bool) {
+                if v < high || (v == high && open && !highOpen) {
+                    high = v; highOpen = open; highAtom = atom
+                }
+            }
+            switch comparison {
+            case .equal: from(value, open: false); until(value, open: false)
+            case .notEqual: excluded.append((value, atom))
+            case .greater: from(value, open: true)
+            case .greaterOrEqual: from(value, open: false)
+            case .less: until(value, open: true)
+            case .lessOrEqual: until(value, open: false)
+            }
+        }
+        if low > high || (low == high && (lowOpen || highOpen)), let lowAtom, let highAtom {
+            return ("Never true: no \(field.rawValue) is in both ranges",
+                    NSUnionRange(lowAtom.range, highAtom.range))
+        }
+        if low == high, let (_, atom) = excluded.first(where: { $0.0 == low }),
+           let other = lowAtom ?? highAtom {
+            return ("Never true: the only \(field.rawValue) left is the one excluded",
+                    NSUnionRange(atom.range, other.range))
+        }
         return nil
     }
 
@@ -996,11 +1317,20 @@ nonisolated enum Analysis {
         var low = Date.distantPast, high = Date.distantFuture   // [low, high)
         var lowAtom: Atom?, highAtom: Atom?
         var excluded: [(FlatQuery.Moment, Atom)] = []
+        // A picture may have no date taken: tests all under NOT are true for
+        // it, whatever their ranges.
+        if FlatQuery.MediaDate(rawValue: which) != nil, !atoms.contains(where: {
+            if case .mediaDate(let field, _, _) = $0.primitive, field.rawValue == which {
+                return !$0.underNot
+            }
+            return false
+        }) { return nil }
         for atom in atoms {
             let found: (FlatQuery.Comparison, FlatQuery.Moment)?
             switch atom.primitive {
             case .created(let c, let m) where which == "created": found = (c, m)
             case .modified(let c, let m) where which == "modified": found = (c, m)
+            case .mediaDate(let field, let c, let m) where field.rawValue == which: found = (c, m)
             default: found = nil
             }
             guard let (written, moment) = found else { continue }
@@ -1031,21 +1361,28 @@ nonisolated enum Analysis {
     private static func text(_ primitive: Primitive, field: String) -> FlatQuery.TextTest? {
         switch (primitive, field) {
         case (.name(let t), "name"), (.owner(let t), "owner"), (.group(let t), "group"): t
+        case (.mediaText(let f, let t), _) where f.rawValue == field: t
         default: nil
         }
     }
 
-    private static func isPattern(_ value: String) -> Bool {
-        value.contains { $0 == "*" || $0 == "?" || $0 == "[" }
-    }
+    private static func isPattern(_ value: String) -> Bool { FlatQuery.isPattern(value) }
 
-    /// Names, owners, groups: one exact value is wanted, and another test
-    /// rules it out; or two exact values.
+    /// Names, owners, groups, a picture's texts: one exact value is wanted,
+    /// and another test rules it out; or two exact values.
     private static func textContradiction(_ atoms: [Atom], field: String)
         -> (String, NSRange)? {
-        let glob = field == "name"
+        let media = FlatQuery.MediaText(rawValue: field) != nil
+        let glob = field == "name" || media
         let tests = atoms.compactMap { atom in text(atom.primitive, field: field).map { ($0, atom) } }
         guard tests.count > 1 else { return nil }
+        // Under NOT, true also for a file that says nothing of it.
+        if media, !tests.contains(where: { !$0.1.underNot }) { return nil }
+        // A DNG is both "dng" and "raw".
+        if field == "format", tests.contains(where: {
+            if case .equals(let value, _) = $0.0 { return value.lowercased() == "raw" }
+            return false
+        }) { return nil }
         let exact = tests.compactMap { test, atom -> (String, Atom)? in
             guard atom.positive, case .equals(let value, _) = test,
                   !(glob && isPattern(value)) else { return nil }
@@ -1100,6 +1437,70 @@ nonisolated enum Analysis {
         return nil
     }
 
+    // MARK: NOT over a picture's values
+
+    /// A test of what a picture or video says -- not whether it is one.
+    private static func isMediaValue(_ primitive: Primitive) -> Bool {
+        switch primitive {
+        case .media(let flag): flag != .image && flag != .video
+        // What a file is, as image and video are: "not a JPEG" is meant.
+        case .mediaText(.format, _): false
+        case .mediaText, .mediaNumber, .mediaDate, .near: true
+        default: false
+        }
+    }
+
+    private static func isMedia(_ primitive: Primitive) -> Bool {
+        switch primitive {
+        case .media, .mediaText, .mediaNumber, .mediaDate, .near: true
+        default: false
+        }
+    }
+
+    private static func describe(_ primitive: Primitive) -> String {
+        switch primitive {
+        case .media(let flag): flag.rawValue
+        case .mediaText(let field, _): field.rawValue
+        case .mediaNumber(let field, _, _): field.rawValue
+        case .mediaDate(let field, _, _): "\(field.rawValue) date"
+        case .near: "location"
+        default: "such value"
+        }
+    }
+
+    /// The first NOT over a picture's value that nothing beside it keeps to
+    /// pictures and videos: `not camera = "*iPhone*"` also lists every text
+    /// file, while `image and not camera = …` does not.
+    private static func unguardedNot(_ node: FlatNode, guarded: Bool) -> FlatNode? {
+        switch node.expression {
+        case .not(.primitive(let primitive)):
+            return !guarded && isMediaValue(primitive) ? node : nil
+        case .and where node.parts.count == 2:
+            var chain: [FlatNode] = []
+            func flatten(_ part: FlatNode) {
+                if case .and = part.expression, part.parts.count == 2 {
+                    part.parts.forEach(flatten)
+                } else {
+                    chain.append(part)
+                }
+            }
+            flatten(node)
+            let keeps = guarded || chain.contains {
+                if case .primitive(let primitive) = $0.expression { return isMedia(primitive) }
+                return false
+            }
+            for part in chain {
+                if let found = unguardedNot(part, guarded: keeps) { return found }
+            }
+            return nil
+        default:
+            for part in node.parts {
+                if let found = unguardedNot(part, guarded: guarded) { return found }
+            }
+            return nil
+        }
+    }
+
     // MARK: Warnings
 
     static func warnings(_ root: FlatNode, namesKinds: Bool) -> [FlatQuery.Problem] {
@@ -1130,6 +1531,14 @@ nonisolated enum Analysis {
             node.parts.forEach(look)
         }
         look(root)
+        if let node = unguardedNot(root, guarded: false),
+           case .not(.primitive(let primitive)) = node.expression {
+            found.append(FlatQuery.Problem(
+                message: "NOT \(describe(primitive)) is true also for everything that has no "
+                    + "\(describe(primitive)) at all \u{2014} folders, text files, pictures "
+                    + "without it; \u{201C}image and \u{2026}\u{201D} keeps to pictures",
+                range: node.range))
+        }
 
         let expression = root.expression
         if truth(expression, .file) == .no,
@@ -1157,6 +1566,23 @@ nonisolated enum Analysis {
 // MARK: - Values
 
 nonisolated extension FlatQuery {
+
+    /// A shell pattern rather than a plain text.
+    static func isPattern(_ value: String) -> Bool {
+        value.contains { $0 == "*" || $0 == "?" || $0 == "[" }
+    }
+
+    /// The same test of an ordered value, with another comparison.
+    static func with(_ comparison: Comparison, _ primitive: Primitive) -> Primitive {
+        switch primitive {
+        case .size(_, let bytes): .size(comparison, bytes)
+        case .created(_, let moment): .created(comparison, moment)
+        case .modified(_, let moment): .modified(comparison, moment)
+        case .mediaDate(let field, _, let moment): .mediaDate(field, comparison, moment)
+        case .mediaNumber(let field, _, let value): .mediaNumber(field, comparison, value)
+        default: primitive
+        }
+    }
 
     static func unitBytes(_ unit: String) -> Int64? {
         switch unit.lowercased() {
@@ -1222,9 +1648,26 @@ nonisolated extension FlatQuery {
         return mask
     }
 
-    /// ISO 8601, to the precision written: `2026-01-31` is the whole day,
+    /// ISO 8601, to the precision written: `2026` is the whole year,
+    /// `2026-01` the whole month, `2026-01-31` the whole day,
     /// `2026-01-31T14:30` the whole minute. Without a zone, this Mac's.
     static func moment(_ text: String, zone: TimeZone = .current) -> Moment? {
+        // A year, or a year and a month: the start of it, and its length.
+        let short = #"^(\d{4})(?:-(\d{2}))?$"#
+        if let regex = try? NSRegularExpression(pattern: short),
+           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) {
+            let year = Range(match.range(at: 1), in: text).flatMap { Int(text[$0]) }
+            let month = Range(match.range(at: 2), in: text).flatMap { Int(text[$0]) }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = zone
+            guard let year, month.map({ (1...12).contains($0) }) ?? true,
+                  let start = calendar.date(from: DateComponents(year: year, month: month ?? 1,
+                                                                 day: 1)),
+                  let end = calendar.date(byAdding: month == nil ? DateComponents(year: 1)
+                                                                 : DateComponents(month: 1),
+                                          to: start) else { return nil }
+            return Moment(start: start, end: end)
+        }
         let pattern = #"^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?$"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
@@ -1277,34 +1720,94 @@ nonisolated extension FlatQuery {
 
     /// What could be typed at `caret`, for Control-Space: the words that fit,
     /// starting with what is already typed of the one the caret is in.
-    static func completions(in text: String, at caret: Int) -> (range: NSRange, words: [String]) {
+    /// `values` are what the flat view found for a picture's texts -- the
+    /// cameras, the lenses -- offered after `camera =`.
+    static func completions(in text: String, at caret: Int,
+                            values: [MediaText: [String]] = [:]) -> (range: NSRange, words: [String]) {
         let ns = text as NSString
         let caret = min(max(caret, 0), ns.length)
-        // The word being typed, back to the last thing that is not part of one.
+        // In a quote opened after `camera =`: the values, from the quote on.
+        if let (quote, field) = valueQuote(in: ns.substring(to: caret)) {
+            let partial = ns.substring(with: NSRange(location: quote, length: caret - quote))
+            let fitting = quoted(field, values).filter {
+                $0.lowercased().hasPrefix(partial.lowercased())
+            }
+            return (NSRange(location: quote, length: caret - quote), fitting)
+        }
+        // The word being typed, back to the last thing that is not part of
+        // one -- a slash in a number, 1/250 or f/2.8, is.
         var start = caret
         while start > 0 {
             let unit = ns.character(at: start - 1)
-            guard let scalar = UnicodeScalar(unit),
-                  isWordCharacter(Character(scalar)) else { break }
-            start -= 1
+            guard let scalar = UnicodeScalar(unit) else { break }
+            let c = Character(scalar)
+            if isWordCharacter(c) { start -= 1; continue }
+            if c == "/", start >= 2, start < caret,
+               let previous = UnicodeScalar(ns.character(at: start - 2)),
+               Character(previous).isNumber || "fF".contains(Character(previous)) {
+                start -= 1
+                continue
+            }
+            break
         }
         let partial = ns.substring(with: NSRange(location: start, length: caret - start))
         let before = ns.substring(to: start)
-        let candidates = expected(after: before)
+        let candidates = expected(after: before, values: values)
         let fitting = candidates.filter {
             partial.isEmpty || $0.lowercased().hasPrefix(partial.lowercased())
         }
         return (NSRange(location: start, length: caret - start), fitting)
     }
 
+    /// The values to offer for a picture's text, in quotes: the formats'
+    /// names, or what the flat view found.
+    private static func quoted(_ field: MediaText, _ values: [MediaText: [String]]) -> [String] {
+        let words = field == .format ? MediaFormat.all.map(\.name) : values[field] ?? []
+        return words.map { "\"\($0)\"" }
+    }
+
+    /// Where a quote is open after `camera =` -- or another of a picture's
+    /// texts -- in `prefix`, the text before the caret: the quote's place
+    /// and the field.
+    static func valueQuote(in prefix: String) -> (Int, MediaText)? {
+        guard case .failure(let problem) = tokenize(prefix),
+              problem.message.hasPrefix("The quote opened here"),
+              case .success(let tokens) = tokenize((prefix as NSString)
+                  .substring(to: problem.range.location)),
+              tokens.count >= 2, tokens[tokens.count - 1].is("=") || tokens[tokens.count - 1].is("!="),
+              let field = MediaText(rawValue: tokens[tokens.count - 2].lower) else { return nil }
+        return (problem.range.location, field)
+    }
+
+    /// The picture's text field whose value the caret is at -- right after
+    /// `camera =`, or in the quote after it -- for Control-Space to know it
+    /// needs the flat view's values.
+    static func valueField(in text: String, at caret: Int) -> MediaText? {
+        let ns = text as NSString
+        let prefix = ns.substring(to: min(max(caret, 0), ns.length))
+        if let (_, field) = valueQuote(in: prefix) { return field }
+        guard case .success(let tokens) = tokenize(prefix), tokens.count >= 2,
+              tokens[tokens.count - 1].is("=") || tokens[tokens.count - 1].is("!=") else {
+            return nil
+        }
+        return MediaText(rawValue: tokens[tokens.count - 2].lower)
+    }
+
     /// What may come after `before`, judged by its last tokens.
     static func expected(after before: String,
-                         saved: [String] = FlatFilterStore.shared.names()) -> [String] {
+                         saved: [String] = FlatFilterStore.shared.names(),
+                         values: [MediaText: [String]] = [:]) -> [String] {
         guard case .success(let tokens) = tokenize(before) else { return [] }
-        let starting = primitives + saved + ["not", "("]
+        // A saved name that is now one of the language's words is not one
+        // that can be used.
+        let usable = saved.filter { !reservedWords.contains($0.lowercased()) }
+        let starting = primitives + usable + ["not", "("]
         guard let last = tokens.last else { return starting }
         let joining = ["and", "or", ",", ")"]
         let second = tokens.count > 1 ? tokens[tokens.count - 2] : nil
+
+        if let inside = intervalExpected(tokens) { return inside }
+        if let inside = nearExpected(tokens) { return inside }
 
         switch last.kind {
         case .symbol:
@@ -1312,49 +1815,124 @@ nonisolated extension FlatQuery {
             case "(":
                 if second?.isWord("xattr") == true { return ["\""] }
                 return starting
-            case ")":
+            case ")", "]":
                 // After xattr("…"): a comparison may follow, or nothing.
-                return joining + ["=", "!=", "~", "!~"]
+                if last.is(")"), second?.kind == .string { return joining + ["=", "!=", "~", "!~"] }
+                return joining
             case ",":
                 return starting
             case "~", "!~":
                 return ["/"]
-            case "=", "!=":
-                if let second, second.isWord("access") { return ["\"\(anyAccess)\""] }
-                return ["\""]
             default:
-                // < <= > >=, after size, created or modified.
-                if second?.isWord("size") == true { return [] }
-                return []
+                guard let second else { return [] }
+                if FlatQuery.Comparison(rawValue: last.text) != nil, isOrdered(second.lower) {
+                    return usualValues(second.lower)
+                }
+                if second.isWord("access") { return ["\"\(anyAccess)\""] }
+                if let field = MediaText(rawValue: second.lower) {
+                    let found = quoted(field, values)
+                    return found.isEmpty ? ["\""] : found
+                }
+                return ["\""]
             }
         case .string, .regex:
             return joining
         case .word:
-            switch last.lower {
+            let lower = last.lower
+            switch lower {
             case "and", "or", "not":
                 return starting
             case "true", "false":
                 return joining
-            case "size", "created", "modified":
-                return Comparison.allCases.map(\.rawValue)
+            case _ where isOrdered(lower):
+                return Comparison.allCases.map(\.rawValue) + ["between"]
             case "name", "owner", "group":
                 return ["=", "!=", "~", "!~"]
+            case _ where MediaText(rawValue: lower) != nil:
+                return ["=", "!=", "~", "!~"]
+            case _ where MediaFlag(rawValue: lower) != nil:
+                return joining
             case "access":
                 return ["=", "!="]
-            case "xattr":
+            case "xattr", "near":
                 return ["("]
+            case "between":
+                return ["[", "("]
             case "contains", "content":
                 return ["\"", "~", "/"]
             case "directory", "dir":
                 return ["traversed", "listed"] + joining
             default:
-                if second?.isWord("size") == true || (tokens.count > 2
-                    && tokens[tokens.count - 3].isWord("size")), Double(last.text) != nil {
-                    return units + joining
+                // A number after an ordered test: its units, or what joins.
+                if let field = orderedField(before: tokens.count - 1, in: tokens),
+                   isNumber(last.text) {
+                    return unitWords(field) + joining
                 }
                 return joining
             }
         }
+    }
+
+    /// The ordered test a value at `index` belongs to: `size` in `size > 10`.
+    private static func orderedField(before index: Int, in tokens: [Token]) -> String? {
+        guard index >= 2, tokens[index - 1].kind == .symbol,
+              Comparison(rawValue: tokens[index - 1].text) != nil,
+              isOrdered(tokens[index - 2].lower) else { return nil }
+        return tokens[index - 2].lower
+    }
+
+    private static func isNumber(_ text: String) -> Bool {
+        Double(text) != nil || text.allSatisfy { $0.isNumber || $0 == "/" || $0 == "." }
+    }
+
+    /// The units a field's number may take.
+    private static func unitWords(_ field: String) -> [String] {
+        if field == "size" { return units }
+        guard let number = MediaNumber(rawValue: field) else { return [] }
+        return Quantity.of(number).units.map(\.0)
+    }
+
+    /// The usual values of a field, after a comparison or in `between`.
+    private static func usualValues(_ field: String) -> [String] {
+        if field == "size" { return ["1KB", "100KB", "1MB", "10MB", "100MB", "1GB"] }
+        if let number = MediaNumber(rawValue: field) { return Quantity.usual(for: number) }
+        return []
+    }
+
+    /// Inside `field between [a, b]`: what comes next there; nil outside it.
+    private static func intervalExpected(_ tokens: [Token]) -> [String]? {
+        guard let at = tokens.lastIndex(where: { $0.isWord("between") }), at >= 1,
+              isOrdered(tokens[at - 1].lower) else { return nil }
+        let field = tokens[at - 1].lower
+        let rest = Array(tokens[(at + 1)...])
+        guard let open = rest.first else { return ["[", "("] }
+        guard open.is("[") || open.is("(") else { return nil }
+        if rest.contains(where: { $0.is("]") || $0.is(")") }) { return nil }
+        let afterNumber = rest.count > 1 && isNumber(rest[rest.count - 1].text)
+        if let comma = rest.firstIndex(where: { $0.is(",") }) {
+            if comma == rest.count - 1 { return usualValues(field) }
+            return (afterNumber ? unitWords(field) : []) + ["]", ")"]
+        }
+        if rest.count == 1 { return usualValues(field) }
+        return (afterNumber ? unitWords(field) : []) + [","]
+    }
+
+    /// Inside `near(…)`: after the two coordinates, a distance.
+    private static func nearExpected(_ tokens: [Token]) -> [String]? {
+        guard let at = tokens.lastIndex(where: { $0.isWord("near") }) else { return nil }
+        let rest = Array(tokens[(at + 1)...])
+        guard rest.first?.is("(") == true, !rest.contains(where: { $0.is(")") }) else {
+            return nil
+        }
+        let commas = rest.filter { $0.is(",") }.count
+        if let last = rest.last, last.is(",") {
+            return commas == 2 ? Quantity.distance.usual : []
+        }
+        if commas == 2, let last = rest.last, isNumber(last.text) {
+            return Quantity.distance.units.map(\.0) + [")"]
+        }
+        if commas == 2 { return [")"] }
+        return rest.count > 1 ? [","] : []
     }
 
     /// The hint for where the caret is: the keyword it is in or just after,
@@ -1391,10 +1969,16 @@ nonisolated extension FlatQuery {
         var end = caret
         while end < ns.length, isWord(end) { end += 1 }
         guard case .success(let tokens) = tokenize(ns.substring(to: start)), tokens.count >= 2,
-              let comparison = tokens.last, comparison.kind == .symbol,
-              Comparison(rawValue: comparison.text) != nil,
-              tokens[tokens.count - 2].isWord("created")
-                || tokens[tokens.count - 2].isWord("modified") else { return nil }
+              let before = tokens.last, before.kind == .symbol else { return nil }
+        let afterComparison = Comparison(rawValue: before.text) != nil
+            && isDateField(tokens[tokens.count - 2].lower)
+        // In `taken between [2024-06, 2024-08]`, after the bracket or the comma.
+        let inInterval = (before.is("[") || before.is("(") || before.is(","))
+            && tokens.lastIndex(where: { $0.isWord("between") }).map {
+                $0 >= 1 && isDateField(tokens[$0 - 1].lower)
+                    && !tokens[($0 + 1)...].contains { $0.is("]") || $0.is(")") }
+            } == true
+        guard afterComparison || inInterval else { return nil }
         let range = NSRange(location: start, length: end - start)
         return (range, ns.substring(with: range))
     }
@@ -1512,6 +2096,148 @@ nonisolated extension FlatQuery {
             return (String(slots), caret + 1)
         default:
             return nil
+        }
+    }
+}
+
+// MARK: - Quantities
+
+/// What a number in the expression measures, and the units it may be
+/// written in -- metric and imperial alike -- each turned into the base
+/// unit the file's value is kept in: seconds, millimetres, metres.
+nonisolated enum Quantity: Sendable {
+    case plain          // ISO, stars
+    case aperture       // 2.8, f2.8, f/2.8
+    case shutter        // 1/250, 0.5, 2s -- seconds
+    case focal          // millimetres
+    case pixels
+    case megapixels
+    case distance       // metres
+    case duration       // seconds
+
+    static func of(_ field: FlatQuery.MediaNumber) -> Quantity {
+        switch field {
+        case .iso, .rating: .plain
+        case .aperture: .aperture
+        case .shutter: .shutter
+        case .focal, .focal35: .focal
+        case .width, .height: .pixels
+        case .megapixels: .megapixels
+        case .altitude: .distance
+        case .duration: .duration
+        }
+    }
+
+    /// The units, by how many base units each is.
+    var units: [(String, Double)] {
+        switch self {
+        case .plain, .aperture: []
+        case .shutter: [("s", 1), ("ms", 0.001)]
+        case .focal: [("mm", 1), ("cm", 10), ("in", 25.4)]
+        case .pixels: [("px", 1)]
+        case .megapixels: [("mp", 1)]
+        case .distance: [("m", 1), ("km", 1000), ("ft", 0.3048), ("yd", 0.9144),
+                         ("mi", 1609.344)]
+        case .duration: [("s", 1), ("ms", 0.001), ("min", 60), ("h", 3600)]
+        }
+    }
+
+    /// Every unit word, which a saved expression cannot be called.
+    static let allUnits: [String] = ["s", "ms", "mm", "cm", "in", "px", "mp", "m", "km", "ft",
+                                     "yd", "mi", "min", "h"]
+
+    func factor(_ unit: String) -> Double? {
+        let lower = unit.lowercased()
+        return units.first { $0.0 == lower }?.1
+    }
+
+    var what: String {
+        switch self {
+        case .plain: "a number"
+        case .aperture: "an f-number"
+        case .shutter: "an exposure time"
+        case .focal: "a focal length"
+        case .pixels: "a number of pixels"
+        case .megapixels: "a number of megapixels"
+        case .distance: "a distance"
+        case .duration: "a length of time"
+        }
+    }
+
+    var example: String {
+        switch self {
+        case .plain: "A number"
+        case .aperture: "An f-number, 2.8 or f/2.8,"
+        case .shutter: "An exposure time, 1/250, 0.5 or 2s,"
+        case .focal: "A focal length, 50mm, 5cm or 2in,"
+        case .pixels: "A number of pixels, 1920,"
+        case .megapixels: "A number of megapixels, 12,"
+        case .distance: "A distance, 500m, 5km, 1000ft or 3mi,"
+        case .duration: "A length of time, 90s, 10min, 1h or 1:30,"
+        }
+    }
+
+    /// The text as a number in the base unit; nil when it is not one.
+    func value(_ written: String) -> Double? {
+        var text = written.lowercased()
+        switch self {
+        case .aperture:
+            if text.hasPrefix("f/") { text.removeFirst(2) } else if text.hasPrefix("f") {
+                text.removeFirst()
+            }
+            return Double(text).flatMap { $0 > 0 ? $0 : nil }
+        case .duration where text.contains(":"):
+            // 1:30, 1:02:03
+            let parts = text.split(separator: ":", omittingEmptySubsequences: false)
+            guard (2...3).contains(parts.count) else { return nil }
+            var seconds = 0.0
+            for part in parts {
+                guard let number = Double(part), number >= 0 else { return nil }
+                seconds = seconds * 60 + number
+            }
+            return seconds
+        default:
+            break
+        }
+        let digits = text.prefix { $0.isNumber || $0 == "." || $0 == "-" || $0 == "/" }
+        let unit = String(text.dropFirst(digits.count))
+        let number: Double
+        if self == .shutter, digits.contains("/") {
+            let parts = digits.split(separator: "/")
+            guard parts.count == 2, let top = Double(parts[0]), let bottom = Double(parts[1]),
+                  bottom > 0 else { return nil }
+            number = top / bottom
+        } else {
+            guard !digits.contains("/"), let parsed = Double(digits) else { return nil }
+            number = parsed
+        }
+        if number < 0 && self != .distance { return nil }
+        guard let multiplier = unit.isEmpty ? 1 : factor(unit) else { return nil }
+        return number * multiplier
+    }
+
+    /// The usual values, for Control-Space.
+    var usual: [String] {
+        switch self {
+        case .plain: []
+        case .aperture: ["1.4", "1.8", "2", "2.8", "4", "5.6", "8", "11", "16", "22"]
+        case .shutter: ["1/8000", "1/4000", "1/2000", "1/1000", "1/500", "1/250", "1/125",
+                        "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1s", "2s", "4s", "8s",
+                        "15s", "30s"]
+        case .focal: ["14mm", "24mm", "35mm", "50mm", "85mm", "135mm", "200mm", "400mm"]
+        case .pixels: ["640", "1080", "1280", "1920", "2048", "3840", "4032", "6000"]
+        case .megapixels: ["2", "8", "12", "24", "48"]
+        case .distance: ["100m", "500m", "1km", "5km", "50km", "1000ft", "1mi", "10mi"]
+        case .duration: ["10s", "30s", "1min", "5min", "10min", "30min", "1h"]
+        }
+    }
+
+    static func usual(for field: FlatQuery.MediaNumber) -> [String] {
+        switch field {
+        case .iso: ["100", "200", "400", "800", "1600", "3200", "6400", "12800"]
+        case .rating: ["0", "1", "2", "3", "4", "5"]
+        case .altitude: ["0m", "500m", "1000m", "2000m", "3000m", "1000ft", "5000ft", "10000ft"]
+        default: of(field).usual
         }
     }
 }

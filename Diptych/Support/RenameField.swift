@@ -9,6 +9,9 @@ import AppKit
 struct RenameField: NSViewRepresentable {
 
     @Binding var text: String
+    /// The whole text selected to start with, not only the name before its
+    /// extension: a date, an artist.
+    var selectsAll = false
     /// `advance` is true for Shift-Return: commit, then move to the next row.
     let onCommit: (_ advance: Bool) -> Void
     let onCancel: () -> Void
@@ -30,7 +33,7 @@ struct RenameField: NSViewRepresentable {
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
             if let editor = field.currentEditor() {
-                let stem = (text as NSString).deletingPathExtension
+                let stem = selectsAll ? text : (text as NSString).deletingPathExtension
                 editor.selectedRange = NSRange(location: 0, length: (stem as NSString).length)
             }
         }

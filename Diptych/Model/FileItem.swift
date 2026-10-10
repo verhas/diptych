@@ -40,6 +40,9 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// bits rather than re-parsing the rendered characters.
     var mode: mode_t = 0
     var tags: [String] = []
+    /// What a picture or video says about itself; read only when a column
+    /// shows it.
+    var media: MediaInfo?
     /// Where a symbolic link points, exactly as stored -- which may be relative.
     /// Empty for everything else. Read by the loader, because a `readlink` per
     /// symlink is cheap and doing it during a redraw is not.
@@ -63,6 +66,9 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// view is of, with a slash at the end: `src/main/`. Empty in an
     /// ordinary listing, and for what is directly in the flat view's folder.
     var folderPrefix = ""
+    /// A folder's total from Calculate Directory Sizes, as it stood when the
+    /// rows were sorted: what sorting by Size uses for a folder.
+    var folderTotal: Int64?
     /// What the Name column sorts by: the name, after its folder in a flat
     /// view.
     var relativePath: String { folderPrefix + name }
@@ -130,6 +136,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .group:         return group
         case .tags:          return tags.joined(separator: ", ")
         case .git:           return gitStates.map(\.title).joined(separator: ", ")
+        default:             return media?.text(for: column) ?? ""
         }
     }
 

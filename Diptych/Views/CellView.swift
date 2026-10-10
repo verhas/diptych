@@ -84,7 +84,14 @@ struct CellView: View {
             case .name:        nameCell
             case .permissions: permissionsCell
             case .git:         gitCell
-            default:           plainText
+            default:
+                if pane.valueEdit == CellEdit.Spot(id: item.id, column: column) {
+                    RenameField(text: $pane.valueEditText, selectsAll: true,
+                                onCommit: { _ in model.commitValueEdit(in: pane) },
+                                onCancel: { model.cancelValueEdit() })
+                } else {
+                    plainText
+                }
             }
         }
         // Set once for the whole cell. Setting it per branch is what left the
@@ -113,9 +120,27 @@ struct CellView: View {
         }
     }
 
+    /// A folder's total, once Calculate Directory Sizes has been asked for
+    /// it: in its own colour, so it is not taken for a file's size.
+    private var folderSize: DirectorySizes.Shown? {
+        guard column == .size, item.isDirectory, !item.isParent, !item.isSymlink else { return nil }
+        return DirectorySizes.shared.shown(for: item.url)
+    }
+
+    /// Worked out: teal, a colour no other column uses for a value. About
+    /// to change -- the total from before, or one still growing -- orange.
+    static func colour(of size: DirectorySizes.Shown) -> Color {
+        switch size {
+        case .waiting:  .secondary
+        case .updating: .orange
+        case .done:     .teal
+        }
+    }
+
     private var plainText: some View {
-        Text(item.text(for: column))
-            .foregroundStyle(.secondary)
+        Text(folderSize?.text ?? item.text(for: column))
+            .foregroundStyle(folderSize.map { AnyShapeStyle(Self.colour(of: $0)) }
+                             ?? AnyShapeStyle(.secondary))
             .lineLimit(1)
             .truncationMode(.middle)
             .monospacedDigit()
@@ -160,8 +185,13 @@ struct CellView: View {
                 // Deliberately no gesture here. Clicks are observed by
                 // ClickRouter, outside the view hierarchy, because every
                 // gesture attached to a cell so far has broken row selection.
-                // In a flat view, the folder it is in first, in grey.
-                (Text(item.folderPrefix).foregroundStyle(.secondary).fontWeight(.regular)
+                // In a flat view, the folder it is in first, in grey -- and
+                // while Option is down, each of its folders a link there.
+                if OptionKey.shared.isDown, !item.folderPrefix.isEmpty {
+                    folderLinks
+                }
+                ((OptionKey.shared.isDown ? Text("")
+                  : Text(item.folderPrefix).foregroundStyle(.secondary).fontWeight(.regular))
                  + Text(item.name))
                     .fontWeight(item.isEnterable ? .semibold : .regular)
                     .lineLimit(1)
@@ -198,6 +228,34 @@ struct CellView: View {
                 }
             }
         }
+    }
+
+    /// The flat view's folders before the name, one link each.
+    private var folderLinks: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(Self.folders(of: item).enumerated()), id: \.offset) { _, folder in
+                Text(folder.name)
+                    .underline()
+                    .foregroundStyle(Color.accentColor)
+                    .overlay(FolderLinkMarker(url: folder.url))
+                Text("/").foregroundStyle(.secondary)
+            }
+        }
+        .fontWeight(.regular)
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    /// Each folder of a flat view's row's prefix, and where it is.
+    static func folders(of item: FileItem) -> [(name: String, url: URL)] {
+        let names = item.folderPrefix.split(separator: "/").map(String.init)
+        var url = item.url.deletingLastPathComponent()
+        var folders: [(name: String, url: URL)] = []
+        for name in names.reversed() {
+            folders.insert((name, url), at: 0)
+            url = url.deletingLastPathComponent()
+        }
+        return folders
     }
 
     private var arrowToolTip: String {

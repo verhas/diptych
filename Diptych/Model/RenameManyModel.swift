@@ -30,8 +30,8 @@ final class RenameManyModel {
     static let renamed = Notification.Name("diptych.renamedMany")
     /// In a `renamed` notification's user info: the renames, in the order
     /// they ran, as two lists of URLs.
-    static let fromKey = "from"
-    static let toKey = "to"
+    nonisolated static let fromKey = "from"
+    nonisolated static let toKey = "to"
 
     /// The folder, or the folder a flat view is of.
     private(set) var folder: URL

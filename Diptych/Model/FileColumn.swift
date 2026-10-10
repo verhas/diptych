@@ -19,8 +19,41 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
     case group
     case tags
     case git
+    // What a picture or video says about itself, read from the file.
+    case format
+    case taken
+    case digitized
+    case camera
+    case lens
+    case software
+    case artist
+    case copyright
+    case imageDescription
+    case iso
+    case aperture
+    case shutter
+    case focal
+    case focal35
+    case dimensions
+    case megapixels
+    case duration
+    case location
+    case altitude
+    case city
+    case state
+    case country
+    case rating
 
     var id: String { rawValue }
+
+    /// Read from the picture or video itself, not the file system.
+    var isMedia: Bool {
+        switch self {
+        case .name, .size, .kind, .modified, .created, .added, .fileExtension, .permissions,
+             .owner, .group, .tags, .git: false
+        default: true
+        }
+    }
 
     var title: String {
         switch self {
@@ -36,6 +69,29 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .owner:         "Owner"
         case .group:         "Group"
         case .tags:          "Tags"
+        case .format:        "Format"
+        case .taken:         "Date Taken"
+        case .digitized:     "Date Digitized"
+        case .camera:        "Camera"
+        case .lens:          "Lens"
+        case .software:      "Software"
+        case .artist:        "Artist"
+        case .copyright:     "Copyright"
+        case .imageDescription: "Description"
+        case .iso:           "ISO"
+        case .aperture:      "Aperture"
+        case .shutter:       "Shutter"
+        case .focal:         "Focal Length"
+        case .focal35:       "Focal Length (35mm)"
+        case .dimensions:    "Dimensions"
+        case .megapixels:    "Megapixels"
+        case .duration:      "Duration"
+        case .location:      "Location"
+        case .altitude:      "Altitude"
+        case .city:          "City"
+        case .state:         "State"
+        case .country:       "Country"
+        case .rating:        "Rating"
         }
     }
 
@@ -60,6 +116,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         // Git state does not come from the file system at all -- it is filled
         // in after the listing, from one status call per repository.
         case .git:           []
+        default:             [DirectoryLoader.mediaKey]
         }
     }
 
@@ -77,11 +134,24 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .group:         (80, 110, 180)
         case .tags:          (80, 130, 260)
         case .git:           (70, 90, 160)
+        case .taken, .digitized: (120, 150, 220)
+        case .format, .iso, .aperture, .rating: (50, 70, 120)
+        case .shutter, .focal, .focal35, .megapixels, .duration, .altitude: (60, 90, 140)
+        case .dimensions:    (80, 110, 160)
+        case .location:      (120, 160, 240)
+        case .camera, .lens, .software, .artist, .copyright, .imageDescription, .city,
+             .state, .country: (80, 140, 400)
         }
     }
 
     /// Numeric and date columns read better right-aligned.
-    var isTrailingAligned: Bool { self == .size }
+    var isTrailingAligned: Bool {
+        switch self {
+        case .size, .iso, .aperture, .shutter, .focal, .focal35, .dimensions, .megapixels,
+             .duration, .altitude: true
+        default: false
+        }
+    }
 }
 
 /// Global, cross-pane configuration.
@@ -482,6 +552,18 @@ struct Configuration: Codable, Equatable {
 
     /// Repairs anything a hand-edited file or a newer build might have left
     /// inconsistent: unknown cases dropped, new cases appended, name pinned.
+    /// The columns on show, put in this order; the hidden ones keep their
+    /// places among them, and Name stays first.
+    mutating func arrange(_ shown: [FileColumn]) {
+        var order = columnOrder
+        let arranged = [.name] + shown.filter { $0 != .name }
+        let places = order.indices.filter { arranged.contains(order[$0]) }
+        guard places.count == arranged.count else { return }
+        for (place, column) in zip(places, arranged) { order[place] = column }
+        columnOrder = order
+        normalise()
+    }
+
     mutating func normalise() {
         var order = columnOrder.filter { $0 != .name }
         for column in FileColumn.allCases where column != .name && !order.contains(column) {

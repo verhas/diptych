@@ -33,8 +33,15 @@ enum UndoSnapshots {
     /// its other hard links, its permissions and its attributes, holding what
     /// it held before.
     nonisolated static func putBack(_ snapshot: URL, into url: URL) throws {
-        let data = try Data(contentsOf: snapshot)
-        try data.write(to: url)
+        // A piece at a time: a video can be larger than the memory there is.
+        let reading = try FileHandle(forReadingFrom: snapshot)
+        defer { try? reading.close() }
+        let writing = try FileHandle(forWritingTo: url)
+        defer { try? writing.close() }
+        try writing.truncate(atOffset: 0)
+        while let piece = try reading.read(upToCount: 8 << 20), !piece.isEmpty {
+            try writing.write(contentsOf: piece)
+        }
     }
 
     /// The folders of Diptychs that have quit.

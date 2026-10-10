@@ -19,6 +19,7 @@ struct DiptychApp: App {
     static let runWindowID = "diptych.run"
     static let siblingsWindowID = "diptych.siblings"
     static let exifWindowID = "diptych.exif"
+    static let videoWindowID = "diptych.video"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -69,6 +70,13 @@ struct DiptychApp: App {
         // brings it forward.
         WindowGroup(id: DiptychApp.exifWindowID, for: [URL].self) { $urls in
             if let urls { ExifEditorView(urls: urls) }
+        }
+        .defaultSize(width: 760, height: 680)
+        .restorationBehavior(.disabled)
+
+        // The same for videos.
+        WindowGroup(id: DiptychApp.videoWindowID, for: [URL].self) { $urls in
+            if let urls { ExifEditorView(urls: urls, kind: .videos) }
         }
         .defaultSize(width: 760, height: 680)
         .restorationBehavior(.disabled)
@@ -232,6 +240,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileViewer.reconcileAtLaunch()
         }
 
+        if !isRunningTests {
+            MainActor.assumeIsolated { StartupWarnings.start() }
+        }
+
         MainActor.assumeIsolated {
             let store = ConfigStore.shared
             guard store.configuration.mcpServerEnabled else { return }
@@ -295,10 +307,10 @@ struct FileCommands: Commands {
                 .keyboardShortcut(.newTab)
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut(.newFolder)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.isFlat == true)
             Button("New File") { model?.requestNewFile() }
                 .keyboardShortcut(.newFile)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.isFlat == true)
             // Absent, not greyed, when the setting says so: a command switched
             // off is not a command that is temporarily unavailable.
             if model?.clipboardCommandIsOffered ?? false {
@@ -559,6 +571,11 @@ struct FileCommands: Commands {
                 .keyboardShortcut("=", modifiers: .command)
             Button("Refresh") { model?.active.reload() }
                 .keyboardShortcut(.refresh)
+            // Greyed while the Size column, where the totals go, is hidden.
+            Button("Calculate Directory Sizes") { model?.calculateDirectorySizes() }
+                .disabled(model?.canCalculateDirectorySizes != true)
+            Button("Clear Directory Sizes") { model?.clearDirectorySizes() }
+                .disabled(DirectorySizes.shared.isEmpty)
 
             Divider()
 

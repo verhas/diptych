@@ -91,7 +91,10 @@ struct CoordinateField: NSViewRepresentable {
     final class PasteEditor: NSTextView {
         override func paste(_ sender: Any?) {
             if let text = NSPasteboard.general.string(forType: .string),
-               let field = delegate as? Field, field.onPaste(text) {
+               // The field editor's delegate is the field being edited. Seen
+               // as an NSTextViewDelegate, which Field is not declared as, the
+               // compiler took the cast for one that can never succeed.
+               let field = (delegate as AnyObject?) as? Field, field.onPaste(text) {
                 return
             }
             super.paste(sender)

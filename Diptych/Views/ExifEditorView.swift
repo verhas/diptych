@@ -3,7 +3,8 @@ import ImageIO
 import SwiftUI
 
 /// Image ▸ Edit EXIF: the images at the top, their fields below, each with
-/// the box that says it will be written.
+/// the box that says it will be written. Video ▸ Edit Metadata is the same
+/// window on videos: their date, place, camera and words as the same fields.
 struct ExifEditorView: View {
 
     @State private var model: ExifEditorModel
@@ -16,8 +17,25 @@ struct ExifEditorView: View {
     /// F3, as AppKit's key events spell it.
     private static let f3 = KeyEquivalent(Character(UnicodeScalar(NSF3FunctionKey)!))
 
-    init(urls: [URL]) {
-        _model = State(initialValue: ExifEditorModel(files: urls))
+    init(urls: [URL], kind: ExifEditorModel.Kind = .images) {
+        _model = State(initialValue: ExifEditorModel(files: urls, kind: kind))
+    }
+
+    private var isVideo: Bool { model.kind == .videos }
+
+    /// "image", "video".
+    private func things(_ count: Int) -> String {
+        let one = isVideo ? "video" : "image"
+        return count == 1 ? "1 \(one)" : "\(count) \(one)s"
+    }
+
+    private func title(of group: ExifGroup) -> String {
+        guard isVideo else { return group.title }
+        switch group {
+        case .tiff: return "Video and Camera"
+        case .exif: return "Date Taken"
+        case .gps:  return group.title
+        }
     }
 
     var body: some View {
@@ -38,13 +56,14 @@ struct ExifEditorView: View {
         .onChange(of: focused) { _, id in
             if let id { model.touch(id) }
         }
-        .navigationTitle(model.files.count == 1
-                         ? "EXIF of \(model.files[0].lastPathComponent)"
-                         : "EXIF of \(model.files.count) Images")
+        .navigationTitle((isVideo ? "Metadata of " : "EXIF of ")
+                         + (model.files.count == 1 ? model.files[0].lastPathComponent
+                            : (isVideo ? "\(model.files.count) Videos"
+                                       : "\(model.files.count) Images")))
         .background(WindowAccessor { window in
             guard let window else { return }
             AppWindows.shared.register(window)
-            WindowSubjects.shared.register(window, kind: "exif",
+            WindowSubjects.shared.register(window, kind: isVideo ? "video" : "exif",
                                            description: model.files.map(\.path)
                                                .joined(separator: "\n"))
         })
@@ -54,7 +73,7 @@ struct ExifEditorView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(model.files.count == 1 ? "1 image" : "\(model.files.count) images")
+            Text(things(model.files.count))
                 .font(.headline)
             // One image at a time: Space shows it in Quick Look, Return or
             // F3 opens it, as in a pane.
@@ -73,7 +92,8 @@ struct ExifEditorView: View {
                             .lineLimit(1)
                             .truncationMode(.head)
                         if model.unreadable.contains(url) {
-                            Text("cannot be read as an image; left out")
+                            Text(isVideo ? "not a QuickTime or MP4 video; left out"
+                                         : "cannot be read as an image; left out")
                                 .font(.caption).foregroundStyle(.red)
                         }
                     }
@@ -145,7 +165,7 @@ struct ExifEditorView: View {
     @ViewBuilder
     private func groupHeading(_ group: ExifGroup) -> some View {
         HStack {
-            Text(group.title).font(.subheadline).bold()
+            Text(title(of: group)).font(.subheadline).bold()
             Spacer()
             // One button for the whole section: every coordinate is written
             // the same way, and going round rewrites them all.
@@ -273,6 +293,11 @@ struct ExifEditorView: View {
                                 onChange: { model.type($0, in: row.id) },
                                 onFocus: { model.touch(row.id) },
                                 onPaste: { model.paste($0, into: row.id) })
+            } else if ExifDatabase.offers(row.field.key) {
+                SuggestingField(text: row.text, prompt: prompt(for: row), dimmed: row.isParked,
+                                onChange: { model.type($0, in: row.id) },
+                                onFocus: { model.touch(row.id) },
+                                values: { model.suggestions(for: row.id) })
             } else {
                 TextField("", text: Binding(get: { row.text },
                                             set: { model.type($0, in: row.id) }),
@@ -500,9 +525,32 @@ struct ExifEditorView: View {
             }
             .fixedSize()
             .disabled(model.addable.isEmpty || model.isLoading)
-            .help("Show a field none of the images has yet")
+            .help("Show a field none of the \(isVideo ? "videos" : "images") has yet")
+
+            // The fields through the clipboard, as JSON: to keep what was
+            // typed when it cannot be saved here, or to give one file's
+            // values to another.
+            Button {
+                model.copyJSON()
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .disabled(model.isLoading)
+            .help("Copy the fields as JSON")
+            Button {
+                if let text = NSPasteboard.general.string(forType: .string) {
+                    model.pasteJSON(text)
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .disabled(model.isLoading)
+            .help("Paste fields from JSON on the clipboard \u{2014} as Copy writes them")
 
             VStack(alignment: .leading, spacing: 2) {
+                if let notice = model.notice {
+                    Text(notice).font(.caption).foregroundStyle(.secondary)
+                }
                 ForEach(model.problems, id: \.self) { problem in
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }

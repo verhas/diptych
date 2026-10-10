@@ -52,7 +52,7 @@ enum DirectoryLoader {
         if !showHidden { options.insert(.skipsHiddenFiles) }
 
         let urls = try fm.contentsOfDirectory(at: directory,
-                                              includingPropertiesForKeys: Array(keys),
+                                              includingPropertiesForKeys: Self.fileSystemKeys(keys),
                                               options: options)
 
         try Self.stop(if: cancelled)
@@ -80,6 +80,15 @@ enum DirectoryLoader {
     }
 
 
+    /// Not a key the file system knows: a column that shows what a
+    /// picture or video says about itself, which is read from the file.
+    static let mediaKey = URLResourceKey("dev.verhas.Diptych.media")
+
+    /// The keys to ask the file system for: all but `mediaKey`.
+    static func fileSystemKeys(_ keys: Set<URLResourceKey>) -> [URLResourceKey] {
+        Array(keys.subtracting([mediaKey]))
+    }
+
     /// The keys `list` asks for with these columns on.
     static func keys(for columns: [FileColumn]) -> Set<URLResourceKey> {
         var keys: Set<URLResourceKey> = [
@@ -98,7 +107,7 @@ enum DirectoryLoader {
         // `try?` yields an Optional instead of throwing: one unreadable
         // entry (a dangling symlink, a permission hole) must not abort the
         // whole listing.
-        let v = try? url.resourceValues(forKeys: keySet)
+        let v = try? url.resourceValues(forKeys: Set(Self.fileSystemKeys(keySet)))
         let isSymlink = v?.isSymbolicLink ?? false
 
         // `.isDirectoryKey` describes the link itself, not its target, so a
@@ -164,6 +173,11 @@ enum DirectoryLoader {
             item.mode = decoded.mode
             item.owner = decoded.owner
             item.group = decoded.group
+        }
+        // A picture's or video's own facts, when a column shows them: read
+        // from the file, once while it stays as it is.
+        if keySet.contains(mediaKey), !isDirectory {
+            item.media = MediaCache.shared.info(for: url)
         }
 
         return item

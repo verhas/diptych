@@ -78,6 +78,12 @@ final class ConfigStore {
         }
     }
 
+    /// The columns on show, put in this order -- as dragged in a pane's
+    /// header. The hidden ones keep their places among them; Name stays first.
+    func arrange(_ shown: [FileColumn]) {
+        configuration.arrange(shown)
+    }
+
     func move(from source: IndexSet, to destination: Int) {
         var order = configuration.columnOrder
         order.move(fromOffsets: source, toOffset: destination)

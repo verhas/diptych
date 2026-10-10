@@ -212,6 +212,14 @@ extension ExifFields {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return .fine }
 
+        // ImageIO writes the comment a character a byte: an accented letter
+        // comes back as another, or cuts the rest of the text off.
+        if field.key.name == kCGImagePropertyExifUserComment as String,
+           !trimmed.allSatisfy(\.isASCII) {
+            return .wrong("Only letters without accents stay in Comment: macOS garbles the "
+                          + "others. Description keeps them")
+        }
+
         switch field.input {
         case .dateTime, .date:
             let format = field.input == .date ? dateFormat : dateTimeFormat

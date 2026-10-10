@@ -24,7 +24,10 @@ From the terminal:
 
 `./build.sh run` is the ⌘R equivalent. The script hides xcodebuild's output
 unless something goes wrong, in which case it prints the compiler diagnostics
-and exits non-zero.
+and exits non-zero. `build`, `run`, `release` and `dmg` first run
+`make-places.sh` -- the towns list, from GeoNames -- when the version has
+changed since it last ran, or a month has passed; without the network the
+build goes on with the list already there.
 
 Requires macOS 15+ and Xcode 26. Signed ad-hoc, so it runs locally without a
 developer account.
@@ -37,6 +40,7 @@ developer account.
 | `Return` | enter directory / open file |
 | `F2`, or click the name of an already-selected row | rename in place (base name pre-selected, as in Finder) |
 | `F4`, `F9`, `⌥⌘P`, or click the permissions of an already-selected row | edit permissions in place, for the whole selection |
+| click a date, or a picture's or video's value, in an already-selected row | edit it in place, for the whole selection -- see [Values edited in place](#values-edited-in-place) |
 | `⇧↩` | while renaming: commit and move to the *next* row -- the one that followed this file before the rename, so you can name a run of files in sequence |
 | `F3` | view (opens in the default app) |
 | `F5` | copy selection to the *other* pane |
@@ -183,6 +187,11 @@ the path turns into links, one per folder, like a web page:
 in one click, with the folder you came out of selected, as going up does. The
 last name is where the pane already is, so it is not a link. Let Option go and
 the text comes back; anything you had typed, and the selection, is still there.
+
+While you type or paste a path, the links are **that path's** folders, not the
+pane's: paste `/Users/verhasp/.diptych/filters/imagek.json`, press Option, and
+click `filters` -- the folder, with the file selected. A path that does not
+exist yet links as far as it does.
 
 Option with Command or Control is a shortcut being typed, so it leaves the bar
 alone.
@@ -335,6 +344,64 @@ They are not anchored: `^…$` for a whole name.
 | `contains "text"` | the text is anywhere in the file (also `content`) |
 | `contains ~ /regex/` | a line of the file matches, as `grep` |
 
+**Pictures and videos.** These tests read a file's header -- never its pixels
+-- so they know it by its bytes, not its name: a JPEG named `notes.txt` is
+still `image`.
+
+| Test | True when |
+|---|---|
+| `image`, `video` | a picture macOS can read -- raw files and SVG drawings too -- or a movie |
+| `exif`, `located`, `flash` | the picture carries EXIF; it records where it was taken; the flash fired |
+| `landscape`, `portrait`, `square` | wider than tall, taller than wide, or neither, as it is shown |
+| `rotated`, `transparent`, `animated` | turned by its orientation tag rather than its pixels; it has an alpha channel; it has several frames |
+| `format = "heic"` | the bytes are that format, whatever the name says -- names below; `"raw"` is any camera's raw |
+| `camera`, `lens`, `software`, `artist`, `copyright`, `description` | `= "*pattern*"` or `~ /regex/`, as the file says it. `camera` is the maker and the model together: `"Apple iPhone 15 Pro"` |
+| `city`, `state`, `country` | the place names written in the file by photo software -- or, where none are, those of the nearest town of 15,000 people or more within 50 km of where it was taken. `country` is the name or its code: `"HU"` |
+| `taken`, `digitized` | the date taken, and the date a scan was made, compared as `modified` is |
+| `iso`, `aperture`, `shutter` | `iso >= 1600`; `aperture <= 2.8`, also `f2.8` or `f/2.8`; `shutter >= 1/30`, in seconds -- `2s`, `500ms` |
+| `focal`, `focal35` | the focal length, and its 35mm equivalent: `focal35 < 24mm`, also `cm` and `in` |
+| `width`, `height`, `megapixels` | in pixels, as the picture or video is shown |
+| `altitude` | `altitude > 2000m`; `km`, `ft`, `yd`, `mi`; below the sea is negative |
+| `rating` | the 0 to 5 stars Lightroom or Bridge wrote |
+| `duration` | a video's length: `duration > 10min`, `s`, `h`, or `1:30` |
+| `near(lat, lon, distance)` | taken within the distance of the place: `near(47.4979, 19.0402, 5km)`, `3mi`. The latitude and longitude are as Google Maps copies them |
+
+The formats: `jpeg` (or `jpg`), `heic` (or `heif`), `heif`, `avif`, `png`,
+`gif`, `tiff` (or `tif`), `webp`, `bmp`, `ico`, `icns`, `svg`, `psd`, `jp2`,
+`jxl`, `exr`, `hdr`, `tga`, `pbm`; the camera raw formats `dng`, `cr2`, `cr3`,
+`crw`, `nef`, `arw`, `raf`, `orf`, `rw2`, `pef`, `srw`, and `raw` for any of
+them; and the videos `mov`, `mp4`, `m4v`, `3gp`, `avi`, `mkv`, `webm`, `mpeg`,
+`flv`, `wmv`. MOV, MP4, M4V and 3GP videos say when and where they were taken,
+the camera, their size and length; the others only that they are videos.
+
+**What a file does not say makes its test false** -- with `!=` too, and `<`,
+and `>`: a text file is not `taken < 2020`, and not `camera != "x"` either.
+Only NOT turns that around, so `not camera = "*iPhone*"` lists every text file
+and folder too. The line under the field says so, and `image and not camera =
+"*iPhone*"` keeps to pictures.
+
+**City, state and country** come from the file first. Without them, a
+picture or video that knows where it was taken is placed in the nearest town of
+15,000 people or more within 50 km, from a list in the app made from
+[GeoNames](https://www.geonames.org) (CC BY 4.0) -- looked up on this Mac,
+never asked of a service. A photo from a village is given the nearest larger
+town; one from a sea or a desert, none. `make-places.sh` makes the list again,
+from time to time.
+
+The list is yours to correct, in `~/.diptych/exif/places.json` -- see [The
+lists in ~/.diptych/exif](#the-lists-in-diptychexif).
+
+**Dates to a year or a month.** For every date test -- `created`, `modified`,
+`taken`, `digitized` -- `2024` is the whole year and `2024-07` the whole month:
+`taken = 2024-07` is July.
+
+**Ranges.** Anything that has an order takes `between`: `iso between [100,
+800)`, `taken between [2024-06, 2024-08]`, `size between (1MB, 10MB]`. A square
+bracket takes that end in, a round one leaves it out.
+
+**Metric and imperial.** Distances in `m`, `km`, `ft`, `yd` or `mi`; focal
+lengths in `mm`, `cm` or `in`.
+
 `contains` never looks into a binary file -- one with a NUL byte near its
 start, as `grep` and Git judge it: three letters turn up in an image's bytes
 by chance, and that is never what was looked for. The rest of the expression
@@ -357,6 +424,12 @@ shows a name's expression. Each is a JSON file in `~/.diptych/filters`,
 holding the expression and every version before it, newest first -- edit the
 file to put an older one back. Saving is undoable: Undo puts back the version
 before, or removes a name saved the first time.
+
+A file there whose name is not allowed -- edited by hand, or saved before the
+name became one of the language's words, as `image` did -- is ignored, and
+Diptych says so when it starts, or when such a file turns up: each name, why
+it is not allowed, and the file's full path. So does a file that is not a
+saved expression at all.
 
 One saved expression may use another. Replacing one says which others it
 changes with it. If one that others use goes -- its file deleted, or its first
@@ -394,7 +467,13 @@ orange, and said under the field. It can still be run.
   groups; an exact name that another test rules out (`name = "cat.jpg" and name
   != "*a*"`); two endings at once (`name = "*.jpg" and name = "*.png"` -- OR, or
   a comma, is either); a test and its opposite; an attribute's value tested
-  where the attribute is not to be there.
+  where the attribute is not to be there; a picture and a video at once, or
+  landscape and portrait; two formats; a picture's numbers or dates in ranges
+  that do not meet (`iso > 800 and iso < 400`, `iso between [800, 100]`).
+- **NOT over what a picture says**, with nothing beside it keeping to pictures:
+  `not located` is true for every text file too. `image and not located` is not
+  warned about, nor `not image` or `not format = "jpeg"`, which mean what they
+  say.
 - **No folder is walked into**, so only the top one is looked at: `file and
   name = "*.txt"`.
 
@@ -403,7 +482,15 @@ finds nothing says so under the field. Otherwise the line under the field says
 what the word at the caret takes. **Control-Space** offers what can come next
 -- a test, a comparison, a unit, a keyword, a saved name -- starting with what
 is typed of it; when only one thing can come next, it is inserted at once.
-Where a date goes -- after `created` or `modified` and a comparison, or on a
+After `iso >`, `aperture <=`, `shutter >=` and the other numbers, it offers
+their usual values -- ISO 100 to 12800, the f-stops, the shutter speeds, the
+focal lengths -- and after one, its units. After `format =` it offers the
+formats; after `camera =`, `lens =` or another of a picture's texts, what the
+flat view found, the commonest first -- which needs the flat view to have run,
+and says so when it has not. Inside `between [` it offers values, then `,`,
+then `]` and `)`.
+Where a date goes -- after `created`, `modified`, `taken` or `digitized` and a
+comparison or inside `between [`, or on a
 date already there -- it opens a **calendar** instead, starting at the date
 written; tick **Time** for a minute too, and **Insert** (Return) writes it in
 this Mac's time. After `access =` it offers
@@ -419,7 +506,10 @@ it at once, from the walk it remembers, with the folder you came out of
 selected. Each pane remembers its last six walks. Going anywhere through the
 path bar, its links or the recent folders leaves the flat view too; with
 Option held, the path bar's last folder is a link as well, back to that
-folder. A flat pane is saved as flat and walked again when Diptych starts.
+folder. Option held over the rows, the folders before each name become links
+too: click one and the pane goes to that folder, the cursor on the file or
+folder that led there, and Back returns to the flat view. A flat pane is saved
+as flat and walked again when Diptych starts.
 
 **It holds still.** Only the expression's button (or Return in it) walks the
 tree again. Renaming a row, or setting its permissions, changes just that row
@@ -431,8 +521,9 @@ re-reads every row the same way: gone ones drop out, nothing else does.
 **A source, not a target.** Rows can be copied, moved, renamed, trashed and
 dragged out as anywhere else. Nothing can be copied, moved, pasted, dropped or
 made *into* a flat view -- it is many folders, not one -- except by dropping
-onto one of its folder rows, which is a folder. F5 or F6 towards it, New
-Folder, New File and Paste say so instead. Rename Many works on the flat
+onto one of its folder rows, which is a folder. F5 and F6 on the function
+bar are greyed while the *other* pane is a flat view, and F7 while this one
+is; the keys, New Folder, New File and Paste say why. Rename Many works on the flat
 view's rows -- see [Rename Many](#rename-many).
 
 ## Previewing a .DS_Store
@@ -631,10 +722,61 @@ and Location (GPS).
   wanted goes again with the same button. Values ImageIO keeps for itself —
   pixel dimensions, versions, the Flash structure — are shown but not editable.
 - Numbers take fractions — an exposure time of `1/125`.
+- **Comment takes letters without accents only**: macOS writes it a byte a
+  character, so `Új` came back garbled and the rest cut off. It is red, and
+  Save waits; Description keeps accents.
+- **A save that fails keeps what was typed**: the message says which file
+  would not keep which field, and the fields stay as typed, to mend and save
+  again.
+- **Copy and Paste as JSON** -- the two buttons beside Add Field. Copy puts
+  every field with a value on the clipboard, `{"Exif": {"DateTimeOriginal":
+  "1978:01:01 00:00:00"}, "GPS": {…}, "TIFF": {…}}`; Paste types the fields
+  from such JSON into the window, ticked, to be checked and saved as any typing
+  is -- the names alone, without their groups, do too. To keep a long edit
+  that cannot be saved, or to give one picture's values to others.
+- **Control-Space in Camera Make, Camera Model, Lens Make or Lens Model**
+  offers the usual values, as cameras write them -- `NIKON CORPORATION` and
+  `NIKON Z 6_2`, not the names on the box. What is typed narrows the list;
+  a model's list is the models of the make written above it, when that make
+  is listed. The values come from `~/.diptych/exif`, below.
 - **Save** is an **EXIF Change** in Undo, for all the images at once.
   Its shortcut is **⌘S**, not Return, which saved half-finished typing too
   easily. **Escape does not close the window**, so a slip of the finger does
   not lose what you typed: close it with Cancel, ⌘W or its close button.
+
+### The lists in ~/.diptych/exif
+
+Three JSON files, written the first time Diptych starts, for you to correct
+and add to; Diptych reads them as it starts.
+
+| File | What it holds | Used for |
+| --- | --- | --- |
+| `cameras.json` | camera makes and models | Control-Space in Camera Make and Camera Model |
+| `lenses.json` | lens makes and models | Control-Space in Lens Make and Lens Model |
+| `places.json` | countries, regions and the towns of 15,000 people or more, from GeoNames | a picture's or video's `city`, `state` and `country` when it has a location but no names |
+
+One item to a line, so even thirty thousand towns can be searched and edited
+as text:
+
+```json
+{"disabled":false,"make":"Apple","model":"iPhone 15 Pro"},
+{"country":"HU","disabled":false,"id":3054643,"latitude":47.4984,"longitude":19.0404,"manual":false,"name":"Budapest","region":"05"},
+```
+
+- **`"disabled": true` takes an item out of use** -- a wrong camera name, or a
+  district GeoNames lists as a town of its own. Nothing ever sets it back.
+- **Add an item** by adding a line. A town you add needs only its `name`,
+  `latitude` and `longitude`; `country` and `region` are codes, as in the
+  others.
+- **Each file says which version of Diptych last wrote it** (`"version"`). The
+  first start of a new version merges its own lists in: what you added stays,
+  and what you disabled stays disabled. A camera or lens already there is
+  left as it is. A country, region or town already there takes the new
+  version's values -- a corrected coordinate, say -- unless its `"manual"` is
+  `true`: set that on one you corrected by hand. While the version is the
+  same, the files are only read.
+- **A file that is not valid JSON is left as it is**: Diptych says which, and
+  where the mistake is, and uses its own list until it is mended.
 
 **Right-click ▸ Image ▸ Delete All EXIF Data** takes every EXIF, TIFF and GPS
 field out of the selected images at once — and the XMP copy of camera
@@ -1365,7 +1507,22 @@ panes and every directory. Name is always present and always first; everything
 else can be switched off and dragged into any order.
 
 Available columns: Size, Kind, Date Modified, Date Created, Date Added,
-Extension, Permissions, Owner, Group, Tags (the Finder tags).
+Extension, Permissions, Owner, Group, Tags (the Finder tags) -- and, read from
+pictures and videos themselves: Format, Date Taken, Date Digitized, Camera,
+Lens, Software, Artist, Copyright, Description, ISO, Aperture, Shutter, Focal
+Length, Focal Length (35mm), Dimensions, Megapixels, Duration, Location,
+Altitude (in metres or feet, as the Mac's region measures), City, State,
+Country and Rating. They are off unless switched on. Each reads the header of
+every picture and video in the folder, once while the file stays as it is,
+which takes a moment in a big folder; other files leave them empty.
+
+**In the pane itself** the same settings are at hand: drag a column header left
+or right to move the column -- Name stays first -- and right-click a header for
+every column in its order, ticked when shown, to show or hide one. A column
+with nothing in it for any row of that pane is greyed there -- still there to
+tick. What a hidden column would show is read from the files for that, for
+under half a second; a column not settled in that time is not greyed. Both
+change the settings, are kept, and every pane follows.
 
 Column widths are remembered too, in `columnWidths`. SwiftUI's own
 `TableColumnCustomization` records widths but -- measured, not assumed -- never
@@ -1379,6 +1536,75 @@ Tags switched off costs nothing per row.
 Adding a column means adding a case to `FileColumn`: the settings list is built
 from `allCases`, the loader asks each enabled case which `URLResourceKey`s it
 needs, and the table and comparator switch on it.
+
+## Directory sizes
+
+**View ▸ Calculate Directory Sizes** works out how much is in every folder in
+the active pane, everything under it counted, and shows it in the Size column.
+Greyed while the Size column is hidden, since that is where the totals go. The
+toolbar can have it too, as **∑**, switched on in Settings ▸ Toolbar; it is off
+by default.
+
+- **Colours**: a total worked out is **teal**, a colour no other value in the
+  pane uses, so it is not taken for a file's size. One about to change -- the
+  total from before while it is worked out again, or one still growing -- is
+  **orange**. `??` is a folder asked for that nothing is known about yet.
+- **An estimate, early**: a folder shows a total as soon as its own files are
+  counted, and it grows as the folders in it are read. A folder already known
+  counts at what it was until it has been read again; whenever a folder's total
+  changes, every folder above it changes by as much.
+- **In the background**: it goes on while the pane goes elsewhere, and the
+  totals are there when it comes back. They are kept in memory only, for as
+  long as Diptych runs. The Info window of a folder shows the same total, and
+  follows it.
+- **One at a time**: one reader per volume, so two calculations never compete
+  for a disk; asking again while one is under way queues behind it. A volume
+  mounted inside a folder, and the targets of links, are not counted. Sizes
+  are the files' own lengths, as the Size column shows files.
+- **Sorted by Size**, a folder goes by its total as far as it is worked out,
+  so while a calculation runs the rows move as the totals grow.
+- **View ▸ Clear Directory Sizes** forgets every total and stops what is
+  being worked out; the folders show `--` again, here and in the Info window.
+
+## Values edited in place
+
+Click a cell of an already-selected row, as for a name, and its value becomes
+a field to type over; Return sets it for every selected item it can be set
+for, Escape leaves it as it was. Each change is one step of Undo.
+
+| Column | What is changed |
+| --- | --- |
+| Date Modified, Date Created | the file's own dates, for any file or folder |
+| Date Taken, Date Digitized | the EXIF dates of a JPEG or HEIC; Date Taken is a QuickTime or MP4 video's creation date too |
+| Lens, ISO, Aperture, Shutter, Focal Length, Focal Length (35mm) | a JPEG's or HEIC's EXIF |
+| Software, Artist, Copyright, Description | a JPEG's or HEIC's EXIF, or a QuickTime or MP4 video's metadata |
+
+- **Dates** are typed `2024-07-14 18:30`, seconds and an offset (`+02:00`) as
+  you like; a picture's offset goes into its time-zone field beside the date.
+- **Numbers as the column shows them**: `f/2.8` or `2.8`, `1/250 s` or
+  `1/250`, `24 mm` or `24`.
+- **Emptied, a value is removed.**
+- Camera is Make and Model together, and City, State and Country may come
+  from the towns list, so those are edited in the EXIF or video editor.
+
+## Editing video metadata
+
+**Right-click ▸ Video ▸ Edit Metadata…** on one or more QuickTime (`.mov`) or
+MP4 (`.mp4`, `.m4v`) videos opens the EXIF editor on them: the same window,
+working the same way, with a video's fields -- Description, Title, Artist,
+Copyright, Camera Make and Model, Software; Date Taken with its time zone,
+picked as a picture's are; and the location in the same four fields, going
+round the three ways of writing coordinates, with a place pasted from a map
+filling them all, and the map below. **Copy and Paste as JSON** work here
+too.
+
+- **Nothing is encoded again**: AVFoundation copies the picture and sound as
+  they are into a new container, and the file is written in place, so it stays
+  the same file. Undo puts each video back exactly as it was.
+- **No camera where there is no place for one**: AVFoundation writes no make
+  or model into an MP4, so the camera fields are there only when one of the
+  videos is a QuickTime movie, or already has one.
+- Other video formats -- AVI, MKV, WebM -- cannot be written.
 
 ## Editing permissions
 
@@ -2012,7 +2238,9 @@ The Info window's **Details** tab reads the attributes kept *inside* the file:
 
 * **Pictures** — pixel size, resolution, colour model, orientation, and every
   dictionary ImageIO offers: EXIF, TIFF, IPTC, PNG, GIF, HEIC, and **GPS**, so a
-  photograph's location is visible rather than merely present.
+  photograph's location is visible rather than merely present. The place, as
+  latitude and longitude, is a link that opens it in Google Maps, as is a
+  video's Location.
 * **PDF** — page count, the first page's size in points and millimetres, the PDF
   version, whether it is encrypted, whether printing and copying are allowed,
   and the document's own title, author, producer and dates.
@@ -2107,6 +2335,11 @@ typing. Every such shortcut hands off to the focused editor first:
 The permissions grid counts as an editor for this purpose too: it is a plain
 NSView rather than a text view, but a shortcut must not act on the file list
 while it is open.
+
+The editor is the one in the key window, not the pane's: text selected in an
+error, a warning or any other window copies with `⌘C` as text, never as the
+files selected behind it -- in an alert too, where `⌘C` and `⌘A` work on its
+text.
 
 ## Tests
 

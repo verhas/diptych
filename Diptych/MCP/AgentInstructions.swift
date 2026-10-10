@@ -200,6 +200,46 @@ enum AgentInstructions {
     | `directory listed` | a folder listed, not walked into |
     | `true`, `false` | always so: `false and (…)` switches a part off |
 
+    **Pictures and videos.** These read the file's header (never its
+    pixels), so they know a file by its bytes, not its name:
+
+    | Test | Meaning |
+    | --- | --- |
+    | `image`, `video` | a picture macOS can read (raw and SVG too), a movie |
+    | `exif`, `located`, `flash` | has EXIF; records where it was taken; the flash fired |
+    | `landscape`, `portrait`, `square` | as it is shown, after its orientation |
+    | `rotated`, `transparent`, `animated` | turned by its orientation tag; has alpha; several frames |
+    | `format = "heic"` | what the bytes are -- see the names below |
+    | `camera = "*iPhone*"`, `lens ~ /70-200/` | also `software`, `artist`, `copyright`, `description` |
+    | `city = "Budapest"`, `state`, `country = "HU"` | as written in the file; if not written, the nearest town of 15,000+ people within 50 km of where it was taken, looked up offline. `country` matches the name or the ISO code |
+    | `taken < 2020`, `digitized = 2024-07` | dates, as for `modified` |
+    | `iso >= 1600`, `aperture <= 2.8` (or `f/2.8`), `shutter >= 1/30` (seconds; `2s`, `500ms`) | exposure |
+    | `focal >= 200mm`, `focal35 < 24mm` | millimetres; `cm` and `in` too |
+    | `width >= 1920`, `height`, `megapixels > 12` | pixels, as shown |
+    | `altitude > 2000m` | `m`, `km`, `ft`, `yd`, `mi`; below the sea is negative |
+    | `rating >= 4` | the 0-5 stars Lightroom or Bridge wrote |
+    | `duration > 10min` | a video's length: `s`, `min`, `h`, or `1:30` |
+    | `near(47.4979, 19.0402, 5km)` | taken within that distance; `3mi` too |
+
+    Format names: `jpeg` (`jpg`), `heic`, `heif`, `avif`, `png`, `gif`,
+    `tiff` (`tif`), `webp`, `bmp`, `ico`, `icns`, `svg`, `psd`, `jp2`,
+    `jxl`, `exr`, `hdr`, `tga`, `pbm`; camera raw: `dng`, `cr2`, `cr3`,
+    `crw`, `nef`, `arw`, `raf`, `orf`, `rw2`, `pef`, `srw`, and `raw` for
+    any of them; videos: `mov`, `mp4`, `m4v`, `3gp`, `avi`, `mkv`, `webm`,
+    `mpeg`, `flv`, `wmv`.
+
+    **A value the file does not have makes its test false** -- `!=` and
+    `<` included: a text file is not `camera != "x"` and not `taken <
+    2020`. Only `not` turns that around, so `not camera = "*iPhone*"` lists
+    every text file and folder as well; write `image and not camera =
+    "*iPhone*"`. Diptych warns about a bare `not` like that.
+
+    **Dates** may be just a year or a month -- `taken = 2024`, `modified >=
+    2026-03` -- for every date test. **Ranges:** anything with an order
+    takes `between`: `iso between [100, 800)`, `taken between [2024-06,
+    2024-08]`, `size between (1MB, 10MB]`; `[` `]` include that end, `(`
+    `)` leave it out.
+
     `/* … */` is a comment. A **saved expression** -- a name the person
     saved one under -- may be used as a test, and stands for its
     expression in parentheses: `images and size > 1MB`. They are JSON files
@@ -225,11 +265,16 @@ enum AgentInstructions {
 
     Examples:
 
-    - every image, anywhere below:
-      `directory traversed, file and name ~ /\.(jpe?g|png|gif|heic|heif|tiff?|webp|bmp|dng|cr2|nef|arw)$/i`
-    - files the group and everyone else can read, images, and no `a` in the
-      name (a pattern ignores case, so no `A` either):
-      `directory traversed, file and access = "***r**r**" and name ~ /\.(jpe?g|png|gif|heic|tiff?|webp)$/i and name != "*a*"`
+    - every picture, anywhere below: `image`
+    - files the group and everyone else can read, pictures, and no `a` in
+      the name (a pattern ignores case, so no `A` either):
+      `image and access = "***r**r**" and name != "*a*"`
+    - pictures and videos that give away where they were taken, before
+      sharing a folder: `(image or video) and located`
+    - last summer's photos from Budapest, not from a phone:
+      `image and taken between [2025-06, 2025-08] and city = "Budapest" and not camera = "*iPhone*"`
+    - videos within 3 miles of a place: `video and near(40.7580, -73.9855, 3mi)`
+    - files named as JPEG that are something else: `name = "*.jpg" and not format = "jpeg"`
     - big files changed this year: `directory traversed, file and size > 100MB and modified >= 2026-01-01`
     - downloaded and still quarantined: `directory traversed, file and xattr("com.apple.quarantine")`
     - only the `src` folders' Swift files: `(directory and name = "src") or (file and name = "*.swift")`

@@ -15,7 +15,8 @@ struct FileComparator: SortComparator, Hashable {
 
         switch column {
         case .size:
-            result = Self.compare(lhs.byteSize, rhs.byteSize)
+            // A folder by its total as far as worked out.
+            result = Self.compare(lhs.folderTotal ?? lhs.byteSize, rhs.folderTotal ?? rhs.byteSize)
         case .modified:
             result = Self.compare(lhs.modified, rhs.modified)
         case .created:
@@ -26,7 +27,17 @@ struct FileComparator: SortComparator, Hashable {
             // By folder and then name, in a flat view: a folder's files stay
             // together.
             result = lhs.relativePath.localizedStandardCompare(rhs.relativePath)
-        case .kind, .fileExtension, .permissions, .owner, .group, .tags, .git:
+        case .taken, .digitized:
+            result = Self.compare(lhs.media?.taken(column) ?? .distantPast,
+                                  rhs.media?.taken(column) ?? .distantPast)
+        case .iso, .aperture, .shutter, .focal, .focal35, .dimensions, .megapixels, .duration,
+             .altitude, .rating:
+            // Nothing known first, as an empty date is.
+            result = Self.compare(lhs.media?.number(column) ?? -.infinity,
+                                  rhs.media?.number(column) ?? -.infinity)
+        case .kind, .fileExtension, .permissions, .owner, .group, .tags, .git, .format,
+             .camera, .lens, .software, .artist, .copyright, .imageDescription, .location,
+             .city, .state, .country:
             // localizedStandardCompare is the Finder-ish one: case-insensitive,
             // and "file10" sorts after "file9" rather than before it.
             result = lhs.text(for: column).localizedStandardCompare(rhs.text(for: column))

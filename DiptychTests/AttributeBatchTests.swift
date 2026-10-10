@@ -9,7 +9,7 @@ final class AttributeBatchTests: XCTestCase {
     private var folder: URL!
     private var file: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         FileHistory.shared.forgetEverything()
         folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("AttributeBatchTests-\(UUID().uuidString)")
@@ -18,7 +18,7 @@ final class AttributeBatchTests: XCTestCase {
         try Data("x".utf8).write(to: file)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         FileHistory.shared.forgetEverything()
         try? FileManager.default.removeItem(at: folder)
     }

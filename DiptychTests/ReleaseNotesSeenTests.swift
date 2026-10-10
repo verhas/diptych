@@ -10,11 +10,11 @@ final class ReleaseNotesSeenTests: XCTestCase {
 
     private var originalFile: Data??
 
-    override func setUp() {
+    override func setUp() async throws {
         originalFile = .some(try? Data(contentsOf: ReleaseNotesSeen.url))
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         guard let originalFile else { return }
         if let data = originalFile {
             try? data.write(to: ReleaseNotesSeen.url, options: .atomic)

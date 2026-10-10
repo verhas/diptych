@@ -12,6 +12,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     case swapPanes
     case sameFolder
     case hiddenFiles
+    case directorySizes
 
     // Going places
     case back
@@ -55,6 +56,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .swapPanes:       "Swap Panes"
         case .sameFolder:      "Same Folder in Other Pane"
         case .hiddenFiles:     "Hidden Files"
+        case .directorySizes:  "Calculate Directory Sizes"
         case .back:            "Back"
         case .forward:         "Forward"
         case .enclosingFolder: "Enclosing Folder"
@@ -91,6 +93,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .swapPanes:       "arrow.left.arrow.right"
         case .sameFolder:      "equal.square"
         case .hiddenFiles:     "eye"
+        case .directorySizes:  "sum"
         case .back:            "chevron.left"
         case .forward:         "chevron.right"
         case .enclosingFolder: "arrow.up"
@@ -131,6 +134,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .swapPanes:       "Swap the left and right panes"
         case .sameFolder:      "Show this folder in the other pane too"
         case .hiddenFiles:     "Show files whose names begin with a dot"
+        case .directorySizes:  "Work out how much is in each folder here, in the Size column"
         case .back:            "Back to where you were"
         case .forward:         "Forward again"
         case .enclosingFolder: "Up one folder"

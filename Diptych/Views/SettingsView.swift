@@ -300,7 +300,9 @@ struct ColumnSettingsView: View {
             .frame(maxHeight: .infinity)
 
             HStack {
-                Text("Drag a row to change the column order.")
+                Text("Drag a row to change the column order. Columns for pictures and "
+                     + "videos read each file\u{2019}s header, which takes longer in a big "
+                     + "folder.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -323,6 +325,11 @@ struct ColumnSettingsView: View {
 
             if !column.isRemovable {
                 Text("always shown, always first")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            if column.isMedia {
+                Text("pictures and videos")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }

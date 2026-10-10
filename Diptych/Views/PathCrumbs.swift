@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The path bar while Option is held: every folder on the way from / to here
@@ -75,6 +76,11 @@ struct PathCrumbs: View {
         }
         .buttonStyle(.plain)
         .pointerStyle(.link)
+        // While a path is typed, the text field under the links sets its
+        // own cursor as the mouse moves -- the hand is set again each time.
+        .onContinuousHover { phase in
+            if case .active = phase { NSCursor.pointingHand.set() }
+        }
         .help(folder.path)
     }
 }

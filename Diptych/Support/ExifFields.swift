@@ -13,6 +13,17 @@ enum ExifGroup: String, CaseIterable, Sendable, Codable {
     case exif = "{Exif}"
     case gps = "{GPS}"
 
+    /// `TIFF`, `Exif`, `GPS`: as ImageIO names its dictionaries, without
+    /// the braces -- the groups of the JSON a window copies.
+    var name: String { String(rawValue.dropFirst().dropLast()) }
+
+    init?(name: String) {
+        guard let group = Self.allCases.first(where: {
+            $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }) else { return nil }
+        self = group
+    }
+
     var title: String {
         switch self {
         case .tiff: "Image and Camera"

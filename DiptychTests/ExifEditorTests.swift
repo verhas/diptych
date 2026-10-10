@@ -10,13 +10,13 @@ final class ExifEditorTests: XCTestCase {
 
     private var folder: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("ExifTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: folder)
     }
 
@@ -148,6 +148,87 @@ final class ExifEditorTests: XCTestCase {
         model.setChecked(true, for: artist)
         XCTAssertEqual(model.rows.first { $0.id == artist }?.text, "Peter")
         XCTAssertNotNil(model.changes()?[artist])
+    }
+
+    func testAnAccentedCommentIsRefusedBeforeSave() async {
+        let model = await loadedModel([image("a.jpg")])
+        let comment = key(.exif, kCGImagePropertyExifUserComment)
+        model.type("Új megjegyzés", in: comment)
+        XCTAssertNil(model.changes(), "macOS garbles it, so Save waits")
+        XCTAssertTrue(model.rows.first { $0.id == comment }?.error?.contains("Description") == true)
+        model.type("plain words", in: comment)
+        XCTAssertNotNil(model.changes()?[comment])
+        let description = key(.tiff, kCGImagePropertyTIFFImageDescription)
+        model.type("Verhás József", in: description)
+        XCTAssertNotNil(model.changes()?[description], "Description keeps accents")
+    }
+
+    func testFieldsGoThroughTheClipboardAsJSON() async throws {
+        let source = await loadedModel([image("a.jpg")])
+        source.type("Peter", in: key(.tiff, kCGImagePropertyTIFFArtist))
+        source.type("Budapest, 1978", in: key(.tiff, kCGImagePropertyTIFFImageDescription))
+        source.setLocation(.init(latitude: 47.5524, longitude: 19.1345))
+        let json = source.json()
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8))
+                                   as? [String: [String: String]])
+        XCTAssertEqual(object["TIFF"]?["Artist"], "Peter")
+        XCTAssertEqual(object["TIFF"]?["ImageDescription"], "Budapest, 1978")
+        XCTAssertEqual(object["GPS"]?["LatitudeRef"], "N")
+
+        let target = await loadedModel([image("b.jpg")])
+        target.pasteJSON(json + "")
+        XCTAssertEqual(target.rows.first { $0.id == key(.tiff, kCGImagePropertyTIFFArtist) }?.text,
+                       "Peter")
+        XCTAssertEqual(target.location?.latitude ?? 0, 47.5524, accuracy: 1e-4)
+        XCTAssertTrue(target.rows.first { $0.id == key(.tiff, kCGImagePropertyTIFFArtist) }!.checked,
+                      "pasted is typed: Save writes it")
+        XCTAssertEqual(target.problems, [])
+
+        target.pasteJSON(#"{"Artist": "Anna", "Nonsense": 1}"#)
+        XCTAssertEqual(target.rows.first { $0.id == key(.tiff, kCGImagePropertyTIFFArtist) }?.text,
+                       "Anna", "names alone, without their group")
+        XCTAssertEqual(target.problems.count, 1)
+        XCTAssertTrue(target.problems[0].contains("Nonsense"))
+
+        target.pasteJSON("not json")
+        XCTAssertEqual(target.problems, ["The clipboard holds no JSON object of fields."])
+    }
+
+    // MARK: - Videos as EXIF fields
+
+    func testAVideoHasNoCameraWhereItCannotHoldOne() {
+        XCTAssertFalse(VideoExif.catalogue(withCamera: false).contains { $0.key.name == "Make" })
+        let fields = VideoExif.catalogue(withCamera: true)
+        XCTAssertTrue(fields.contains { $0.key.name == "Make" })
+        XCTAssertTrue(fields.contains { $0.label == "Title" })
+        XCTAssertFalse(fields.contains { $0.key.name == "UserComment" }, "no place for it")
+        XCTAssertTrue(fields.allSatisfy(\.common), "all shown")
+    }
+
+    func testVideoChangesFromTheFields() {
+        let existing: [ExifKey: Any] = [
+            VideoExif.taken: "2024:07:14 18:30:00", VideoExif.zone: "+02:00",
+            VideoExif.latitude: NSNumber(value: 47.5), VideoExif.latitudeRef: "N",
+            VideoExif.longitude: NSNumber(value: 19.0), VideoExif.longitudeRef: "E",
+        ]
+        let dated = VideoExif.changes([VideoExif.zone: .zone("America/New_York",
+                                                              date: VideoExif.taken)],
+                                      existing: existing)
+        XCTAssertEqual(dated[.taken], "2024-07-14 18:30:00 -04:00", "summer time on its own date")
+
+        let moved = VideoExif.changes([VideoExif.longitudeRef: .set("W"),
+                                       VideoExif.altitude: .set(NSNumber(value: 10))],
+                                      existing: existing)
+        XCTAssertEqual(moved[.location], "47.5, -19.0")
+        XCTAssertEqual(moved[.altitude], "10.0")
+
+        let gone = VideoExif.changes([VideoExif.latitude: .remove], existing: existing)
+        XCTAssertEqual(gone[.location], .some(nil))
+        let text = VideoExif.changes([VideoExif.title: .set("Summer"),
+                                      ExifKey(group: .tiff, name: "Artist"): .remove],
+                                     existing: [:])
+        XCTAssertEqual(text[.title], "Summer")
+        XCTAssertEqual(text[.artist], .some(nil))
     }
 
     func testADifferentValueIsGreyUntilTypedOver() async {

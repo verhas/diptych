@@ -117,7 +117,20 @@ struct InfoView: View {
                         Button("Rename") { model.applyRename() }
                     }
                     field("Kind", model.kind.isEmpty ? "--" : model.kind)
-                    field("Size", model.sizeText)
+                    if model.isDirectory, let size = DirectorySizes.shared.shown(for: model.url) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Size").frame(width: 90, alignment: .trailing)
+                                .foregroundStyle(.secondary)
+                            Text(size.text)
+                                .foregroundStyle(CellView.colour(of: size))
+                                .textSelection(.enabled)
+                            Text(size.note)
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    } else {
+                        field("Size", model.sizeText)
+                    }
                 }
 
                 if model.isSymlink { linkPanel }
@@ -572,8 +585,13 @@ struct InfoView: View {
                                             Text(row.name)
                                                 .frame(width: 210, alignment: .trailing)
                                                 .foregroundStyle(.secondary)
-                                            Text(row.value)
-                                                .fixedSize(horizontal: false, vertical: true)
+                                            if let link = row.link {
+                                                Link(row.value, destination: link)
+                                                    .help("Open in Google Maps")
+                                            } else {
+                                                Text(row.value)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
                                             Spacer(minLength: 0)
                                         }
                                         .font(.system(size: 11))

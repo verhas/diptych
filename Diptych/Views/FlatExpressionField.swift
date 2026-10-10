@@ -18,6 +18,9 @@ struct FlatExpressionField: NSViewRepresentable {
     @Binding var height: CGFloat
     /// Saving what is typed under a name; nil when it does not parse.
     var onSave: ((String) -> Void)? = nil
+    /// What the flat view found of a picture's text -- its cameras, its
+    /// lenses -- for Control-Space after `camera =`; nil before it has run.
+    var knownValues: (FlatQuery.MediaText) -> [String]? = { _ in nil }
     let onRun: () -> Void
 
     static let lineHeight: CGFloat = 22
@@ -120,6 +123,7 @@ struct FlatExpressionField: NSViewRepresentable {
 
     final class Editor: NSTextView {
         var onCaret: (Int) -> Void = { _ in }
+        var knownValues: (FlatQuery.MediaText) -> [String]? = { _ in nil }
         /// The items the right-click menu starts with.
         var extraMenu: (NSTextView) -> [NSMenuItem] = { _ in [] }
 
@@ -132,7 +136,24 @@ struct FlatExpressionField: NSViewRepresentable {
                     pickDate(for: slot.range, written: slot.written)
                     return
                 }
-                let found = FlatQuery.completions(in: string, at: selectedRange().location)
+                // After `camera =`: what the flat view found -- which it
+                // has to have run for.
+                var values: [FlatQuery.MediaText: [String]] = [:]
+                if let field = FlatQuery.valueField(in: string, at: selectedRange().location),
+                   field != .format {
+                    guard let found = knownValues(field) else {
+                        note("Run the flat view first (Return): the \(field.rawValue) values "
+                             + "offered here are the ones it finds")
+                        return
+                    }
+                    guard !found.isEmpty else {
+                        note("No \(field.rawValue) was found in what the flat view lists")
+                        return
+                    }
+                    values[field] = found
+                }
+                let found = FlatQuery.completions(in: string, at: selectedRange().location,
+                                                  values: values)
                 if found.words.count == 1 {
                     insertCompletion(found.words[0], forPartialWordRange: found.range,
                                      movement: NSTextMovement.other.rawValue, isFinal: true)
@@ -143,6 +164,23 @@ struct FlatExpressionField: NSViewRepresentable {
             }
             if typeInAccessPattern(event) { return }
             super.keyDown(with: event)
+        }
+
+        // MARK: A word under the caret
+
+        /// A short note under the caret, gone at the next click or key.
+        private func note(_ text: String) {
+            let label = NSTextField(wrappingLabelWithString: text)
+            label.preferredMaxLayoutWidth = 320
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            let holder = NSViewController()
+            let stack = NSStackView(views: [label])
+            stack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+            holder.view = stack
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.contentViewController = holder
+            popover.show(relativeTo: caretRect(at: selectedRange()), of: self, preferredEdge: .maxY)
         }
 
         // MARK: Picking a date
@@ -246,7 +284,13 @@ struct FlatExpressionField: NSViewRepresentable {
         /// The word the caret is in, as the expression's words go -- `size`,
         /// `10KB`, `2026-01-31` -- not as prose splits them.
         override var rangeForUserCompletion: NSRange {
-            FlatQuery.completions(in: string, at: selectedRange().location).range
+            let caret = selectedRange().location
+            var values: [FlatQuery.MediaText: [String]] = [:]
+            if let field = FlatQuery.valueField(in: string, at: caret),
+               let found = knownValues(field) {
+                values[field] = found
+            }
+            return FlatQuery.completions(in: string, at: caret, values: values).range
         }
 
         /// A keyword chosen gets the space after it, ready for what follows.
@@ -369,6 +413,9 @@ struct FlatExpressionField: NSViewRepresentable {
         }
     }
 
+    /// On the main actor, as the field and its editor are: every call it
+    /// gets comes from AppKit there.
+    @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: FlatExpressionField
 
@@ -382,6 +429,7 @@ struct FlatExpressionField: NSViewRepresentable {
                 guard let self, self.parent.caret != caret else { return }
                 DispatchQueue.main.async { self.parent.caret = caret }
             }
+            editor.knownValues = { [weak self] field in self?.parent.knownValues(field) }
             editing = true
             (notification.object as? NSTextField).map(fit)
         }
@@ -535,8 +583,13 @@ struct FlatExpressionField: NSViewRepresentable {
                      completions words: [String], forPartialWordRange range: NSRange,
                      indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
             index.pointee = -1
-            return FlatQuery.completions(in: textView.string,
-                                         at: textView.selectedRange().location).words
+            let caret = textView.selectedRange().location
+            var values: [FlatQuery.MediaText: [String]] = [:]
+            if let field = FlatQuery.valueField(in: textView.string, at: caret),
+               let found = parent.knownValues(field) {
+                values[field] = found
+            }
+            return FlatQuery.completions(in: textView.string, at: caret, values: values).words
         }
 
         /// The problem's place underlined in red -- or, with none, the

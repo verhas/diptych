@@ -223,6 +223,12 @@ final class FlatQueryTests: XCTestCase {
             "directory traversed, file and size > 100MB and modified >= 2026-01-01",
             #"directory traversed, file and xattr("com.apple.quarantine")"#,
             #"(directory and name = "src") or (file and name = "*.swift")"#,
+            "image",
+            #"image and access = "***r**r**" and name != "*a*""#,
+            "(image or video) and located",
+            #"image and taken between [2025-06, 2025-08] and city = "Budapest" and not camera = "*iPhone*""#,
+            "video and near(40.7580, -73.9855, 3mi)",
+            #"name = "*.jpg" and not format = "jpeg""#,
         ] {
             XCTAssertEqual(warnings(text), [], text)
         }

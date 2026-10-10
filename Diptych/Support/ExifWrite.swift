@@ -477,8 +477,12 @@ enum ExifWrite {
             let noPosition = found[ExifKey(group: .gps,
                                            name: kCGImagePropertyGPSLatitude as String)] == nil
             let lostLocation = changes.keys.contains { $0.group == .gps && lost.contains($0.name) }
+            // By the names the editor shows them under.
+            let labels = lost.map { lostName in
+                ExifFields.catalogue.first { $0.key.name == lostName }?.label ?? lostName
+            }
             throw Failure(message: "\u{201C}\(name)\u{201D} would not keep "
-                          + lost.joined(separator: ", ")
+                          + labels.joined(separator: ", ")
                           + ", so it was left as it was."
                           + (noPosition && lostLocation
                              ? " Location details are kept only with a latitude and longitude."

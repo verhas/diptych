@@ -151,13 +151,13 @@ final class RunLogTests: XCTestCase {
 
     private var folder: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("RunLogTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: folder)
     }
 
@@ -345,6 +345,7 @@ final class RunTemplateTests: XCTestCase {
         XCTAssertEqual(history.entries(for: program).count, 1)
     }
 
+    @MainActor
     func testNamesAreCheckedTheWayAShellReadsThem() {
         XCTAssertTrue(RunArgumentsView.isValidName("CONFIG"))
         XCTAssertTrue(RunArgumentsView.isValidName("_private_2"))

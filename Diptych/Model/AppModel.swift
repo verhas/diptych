@@ -221,6 +221,7 @@ final class AppModel {
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openSiblingsWindow: ((URL) -> Void)?
     @ObservationIgnored var openExifWindow: (([URL]) -> Void)?
+    @ObservationIgnored var openVideoWindow: (([URL]) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
@@ -1430,6 +1431,7 @@ final class AppModel {
         pendingClickEdit?.cancel()
         endPermissionEdit()
         endRename(unless: rowID)
+        endValueEdit()
 
         guard clickCount == 1, let rowID, let column else { return }
 
@@ -1470,7 +1472,15 @@ final class AppModel {
             }
 
         default:
-            break
+            // A date, a picture's EXIF, a video's metadata: for the whole
+            // selection, as permissions are.
+            guard selectionBeforeClick.contains(rowID),
+                  let item = pane.rows.first(where: { $0.id == rowID }),
+                  CellEdit.target(column, for: item) != nil else { return }
+            scheduleClickEdit { [weak self] in
+                self?.activate(pane)
+                self?.requestValueEdit(anchor: rowID, column: column, in: pane)
+            }
         }
     }
 
@@ -1479,6 +1489,7 @@ final class AppModel {
         pendingClickEdit?.cancel()
         endPermissionEdit()
         endRename(unless: nil)
+        endValueEdit()
     }
 
     /// Commit any rename in progress, unless the click landed on the very row
@@ -2632,7 +2643,10 @@ final class AppModel {
     /// view, but it is an editor, and a menu shortcut must not act on the file
     /// list while it is open.
     private var editorHasKeyboardFocus: Bool {
-        guard let responder = window?.firstResponder else { return false }
+        // The key window's: text selected in another window -- an error in
+        // a panel, the EXIF editor -- is what Command-C means then, not the
+        // files selected in this one.
+        guard let responder = (NSApp.keyWindow ?? window)?.firstResponder else { return false }
         return responder is NSText
             || responder.isKind(of: NSTextView.self)
             || responder is PermissionEditorView
@@ -3379,6 +3393,24 @@ final class AppModel {
         return readable.contains { UTType($0).map { type.conforms(to: $0) } ?? false }
     }
 
+    /// The QuickTime and MP4 videos among `items`, whose metadata can be
+    /// changed: by name first, so a large selection is not opened file by
+    /// file, then by their bytes.
+    static func videoEditable(_ items: [FileItem]) -> [URL] {
+        items.filter { item in
+            !item.isParent && !item.isDirectory && !item.isSymlink
+                && (["mov", "mp4", "m4v", "qt"].contains(item.url.pathExtension.lowercased())
+                    || item.media?.kind == .video)
+                && VideoMetadata.canEdit(item.url)
+        }.map(\.url)
+    }
+
+    /// Right-click ▸ Video ▸ Edit Metadata: a window for the selected videos.
+    func editVideoMetadata(of urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        openVideoWindow?(urls)
+    }
+
     /// Right-click ▸ Image ▸ Edit EXIF: a window for the selected images.
     func editExif(of urls: [URL]) {
         guard !urls.isEmpty else { return }
@@ -3873,6 +3905,23 @@ final class AppModel {
         right.reload()
     }
 
+    /// Only with the Size column shown: that is where the totals go.
+    var canCalculateDirectorySizes: Bool {
+        ConfigStore.shared.configuration.columns.contains(.size)
+    }
+
+    /// The size of every folder in the active pane, everything in it
+    /// counted, worked out in the background.
+    /// Every folder total forgotten; folders show `--` again.
+    func clearDirectorySizes() {
+        DirectorySizes.shared.clear()
+    }
+
+    func calculateDirectorySizes() {
+        guard canCalculateDirectorySizes else { return }
+        DirectorySizes.shared.calculate(DirectorySizes.folders(in: active.rows))
+    }
+
     func swapPanes() {
         swap(&left, &right)
         persist()
@@ -4059,5 +4108,165 @@ final class AppModel {
         // later has to be decided about here rather than quietly doing nothing.
         }
         return true
+    }
+}
+
+// MARK: - Values edited in their cells
+
+extension AppModel {
+
+    /// A click on the cell of a selected row: its value, to type over.
+    func requestValueEdit(anchor: FileItem.ID, column: FileColumn, in pane: PaneModel) {
+        guard let item = pane.rows.first(where: { $0.id == anchor }),
+              let target = CellEdit.target(column, for: item) else { return }
+        if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
+        renameTable = currentTable
+        let text = CellEdit.text(of: target, for: item)
+        pane.valueEditText = text
+        pane.valueEditStart = text
+        pane.valueEdit = CellEdit.Spot(id: anchor, column: column)
+    }
+
+    func cancelValueEdit() {
+        for pane in [left, right] { pane.valueEdit = nil }
+        restoreTableFocus()
+    }
+
+    /// Ends an edit left open by a click elsewhere: what was typed is kept,
+    /// as a name being typed is.
+    func endValueEdit() {
+        for pane in [left, right] where pane.valueEdit != nil { commitValueEdit(in: pane) }
+    }
+
+    /// The value typed, set for every selected item whose cell in that
+    /// column can take it -- or for the row edited alone, when it is not
+    /// among them.
+    func commitValueEdit(in pane: PaneModel? = nil) {
+        let pane = pane ?? active
+        guard let spot = pane.valueEdit else { return }
+        let text = pane.valueEditText
+        pane.valueEdit = nil
+        restoreTableFocus()
+        guard text != pane.valueEditStart else { return }
+
+        let selected = pane.selectedItems
+        let items = selected.contains { $0.id == spot.id }
+            ? selected : pane.rows.filter { $0.id == spot.id }
+        var dates: [URL] = []
+        var which: FileHistory.DateChange.Which = .modified
+        var pictures: [URL] = []
+        var exifKey: ExifKey?
+        var videos: [URL] = []
+        var videoField: VideoMetadata.Field?
+        for item in items {
+            switch CellEdit.target(spot.column, for: item) {
+            case .fileDate(let kind)?:
+                dates.append(item.url)
+                which = kind
+            case .exif(let key)?:
+                pictures.append(item.url)
+                exifKey = key
+            case .video(let field)?:
+                videos.append(item.url)
+                videoField = field
+            case nil:
+                continue
+            }
+        }
+
+        var exifChanges: [ExifKey: ExifWrite.Change] = [:]
+        var newDate: Date?
+        do {
+            if !dates.isEmpty {
+                guard let moment = CellEdit.moment(text) else {
+                    throw CellEdit.Problem(message: "\u{201C}\(text)\u{201D} is not a date: "
+                                           + "write it as 2024-07-14 18:30:00")
+                }
+                newDate = moment
+            }
+            if let exifKey { exifChanges = try CellEdit.exifChanges(text, key: exifKey) }
+            if let videoField, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                _ = try VideoMetadata.checked([videoField: text])
+            }
+        } catch let problem as CellEdit.Problem {
+            flash(problem.message, error: true)
+            return
+        } catch let failure as VideoMetadata.Failure {
+            flash(failure.message, error: true)
+            return
+        } catch {
+            flash(error.localizedDescription, error: true)
+            return
+        }
+
+        let videoChanges: VideoMetadata.Changes = videoField.map {
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            return [$0: trimmed.isEmpty ? nil : trimmed]
+        } ?? [:]
+        let boxed = ExifBox(exifChanges)
+        let other = inactive
+        let (dateURLs, kind, pictureURLs, videoURLs) = (dates, which, pictures, videos)
+        Task {
+            var failures: [String] = []
+            if let newDate {
+                let outcome = await BlockingWork.run { () -> ([(URL, Date, Date)], [String]) in
+                    var done: [(URL, Date, Date)] = []
+                    var failures: [String] = []
+                    let key: FileAttributeKey = kind == .created ? .creationDate : .modificationDate
+                    for url in dateURLs {
+                        let before = FileHistory.date(kind, of: url) ?? newDate
+                        do {
+                            try FileManager.default.setAttributes([key: newDate],
+                                                                  ofItemAtPath: url.path)
+                            done.append((url, before, newDate))
+                        } catch {
+                            failures.append("The date of \u{201C}\(url.lastPathComponent)\u{201D} "
+                                            + "could not be set: \(error.localizedDescription)")
+                        }
+                    }
+                    return (done, failures)
+                }
+                FileHistory.shared.recordDates(outcome.0.map { (url: $0.0, before: $0.1, after: $0.2) },
+                                               which: kind)
+                failures += outcome.1
+            }
+            var changed: [(url: URL, before: URL)] = []
+            if !pictureURLs.isEmpty {
+                let saved = await ExifEditorModel.rewriteInPlace(pictureURLs) {
+                    data, name throws(ExifWrite.Failure) in
+                    try ExifWrite.rewrite(data, name: name, changes: boxed.changes)
+                }
+                changed += saved.done
+                failures += saved.failures
+            }
+            if !videoURLs.isEmpty {
+                let saved = await VideoMetadata.rewrite(videoURLs, changes: videoChanges)
+                changed += saved.done
+                failures += saved.failures
+            }
+            if let first = changed.first {
+                let name = videoURLs.isEmpty ? "EXIF Change"
+                    : pictureURLs.isEmpty ? "Video Metadata Change" : "Metadata Change"
+                let what = "\(spot.column.title) of "
+                    + (changed.count == 1 ? "\u{201C}\(first.url.lastPathComponent)\u{201D}"
+                                          : "\(changed.count) files")
+                FileHistory.shared.recordContents(
+                    changed, name: name,
+                    told: "The \(what) in \(FileHistory.folder(of: first.url)) was set to "
+                          + "\u{201C}\(text)\u{201D}.")
+                NotificationCenter.default.post(name: ExifEditorModel.saved, object: nil)
+            }
+            pane.reload()
+            if other !== pane { other.reload() }
+            if !failures.isEmpty {
+                dialog = .notice(title: "Not every value was set",
+                                 text: failures.joined(separator: "\n"))
+            }
+        }
+    }
+
+    private final class ExifBox: @unchecked Sendable {
+        let changes: [ExifKey: ExifWrite.Change]
+        init(_ changes: [ExifKey: ExifWrite.Change]) { self.changes = changes }
     }
 }

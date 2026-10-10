@@ -63,10 +63,35 @@ nonisolated extension FlatQuery {
 
     static func holds(_ expression: Expression, _ subject: FlatSubject, _ pass: Pass) -> Bool {
         switch expression {
-        case .and(let a, let b): holds(a, subject, pass) && holds(b, subject, pass)
-        case .or(let a, let b):  holds(a, subject, pass) || holds(b, subject, pass)
-        case .not(let a):        !holds(a, subject, pass)
-        case .primitive(let p):  holds(p, subject, pass)
+        case .and(let a, let b):
+            // The cheaper side first: `name = "*.heic" and iso > 1600` opens
+            // only the HEIC files.
+            let (first, second) = cost(b) < cost(a) ? (b, a) : (a, b)
+            return holds(first, subject, pass) && holds(second, subject, pass)
+        case .or(let a, let b):
+            let (first, second) = cost(b) < cost(a) ? (b, a) : (a, b)
+            return holds(first, subject, pass) || holds(second, subject, pass)
+        case .not(let a):
+            return !holds(a, subject, pass)
+        case .primitive(let p):
+            return holds(p, subject, pass)
+        }
+    }
+
+    /// How dear a test is to answer: what the listing knows costs nothing,
+    /// an attribute a call, a picture's header a read, the contents a read
+    /// of all of it.
+    static func cost(_ expression: Expression) -> Int {
+        switch expression {
+        case .and(let a, let b), .or(let a, let b): max(cost(a), cost(b))
+        case .not(let a): cost(a)
+        case .primitive(let primitive):
+            switch primitive {
+            case .xattr, .xattrExists: 1
+            case .media, .mediaText, .mediaNumber, .mediaDate, .near: 2
+            case .contains, .containsMatch: 3
+            default: 0
+            }
         }
     }
 
@@ -111,11 +136,108 @@ nonisolated extension FlatQuery {
         case .containsMatch(let regex):
             return !subject.isDirectory && FlatContent.containsLine(matching: regex,
                                                                     in: subject.url)
+        case .media, .mediaText, .mediaNumber, .mediaDate, .near:
+            // What a picture says; nothing, for anything else -- so every
+            // test of it is false, and only NOT makes it true.
+            guard !subject.isDirectory, let media = MediaCache.shared.info(for: subject.url) else {
+                return false
+            }
+            return holds(primitive, media)
+        }
+    }
+
+    /// A test of a picture's or video's facts; false for a fact it lacks.
+    static func holds(_ primitive: Primitive, _ media: MediaInfo) -> Bool {
+        switch primitive {
+        case .media(let flag):
+            switch flag {
+            case .image: return media.kind == .image
+            case .video: return media.kind == .video
+            case .exif: return media.hasExif
+            case .located: return media.located
+            case .flash: return media.flash == true
+            case .landscape, .portrait, .square:
+                guard let width = media.width, let height = media.height else { return false }
+                return flag == .landscape ? width > height
+                    : flag == .portrait ? height > width : width == height
+            case .rotated: return media.orientation != nil && media.rotated
+            case .transparent: return media.transparent == true
+            case .animated: return media.animated
+            }
+        case .mediaText(let field, let test):
+            let found: [String]
+            switch field {
+            case .format: found = MediaFormat.names(of: media.format)
+            case .camera: found = media.camera.map { [$0] } ?? []
+            case .lens: found = media.lens.map { [$0] } ?? []
+            case .software: found = media.software.map { [$0] } ?? []
+            case .artist: found = media.artist.map { [$0] } ?? []
+            case .copyright: found = media.copyright.map { [$0] } ?? []
+            case .description: found = media.description.map { [$0] } ?? []
+            case .city: found = media.city.map { [$0] } ?? []
+            case .state: found = media.state.map { [$0] } ?? []
+            case .country: found = [media.country, media.countryCode].compactMap { $0 }
+            }
+            // Nothing said: false, also for != and !~.
+            guard !found.isEmpty else { return false }
+            let (plain, negated) = test.plain
+            return found.contains { plain.holds($0, glob: true) } != negated
+        case .mediaNumber(let field, let comparison, let wanted):
+            let value: Double?
+            switch field {
+            case .iso: value = media.iso
+            case .aperture: value = media.aperture
+            case .shutter: value = media.shutter
+            case .focal: value = media.focal
+            case .focal35: value = media.focal35
+            case .width: value = media.width.map(Double.init)
+            case .height: value = media.height.map(Double.init)
+            case .megapixels: value = media.megapixels
+            case .altitude: value = media.altitude
+            case .rating: value = media.rating.map(Double.init)
+            case .duration: value = media.duration
+            }
+            guard let value else { return false }
+            return comparison.holds(approximately: value, wanted)
+        case .mediaDate(let field, let comparison, let moment):
+            guard let date = field == .taken ? media.taken : media.digitized else { return false }
+            return moment.holds(date, comparison)
+        case .near(let latitude, let longitude, let metres):
+            guard let lat = media.latitude, let lon = media.longitude else { return false }
+            return Geo.distance(latitude, longitude, lat, lon) <= metres
+        default:
+            return false
+        }
+    }
+}
+
+nonisolated extension FlatQuery.Comparison {
+
+    /// As `holds`, a value within a ten-thousandth of the other counting
+    /// as equal: a shutter of 1/3 is written 0.333 by one camera and 0.3333
+    /// by another.
+    func holds(approximately value: Double, _ against: Double) -> Bool {
+        let close = abs(value - against) <= max(abs(value), abs(against)) * 1e-4
+        switch self {
+        case .equal:          return close
+        case .notEqual:       return !close
+        case .less:           return value < against && !close
+        case .lessOrEqual:    return value < against || close
+        case .greater:        return value > against && !close
+        case .greaterOrEqual: return value > against || close
         }
     }
 }
 
 nonisolated extension FlatQuery.TextTest {
+
+    /// The test without its `!`, and whether it had one.
+    var plain: (FlatQuery.TextTest, Bool) {
+        switch self {
+        case .equals(let value, let negated): (.equals(value, negated: false), negated)
+        case .matches(let regex, let negated): (.matches(regex, negated: false), negated)
+        }
+    }
 
     /// `=` against a shell pattern for names, as the pane's filter does;
     /// against the whole text for the rest. Case never matters.
