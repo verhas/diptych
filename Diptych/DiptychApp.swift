@@ -31,7 +31,10 @@ struct DiptychApp: App {
             ContentView()
         }
         .defaultSize(width: 1100, height: 680)
-        .commands { FileCommands() }
+        .commands {
+            FileCommands()
+            TextEditCommands()
+        }
 
         // One info window per file, keyed by URL, so Cmd-I on a second file
         // opens a second window rather than replacing the first.
@@ -275,6 +278,9 @@ struct FileCommands: Commands {
     /// is what disables the menu items.
     @FocusedValue(\.appModel) private var model: AppModel?
     @FocusedValue(\.editingUndo) private var editingUndo: EditingUndo?
+    /// Text Edit in front: View's text sizes are its, and the panes' menu
+    /// items are greyed out.
+    @FocusedValue(\.textEditor) private var editor: TextEditorTarget?
 
     /// Run the pane command when a pane is focused, otherwise let AppKit send
     /// the standard action to whatever text view has focus.
@@ -305,6 +311,7 @@ struct FileCommands: Commands {
         CommandGroup(after: .newItem) {
             Button("New Tab") { model?.newTab() }
                 .keyboardShortcut(.newTab)
+                .disabled(model == nil)
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut(.newFolder)
                 .disabled(model == nil || model?.active.isFlat == true)
@@ -326,18 +333,22 @@ struct FileCommands: Commands {
             // Finder keeps Open in File, next to the things done to an item,
             // even though Enclosing Folder sits in Go. Following that rather
             // than inventing a third arrangement.
-            Button("Open") {
-                dispatch(model?.openFromMenu, #selector(NSResponder.moveToEndOfDocument(_:)))
-            }
-            .keyboardShortcut(.open)
+            // Greyed out with no pane in front: Command-Down goes on to the
+            // text there, as Move to Trash's Command-Delete does.
+            Button("Open") { model?.openFromMenu() }
+                .keyboardShortcut(.open)
+                .disabled(model == nil)
             Button("Run with Arguments\u{2026}") { model?.runSelectionWithArguments() }
                 .keyboardShortcut(.runWithArguments)
                 .disabled(model == nil)
             Button("Get Info") { model?.showInfo() }
                 .keyboardShortcut(.getInfo)
+                .disabled(model == nil)
             Button("Compare") { model?.showDiff() }
                 .keyboardShortcut(.compare)
+                .disabled(model == nil)
             Button("Rename...") { model?.requestRename() }
+                .disabled(model == nil)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
                 .keyboardShortcut(.renameMany)
                 .disabled(model == nil)
@@ -357,15 +368,20 @@ struct FileCommands: Commands {
 
             Button("Copy to Other Pane") { model?.copySelection() }
                 .keyboardShortcut(.copyToOtherPane)
+                .disabled(model == nil)
             Button("Move to Other Pane") { model?.moveSelection() }
                 .keyboardShortcut(.moveToOtherPane)
+                .disabled(model == nil)
 
             Divider()
 
             Button("Change Permissions...") { model?.requestPermissionEdit() }
                 .keyboardShortcut(.changePermissions)
+                .disabled(model == nil)
             Button("Change Owner...") { model?.requestOwnerEdit() }
+                .disabled(model == nil)
             Button("Change Group...") { model?.requestGroupEdit() }
+                .disabled(model == nil)
 
             // Named for what they are. Absent entirely when scripts are
             // switched off, or when none of them suits what is selected --
@@ -398,21 +414,22 @@ struct FileCommands: Commands {
                 Divider()
             }
 
-            Button("Move to Trash") {
-                dispatch(model?.trashFromMenu,
-                         #selector(NSResponder.deleteToBeginningOfLine(_:)))
-            }
-            .keyboardShortcut(.trashNow)
+            Button("Move to Trash") { model?.trashFromMenu() }
+                .keyboardShortcut(.trashNow)
+                .disabled(model == nil)
 
             Divider()
 
             Button("Reveal in Finder") { model?.revealSelection() }
                 .keyboardShortcut(.revealInFinder)
+                .disabled(model == nil)
             Button("Open Terminal Here") { model?.openTerminal() }
                 .keyboardShortcut(.openTerminal)
+                .disabled(model == nil)
             Button("Add Diptych to Agent Config (.mcp.json)\u{2026}") {
                 model?.requestAddMCPConfig()
             }
+            .disabled(model == nil)
         }
 
         // Every one of these falls back to the standard responder action when
@@ -430,7 +447,7 @@ struct FileCommands: Commands {
                 } else if let editingUndo {
                     editingUndo.undo()
                 } else {
-                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                    NSApp.sendAction(#selector(UndoActions.undo(_:)), to: nil, from: nil)
                 }
             }
             .keyboardShortcut("z")
@@ -441,7 +458,7 @@ struct FileCommands: Commands {
                 } else if let editingUndo {
                     editingUndo.redo()
                 } else {
-                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                    NSApp.sendAction(#selector(UndoActions.redo(_:)), to: nil, from: nil)
                 }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
@@ -475,8 +492,10 @@ struct FileCommands: Commands {
 
             Button("Copy File Names") { model?.copySelectionNames(fullPath: false) }
                 .keyboardShortcut(.copyNames)
+                .disabled(model == nil)
             Button("Copy Full Paths") { model?.copySelectionNames(fullPath: true) }
                 .keyboardShortcut(.copyPaths)
+                .disabled(model == nil)
             // Absent, like the right-click entry, when there is nothing in the
             // selection the clipboard could hold.
             if model?.canCopySelectionContents ?? false {
@@ -486,25 +505,29 @@ struct FileCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
-            Button("Bigger Text") { PaneFont.zoom(by: 1) }
+            // With Text Edit in front, its size; otherwise the panes'.
+            Button("Bigger Text") { editor == nil ? PaneFont.zoom(by: 1) : EditorFont.zoom(by: 1) }
                 .keyboardShortcut("+", modifiers: .command)
-                .disabled(ConfigStore.shared.configuration.fontSize
-                          >= Configuration.fontSizes.upperBound)
+                .disabled(editor == nil
+                          ? ConfigStore.shared.configuration.fontSize >= Configuration.fontSizes.upperBound
+                          : EditorFont.size >= TextStyle.fontSizes.upperBound)
             // The menu shows Command-+, which AppKit matches by character and
             // so only with Shift held. Command-= -- the same physical key
             // unshifted, and what half of everyone actually presses -- is
             // caught in KeyRouter, because a menu cannot carry two equivalents
             // for one command and a second visible item would be nonsense.
 
-            Button("Smaller Text") { PaneFont.zoom(by: -1) }
+            Button("Smaller Text") { editor == nil ? PaneFont.zoom(by: -1) : EditorFont.zoom(by: -1) }
                 .keyboardShortcut("-", modifiers: .command)
-                .disabled(ConfigStore.shared.configuration.fontSize
-                          <= Configuration.fontSizes.lowerBound)
+                .disabled(editor == nil
+                          ? ConfigStore.shared.configuration.fontSize <= Configuration.fontSizes.lowerBound
+                          : EditorFont.size <= TextStyle.fontSizes.lowerBound)
 
-            Button("Actual Size") { PaneFont.reset() }
+            Button("Actual Size") { editor == nil ? PaneFont.reset() : EditorFont.reset() }
                 .keyboardShortcut("0", modifiers: .command)
-                .disabled(ConfigStore.shared.configuration.fontSize
-                          == Configuration.defaultFontSize)
+                .disabled(editor == nil
+                          ? ConfigStore.shared.configuration.fontSize == Configuration.defaultFontSize
+                          : EditorFont.size == TextStyle.defaultFontSize)
 
             Divider()
         }
@@ -516,10 +539,11 @@ struct FileCommands: Commands {
             Button("Forward") { model?.goForward() }
                 .keyboardShortcut("]")
                 .disabled(model?.active.canGoForward != true)
-            Button("Enclosing Folder") {
-                dispatch(model?.goUpFromMenu, #selector(NSResponder.moveToBeginningOfDocument(_:)))
-            }
-            .keyboardShortcut(.upArrow, modifiers: .command)
+            // Greyed out with no pane in front, so Command-Up goes on to the
+            // text there, as in any other window.
+            Button("Enclosing Folder") { model?.goUpFromMenu() }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+                .disabled(model == nil)
 
             Divider()
 
@@ -544,10 +568,12 @@ struct FileCommands: Commands {
                 model?.sidebarVisible.toggle()
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
+            .disabled(model == nil)
             Button(model?.isSinglePane == true ? "Show Both Panes" : "Show One Pane") {
                 model?.isSinglePane.toggle()
             }
             .keyboardShortcut("2", modifiers: .command)
+            .disabled(model == nil)
 
             Toggle("Flat View", isOn: Binding(
                 get: { model?.active.isFlat ?? false },
@@ -561,21 +587,26 @@ struct FileCommands: Commands {
                 // Shift-Cmd-. as in Finder. Plain Cmd-. is the system's
                 // "cancel", which this was shadowing while a sheet was open.
                 .keyboardShortcut(".", modifiers: [.command, .shift])
+                .disabled(model == nil)
 
             Divider()
 
             Button("Swap Panes") { model?.swapPanes() }
                 .keyboardShortcut("u", modifiers: .command)
+                .disabled(model == nil)
             Button("Switch Pane") { model?.toggleActiveSide() }
+                .disabled(model == nil)
             Button("Same Folder in Other Pane") { model?.syncPanes() }
                 .keyboardShortcut("=", modifiers: .command)
+                .disabled(model == nil)
             Button("Refresh") { model?.active.reload() }
                 .keyboardShortcut(.refresh)
+                .disabled(model == nil)
             // Greyed while the Size column, where the totals go, is hidden.
             Button("Calculate Directory Sizes") { model?.calculateDirectorySizes() }
                 .disabled(model?.canCalculateDirectorySizes != true)
             Button("Clear Directory Sizes") { model?.clearDirectorySizes() }
-                .disabled(DirectorySizes.shared.isEmpty)
+                .disabled(model == nil || DirectorySizes.shared.isEmpty)
 
             Divider()
 

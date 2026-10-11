@@ -257,12 +257,16 @@ struct Configuration: Codable, Equatable {
 
     var textFormats: [TextFormat: [String]] {
         Dictionary(uniqueKeysWithValues: TextFormat.allCases.map {
-            ($0, textFormatExtensions[$0.rawValue] ?? [])
+            // A format added since the settings were saved gets its own.
+            ($0, textFormatExtensions[$0.rawValue] ?? TextFormat.defaultExtensions[$0] ?? [])
         })
     }
 
     /// Text Edit's line numbers: off, absolute, or relative to the caret.
     var textLineNumbers = TextLineNumbers.absolute
+
+    /// Text Edit's indentation, pairs and formatting.
+    var textStyle = TextStyle()
 
     /// How tall the agent terminal is when open.
     static let defaultTerminalHeight = 260.0
@@ -445,7 +449,7 @@ struct Configuration: Codable, Equatable {
         case terminalFontName, terminalFontSize, terminalColours, terminalForeground
         case terminalBackground, terminalHeight, showFilesInDiptych
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
-        case textFormatExtensions, textLineNumbers
+        case textFormatExtensions, textLineNumbers, textStyle
     }
 
     init() {}
@@ -527,6 +531,7 @@ struct Configuration: Codable, Equatable {
             ?? Self.defaultTextFormatExtensions
         textLineNumbers = (try? container.decode(TextLineNumbers.self, forKey: .textLineNumbers))
             ?? .absolute
+        textStyle = (try? container.decode(TextStyle.self, forKey: .textStyle)) ?? TextStyle()
         terminalOptionAsMeta =
             (try? container.decode(Bool.self, forKey: .terminalOptionAsMeta)) ?? false
         runHistoryLimit = max(1, (try? container.decode(Int.self, forKey: .runHistoryLimit)) ?? 10)

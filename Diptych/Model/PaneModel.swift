@@ -15,7 +15,9 @@ import Observation
 @Observable
 final class PaneModel {
 
-    private(set) var directory: URL
+    private(set) var directory: URL {
+        didSet { manualOrder = nil }
+    }
     private(set) var items: [FileItem] = []
     private(set) var isLoading = false
     /// Set while a *different* directory is being read, as opposed to the
@@ -93,6 +95,10 @@ final class PaneModel {
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
         didSet { owner?.persist() }
     }
+    /// The order made with Shift-Command-Up and -Down, in place of the sort
+    /// until a column header is clicked or the pane goes to another folder.
+    /// Not saved: it is for the moment, not for the folder.
+    private(set) var manualOrder: ManualOrder<FileItem.ID>?
     var showHidden = false {
         didSet {
             // In a flat view, hidden folders change what is walked: the tree
@@ -403,27 +409,72 @@ final class PaneModel {
     /// and directories always pinned above files. Sorting a mixed list purely by
     /// name is what separates a file *list* from a file *manager*.
     var rows: [FileItem] {
-        var visible = (hasFilter && filterHidesOthers && filterIsValid)
-            ? items.filter { matchesFilter($0) }
-            : items
+        let ordered = arranged
+        guard hasFilter && filterHidesOthers && filterIsValid else { return ordered }
+        return ordered.filter { matchesFilter($0) }
+    }
+
+    /// Every row, the filter aside, in the order shown.
+    private var arranged: [FileItem] {
+        var all = items
         // By Size, a folder goes by its total as worked out so far -- read
         // once, so one sort sees one set of numbers -- and the rows are
         // sorted again as the totals change.
         if sortOrder.contains(where: { $0.column == .size }), !DirectorySizes.shared.isEmpty {
-            let folders = visible.indices.filter { visible[$0].isDirectory && !visible[$0].isParent }
-            let sizes = DirectorySizes.shared.store.sizes(folders.map { visible[$0].url.path })
-            for index in folders { visible[index].folderTotal = sizes[visible[index].url.path] }
+            let folders = all.indices.filter { all[$0].isDirectory && !all[$0].isParent }
+            let sizes = DirectorySizes.shared.store.sizes(folders.map { all[$0].url.path })
+            for index in folders { all[index].folderTotal = sizes[all[index].url.path] }
         }
-        let sorted = visible.sorted(using: sortOrder)
+        let sorted = all.sorted(using: sortOrder)
 
         // `..` stays on top either way: it is navigation, not content, and a
         // row that moved around by size or date would be a trap.
-        guard ConfigStore.shared.configuration.foldersFirst else {
-            return sorted.filter(\.isParent) + sorted.filter { !$0.isParent }
+        let parent = sorted.filter(\.isParent)
+        let content = ConfigStore.shared.configuration.foldersFirst
+            ? sorted.filter { !$0.isParent && $0.isEnterable } + sorted.filter { !$0.isEnterable }
+            : sorted.filter { !$0.isParent }
+        guard let manualOrder else { return parent + content }
+        let byID = Dictionary(content.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return parent + manualOrder.arrange(content.map(\.id)).compactMap { byID[$0] }
+    }
+
+    /// Back to the order of the columns: a header clicked.
+    func sort(by order: [FileComparator]) {
+        manualOrder = nil
+        sortOrder = order
+    }
+
+    /// Moves the selected rows one place up or down, past the row next to
+    /// them, and keeps that order in place of the sort. Folders stay above
+    /// files while Settings keeps them first, and `..` stays on top. False
+    /// when nothing can move -- nothing selected, or the first row already
+    /// at the edge.
+    func moveSelectionManually(up: Bool) -> Bool {
+        var shown = rows.filter { !$0.isParent }
+        let chosen = Set(shown.map(\.id)).intersection(selection)
+        guard !chosen.isEmpty else { return false }
+        let foldersFirst = ConfigStore.shared.configuration.foldersFirst
+
+        // The swaps worked out on the rows on screen, then made in the whole
+        // listing: a row the filter hides is stepped over, not swapped with.
+        var swaps: [(FileItem.ID, FileItem.ID)] = []
+        let indices = Array(shown.indices.filter { chosen.contains(shown[$0].id) })
+        for index in up ? indices : indices.reversed() {
+            let other = up ? index - 1 : index + 1
+            guard shown.indices.contains(other), !chosen.contains(shown[other].id),
+                  !foldersFirst || shown[other].isEnterable == shown[index].isEnterable
+            else { return false }
+            swaps.append((shown[index].id, shown[other].id))
+            shown.swapAt(index, other)
         }
-        return sorted.filter(\.isParent)
-            + sorted.filter { !$0.isParent && $0.isEnterable }
-            + sorted.filter { !$0.isEnterable }
+        var order = arranged.filter { !$0.isParent }.map(\.id)
+        for (one, two) in swaps {
+            guard let first = order.firstIndex(of: one), let second = order.firstIndex(of: two)
+            else { continue }
+            order.swapAt(first, second)
+        }
+        manualOrder = ManualOrder(order: order, moved: (manualOrder?.moved ?? []).union(chosen))
+        return true
     }
 
     /// Every selected row, `..` included -- what *navigation* acts on.
@@ -581,7 +632,9 @@ final class PaneModel {
 
     /// Set while the pane is a flat view. It has no one folder then: nothing
     /// can be copied, moved or made into it.
-    private(set) var flat: FlatView?
+    private(set) var flat: FlatView? {
+        didSet { manualOrder = nil }
+    }
     @ObservationIgnored private var flatQuery: FlatQuery?
     var isFlat: Bool { flat != nil }
 

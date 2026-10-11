@@ -968,6 +968,9 @@ struct TextFormatSettings: View {
             }
             .disabled(store.configuration.textFormatExtensions
                       == Configuration.defaultTextFormatExtensions)
+
+            TextStyleSettings()
+                .padding(.top, 8)
         }
     }
 
@@ -988,5 +991,118 @@ struct TextFormatSettings: View {
         text.split(whereSeparator: { $0 == "," || $0 == " " })
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased() }
             .filter { !$0.isEmpty }
+    }
+}
+
+/// Text Edit's indentation by format, and how typing and Format Document
+/// lay the text out.
+struct TextStyleSettings: View {
+
+    @Bindable private var store = ConfigStore.shared
+
+    private var style: Binding<TextStyle> { $store.configuration.textStyle }
+
+    private static let rows: [(key: String, title: String)] = [
+        (TextFormat.json.rawValue, "JSON"), (TextFormat.xml.rawValue, "XML"),
+        (TextFormat.yaml.rawValue, "YAML"), (TextFormat.toml.rawValue, "TOML"),
+        (TextFormat.plist.rawValue, "Plist"),
+        (TextStyle.plainKey, "Other text"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Indentation").font(.subheadline.weight(.semibold))
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                ForEach(Self.rows, id: \.key) { row in
+                    GridRow {
+                        Text(row.title)
+                        if row.key == TextFormat.yaml.rawValue {
+                            Text("Spaces").foregroundStyle(.secondary)
+                                .help("YAML does not allow tabs for indentation.")
+                        } else {
+                            Picker("", selection: tabs(row.key)) {
+                                Text("Spaces").tag(false)
+                                Text("Tabs").tag(true)
+                            }
+                            .labelsHidden()
+                            .frame(width: 100)
+                        }
+                        Stepper(value: width(row.key), in: 1...8) {
+                            Text(widthLabel(row.key)).monospacedDigit()
+                        }
+                    }
+                }
+            }
+            Text("Tab and Return indent by this, Shift-Tab takes a level out, and Format Document "
+                 + "lays JSON and XML out with it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Typing").font(.subheadline.weight(.semibold)).padding(.top, 4)
+            Toggle("Close brackets and quotes as they are typed", isOn: style.closePairs)
+            Toggle("XML: show the rest of a tag in grey, and add the end tag", isOn: style.closeTags)
+
+            Text("Format Document").font(.subheadline.weight(.semibold)).padding(.top, 4)
+            Picker("Keep empty lines", selection: style.keepBlankLines) {
+                Text("None").tag(0)
+                Text("Up to 1").tag(1)
+                Text("Up to 2").tag(2)
+                Text("Up to 3").tag(3)
+            }
+            .frame(width: 240)
+            Toggle("JSON: a space before the colon -- \"key\" : value", isOn: style.jsonSpaceBeforeColon)
+            Toggle("JSON: arrays of plain values on one line", isOn: style.jsonShortArraysOnOneLine)
+            Toggle("XML: each attribute on a line of its own, when there are several",
+                   isOn: style.xmlAttributesOnLines)
+            Toggle("XML: a space before /> -- <br />", isOn: style.xmlSpaceBeforeSlash)
+
+            Text("Structure Emphasis").font(.subheadline.weight(.semibold)).padding(.top, 4)
+            Stepper(value: style.emphasisLimit, in: TextStyle.emphasisLimits) {
+                Text("Up to \(store.configuration.textStyle.emphasisLimit) levels out").monospacedDigit()
+            }
+            .onChange(of: store.configuration.textStyle.emphasisLimit) { _, limit in
+                store.configuration.textStyle.emphasisStart = min(store.configuration.textStyle.emphasisStart, limit)
+            }
+            Stepper(value: style.emphasisStart, in: 0 ... store.configuration.textStyle.emphasisLimit) {
+                Text(store.configuration.textStyle.emphasisStart == 0
+                     ? "A new window starts with none"
+                     : "A new window starts at \(store.configuration.textStyle.emphasisStart)").monospacedDigit()
+            }
+            Text("The lines of the structure around the caret are shaded: at 1 the smallest one it is in, at "
+                 + "2 the one around that, and so on. Format ▸ Increase and Decrease Structure Emphasis "
+                 + "(⌥⌘↑ ⌥⌘↓) change it for the window.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Tree").font(.subheadline.weight(.semibold)).padding(.top, 4)
+            Toggle("Show the Type column", isOn: style.treeShowsTypes)
+
+            Button("Back to the Defaults") { store.configuration.textStyle = TextStyle() }
+                .disabled(store.configuration.textStyle == TextStyle())
+        }
+    }
+
+    private func indent(_ key: String) -> LineEditing.Indent {
+        store.configuration.textStyle.indents[key] ?? TextStyle.defaultIndents[key] ?? .standard
+    }
+
+    private func tabs(_ key: String) -> Binding<Bool> {
+        Binding(get: { indent(key).tabs },
+                set: { store.configuration.textStyle.indents[key] = .init(tabs: $0, width: indent(key).width) })
+    }
+
+    private func width(_ key: String) -> Binding<Int> {
+        Binding(get: { indent(key).width },
+                set: { store.configuration.textStyle.indents[key] = .init(tabs: indent(key).tabs, width: $0) })
+    }
+
+    private func widthLabel(_ key: String) -> String {
+        let width = indent(key).width
+        if indent(key).tabs, key != TextFormat.yaml.rawValue {
+            return "1 tab (\(width) wide)"
+        }
+        return width == 1 ? "1 space" : "\(width) spaces"
     }
 }

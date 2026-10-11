@@ -17,7 +17,9 @@ enum TableFinder {
     /// an exact discriminator and does not depend on layout order.
     static func tables(in window: NSWindow) -> [NSTableView] {
         guard let content = window.contentView else { return [] }
-        let all = walk(content)
+        // Text Edit's tree is a table of Diptych's own, never a pane: taken
+        // for one, dragging its columns rearranged the panes' columns.
+        let all = walk(content).filter { !($0 is TreeOutlineView) }
 
         let panes = all.filter { String(describing: type(of: $0)).contains("TableView") }
         if !panes.isEmpty { return panes }

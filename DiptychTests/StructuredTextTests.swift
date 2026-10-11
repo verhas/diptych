@@ -207,6 +207,15 @@ final class StructuredTextTests: XCTestCase {
           on here
         url: http://example.com:8080/x
         'single': 'it''s'
+        defaults: &defaults
+          adapter: postgres
+        development:
+          <<: *defaults
+        coloured: !app!colour
+          r: 255
+        items:
+          - &first !thing
+            name: one
         ---
         name: second document
         """, .yaml)

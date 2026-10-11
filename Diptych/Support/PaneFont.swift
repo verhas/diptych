@@ -72,3 +72,24 @@ enum PaneFont {
             .filter { installed.contains($0) || NSFont(name: $0, size: 12) != nil }
     }
 }
+
+/// Text Edit's font, zoomed apart from the panes': View ▸ Bigger Text and
+/// Smaller Text act on whichever is in front.
+@MainActor
+enum EditorFont {
+
+    static var size: Double { ConfigStore.shared.configuration.textStyle.fontSize }
+
+    static func zoom(by step: Double) { set(size + step) }
+
+    static func reset() { set(TextStyle.defaultFontSize) }
+
+    static func set(_ size: Double) {
+        let range = TextStyle.fontSizes
+        ConfigStore.shared.configuration.textStyle.fontSize = min(max(size, range.lowerBound), range.upperBound)
+    }
+
+    static func text(_ size: Double) -> NSFont {
+        .monospacedSystemFont(ofSize: CGFloat(size), weight: .regular)
+    }
+}

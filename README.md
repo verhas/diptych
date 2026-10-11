@@ -49,6 +49,7 @@ developer account.
 | `F4` | edit permissions (also on the function bar) |
 | `F8`, `⌫`, `⌦` | move to Trash, with confirmation; the cursor lands on the row that followed the deletion |
 | `⌘⌫`, `⌘⌦` | move to Trash immediately, no confirmation |
+| `⇧⌘↑` / `⇧⌘↓` | move the selected files a place up or down: an order of your own until a header is clicked or the folder left -- see [Sorting and links](#sorting-and-links) |
 | `⌘=` | show the active pane's folder in the other pane |
 | `⌘2` | one pane / two panes |
 | `⇧⌘.` | show/hide hidden files (as in Finder; plain `⌘.` is the system's "cancel") |
@@ -934,8 +935,11 @@ by the first kilobyte.
 
 Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own
 editor, one window per file, whatever application the file would normally open
-in. It is small on purpose — typing, undo, find and replace (⌘F), wrapping, and
-Save (⌘S) — and careful where general editors are not:
+in. For a JSON, XML, YAML or TOML file the item is named for it -- **JSON
+Edit**, **XML Edit** and so on, by the extensions in Settings. Beyond typing, undo, find and replace (⌘F), wrapping and Save (⌘S) it
+edits by lines as IntelliJ does, and for JSON, XML and YAML it colours, pairs,
+indents, formats and shows the file as a tree -- see below. It is careful
+where general editors are not:
 
 * Nothing rewrites what is typed: no curly quotes, no dashes from double
   hyphens, no spelling correction, no link detection. In a script or a CSV each
@@ -988,6 +992,184 @@ a green tick. JSON and TOML are checked completely, XML for being well formed
 and YAML for the mistakes people make: tabs for indentation, a line indented to
 no level above it, a key under a line that already has its value, a line in a
 mapping that is no key, a key set twice, a quote or a bracket not closed.
+
+**Typing XML** is helped along, in a file Text Edit takes as XML:
+
+* **What the markup still needs is shown in grey** after the caret: `>` once a
+  `<` is typed, and while the tag's name and attributes are; `">` in an
+  attribute's value; `-->` in a comment, `?>` in a processing instruction,
+  `]]>` in CDATA. **Control-Space takes it**, the same as typing it.
+* **After an attribute's name** the grey text is `=""`, and `""` after its
+  `=`: Control-Space puts them in with the caret between the quotes, ready
+  for the value -- `<item id` becomes `<item id="|"`.
+* **After `</`** the grey text is the name of the innermost element not yet
+  closed, and its `>`: `</` in `<root><item>` offers `item>`. Typed letters
+  narrow it -- `</it` offers `em>` -- and Control-Space finishes the tag.
+* **Closing a start tag puts in its end tag**: typing `<item>`, or taking the
+  grey `>`, gives `<item>|</item>` with the caret between them. Not after
+  `<br/>`, and not when an `</item>` further on already closes it. Undo takes
+  back the end tag first, then what was typed.
+
+The grey text is drawn only where nothing follows on the line, since it would
+cover it; Control-Space takes it all the same. If Control-Space switches the
+keyboard's input source instead, that is macOS's own shortcut -- **System
+Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Input Sources** frees it.
+
+**Editing by lines**, in any file, as IntelliJ does it:
+
+| Keys | |
+|---|---|
+| `⇧⌘↑` / `⇧⌘↓` | move the caret's line, or the selected lines, up or down one line |
+| `⌘⌫` | delete the caret's line, or the selected lines; the caret keeps its column |
+| `⌘C` / `⌘X` with nothing selected | copy or cut the whole line; pasting it with nothing selected puts it in above the caret's line, not into it |
+| `Tab` / `⇧Tab` | with lines selected, every line a level in or out; `Tab` alone puts in one level |
+| `Return` | the new line indented as the one before -- a level more after `{`, `[`, a start tag or a YAML `key:`, and between `{}` or `<a></a>` the closing one goes to a line of its own |
+| `⌫` | in the spaces that indent a line, back to the level before; between `{}` both go |
+| `⌘/` | Format ▸ Comment Lines: `#` in YAML and TOML, `<!-- -->` in XML, or back |
+
+**Brackets and quotes close themselves** in JSON, XML, YAML and TOML: `{`, `[`
+and `"` get their closing one, typing the closing one steps over it, and a `}`
+typed first on its line takes the line a level out. Typed with something
+selected, they go around it. Settings turns it off.
+
+**Colours**: keys, strings, numbers, `true`/`false`/`null`, comments, tags and
+attributes, worked out with the rest of the analysis. The bracket or tag that
+goes with the one at the caret is shown on a tinted ground, with it.
+
+**Structure emphasis** shades the lines of a structure around the caret: at 1
+the smallest one it is in -- the array, the element, the mapping -- at 2 the one
+around that, and so on, as the caret moves. An element is shaded from its `<`,
+however many lines its start tag takes. Format ▸ **Increase Structure
+Emphasis** (`⌥⌘↑`) and **Decrease Structure Emphasis** (`⌥⌘↓`) change the
+level, and say what they change it to -- "Increase Structure Emphasis to 2".
+The level is the window's own and goes when it closes; a new window starts at
+0, none, up to 5 at most, both set in Settings.
+
+**Go to Line** (`⌘G`) asks for a line and puts the caret at its start;
+Return or Go jumps, Escape or Cancel does not. In the tree it selects the node
+on that line, opening what holds it, and scrolls to it.
+
+**The right-click menu** is Cut, Copy and Paste and the Format menu's items
+that apply to the file, with their keys -- no fonts, spelling, substitutions,
+services or Writing Tools. The tree's right-click menu ends with them too.
+
+**The Format menu**, for the Text Edit window in front:
+
+* **Format Document** (`⌥⌘L`) lays JSON and XML out again by Settings'
+  indentation: keys keep their order, numbers and strings stay as written,
+  comments and processing instructions stay. XML text that means something is
+  left alone -- an element with text and elements mixed, or `xml:space="preserve"`,
+  keeps what is inside it as it is. A file that breaks its format is not
+  formatted: the alert says where, with **Show**. One Undo takes it back. YAML
+  and TOML have nothing to format: their layout is their structure.
+* **Compact JSON** puts it all on one line.
+* **Comment Lines**, **Move Lines Up**, **Move Lines Down**, **Delete Lines**,
+  **Increase** and **Decrease Structure Emphasis**. In the tree the two moves are **Move Up** and **Move Down**, and move the
+  selected node.
+* **Show as Tree** / **Show as Text** (`⌃⌘T`).
+* **Add Child** (`⌃⌘N`) and **Add After** (`⌘↩`), in the tree: a node like
+  the one next to it -- an element in XML, an attribute after an attribute --
+  its name ready to type.
+* **Show Type Column**, for the tree -- also on the right-click menu of the
+  tree's column headers, as Hide Type Column when it is shown.
+
+The menu is greyed out while no Text Edit window is in front.
+
+**The tree** -- the button with the indented list in the bar, or `⌃⌘T` --
+shows a JSON, XML, YAML or plist file as an outline of **Key** and **Value**, opened
+on the node the caret is in. What a node is shows without a column of its own:
+an element's name is blue, an attribute's is orange after an `@` badge, a
+comment is `#comment`, a processing instruction `<?…?>`; a number is blue, a
+boolean or null pink, and a container counts its keys, items or children. The
+**Type** column is there for the asking -- Format ▸ Show Type Column, the
+tree's right-click menu, or Settings -- and the name's tooltip says the type
+anyway. A value over several lines shows on one, its breaks as `↩`. The
+columns stay where they are: they cannot be dragged. With the text's line
+numbers on, the gutter beside the rows gives the line each node starts on --
+the same number on rows whose nodes share a line.
+In it:
+
+* **Double-click** a key or a value, or press **Return**, to edit it: a JSON or
+  YAML key, an element's or an attribute's name -- its end tag follows -- a
+  string, number or boolean, an attribute's value, an element's text, a comment.
+  A JSON number must be a number; `yes`, `no`, `1`, `0` are taken for booleans.
+  A value over several lines -- a comment, CDATA, text -- and the DOCTYPE and
+  processing instructions are edited in a **text area** under the row, line
+  breaks and all -- never in the row itself: **Done ⌘↩** keeps it, Escape
+  leaves it. Its corner drags it larger, and the next one opens that size. Clicking elsewhere
+  keeps what was typed, in a row as in the text area. The DOCTYPE and
+  instructions are edited as written, `<!DOCTYPE …>` and `<?…?>` included;
+  what would not read back as XML is not made.
+  What is typed is written as the format needs it: quoted and escaped in JSON,
+  `&lt;` and `&amp;` in XML, quoted in YAML only where it would not read back.
+* **Right-click** for **Add Child** and **Add After** -- by type: String,
+  Number, Boolean, Null, Object, Array in JSON; Element, Attribute, Text,
+  Comment in XML; Value, Mapping, Sequence in YAML; the one `⌃⌘N` or `⌘↩`
+  adds shows the key -- **Make Attribute** or **Make Element**, **Change
+  Type**, **Duplicate**, **Delete**, **Edit in Text Area…**, **Copy XPath**,
+  **Copy JSON Path**, **Copy YAML Path** or **Copy Key Path**, **Show in Text**,
+  **Expand All**, **Collapse All** and **Show Type Column**. A new node's name or value is
+  ready to type.
+* **An element becomes an attribute**, and back, by its name: an attribute is
+  edited as `@name`, so typing `@` before an element's name makes it an
+  attribute of its parent -- `<name>Diptych</name>` becomes `name="Diptych"` --
+  and taking the `@` away makes an attribute an element, first in its parent.
+  An element can turn into an attribute when it holds only text and has no
+  attributes, and its parent has no attribute of that name. An XML name never
+  starts with `@`, so the badge can only mean an attribute.
+* **Copy XPath**, **Copy JSON Path**, **Copy YAML Path** and, for a plist,
+  **Copy Key Path** put the clicked node's path on the clipboard, as the
+  format's tools write it: `/catalog/book[2]/@id` -- a position only where a
+  name repeats -- `$.store.book[0]['the title']`, `yq`'s
+  `.store.book[0]."the title"`, and PlistBuddy's `:CFBundleURLTypes:0`.
+* **Delete** deletes the node.
+* **Find** (`⌘F`) opens a bar over the rows: what is typed is looked for in
+  the names and values, folded away or not, and the first match from the
+  selected row is selected and opened up to. Return goes to the next, `⇧↩`
+  to the one before, round from the end; the bar says which of how many.
+  Escape or Done closes it.
+* **`⇧⌘↑` and `⇧⌘↓`**, or `⌘↑` and `⌘↓`, move the selected node and all it
+  holds to the next place in the structure, as Move Lines does with lines in
+  the text: past the node next to it; into that node, at its near end, when it
+  is an open container; out of its own container, before or after it, when it
+  is at the end of it. Where it cannot go -- the top value, an element past an
+  attribute -- it beeps.
+* **Drag** a node to move it: between others, or onto one to go in at its end.
+  Moved from an object to an array a key is left behind; from an array to an
+  object it gets one. An attribute goes only among attributes.
+* **Undo** (`⌘Z`) is the text's: every change in the tree is a change in the
+  text, a move one step.
+
+Only what a change is about changes in the text: the separators around it --
+commas, the indentation its neighbours have, whether they share a line -- are
+kept, and so are the comments and the layout of everything else. A file that
+cannot be read as a tree says why, with the line, instead of the outline.
+YAML is read as one document of mappings, sequences -- `- key: value` too --
+and scalars, plain, quoted or in `|` and `>` blocks, after any `%YAML` and
+`%TAG` directives; anchors, aliases and tags stay as written. A flow collection
+with something in it, `[1, 2]`, is a value as written, on one line or over
+several. Explicit `? key` entries and a second document are beyond the tree:
+it names the line where it stopped.
+
+**Property lists** (`.plist`) open as their tree: a dictionary's `<key>` and the
+value after it are one node, named by the key, of type String, Integer, Real,
+Boolean, Date, Data, Dictionary or Array. A value must be one of its type --
+an integer, an ISO 8601 date, Base64 for data. The text is the plist's XML,
+edited as XML is -- coloured, checked, folded. A **binary** plist is shown as
+the XML it stands for, its dictionary keys in alphabetical order, the way the
+conversion writes them. **Save** writes a plist as it came, binary or XML, and
+the button beside it, **Save XML** or **Save Binary**, writes it the other way --
+then that is how it is saved from then on. Binary is written only from text
+that reads as a property list. Right-click a `.plist` file for **Plist Edit**.
+
+**Settings ▸ Behaviour ▸ Text Edit** has the indentation for each format --
+spaces or tabs, and how many; YAML is always spaces, as it must be -- and a
+tab is shown as wide as that. Then whether brackets and quotes close
+themselves and the XML end tags are put in, the structure emphasis -- how far
+out it goes and where a new window starts -- and how Format Document lays the
+text out: how many empty lines it keeps where there were some, a space before
+the colon in JSON, arrays of plain values on one line, XML attributes each on a
+line of their own, and `<br />` rather than `<br/>`.
 
 ## Bin Edit
 
@@ -1150,7 +1332,9 @@ and a size of `0` would leave no way back.
 
 Only the **panes** follow it. Settings, the sidebar, dialogs and the function bar
 keep their own sizes -- what is being configured is the file listing, not the
-chrome around it.
+chrome around it. With a **Text Edit** window in front the same three commands,
+and `⌘=`, size its text and tree instead: 13 pt to start with, 8–36 pt, kept in
+Settings with the rest of Text Edit's.
 
 `PaneFont` is the single source, because the pieces have to agree: the
 permissions column is drawn by SwiftUI in the listing and by an `NSView` while
@@ -1253,6 +1437,20 @@ more useful when the two kinds are not separated. `..` stays on top either way:
 it is navigation, not content, and a row that wandered off by date would be a
 trap.
 
+**Rows can be put in an order of your own.** `⇧⌘↑` and `⇧⌘↓` move the selected
+file, or files, one place up or down, past the row next to them -- by keyboard,
+not by dragging, since a drag drops files into folders. The header's sort arrow
+goes: the rows are in no column's order any more. The order is kept in memory
+only, for the folder on screen. Clicking a column header sorts again, and going
+to another folder -- or to the same one again -- forgets it. Folders stay above
+files while Settings keeps them first, and `..` stays on top.
+
+While the order is your own, a file that goes is simply gone from it, and a new
+one goes where the sort would have put it among the rows you did not move: after
+the last of them the sort puts before it -- after any other new files there that
+sort before it -- or, with none before it, in front of the first one after it.
+Rows you moved say nothing about where a new one belongs.
+
 A **symbolic link** shows an arrow beside its name, and hovering it now says
 where the link points. The target is read once by the loader -- a `readlink` per
 symlink is cheap, and doing it during a redraw is not.
@@ -1338,6 +1536,13 @@ Back, Forward, Enclosing Folder, and the two ways into the path bar.
 Open stays in File even though Enclosing Folder is in Go, which looks odd
 written down and is exactly what Finder does; following it beats inventing a
 third arrangement for people to learn.
+
+**With no browser window in front** -- Text Edit, Info, a comparison -- what acts
+on panes is greyed out: File's commands on files, all of Go, and View's except
+the text sizes, which then size Text Edit's text. **Format** is greyed out
+everywhere but in Text Edit. A greyed-out item leaves its keys to the window in
+front, so `⌘↑` and `⌘↓` move to the start and end of the text there, and `⌘⌫`
+and `⇧⌘↑` reach Text Edit's own line commands.
 
 ## Version tracking
 

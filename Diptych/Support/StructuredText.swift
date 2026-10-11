@@ -4,8 +4,14 @@ import Foundation
 /// where it stops being what its extension says it is.
 nonisolated enum TextFormat: String, Codable, CaseIterable, Sendable, Identifiable {
     case json, xml, toml, yaml
+    /// A property list: XML to read and type, a tree of keys and values to
+    /// edit, saved as binary when it came so.
+    case plist
 
     var id: String { rawValue }
+
+    /// How the text is read, coloured and edited by lines: a plist is XML.
+    var markup: TextFormat { self == .plist ? .xml : self }
 
     var title: String {
         switch self {
@@ -13,11 +19,12 @@ nonisolated enum TextFormat: String, Codable, CaseIterable, Sendable, Identifiab
         case .xml:  "XML"
         case .toml: "TOML"
         case .yaml: "YAML"
+        case .plist: "Plist"
         }
     }
 
     static let defaultExtensions: [TextFormat: [String]] = [
-        .json: ["json"], .xml: ["xml"], .toml: ["toml"], .yaml: ["yml", "yaml"],
+        .json: ["json"], .xml: ["xml"], .toml: ["toml"], .yaml: ["yml", "yaml"], .plist: ["plist"],
     ]
 
     /// The format a file's extension says, by the settings' list.
@@ -39,6 +46,9 @@ nonisolated struct FoldSpan: Sendable, Equatable {
     let hidden: NSRange
     /// Shown in the badge in place of the hidden text: "4 keys", "12 lines".
     let label: String
+    /// Where the structure starts, when that is above the fold: an XML
+    /// start tag written over several lines folds from its `>`.
+    var openingLine: Int?
 }
 
 /// Where the text stops being valid, and why.
@@ -69,7 +79,7 @@ nonisolated enum StructuredText {
         case .json:
             var analysis = JSONAnalysis(units: units, lines: lines)
             return analysis.run()
-        case .xml:
+        case .xml, .plist:
             var analysis = XMLAnalysis(units: units, lines: lines)
             return analysis.run()
         case .toml:
@@ -590,7 +600,8 @@ private nonisolated struct XMLAnalysis {
         if open.isEmpty { rootClosed = true }
         let label = last.children > 0 ? StructuredText.plural(last.children, "element")
                                       : "\u{2026}"
-        if let span = StructuredText.between(last.close, start, lines: lines, label: label) {
+        if var span = StructuredText.between(last.close, start, lines: lines, label: label) {
+            span.openingLine = lines.line(containing: last.at)
             folds.append(span)
         }
     }
@@ -1150,6 +1161,7 @@ private nonisolated struct YAMLAnalysis {
                     || previousBody.hasPrefix("- ") || previousBody == "-"
                     || previousBody.hasSuffix("|") || previousBody.hasSuffix(">")
                     || previousBody.range(of: #"[|>][+-]?\d*$"#, options: .regularExpression) != nil
+                    || onlyProperties(previousBody)
                 if !opens, key(of: body) != nil {
                     throw stop("A key cannot be indented under a line that already has its "
                                + "value", line: line, column: indentation)
@@ -1224,6 +1236,21 @@ private nonisolated struct YAMLAnalysis {
         if flowDepth > 0, let open = flowOpen {
             throw stop("The bracket opened here is not closed", line: open.line, column: open.column)
         }
+    }
+
+    /// `key: &anchor`, `- !tag`: what follows the key or dash is only an
+    /// anchor or a tag, so the value is the block indented below.
+    func onlyProperties(_ body: String) -> Bool {
+        var value = Substring(body)
+        if let key = key(of: body) {
+            value = value.dropFirst(key.count + 1)
+        } else if value.hasPrefix("- ") {
+            value = value.dropFirst(2)
+        } else {
+            return false
+        }
+        let words = value.split(separator: " ")
+        return !words.isEmpty && words.allSatisfy { $0.hasPrefix("&") || $0.hasPrefix("!") }
     }
 
     /// [ and { opened and closed, outside quotes.

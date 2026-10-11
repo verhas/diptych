@@ -13,6 +13,13 @@ final class TextEditController: NSObject {
 
     let textView: FoldingTextView
     let scrollView: NSScrollView
+    /// The text, or the tree in its place.
+    let view = NSView()
+    private(set) var tree: StructureTreeController?
+    private(set) var showsTree = false
+    weak var link: EditorLink?
+    /// Where a whole line is copied to; a private one in tests.
+    var pasteboard = NSPasteboard.general
     private(set) var gutter: TextEditGutter!
     var document: TextEditDocument
 
@@ -20,7 +27,14 @@ final class TextEditController: NSObject {
     private(set) var format: TextFormat?
     private(set) var lineIndex = LineIndex("")
     var lineNumbers = TextLineNumbers.absolute {
-        didSet { if lineNumbers != oldValue { gutter.updateThickness() } }
+        didSet {
+            if lineNumbers != oldValue { gutter.updateThickness() }
+            tree?.showLineNumbers(lineNumbers != .off)
+        }
+    }
+    /// Which structure around the caret is shaded: 0 none, 1 the smallest.
+    var emphasis = 0 {
+        didSet { if emphasis != oldValue { textView.needsDisplay = true } }
     }
 
     /// Against the last commit, and against the last save.
@@ -45,6 +59,16 @@ final class TextEditController: NSObject {
     private var badgeLabels: [Int: String] = [:]
     /// While the whole text is replaced by a reload: folds come back after.
     private var replacingEverything = false
+
+    /// What the XML markup at the caret still needs, drawn in grey.
+    fileprivate(set) var suggestion: String?
+    private var suggestedAt = 0
+
+    /// The colours and pairs of the text as last analysed; `colouringIsCurrent`
+    /// until the text changes again.
+    private(set) var colouring = SyntaxColouring.none
+    private(set) var colouringIsCurrent = false
+    private var matched: SyntaxColouring.Pair?
 
     private var analysisTask: Task<Void, Never>?
     /// Bumped on every edit, so an analysis of older text is dropped.
@@ -78,6 +102,10 @@ final class TextEditController: NSObject {
         layout.delegate = self
         storage.delegate = self
 
+        view.addSubview(scrollView)
+        scrollView.frame = view.bounds
+        scrollView.autoresizingMask = [.width, .height]
+
         gutter = TextEditGutter(scrollView: scrollView, controller: self)
         scrollView.verticalRulerView = gutter
         scrollView.hasVerticalRuler = true
@@ -96,6 +124,7 @@ final class TextEditController: NSObject {
         replacingEverything = true
         textView.string = text
         replacingEverything = false
+        applyTabWidth()
         textChanged()
         loadBaseline()
     }
@@ -109,14 +138,96 @@ final class TextEditController: NSObject {
     }
 
     func textChanged() {
+        colouringIsCurrent = false
         lineIndex = LineIndex(nsText)
         gutter.updateThickness()
         scheduleAnalysis()
+        updateSuggestion()
+        tree?.textChanged()
+    }
+
+    // MARK: - The tree
+
+    /// The tree in place of the text, on the node the caret is in; and back,
+    /// the caret on the node chosen in the tree.
+    func setTreeShown(_ on: Bool) {
+        guard on != showsTree else { return }
+        showsTree = on
+        if on {
+            let tree = self.tree ?? {
+                let made = StructureTreeController()
+                made.controller = self
+                made.container.frame = view.bounds
+                made.container.autoresizingMask = [.width, .height]
+                view.addSubview(made.container)
+                self.tree = made
+                return made
+            }()
+            tree.container.isHidden = false
+            scrollView.isHidden = true
+            tree.showLineNumbers(lineNumbers != .off)
+            tree.reload()
+            if let path = tree.path(containing: selectedRange.location) { tree.select(path, edit: nil) }
+            view.window?.makeFirstResponder(tree.outline)
+        } else {
+            if let item = tree?.selectedItem {
+                let node = item.node
+                let at = node.keyRange?.location ?? node.valueRange?.location ?? node.range.location
+                textView.setSelectedRange(NSRange(location: min(at, nsText.length), length: 0))
+                revealSelection()
+                textView.scrollRangeToVisible(selectedRange)
+            }
+            tree?.container.isHidden = true
+            scrollView.isHidden = false
+            view.window?.makeFirstResponder(textView)
+        }
+    }
+
+    /// From the tree's Show in Text.
+    func showInText(_ location: Int) {
+        link?.showsTree = false
+        setTreeShown(false)
+        textView.setSelectedRange(NSRange(location: min(location, nsText.length), length: 0))
+        revealSelection()
+        textView.scrollRangeToVisible(selectedRange)
     }
 
     func selectionChanged() {
         revealSelection()
+        updateSuggestion()
+        highlightPair()
         if lineNumbers == .relative { gutter.needsDisplay = true }
+        if emphasis > 0 { textView.needsDisplay = true }
+    }
+
+    /// The lines of the `emphasis`-th smallest structure the caret is in:
+    /// of the folds around its line, smallest first.
+    func emphasizedLines() -> ClosedRange<Int>? {
+        guard emphasis > 0 else { return nil }
+        let line = lineIndex.line(containing: selectedRange.location)
+        let around = foldRegions
+            .filter { $0.openingLine <= line && line <= $0.lastLine }
+            .sorted { ($0.lastLine - $0.openingLine, -$0.openingLine) < ($1.lastLine - $1.openingLine, -$1.openingLine) }
+        guard emphasis <= around.count else { return nil }
+        let region = around[emphasis - 1]
+        return region.openingLine ... region.lastLine
+    }
+
+    /// The emphasized lines, shaded the width of the text.
+    func drawEmphasis(in dirtyRect: NSRect) {
+        guard let lines = emphasizedLines(), let layout = textView.layoutManager,
+              let container = textView.textContainer, lines.upperBound < lineIndex.count else { return }
+        let start = lineIndex.contentRange(ofLine: lines.lowerBound).location
+        let end = NSMaxRange(lineIndex.contentRange(ofLine: lines.upperBound))
+        let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: start, length: end - start),
+                                       actualCharacterRange: nil)
+        var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+        rect.origin.y += textView.textContainerOrigin.y
+        rect.origin.x = 0
+        rect.size.width = textView.bounds.width
+        guard rect.intersects(dirtyRect) else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        rect.intersection(dirtyRect).fill(using: .sourceOver)
     }
 
     /// Saved: the save is the new base of the thin bar.
@@ -138,17 +249,19 @@ final class TextEditController: NSObject {
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard !Task.isCancelled else { return }
             let result = await BlockingWork.run {
-                () -> (StructureAnalysis, LineChanges, LineChanges) in
+                () -> (StructureAnalysis, LineChanges, LineChanges, SyntaxColouring) in
                 let structure = format.map { StructuredText.analyse(text, as: $0) } ?? .none
                 let committed: LineChanges = switch baseline {
                 case .unavailable: .none
                 case .uncommitted: .allAdded(text)
                 case .committed(let base): .compute(base: base, current: text)
                 }
-                return (structure, committed, .compute(base: saved, current: text))
+                return (structure, committed, .compute(base: saved, current: text),
+                        SyntaxColouring.of(text, as: format))
             }
             guard let self, !Task.isCancelled, mine == self.generation else { return }
             self.apply(result.0, committed: result.1, saved: result.2)
+            self.apply(result.3)
         }
     }
 
@@ -161,6 +274,42 @@ final class TextEditController: NSObject {
         setFoldRegions(FoldRegion.regions(structure.folds, in: nsText, lines: lineIndex))
         underlineProblem()
         gutter.needsDisplay = true
+    }
+
+    /// The colours, over whatever was coloured before.
+    private func apply(_ colouring: SyntaxColouring) {
+        self.colouring = colouring
+        colouringIsCurrent = true
+        guard let layout = textView.layoutManager else { return }
+        let all = NSRange(location: 0, length: nsText.length)
+        layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: all)
+        for span in colouring.spans where NSMaxRange(span.range) <= all.length {
+            layout.addTemporaryAttribute(.foregroundColor, value: span.role.colour, forCharacterRange: span.range)
+        }
+        matched = nil
+        highlightPair()
+    }
+
+    /// The bracket or tag that goes with the one at the caret, and that one,
+    /// on a tinted ground.
+    func highlightPair() {
+        guard let layout = textView.layoutManager else { return }
+        let length = nsText.length
+        if let old = matched {
+            for range in [old.open, old.close] where NSMaxRange(range) <= length {
+                layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+            }
+            matched = nil
+        }
+        let selection = selectedRange
+        guard colouringIsCurrent, selection.length == 0,
+              let pair = colouring.pair(at: selection.location) else { return }
+        for range in [pair.open, pair.close] where NSMaxRange(range) <= length {
+            layout.addTemporaryAttribute(.backgroundColor,
+                                         value: NSColor.findHighlightColor.withAlphaComponent(0.35),
+                                         forCharacterRange: range)
+        }
+        matched = pair
     }
 
     /// The place a problem is, underlined in red in the text.
@@ -431,6 +580,9 @@ struct FoldRegion: Equatable {
     let lastLine: Int
     let hidden: NSRange
     let label: String
+    /// The structure's first line: `firstLine`, or above it where its
+    /// opening runs over several lines.
+    var openingLine: Int
 
     static func regions(_ spans: [FoldSpan], in text: NSString, lines: LineIndex) -> [FoldRegion] {
         var seen: [String: Int] = [:]
@@ -443,8 +595,72 @@ struct FoldRegion: Equatable {
                 seen[first] = occurrence + 1
                 return FoldRegion(key: Key(firstLineText: first, occurrence: occurrence),
                                   firstLine: span.firstLine, lastLine: span.lastLine,
-                                  hidden: span.hidden, label: span.label)
+                                  hidden: span.hidden, label: span.label,
+                                  openingLine: min(span.openingLine ?? span.firstLine, span.firstLine))
             }
+    }
+}
+
+// MARK: - XML: what is left of the markup, in grey
+
+extension TextEditController {
+
+    /// What `XMLCompletion` offers at the caret, in an XML file with nothing
+    /// selected.
+    func updateSuggestion() {
+        let range = selectedRange
+        let now = format?.markup == .xml && style.closeTags && range.length == 0 && !textView.hasMarkedText()
+            ? XMLCompletion.suggestion(in: nsText, at: range.location) : nil
+        // Drawn at the caret: moved with it, the old place is drawn again.
+        guard now != suggestion || (now != nil && range.location != suggestedAt) else { return }
+        suggestion = now
+        suggestedAt = range.location
+        textView.needsDisplay = true
+    }
+
+    /// Control-Space: the suggestion, as if typed.
+    func acceptSuggestion() -> Bool {
+        guard let suggestion, textView.isEditable else { return false }
+        let at = selectedRange.location
+        textView.insertText(suggestion, replacementRange: selectedRange)
+        // An attribute's `=""`: the value is typed between the quotes.
+        let caret = XMLCompletion.caret(in: suggestion)
+        if caret < suggestion.utf16.count { textView.setSelectedRange(NSRange(location: at + caret, length: 0)) }
+        return true
+    }
+
+    /// A `>` was typed: the end tag of the element it started, after the
+    /// caret, unless something further on already closes it. An undo step of
+    /// its own, so that Undo takes back only the end tag first.
+    func closeElement() {
+        let range = selectedRange
+        guard format?.markup == .xml, style.closeTags, range.length == 0, textView.isEditable,
+              let tag = XMLCompletion.endTag(in: nsText, at: range.location) else { return }
+        let at = NSRange(location: range.location, length: 0)
+        textView.breakUndoCoalescing()
+        guard textView.shouldChangeText(in: at, replacementString: tag) else { return }
+        textView.textStorage?.replaceCharacters(in: at, with: tag)
+        textView.didChangeText()
+        textView.setSelectedRange(at)
+    }
+
+    /// The suggestion, in grey right after the caret -- only where nothing
+    /// follows on the line, since it would be drawn over it.
+    func drawSuggestion() {
+        guard let suggestion, let layout = textView.layoutManager,
+              let container = textView.textContainer else { return }
+        let caret = selectedRange.location
+        let text = nsText
+        guard caret > 0, caret <= text.length, !isHidden(caret - 1) else { return }
+        if caret < text.length, ![0x0A, 0x0D].contains(text.character(at: caret)) { return }
+        let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: caret - 1, length: 1),
+                                       actualCharacterRange: nil)
+        let before = layout.boundingRect(forGlyphRange: glyphs, in: container)
+        let origin = textView.textContainerOrigin
+        let font = textView.font ?? .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        (suggestion as NSString).draw(
+            at: NSPoint(x: before.maxX + origin.x, y: before.minY + origin.y),
+            withAttributes: [.font: font, .foregroundColor: NSColor.tertiaryLabelColor])
     }
 }
 
@@ -538,12 +754,137 @@ final class FoldingTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        MainActor.assumeIsolated { controller?.drawFoldBadges(in: rect) }
+        MainActor.assumeIsolated {
+            controller?.drawEmphasis(in: rect)
+            controller?.drawFoldBadges(in: rect)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        MainActor.assumeIsolated { controller?.drawSuggestion() }
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let opened = MainActor.assumeIsolated { controller?.unfoldBadge(at: point) ?? false }
         if !opened { super.mouseDown(with: event) }
+    }
+
+    /// Control-Space takes what is shown in grey.
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .control,
+           event.charactersIgnoringModifiers == " ",
+           MainActor.assumeIsolated({ controller?.acceptSuggestion() ?? false }) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    /// A pair closed or stepped over; and a start tag closed by typing, or
+    /// by taking the suggestion, gets its end tag.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        let typed = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
+        let handled = !hasMarkedText() && replacementRange.location == NSNotFound
+            && MainActor.assumeIsolated { controller?.typed(typed) ?? false }
+        if !handled { super.insertText(string, replacementRange: replacementRange) }
+        if typed.hasSuffix(">") { MainActor.assumeIsolated { controller?.closeElement() } }
+    }
+
+    // MARK: Editing by lines, as IntelliJ does
+
+    private func run(_ action: (TextEditController) -> Void) -> Bool {
+        MainActor.assumeIsolated {
+            guard let controller else { return false }
+            action(controller)
+            return true
+        }
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        if !run({ $0.newline() }) { super.insertNewline(sender) }
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if !run({ $0.tab() }) { super.insertTab(sender) }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if !run({ $0.backtab() }) { super.insertBacktab(sender) }
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        let done = MainActor.assumeIsolated { controller?.deleteBackward() ?? false }
+        if !done { super.deleteBackward(sender) }
+    }
+
+    /// Command-Delete: the line, not the line up to the caret.
+    override func deleteToBeginningOfLine(_ sender: Any?) {
+        if !run({ $0.deleteLines() }) { super.deleteToBeginningOfLine(sender) }
+    }
+
+    /// Shift-Command-Up and -Down move the lines.
+    override func moveToBeginningOfDocumentAndModifySelection(_ sender: Any?) {
+        if !run({ $0.moveLines(up: true) }) { super.moveToBeginningOfDocumentAndModifySelection(sender) }
+    }
+
+    override func moveToEndOfDocumentAndModifySelection(_ sender: Any?) {
+        if !run({ $0.moveLines(up: false) }) { super.moveToEndOfDocumentAndModifySelection(sender) }
+    }
+
+    override func copy(_ sender: Any?) {
+        let done = MainActor.assumeIsolated { () -> Bool in
+            guard let controller else { return false }
+            if controller.copyLine(cutting: false) { return true }
+            // The editor's clipboard, which is the general one but in tests.
+            guard controller.pasteboard != .general else { return false }
+            controller.pasteboard.clearContents()
+            return controller.pasteboard.setString(controller.nsText.substring(with: selectedRange()),
+                                                   forType: .string)
+        }
+        if !done { super.copy(sender) }
+    }
+
+    override func cut(_ sender: Any?) {
+        let done = isEditable && MainActor.assumeIsolated { controller?.copyLine(cutting: true) ?? false }
+        if !done { super.cut(sender) }
+    }
+
+    override func paste(_ sender: Any?) {
+        let done = isEditable && MainActor.assumeIsolated { controller?.pasteLine() ?? false }
+        if !done { super.paste(sender) }
+    }
+
+    /// Format ▸ Comment Lines.
+    @objc func toggleComment(_ sender: Any?) {
+        _ = run { $0.toggleComment() }
+    }
+
+    /// Cut, Copy, Paste and the Format menu's items -- no fonts, spelling,
+    /// services.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.allowsContextMenuPlugIns = false
+        menu.addItem(withTitle: "Cut", action: #selector(cut(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        // Enabled by the items themselves, as Cut and Copy are by
+        // validateMenuItem.
+        menu.autoenablesItems = false
+        for item in menu.items { item.isEnabled = validateMenuItem(item) }
+        MainActor.assumeIsolated {
+            let format = controller?.formatMenuItems() ?? []
+            guard !format.isEmpty else { return }
+            menu.addItem(.separator())
+            format.forEach(menu.addItem)
+        }
+        return menu
+    }
+
+    /// With nothing selected Cut and Copy take the line, so they are on.
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(copy(_:)) { return string.isEmpty == false }
+        if item.action == #selector(cut(_:)) { return isEditable && !string.isEmpty }
+        return super.validateMenuItem(item)
     }
 }

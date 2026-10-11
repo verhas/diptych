@@ -80,6 +80,24 @@ final class KeyRouter {
                 // A sheet owns the keyboard while it is up.
                 if window.attachedSheet != nil { return false }
 
+                // Command-= in Text Edit: its text grows, as with Command-+.
+                if let responder = window.firstResponder,
+                   responder is FoldingTextView || responder is TreeOutlineView,
+                   flags.contains(.command), !flags.contains(.control),
+                   !flags.contains(.option), characters == "=" {
+                    EditorFont.zoom(by: 1)
+                    return true
+                }
+                // Command-G in Text Edit: Go to Line, in the text or the tree.
+                if let responder = window.firstResponder, flags.contains(.command),
+                   !flags.contains(.control), !flags.contains(.option), !flags.contains(.shift),
+                   characters == "g",
+                   let editor = (responder as? FoldingTextView)?.controller
+                    ?? (responder as? TreeOutlineView)?.tree?.controller {
+                    editor.askForLine()
+                    return true
+                }
+
                 // Never steal keys from a text field: Return in the path bar
                 // must mean "commit", not "enter directory".
                 if let responder = window.firstResponder,

@@ -496,7 +496,11 @@ struct PaneView: View {
         // TableColumnForEach rather than written out. That in turn is why
         // sorting uses one FileComparator for every column: SwiftUI needs a
         // single concrete comparator type across a dynamic column set.
-        Table(of: FileItem.self, selection: $pane.selection, sortOrder: $pane.sortOrder) {
+        // No sort arrow while the rows are in an order of the user's own;
+        // clicking a header sorts again.
+        let sortOrder = Binding(get: { pane.manualOrder == nil ? pane.sortOrder : [] },
+                                set: { pane.sort(by: $0) })
+        return Table(of: FileItem.self, selection: $pane.selection, sortOrder: sortOrder) {
             TableColumnForEach(ConfigStore.shared.configuration.columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
                     CellView(column: column, item: item, pane: pane, model: model,
@@ -813,7 +817,11 @@ struct PaneView: View {
             // permanently greyed out on half the rows in every listing.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !item.isBrokenLink {
-                Button("Text Edit") { act(ids) { model.showTextEditor() } }
+                // Named for the format Text Edit will open it as: JSON Edit.
+                let format = TextFormat.of(item.url, extensions: ConfigStore.shared.configuration.textFormats)
+                Button(format.map { "\($0.title) Edit" } ?? "Text Edit") {
+                    act(ids) { model.showTextEditor() }
+                }
                 Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
             scripts(for: targets(of: ids))

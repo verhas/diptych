@@ -4027,6 +4027,18 @@ final class AppModel {
         // Command-Delete trashes straight away, no dialog.
         if modifiers.contains(.command) {
             switch key {
+            // Shift-Command-Up and -Down move the selected rows past their
+            // neighbour, as moving lines does in an editor. Not by dragging:
+            // a drag drops files into folders.
+            case .upArrow, .downArrow:
+                guard modifiers.contains(.shift), !modifiers.contains(.option),
+                      !modifiers.contains(.control), dialog == nil else { return false }
+                if active.moveSelectionManually(up: key == .upArrow) {
+                    scrollSelectionIntoView()
+                } else {
+                    NSSound.beep()
+                }
+                return true
             case .delete, .forwardDelete:
                 // Always the pane, never the sidebar. Cmd-Delete used to remove
                 // the selected favourite whenever one was selected -- which,

@@ -43,10 +43,15 @@ struct TextEditView: View {
                 }
                 PlainTextEditor(document: document, wraps: wraps, finder: finder, link: link,
                                 lineNumbers: store.configuration.textLineNumbers,
-                                formats: store.configuration.textFormats)
+                                formats: store.configuration.textFormats,
+                                showsTree: link.showsTree && StructureTree.supports(document.format),
+                                style: store.configuration.textStyle,
+                                emphasis: link.emphasis)
             }
         }
         .navigationTitle(title)
+        .focusedSceneValue(\.textEditor, TextEditorTarget(link: link, format: document.format,
+                                                           isReadOnly: document.isReadOnly))
         .background(WindowAccessor { window in
             if let window {
                 AppWindows.shared.register(window)
@@ -66,6 +71,8 @@ struct TextEditView: View {
             guard let found = window, found.delegate !== guard_ else { return }
             self.window = found
             document.load()
+            // A property list opens as its tree.
+            if document.plistEncoding != nil { link.showsTree = true }
             DiffWindows.shared.claimForEditing(url)
             guard_.shouldClose = { closeIsAllowed() }
             guard_.willClose = { DiffWindows.shared.releaseFromEditing(url) }
@@ -93,12 +100,23 @@ struct TextEditView: View {
             Button("Save") { saveNow() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!document.isEdited || document.isReadOnly)
+            // A property list is saved the way it came; this saves it the
+            // other way, and it stays that way.
+            if let encoding = document.plistEncoding {
+                Button("Save \(encoding.other.title)") { saveNow(as: encoding.other) }
+                    .disabled(document.isReadOnly)
+                    .help("Write the file as a \(encoding.other.title.lowercased()) property list "
+                          + "from now on; it is \(encoding.title.lowercased()) now")
+            }
             Button { finder.show() } label: { Image(systemName: "magnifyingglass") }
                 .keyboardShortcut("f", modifiers: .command)
                 .help("Find and replace (\u{2318}F)")
                 .disabled(document.failure != nil)
+            // Kept in the tree so the buttons stay where they are, but the
+            // tree has no lines to wrap.
             Toggle("Wrap lines", isOn: $wraps)
                 .toggleStyle(.checkbox)
+                .disabled(link.showsTree)
             Button {
                 store.configuration.textLineNumbers = store.configuration.textLineNumbers.next
             } label: {
@@ -106,7 +124,14 @@ struct TextEditView: View {
             }
             .help("\(store.configuration.textLineNumbers.title) \u{2014} click for "
                   + "\(store.configuration.textLineNumbers.next.title.lowercased())")
-            if document.format != nil {
+            if StructureTree.supports(document.format) {
+                Toggle(isOn: $link.showsTree) {
+                    Image(systemName: "list.bullet.indent")
+                }
+                .toggleStyle(.button)
+                .help(link.showsTree ? "Show the text (\u{2303}\u{2318}T)" : "Show as a tree (\u{2303}\u{2318}T)")
+            }
+            if document.format != nil, !link.showsTree {
                 Button { link.controller?.foldAll() } label: {
                     Image(systemName: "rectangle.compress.vertical")
                 }
@@ -159,8 +184,8 @@ struct TextEditView: View {
         .padding(.vertical, 6)
     }
 
-    private func saveNow(overwriting: Bool = false) {
-        switch document.save(overwriting: overwriting) {
+    private func saveNow(overwriting: Bool = false, as encoding: TextEditDocument.PlistEncoding? = nil) {
+        switch document.save(overwriting: overwriting, as: encoding) {
         case .saved:
             link.controller?.saved()
         case .nothingToDo:
@@ -173,7 +198,7 @@ struct TextEditView: View {
                 + "replaces that version with what is in this window."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Save Anyway")
-            if alert.runSelectable() == .alertSecondButtonReturn { saveNow(overwriting: true) }
+            if alert.runSelectable() == .alertSecondButtonReturn { saveNow(overwriting: true, as: encoding) }
         case .failed(let message):
             let alert = NSAlert()
             alert.messageText = "\u{201C}\(url.lastPathComponent)\u{201D} was not saved."
@@ -214,6 +239,12 @@ final class FindTrigger {
 
     func show() {
         guard let textView else { return }
+        // In the tree: its own find bar, over the rows.
+        if let controller = (textView as? FoldingTextView)?.controller, controller.showsTree,
+           let tree = controller.tree {
+            tree.showFind()
+            return
+        }
         textView.window?.makeFirstResponder(textView)
         textView.performTextFinderAction(
             NSMenuItem.findItem(NSTextFinder.Action.showFindInterface))
@@ -229,10 +260,40 @@ private extension NSMenuItem {
     }
 }
 
-/// The editor, from the window's bar: its problem, its folds.
+/// The editor, from the window's bar and the Format menu: its problem, its
+/// folds, its tree.
 @MainActor
+@Observable
 final class EditorLink {
-    weak var controller: TextEditController?
+    @ObservationIgnored weak var controller: TextEditController?
+    /// The tree in place of the text.
+    var showsTree = false
+    /// Which structure around the caret is shaded: 0 none, 1 the smallest.
+    /// The window's own, gone when it closes.
+    var emphasis = ConfigStore.shared.configuration.textStyle.emphasisStart
+}
+
+/// What the Format menu acts on: the focused Text Edit window's editor.
+@MainActor
+struct TextEditorTarget {
+    let link: EditorLink
+    let format: TextFormat?
+    let isReadOnly: Bool
+
+    var controller: TextEditController? { link.controller }
+    var canFormat: Bool { StructuredFormatter.canFormat(format) && !isReadOnly }
+    var hasTree: Bool { StructureTree.supports(format) }
+}
+
+struct TextEditorFocusKey: FocusedValueKey {
+    typealias Value = TextEditorTarget
+}
+
+extension FocusedValues {
+    var textEditor: TextEditorTarget? {
+        get { self[TextEditorFocusKey.self] }
+        set { self[TextEditorFocusKey.self] = newValue }
+    }
 }
 
 /// An `NSTextView` set up for files rather than prose, with Text Edit's
@@ -246,8 +307,11 @@ struct PlainTextEditor: NSViewRepresentable {
     let lineNumbers: TextLineNumbers
     /// Settings' formats by extension, so a change there reaches the window.
     let formats: [TextFormat: [String]]
+    let showsTree: Bool
+    let style: TextStyle
+    let emphasis: Int
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> NSView {
         let controller = TextEditController(document: document)
         context.coordinator.controller = controller
         let text = controller.textView
@@ -269,21 +333,27 @@ struct PlainTextEditor: NSViewRepresentable {
         text.isContinuousSpellCheckingEnabled = false
         text.isGrammarCheckingEnabled = false
         text.smartInsertDeleteEnabled = false
-        text.font = .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        // No Writing Tools and no predicted words in grey: the grey is the
+        // XML suggestion's, and nothing rewrites what is typed.
+        text.writingToolsBehavior = .none
+        text.inlinePredictionType = .no
+        text.font = EditorFont.text(style.fontSize)
         text.textContainerInset = NSSize(width: 6, height: 8)
         text.delegate = context.coordinator
 
         finder.textView = text
         link.controller = controller
+        controller.link = link
         document.currentText = { [weak text] in text?.string ?? "" }
         context.coordinator.shownRevision = -1
         controller.lineNumbers = lineNumbers
         apply(wraps: wraps, to: controller.scrollView, text: text)
-        return controller.scrollView
+        return controller.view
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ view: NSView, context: Context) {
         guard let controller = context.coordinator.controller else { return }
+        let scroll = controller.scrollView
         let text = controller.textView
         context.coordinator.document = document
         controller.document = document
@@ -307,6 +377,18 @@ struct PlainTextEditor: NSViewRepresentable {
         controller.lineNumbers = lineNumbers
         controller.refreshFormat()
         apply(wraps: wraps, to: scroll, text: text)
+        controller.setTreeShown(showsTree)
+        controller.emphasis = emphasis
+        // Settings' indentation and pairs: the tree reads its style again.
+        controller.applyTabWidth()
+        if style != context.coordinator.style {
+            context.coordinator.style = style
+            if text.font?.pointSize != CGFloat(style.fontSize) {
+                text.font = EditorFont.text(style.fontSize)
+                controller.applyTabWidth()
+            }
+            if showsTree { controller.tree?.reload() }
+        }
     }
 
     /// Wrapping is a property of the text container, not of the view: the
@@ -342,6 +424,7 @@ struct PlainTextEditor: NSViewRepresentable {
         var document: TextEditDocument
         var controller: TextEditController?
         var shownRevision = -1
+        var style = TextStyle()
 
         init(document: TextEditDocument) { self.document = document }
 

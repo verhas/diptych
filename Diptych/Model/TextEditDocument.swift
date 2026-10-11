@@ -34,6 +34,16 @@ final class TextEditDocument {
     var format: TextFormat?
     var problem: SyntaxProblem?
 
+    /// A property list's encoding on disk: shown and edited as XML either
+    /// way, and saved back the way it came unless asked otherwise.
+    enum PlistEncoding: Equatable {
+        case xml, binary
+
+        var title: String { self == .xml ? "XML" : "Binary" }
+        var other: PlistEncoding { self == .xml ? .binary : .xml }
+    }
+    private(set) var plistEncoding: PlistEncoding?
+
     /// The text as it is in the editor. Set by the view.
     @ObservationIgnored var currentText: () -> String = { "" }
 
@@ -47,6 +57,14 @@ final class TextEditDocument {
     var hasUnsavedChanges: Bool { isEdited && currentText() != saved }
 
     func load() {
+        let isPlist = TextFormat.of(url, extensions: ConfigStore.shared.configuration.textFormats) == .plist
+        plistEncoding = isPlist ? .xml : nil
+        if isPlist, let data = try? Data(contentsOf: url), data.starts(with: Array("bplist".utf8)) {
+            loadBinaryPlist(data)
+            isEdited = false
+            revision += 1
+            return
+        }
         do {
             let file = try TextDiff.load(url)
             source = file
@@ -62,6 +80,26 @@ final class TextEditDocument {
         revision += 1
     }
 
+    /// A binary property list, shown as the XML it stands for.
+    private func loadBinaryPlist(_ data: Data) {
+        do {
+            let object = try PropertyListSerialization.propertyList(from: data, format: nil)
+            let xml = try PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0)
+            let text = String(decoding: xml, as: UTF8.self)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            source = SourceFile(lines: TextDiff.lines(of: text), lineEnding: "\n",
+                                hasFinalNewline: text.hasSuffix("\n"), encoding: .utf8,
+                                modified: attributes?[.modificationDate] as? Date,
+                                isWritable: FileManager.default.isWritableFile(atPath: url.path))
+            saved = text
+            plistEncoding = .binary
+            failure = nil
+        } catch {
+            failure = "\(url.lastPathComponent) starts as a binary property list, but cannot be read as one: "
+                + error.localizedDescription
+        }
+    }
+
     func noteEdit() {
         isEdited = true
     }
@@ -75,10 +113,14 @@ final class TextEditDocument {
 
     /// `overwriting` is the answer to having been told the file changed
     /// underneath: yes, write mine anyway.
-    func save(overwriting: Bool = false) -> SaveOutcome {
+    ///
+    /// `as` a plist encoding other than the one it has converts it: the
+    /// file is written even when nothing was typed, and is that from then on.
+    func save(overwriting: Bool = false, as wanted: PlistEncoding? = nil) -> SaveOutcome {
         guard let file = source, !isReadOnly else { return .nothingToDo }
         let text = currentText()
-        guard text != saved else {
+        let converting = wanted != nil && wanted != plistEncoding
+        guard text != saved || converting else {
             isEdited = false
             return .nothingToDo
         }
@@ -92,13 +134,26 @@ final class TextEditDocument {
             return .changedUnderneath
         }
 
-        // The editor's lines end in "\n"; the file gets back its own ending.
-        let written = file.lineEnding == "\n"
-            ? text : text.replacingOccurrences(of: "\n", with: file.lineEnding)
-        guard let data = written.data(using: file.encoding) else {
-            return .failed("Some of the text cannot be written in this file's encoding "
-                           + "(\(String.localizedName(of: file.encoding))). Take out the "
-                           + "characters that were typed in, or save a copy elsewhere.")
+        let data: Data
+        if (wanted ?? plistEncoding) == .binary {
+            // Binary only from a property list that reads as one.
+            do {
+                let object = try PropertyListSerialization.propertyList(from: Data(text.utf8), format: nil)
+                data = try PropertyListSerialization.data(fromPropertyList: object, format: .binary, options: 0)
+            } catch {
+                return .failed("The text is not a property list that can be written as binary: "
+                               + error.localizedDescription)
+            }
+        } else {
+            // The editor's lines end in "\n"; the file gets back its own ending.
+            let written = file.lineEnding == "\n"
+                ? text : text.replacingOccurrences(of: "\n", with: file.lineEnding)
+            guard let encoded = written.data(using: file.encoding) else {
+                return .failed("Some of the text cannot be written in this file's encoding "
+                               + "(\(String.localizedName(of: file.encoding))). Take out the "
+                               + "characters that were typed in, or save a copy elsewhere.")
+            }
+            data = encoded
         }
 
         do {
@@ -109,6 +164,7 @@ final class TextEditDocument {
 
         saved = text
         isEdited = false
+        if let wanted, plistEncoding != nil { plistEncoding = wanted }
         var refreshed = file
         refreshed.modified = (try? FileManager.default
             .attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
@@ -119,6 +175,7 @@ final class TextEditDocument {
     /// "UTF-8, LF line endings" -- what saving will keep.
     var summary: String {
         guard let file = source else { return "" }
+        if plistEncoding == .binary { return "Binary property list, shown as XML" }
         let ending = switch file.lineEnding {
         case "\r\n": "CRLF (Windows)"
         case "\r": "CR (classic Mac)"

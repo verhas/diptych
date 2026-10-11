@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-10-10. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-10-11. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -35638,6 +35638,7 @@ P	1007514	-23.6934	30.1400	ZA	09	Duiwelskloof
 P	1008064	-25.6978	31.5640	ZA	07	Driekoppies
 P	1008261	-26.9650	30.4357	ZA	07	Driefontein
 P	1009863	-32.8348	27.2174	ZA	05	Dimbaza
+P	1010717	-33.8017	25.4628	ZA	05	Despatch
 P	1010962	-26.8908	28.0971	ZA	03	Deneysville
 P	1011031	-26.1466	28.6832	ZA	07	Delmas
 P	1011632	-30.6497	24.0123	ZA	08	De Aar
@@ -35724,6 +35725,7 @@ P	11204240	-26.0550	30.8229	ZA	07	Lukwatini
 P	11204446	-23.8838	29.7056	ZA	09	Mankweng
 P	11204552	-24.9878	31.2385	ZA	07	Mkhuhlu
 P	11204695	-25.6703	31.8629	ZA	07	Kamaqhekeza
+P	11205248	-33.7943	25.5858	ZA	05	Motherwell
 P	11205667	-29.7390	30.9490	ZA	02	Ntuzuma
 P	11205753	-27.3420	31.5800	ZA	02	Ncotshane
 P	11282157	-22.9711	30.6736	ZA	09	Malamulele

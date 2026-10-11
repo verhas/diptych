@@ -66,15 +66,9 @@ enum ColumnWidths {
         ConfigStore.shared.configuration.columnWidths = widths
     }
 
-    /// Stops at the table: walking a table's own subviews makes AppKit
-    /// materialise row views mid-iteration, which crashes.
+    /// The panes' tables only: Text Edit's tree has columns too, and its
+    /// widths are not the panes'.
     private static func tables(in window: NSWindow) -> [NSTableView] {
-        guard let content = window.contentView else { return [] }
-        func walk(_ view: NSView) -> [NSTableView] {
-            if let table = view as? NSTableView { return [table] }
-            let children = (view.subviews as NSArray).copy() as? [NSView] ?? []
-            return children.flatMap(walk)
-        }
-        return walk(content)
+        TableFinder.tables(in: window)
     }
 }
