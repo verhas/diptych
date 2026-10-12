@@ -187,6 +187,7 @@ enum AgentInstructions {
     | --- | --- |
     | `name = "*.txt"`, `name != "*~"` | the name, or a shell pattern (`*`, `?`, `[…]`) |
     | `name ~ /^IMG_\d+/i`, `name !~ /…/` | the name matches a regular expression |
+    | `path = "*/.git/*"`, `path ~ /…/` | the whole path; a pattern's `*` crosses `/`, a leading `~/` is home. To skip a folder in a walk, do not traverse it (`directory traversed and name != ".git", file`) rather than test the path of all it holds |
     | `size > 10MB` | `= != < <= > >=`; `B KB KiB MB MiB GB GiB TB TiB` (KB = 1000, KiB = 1024); false for folders |
     | `modified >= 2026-01-31`, `created < 2026-01-31T14:30:00+02:00` | ISO 8601, to the precision written: a date alone is the whole day, so `= 2026-01-31` is that day; no zone is this Mac's |
     | `access = "rw*r**r**"`, `access != "…"` | nine places, `rwx` for user, group, others: the letter where the bit must be set, `-` where clear, `*` for either; `s` in the 3rd/6th place for setuid/setgid, `t` in the 9th for sticky |
@@ -195,6 +196,9 @@ enum AgentInstructions {
     | `xattr("com.apple.metadata:kMDItemWhereFroms") ~ /github/` | its value (each string in a property list) |
     | `contains "TODO"`, `contains ~ /^import /` | the text in the file (ignoring case), or a line matching; binary files never match |
     | `file` | anything that is not a folder |
+    | `link` | a symbolic link, to anything or to nothing; also `file` or `directory` as its target is |
+    | `link broken`, `link loop` | a link leading nowhere (target missing, or the links go round), a link that goes round |
+    | `link not broken`, `link not loop` | a link that works, a link that does not go round -- still links, unlike `not link broken` |
     | `directory` | a folder: listed, and walked into |
     | `directory traversed` | a folder walked into, not listed itself |
     | `directory listed` | a folder listed, not walked into |

@@ -9,6 +9,30 @@ enum ScriptKind: String, Sendable, CaseIterable {
 struct ScriptTarget: Sendable, Equatable {
     var url: URL
     var kind: ScriptKind
+    /// What `apply-to:` is asked about it.
+    var subject: FlatSubject
+
+    /// A row of a pane, as the pane already knows it.
+    init(_ item: FileItem) {
+        url = item.url
+        kind = item.isSymlink ? .link : (item.isDirectory ? .directory : .file)
+        subject = FlatSubject(item)
+    }
+
+    /// Any path: read from the disk when something is there, and otherwise
+    /// only what its name and kind say.
+    init(url: URL, kind: ScriptKind) {
+        self.url = url
+        self.kind = kind
+        subject = FlatSubject(url: url) ?? FlatSubject(
+            url: url, name: url.lastPathComponent, isDirectory: kind == .directory,
+            isLink: kind == .link, size: 0, mode: 0, owner: "", group: "",
+            created: .distantPast, modified: .distantPast)
+    }
+
+    static func == (a: ScriptTarget, b: ScriptTarget) -> Bool {
+        a.url == b.url && a.kind == b.kind
+    }
 }
 
 /// Something wrong with a script file, said in the words its author needs.
@@ -50,17 +74,26 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
     var url: URL
     var name: String
     var summary: String
-    /// Lower-cased, without dots. Empty means any.
+    /// Lower-cased, without dots. Empty means any. Deprecated: `apply-to:`
+    /// says the same with `name = "*.txt"`, and more; still obeyed.
     var extensions: [String]
     var fewestItems: Int
     /// Nil means no upper limit.
     var mostItems: Int?
-    var kinds: Set<ScriptKind>
+    /// `apply-to:`, an expression of the flat view's language, asked of
+    /// each item on its own. Absent, it keeps everything.
+    var applyTo: FlatQuery
     var call: [Token]
     /// Canonical folder paths the items must be *in*, and paths they must be
     /// at or under. Empty means anywhere.
     var onlyIn: [String]
     var onlyUnder: [String]
+    /// Where the script was published, `diptych` for the ones that come with
+    /// the application, and which version of it this is. Both only matter to
+    /// File ▸ Get Scripts…, which offers an update for a script of its own
+    /// with a lower version, and leaves every other script alone.
+    var source: String?
+    var version: Int?
     var contents: String
 
     var id: String { url.path }
@@ -99,8 +132,8 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
 
         var definition = ScriptDefinition(
             url: url, name: url.deletingPathExtension().lastPathComponent, summary: "",
-            extensions: [], fewestItems: 1, mostItems: 1, kinds: Set(ScriptKind.allCases),
-            call: [], onlyIn: [], onlyUnder: [], contents: contents)
+            extensions: [], fewestItems: 1, mostItems: 1, applyTo: .everything,
+            call: [], onlyIn: [], onlyUnder: [], source: nil, version: nil, contents: contents)
         var sawArgs = false
         var sawCall = false
 
@@ -116,13 +149,20 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
                     .map { $0.hasPrefix(".") ? String($0.dropFirst()) : $0 }
 
             case "apply-to":
-                let kinds = list(header.value).compactMap { ScriptKind(rawValue: $0) }
-                let unknown = list(header.value).filter { ScriptKind(rawValue: $0) == nil }
-                for word in unknown {
-                    complain(header.line, "\u{201C}\(word)\u{201D} is not one of file, "
-                             + "directory or link.")
+                // The flat view's language, without the expressions saved in
+                // Diptych: a script is handed to other people, and has to
+                // mean the same on their Mac.
+                switch FlatQuery.parse(header.value, saved: [:]) {
+                case .success(let query):
+                    if let expression = query.expression, !Analysis.canMatch(expression) {
+                        complain(header.line, "Nothing can pass \u{201C}\(header.value)\u{201D}, "
+                                 + "so the script would never be offered. Each item is asked on "
+                                 + "its own, so a folder is never \u{201C}directory traversed\u{201D}.")
+                    }
+                    definition.applyTo = query
+                case .failure(let problem):
+                    complain(header.line, "apply-to: \(problem.message).")
                 }
-                if !kinds.isEmpty { definition.kinds = Set(kinds) }
 
             case "args":
                 sawArgs = true
@@ -147,6 +187,21 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
                 definition.onlyIn = list(header.value, lowercasing: false).map(canonical)
             case "only-under":
                 definition.onlyUnder = list(header.value, lowercasing: false).map(canonical)
+            case "source":
+                definition.source = header.value.lowercased()
+            case "version":
+                guard let version = Int(header.value), version > 0 else {
+                    complain(header.line, "\u{201C}\(header.value)\u{201D} is not a version. Write a "
+                             + "whole number from 1 up, raised by one for each release.")
+                    continue
+                }
+                definition.version = version
+            case "signature":
+                // Reserved for signed scripts downloaded from GitHub -- see
+                // script-distribution.md. Accepted now, so that a signed
+                // script is not reported as a mistake by a Diptych that does
+                // not check signatures yet.
+                break
 
             default:
                 // Reported rather than ignored, because "# extension:" for
@@ -154,7 +209,8 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
                 // nothing about it.
                 complain(header.line, "\u{201C}\(header.key)\u{201D} is not a setting Diptych "
                          + "knows. The ones it knows are name, description, extensions, "
-                         + "apply-to, args, call, only-in and only-under.")
+                         + "apply-to, args, call, only-in, only-under, source, version "
+                         + "and signature.")
             }
         }
 
@@ -245,7 +301,7 @@ struct ScriptDefinition: Identifiable, Sendable, Equatable {
         if let mostItems, targets.count > mostItems { return false }
 
         for target in targets {
-            guard kinds.contains(target.kind) else { return false }
+            guard applyTo.matches(target.subject) else { return false }
             if !extensions.isEmpty {
                 let suffix = target.url.pathExtension.lowercased()
                 guard extensions.contains(suffix) else { return false }

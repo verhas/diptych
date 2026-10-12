@@ -82,8 +82,12 @@ script, run from its right-click **Run ▸** menu with arguments you type.
 ## 8. Scripts of your own -- idea
 
 - Turning on the scripts in `~/.diptych/scripts`, in Settings ▸ Behaviour.
-- A script's header lines: name, description, apply-to, extensions, args,
-  only-in, only-under and call.
+- File ▸ Get Scripts…: picking from the scripts that come with Diptych,
+  reading one's source, and installing.
+- A script's header lines: name, description, apply-to, args, only-in,
+  only-under and call.
+- `apply-to` as a flat view expression: `file and name = "*.jpg"`, and
+  `path != "*/.git/*"` to keep a script away from a repository's insides.
 - The script appearing under File ▸ Scripts and Right-click ▸ Scripts, only
   for selections it suits.
 - The question before the first run, and the safety rules: nothing

@@ -334,10 +334,16 @@ They are not anchored: `^…$` for a whole name.
 | `size <op> n` | the file's size compares: `=` `!=` `<` `<=` `>` `>=`, in bytes or with `B`, `KB`, `KiB`, `MB`, `MiB`, `GB`, `GiB`, `TB`, `TiB` (KB is 1000, KiB 1024). Never for a folder |
 | `name = "pattern"` | the name is that, or matches the shell pattern (`*.txt`); `!=` for not |
 | `name ~ /regex/` | a regular expression finds a match in the name; `!~` for not |
+| `path = "pattern"` | the whole path is that, or matches the shell pattern, whose `*` here crosses `/`: `path = "*/.git/*"` is anything under a `.git` folder. A leading `~/` is your home folder. `!=` for not |
+| `path ~ /regex/` | a regular expression finds a match in the whole path; `!~` for not |
 | `directory` | it is a folder: listed, and walked into |
 | `directory traversed` | it is a folder, to walk into but not list |
 | `directory listed` | it is a folder, to list but not walk into |
 | `file` | it is not a folder |
+| `link` | it is a symbolic link -- to a file, to a folder, or to nothing. A link is also what it leads to: `link and directory` is a link to a folder, `not link` leaves links out. Not a kind: an expression with `link` and no `file` or `directory` still walks every folder |
+| `link broken` | a link that leads nowhere -- the red dot: its target, or a link further along, is not there, or the links go round |
+| `link loop` | a link that goes round: following it comes back to a link already passed, or it points to itself |
+| `link not broken`, `link not loop` | short for `link and not link broken`, `link and not link loop`: a link that works, a link that does not go round. Unlike `not link broken`, which is true for every plain file and folder too |
 | `access = "rwxr-x---"` | the permissions, place by place: `r` `w` `x` set, `-` clear, `*` either; `s` in the user's and group's `x` places for setuid and setgid, `t` in the last for sticky |
 | `owner = "name"`, `group = "name"` | the owner or group; `~ /regex/` for a regular expression |
 | `xattr("name")` | the extended attribute is there; `= "value"` or `~ /regex/` for its value (a property list's strings each count) |
@@ -526,6 +532,40 @@ onto one of its folder rows, which is a folder. F5 and F6 on the function
 bar are greyed while the *other* pane is a flat view, and F7 while this one
 is; the keys, New Folder, New File and Paste say why. Rename Many works on the flat
 view's rows -- see [Rename Many](#rename-many).
+
+### The expression elsewhere
+
+The language is not tied to the flat view. `FlatQuery.parse` turns a text into
+a query, or a `Problem` with its place in the text, and everything else is a
+question to that query -- from any thread, since neither type belongs to an
+actor:
+
+```swift
+let query = try FlatQuery.parse("link and not directory").get()
+query.matches(item)        // a FileItem: a row of a pane
+query.matches(url)         // any path, read from the disk; false when nothing is there
+query.matches(subject)     // a FlatSubject made by hand, as the tests do
+```
+
+`matches` asks an item the question as it stands. The walk's own rules belong
+to `decide`, which the flat view uses: there, an expression that names no kind
+lists every folder and walks into it, and a folder is asked twice -- whether to
+list it and whether to walk into it. Under `matches` a folder is just an item,
+asked once, the way it is listed: `directory` and `directory listed` hold for
+it, `directory traversed` does not, and `name = "*.app"` matches a folder of
+that name.
+
+`path` is for this use above all: asked of one item, nothing is walked, so
+`path != "*/.git/*"` is how to leave out what is under `.git`. In the flat
+view itself, not walking into the folder is cheaper --
+`directory traversed and name != ".git", file` never reads it -- while
+`file and path != "*/.git/*"` reads everything in it and then drops it.
+Scripts' `apply-to` header is the language used this way.
+
+A new test is a `Primitive` case, its word in `FlatQuery.primitives` (which
+also makes it a word a saved expression cannot be called), its parsing, its
+hint, and its answer in `FlatEvaluation` -- plus a cost there, if answering
+it needs more than what the listing already knows.
 
 ## Previewing a .DS_Store
 
@@ -2872,6 +2912,17 @@ Scripts ▸** -- for whoever uses that Mac. **Off by default**: Settings ▸
 Behaviour ▸ *Run the scripts in ~/.diptych/scripts*. The menu is absent, not
 greyed, when scripts are off or none of them suits what is selected.
 
+**File ▸ Get Scripts…** -- also a button under the setting -- lists the scripts
+that come with Diptych: making a zip, showing every detail `ls` knows, the two
+that make a script editable and read-only again, and one that shows what a
+script sees. Tick the ones you want; **Show Source** shows one in full, and
+**Compare with Yours** opens the two-file comparison when something of that name
+is already installed. They are inside the application, signed with it, so
+**nothing is downloaded**. Installing writes each as `r--------`, owned by you,
+so it passes every rule below; a file already there under that name goes to the
+Trash first. Each still asks before it first runs. How scripts could also come
+from GitHub, signed, is designed in [script-distribution.md](script-distribution.md).
+
 This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
 you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,
 with no typing at all.
@@ -2883,8 +2934,7 @@ first line that is not a comment:
 #!/bin/sh
 # name: Make a zip of these
 # description: Puts what is selected into untitled.zip, beside it.
-# apply-to: file, directory, link
-# extensions: txt, png
+# apply-to: path != "*/.git/*"
 # args: 1,
 # only-under: ~/Documents
 # call: $0 $@
@@ -2894,12 +2944,34 @@ first line that is not a comment:
 | --- | --- |
 | `name` | the menu item's title; the file name without its extension if left out |
 | `description` | the menu item's tooltip |
-| `apply-to` | `file`, `directory`, `link` -- every selected item must be one of these; all three if left out |
-| `extensions` | every selected item must have one of these; any if left out |
+| `apply-to` | an expression of the [flat view's language](#flat-view) that every selected item must pass; anything if left out |
+| `extensions` | **deprecated**, still obeyed: every selected item must have one of these extensions. `apply-to: name = "*.txt", name = "*.png"` says the same |
 | `args` | how many items: `1` exactly one (the default), `1,3` one to three, `2,` two or more, `0` none -- a script about the folder on screen, offered in File ▸ Scripts when nothing is selected and when right-clicking the empty space below the rows |
 | `only-in` | folders the items must be directly in |
 | `only-under` | folders the items must be in or below |
 | `call` | **required**: the command line -- `$0` is the script, `$1`, `$2`… one item each, `$@` all of them |
+| `source` | where it was published: `diptych` for the scripts that come with Diptych |
+| `version` | a whole number from 1; Get Scripts offers a higher one of its own as an update |
+| `signature` | reserved for signed scripts from GitHub; accepted and not yet checked |
+
+**`apply-to` is a whole expression**, asked of each selected item on its own:
+`file and name = "*.jpg"`, `image and located`, `size > 100MB`, `not link`,
+`owner = "peter"`, `contains "TODO"`. The old `file, directory, link` still
+reads the same, since a comma is OR. Because each item is asked alone, nothing
+is walked: a folder is never `directory traversed`, and a file under `.git` is
+told apart by its path -- `path != "*/.git/*"` -- not by skipping the folder.
+As everywhere in the language, a link also counts as what it leads to, so
+`file` takes a link to a file (`file and not link` does not), and an app or
+other package is one item, a `file`, not a `directory`. Expressions saved in
+the flat view cannot be used: a script is handed to other people, and has to
+mean the same on their Mac. Tests that read the file, such as `contains` or a
+picture's EXIF, are run when the menu opens, so keep them for small
+selections.
+
+Making an archive is the typical case -- the header above is one. Archives
+need nothing else from Diptych: **Space** lists what is in one, and **Return**
+opens it in Archive Utility, which unpacks it into a folder of the same name
+beside it, ready to browse.
 
 A script is offered only when **every** selected item qualifies: a selection of
 three where one is the wrong kind is not two-thirds applicable.
@@ -2915,7 +2987,8 @@ tab of the **Runs** window, like Run ▸, with Stop, Copy Output, the exit statu
 and the timing, and both panes are refreshed when it ends.
 
 **A mistake in a header is reported** when Diptych starts -- an unknown setting
-(`# extension:` for `# extensions:`), a bad `args`, a missing `call`, a `$3` in
+(`# extension:` for `# extensions:`), an `apply-to` that does not parse or
+that nothing can pass, a bad `args`, a missing `call`, a `$3` in
 a script never given three items -- with the file and line, rather than the
 script quietly missing from the menu.
 
@@ -3010,6 +3083,4 @@ cannot ship on the Mac App Store. Grant it Full Disk Access under
   list of folders per `PaneModel` plus a tab strip.
 - **Synchronising from Compare Folders**: copying, replacing or deleting
   differences one way or both, reviewed first and undone in one step.
-- **Archives as folders**: going into a zip or tar with Return and copying out
-  of it with F5, and a command to make one.
 - **Open With ▸ and Share ▸** in the right-click menu, as in Finder.

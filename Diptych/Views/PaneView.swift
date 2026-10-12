@@ -992,10 +992,7 @@ struct PaneView: View {
 
     /// The rows a menu was opened on, as a script sees them.
     private func targets(of ids: Set<FileItem.ID>) -> [ScriptTarget] {
-        pane.rows.filter { ids.contains($0.id) && !$0.isParent }.map {
-            ScriptTarget(url: $0.url,
-                         kind: $0.isSymlink ? .link : ($0.isDirectory ? .directory : .file))
-        }
+        pane.rows.filter { ids.contains($0.id) && !$0.isParent }.map(ScriptTarget.init)
     }
 
     /// The same command the File menu offers, where a right click expects to

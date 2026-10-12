@@ -808,6 +808,9 @@ struct DialogSheet: View {
                     model.dialog = nil
                 }
 
+            case .getScripts:
+                GetScriptsView(model: model) { model.dialog = nil }
+
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
                 Text("You can choose a format once and for all in Settings.")
@@ -877,8 +880,10 @@ struct DialogSheet: View {
         .textSelection(.enabled)
         .padding(20)
         // Wider for the history sheets: their sentences name two files and a
-        // folder, and at 470 a rename was broken over three lines.
-        .frame(width: dialog == .historyStep || dialog == .historyMany || dialog == .runArguments
+        // folder, and at 470 a rename was broken over three lines. Get
+        // Scripts shows a script's source, whose lines are long.
+        .frame(width: dialog == .getScripts ? 640
+               : dialog == .historyStep || dialog == .historyMany || dialog == .runArguments
                ? 600 : 470)
     }
 

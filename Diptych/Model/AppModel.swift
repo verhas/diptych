@@ -39,6 +39,7 @@ final class AppModel {
         case clipboardFormat
         case scriptApproval
         case scriptProblems
+        case getScripts
         case historyStep
         case historyMany
         case tips
@@ -62,6 +63,7 @@ final class AppModel {
             case .clipboardFormat: return "clipboardFormat"
             case .scriptApproval: return "scriptApproval"
             case .scriptProblems: return "scriptProblems"
+            case .getScripts:     return "getScripts"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -1030,10 +1032,7 @@ final class AppModel {
     /// on the other pane was offering the scripts that suited the pane the user
     /// had just left.
     func scriptTargets(in pane: PaneModel) -> [ScriptTarget] {
-        pane.selectedItems.filter { !$0.isParent }.map {
-            ScriptTarget(url: $0.url,
-                         kind: $0.isSymlink ? .link : ($0.isDirectory ? .directory : .file))
-        }
+        pane.selectedItems.filter { !$0.isParent }.map(ScriptTarget.init)
     }
 
     func runScript(_ script: ScriptDefinition) {
@@ -1111,6 +1110,55 @@ final class AppModel {
     func rereadScripts() {
         ScriptCatalogue.shared.reload()
         reportScriptProblems()
+    }
+
+    /// File ▸ Get Scripts…: the scripts that come with Diptych, to pick from.
+    func requestGetScripts() {
+        dialog = .getScripts
+    }
+
+    /// Installs the chosen ones and reads the folder again, so they are in
+    /// the menus at once. Reading it again is safe here, where it is not in
+    /// general: this is the person putting scripts there on purpose, and each
+    /// is still asked about before it first runs.
+    func installScripts(_ scripts: [ScriptLibrary.Script]) {
+        dialog = nil
+        guard !scripts.isEmpty else { return }
+        let outcome = ScriptLibrary.install(scripts, into: ScriptCatalogue.folder)
+        ScriptCatalogue.shared.reload()
+
+        var lines: [String] = []
+        if !outcome.installed.isEmpty {
+            lines.append("Installed: " + outcome.installed.joined(separator: ", ") + ".")
+        }
+        if !outcome.trashed.isEmpty {
+            lines.append("What was there under "
+                         + (outcome.trashed.count == 1 ? "that name" : "those names")
+                         + " is in the Trash: " + outcome.trashed.joined(separator: ", ") + ".")
+        }
+        for failure in outcome.failed {
+            lines.append("\(failure.name) could not be installed: \(failure.reason)")
+        }
+        if !outcome.installed.isEmpty {
+            lines.append("Each one asks before it runs for the first time.")
+        }
+        guard !lines.isEmpty else { return }
+        dialog = .notice(title: outcome.failed.isEmpty ? "Scripts installed"
+                                                       : "Not every script was installed",
+                         text: lines.joined(separator: "\n\n"))
+    }
+
+    /// The installed script beside the one that comes with Diptych, in a
+    /// comparison window, before deciding whether to replace it.
+    func compareWithInstalled(_ script: ScriptLibrary.Script) {
+        let installed = ScriptCatalogue.folder.appendingPathComponent(script.fileName)
+        guard let copy = ScriptLibrary.comparableCopy(of: script) else {
+            flash("Could not make a copy to compare", error: true)
+            return
+        }
+        if let problem = openComparison(left: installed, right: copy) {
+            flash(problem, error: true)
+        }
     }
 
     func reportScriptProblems() {

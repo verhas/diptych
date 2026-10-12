@@ -394,6 +394,10 @@ struct FileCommands: Commands {
                     }
                 }
             }
+            if ConfigStore.shared.configuration.scriptsEnabled {
+                Button("Get Scripts\u{2026}") { model?.requestGetScripts() }
+                    .disabled(model == nil)
+            }
             if ConfigStore.shared.configuration.scriptsDeveloperMode,
                ConfigStore.shared.configuration.scriptsEnabled {
                 Button("Read the Scripts Folder Again") { model?.rereadScripts() }

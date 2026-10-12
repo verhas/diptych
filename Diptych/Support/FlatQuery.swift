@@ -28,6 +28,9 @@ nonisolated struct FlatQuery: Sendable {
     /// an expression that lists nothing. Running it is still allowed.
     var warnings: [Problem] = []
 
+    /// Everything: what an expression that is not there means.
+    static let everything = FlatQuery(source: "", expression: nil, namesKinds: false)
+
     // MARK: - The tree
 
     indirect enum Expression: Sendable, Equatable {
@@ -35,6 +38,14 @@ nonisolated struct FlatQuery: Sendable {
         case or(Expression, Expression)
         case not(Expression)
         case primitive(Primitive)
+    }
+
+    enum LinkEnd: String, Sendable, CaseIterable {
+        /// Its target, or one further along, is not there, or the links go
+        /// round: the red dot.
+        case broken
+        /// Following it comes back to a link already passed.
+        case loop
     }
 
     enum Comparison: String, Sendable, CaseIterable {
@@ -120,8 +131,19 @@ nonisolated struct FlatQuery: Sendable {
     enum Primitive: Sendable, Equatable {
         case size(Comparison, Int64)
         case name(TextTest)
+        /// `path`: the whole path, as `name` is the last part of it. A
+        /// pattern's `*` crosses slashes, so `path = "*/.git/*"` is anything
+        /// under a `.git` folder.
+        case path(TextTest)
         case directory(DirectoryPart)
         case file
+        /// `link`: a symbolic link, whatever it leads to -- a file, a folder,
+        /// or nothing.
+        case link
+        /// `link broken`, `link loop`: a link that leads nowhere, or one that
+        /// goes round. `link not broken`, `link not loop`: a link that does
+        /// not -- still a link, unlike `not link broken`.
+        case linkEnd(LinkEnd, negated: Bool)
         case access(AccessMask, negated: Bool)
         case owner(TextTest)
         case group(TextTest)
@@ -390,8 +412,9 @@ nonisolated struct FlatQuery: Sendable {
 
     // MARK: - The keywords, for completion and hints
 
-    static let primitives = ["size", "name", "directory", "file", "access", "owner", "group",
-                             "xattr", "created", "modified", "contains", "true", "false"]
+    static let primitives = ["size", "name", "path", "directory", "file", "link", "access",
+                             "owner", "group", "xattr", "created", "modified", "contains",
+                             "true", "false"]
         + MediaFlag.allCases.map(\.rawValue) + MediaText.allCases.map(\.rawValue)
         + MediaNumber.allCases.map(\.rawValue) + MediaDate.allCases.map(\.rawValue) + ["near"]
     static let connectives = ["and", "or", "not"]
@@ -425,6 +448,9 @@ nonisolated struct FlatQuery: Sendable {
         case "name":
             "name = \"*.txt\" a name or a shell pattern; name ~ /^IMG_\\d+/ a regular "
                 + "expression, /\u{2026}/i ignoring case; != and !~ for not"
+        case "path":
+            "path = \"*/.git/*\" the whole path, or a shell pattern whose * crosses /; "
+                + "~/ is your home; path ~ /regex/; != and !~ for not"
         case "directory":
             "directory: listed and walked into \u{2014} directory traversed: walked into, not "
                 + "listed \u{2014} directory listed: listed, not walked into"
@@ -435,6 +461,16 @@ nonisolated struct FlatQuery: Sendable {
             "directory listed: the folder is listed, but not walked into"
         case "file":
             "file: true for anything that is not a folder"
+        case "link":
+            "link: a symbolic link \u{2014} to a file, to a folder, or to nothing; also a "
+                + "file or a directory as what it leads to is. link broken, link loop, "
+                + "link not broken, link not loop"
+        case "broken":
+            "link broken: leads nowhere \u{2014} its target, or one further along, is not "
+                + "there, or the links go round; link not broken: a link that works"
+        case "loop":
+            "link loop: following it comes round to a link already passed, or it points "
+                + "to itself; link not loop: a link that does not"
         case "access":
             "access = \"rwxr-x---\": r, w, x where set, - where not, * for either; s in the "
                 + "user and group x places, t in the last. In the quotes, r w x s t set the "
@@ -704,6 +740,8 @@ nonisolated private struct Parser {
             return try near(keyword)
         case "name":
             return .name(try textTest(after: keyword))
+        case "path":
+            return .path(try textTest(after: keyword, home: true))
         case "owner":
             return .owner(try textTest(after: keyword))
         case "group":
@@ -711,6 +749,23 @@ nonisolated private struct Parser {
         case "file":
             sawKind = true
             return .file
+        case "link":
+            // `link broken`, `link not loop`: only after `link`, so neither
+            // word is taken from the names an expression can be saved under.
+            func end(_ token: Token?) -> FlatQuery.LinkEnd? {
+                guard let token, token.kind == .word else { return nil }
+                return FlatQuery.LinkEnd(rawValue: token.lower)
+            }
+            if let found = end(peek) {
+                position += 1
+                return .linkEnd(found, negated: false)
+            }
+            if let not = peek, not.kind == .word, not.lower == "not",
+               tokens.indices.contains(position + 1), let found = end(tokens[position + 1]) {
+                position += 2
+                return .linkEnd(found, negated: true)
+            }
+            return .link
         case "directory", "dir":
             sawKind = true
             if let part = peek, part.kind == .word {
@@ -921,7 +976,9 @@ nonisolated private struct Parser {
         return bytes
     }
 
-    private mutating func textTest(after keyword: Token) throws -> FlatQuery.TextTest {
+    /// `home`: a value starting `~/` means the home folder, as for a path.
+    private mutating func textTest(after keyword: Token,
+                                   home: Bool = false) throws -> FlatQuery.TextTest {
         guard let op = peek, op.is("=") || op.is("!=") || op.is("~") || op.is("!~") else {
             throw Problem(message: "\(keyword.lower) takes = or != and a text or a pattern, or "
                           + "~ and a regular expression", range: peek?.range ?? atEnd)
@@ -937,6 +994,9 @@ nonisolated private struct Parser {
                           range: value.range)
         }
         let value = try string(after: op, what: "the text, in quotes")
+        if home, value.text == "~" || value.text.hasPrefix("~/") {
+            return .equals((value.text as NSString).expandingTildeInPath, negated: negated)
+        }
         return .equals(value.text, negated: negated)
     }
 
@@ -987,6 +1047,13 @@ nonisolated private struct Parser {
 /// and by tests joined with AND that contradict each other: a bit both set
 /// and clear, a size above and below, a name that a pattern excludes.
 /// Without looking at any file, and not every case: the common ones.
+/// Two queries are the same when they were written the same and mean the same.
+nonisolated extension FlatQuery: Equatable {
+    static func == (a: FlatQuery, b: FlatQuery) -> Bool {
+        a.source == b.source && a.expression == b.expression
+    }
+}
+
 nonisolated enum Analysis {
 
     typealias Expression = FlatQuery.Expression
@@ -995,6 +1062,13 @@ nonisolated enum Analysis {
     private enum Truth { case yes, no, maybe }
 
     private static let passes: [FlatQuery.Pass] = [.file, .list, .traverse]
+
+    /// Whether some one item -- a file, or a folder as `matches` asks it --
+    /// could pass the expression. False for one that only walks into
+    /// folders, or that contradicts itself.
+    static func canMatch(_ expression: Expression) -> Bool {
+        truth(expression, .file) != .no || truth(expression, .list) != .no
+    }
 
     private static func truth(_ expression: Expression, _ pass: FlatQuery.Pass) -> Truth {
         switch expression {
@@ -1089,6 +1163,8 @@ nonisolated enum Analysis {
         switch primitive {
         case .name(let test):
             let (t, n) = plain(test); return (.name(t), n)
+        case .path(let test):
+            let (t, n) = plain(test); return (.path(t), n)
         case .owner(let test):
             let (t, n) = plain(test); return (.owner(t), n)
         case .group(let test):
@@ -1144,7 +1220,7 @@ nonisolated enum Analysis {
             if let found = numberContradiction(atoms, field) { return found }
         }
         // Not the country: its name and its code are both it.
-        for field in ["name", "owner", "group"] + FlatQuery.MediaText.allCases
+        for field in ["name", "path", "owner", "group"] + FlatQuery.MediaText.allCases
             .filter({ $0 != .country }).map(\.rawValue) {
             if let found = textContradiction(atoms, field: field) { return found }
         }
@@ -1360,7 +1436,8 @@ nonisolated enum Analysis {
 
     private static func text(_ primitive: Primitive, field: String) -> FlatQuery.TextTest? {
         switch (primitive, field) {
-        case (.name(let t), "name"), (.owner(let t), "owner"), (.group(let t), "group"): t
+        case (.name(let t), "name"), (.path(let t), "path"), (.owner(let t), "owner"),
+             (.group(let t), "group"): t
         case (.mediaText(let f, let t), _) where f.rawValue == field: t
         default: nil
         }
@@ -1373,7 +1450,7 @@ nonisolated enum Analysis {
     private static func textContradiction(_ atoms: [Atom], field: String)
         -> (String, NSRange)? {
         let media = FlatQuery.MediaText(rawValue: field) != nil
-        let glob = field == "name" || media
+        let glob = field == "name" || field == "path" || media
         let tests = atoms.compactMap { atom in text(atom.primitive, field: field).map { ($0, atom) } }
         guard tests.count > 1 else { return nil }
         // Under NOT, true also for a file that says nothing of it.
@@ -1414,7 +1491,7 @@ nonisolated enum Analysis {
             }
             for (i, a) in endings.enumerated() {
                 for b in endings[(i + 1)...] where !a.0.hasSuffix(b.0) && !b.0.hasSuffix(a.0) {
-                    return ("Never true: no name ends both in \u{201C}\(a.0)\u{201D} and in "
+                    return ("Never true: no \(field) ends both in \u{201C}\(a.0)\u{201D} and in "
                             + "\u{201C}\(b.0)\u{201D} \u{2014} OR, or a comma, is either",
                             NSUnionRange(a.1.range, b.1.range))
                 }
@@ -1840,13 +1917,15 @@ nonisolated extension FlatQuery {
         case .word:
             let lower = last.lower
             switch lower {
+            case "not" where second?.kind == .word && second?.lower == "link":
+                return ["broken", "loop"]
             case "and", "or", "not":
                 return starting
             case "true", "false":
                 return joining
             case _ where isOrdered(lower):
                 return Comparison.allCases.map(\.rawValue) + ["between"]
-            case "name", "owner", "group":
+            case "name", "path", "owner", "group":
                 return ["=", "!=", "~", "!~"]
             case _ where MediaText(rawValue: lower) != nil:
                 return ["=", "!=", "~", "!~"]
@@ -1862,6 +1941,8 @@ nonisolated extension FlatQuery {
                 return ["\"", "~", "/"]
             case "directory", "dir":
                 return ["traversed", "listed"] + joining
+            case "link":
+                return ["broken", "loop", "not"] + joining
             default:
                 // A number after an ordered test: its units, or what joins.
                 if let field = orderedField(before: tokens.count - 1, in: tokens),

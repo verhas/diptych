@@ -1,14 +1,18 @@
 import Darwin
 import Foundation
 
-/// What the flat view's expression is asked about: one item found while
-/// walking the tree.
+/// What an expression is asked about: one item -- found while the flat view
+/// walks a tree, a row in a pane, or any path at all.
 nonisolated struct FlatSubject: Sendable {
     let url: URL
     let name: String
     /// A folder, and not a package: a package -- an app, a .rtfd -- is one
-    /// item, and is not walked into.
+    /// item, and is not walked into. A link to a folder is one too.
     let isDirectory: Bool
+    /// A symbolic link, whatever it leads to.
+    let isLink: Bool
+    /// For a link, how following it ends; nil when that is not known.
+    let linkEnd: FlatQuery.LinkEnd?
     let size: Int64
     let mode: mode_t
     let owner: String
@@ -16,11 +20,16 @@ nonisolated struct FlatSubject: Sendable {
     let created: Date
     let modified: Date
 
-    init(url: URL, name: String, isDirectory: Bool, size: Int64, mode: mode_t,
-         owner: String, group: String, created: Date, modified: Date) {
+    /// `linkEnd`: `.loop` for a link that goes round, `.broken` for one
+    /// that leads to nothing else, nil for one that works.
+    init(url: URL, name: String, isDirectory: Bool, isLink: Bool = false,
+         linkEnd: FlatQuery.LinkEnd? = nil, size: Int64,
+         mode: mode_t, owner: String, group: String, created: Date, modified: Date) {
         self.url = url
         self.name = name
         self.isDirectory = isDirectory
+        self.isLink = isLink
+        self.linkEnd = isLink ? linkEnd : nil
         self.size = size
         self.mode = mode
         self.owner = owner
@@ -31,9 +40,21 @@ nonisolated struct FlatSubject: Sendable {
 
     init(_ item: FileItem) {
         self.init(url: item.url, name: item.name,
-                  isDirectory: item.isDirectory && !item.isPackage,
+                  isDirectory: item.isDirectory && !item.isPackage, isLink: item.isSymlink,
+                  linkEnd: item.linkChain?.isLoop == true ? .loop
+                      : item.isBrokenLink ? .broken : nil,
                   size: item.byteSize, mode: item.mode, owner: item.owner, group: item.group,
                   created: item.created, modified: item.modified)
+    }
+
+    /// Any path, read from the disk as the flat view reads what it finds --
+    /// for asking an expression about a file that is in no pane. Nil when
+    /// nothing is there; a link that leads nowhere is still there.
+    init?(url: URL) {
+        guard (try? url.checkResourceIsReachable()) == true
+                || (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
+        else { return nil }
+        self.init(DirectoryLoader.item(at: url, keys: DirectoryLoader.keys(for: FlatScanner.columns)))
     }
 }
 
@@ -50,6 +71,29 @@ nonisolated extension FlatQuery {
     /// asked once.
     enum Pass: Sendable { case file, list, traverse }
 
+    /// Whether one item answers to the expression -- the language outside the
+    /// flat view's walk: a selection, a check on a path, a tool of the agent.
+    ///
+    /// Nothing of the walk's own rules applies. An empty expression matches
+    /// everything; an expression that names no kind is asked of folders too,
+    /// so `name = "*.app"` matches the folder of that name; and a folder is
+    /// asked the question that lists it, so `directory` and `directory
+    /// listed` hold for it and `directory traversed` does not.
+    func matches(_ subject: FlatSubject) -> Bool {
+        guard let expression else { return true }
+        return Self.holds(expression, subject, subject.isDirectory ? .list : .file)
+    }
+
+    func matches(_ item: FileItem) -> Bool { matches(FlatSubject(item)) }
+
+    /// False when nothing is at `url`.
+    func matches(_ url: URL) -> Bool {
+        guard let subject = FlatSubject(url: url) else { return false }
+        return matches(subject)
+    }
+
+    /// For the flat view's walk: whether to list an item, and whether to
+    /// walk into a folder.
     func decide(_ subject: FlatSubject) -> Decision {
         guard let expression else { return Decision(list: true, traverse: subject.isDirectory) }
         // About files only: every folder is listed and walked into.
@@ -100,6 +144,13 @@ nonisolated extension FlatQuery {
         switch primitive {
         case .file:
             return !subject.isDirectory
+        case .link:
+            return subject.isLink
+        case .linkEnd(let end, let negated):
+            guard subject.isLink else { return false }
+            // A loop leads nowhere either.
+            let holds = end == .broken ? subject.linkEnd != nil : subject.linkEnd == .loop
+            return holds != negated
         case .directory(let part):
             guard subject.isDirectory else { return false }
             switch part {
@@ -112,6 +163,8 @@ nonisolated extension FlatQuery {
             return !subject.isDirectory && comparison.holds(subject.size, bytes)
         case .name(let test):
             return test.holds(subject.name, glob: true)
+        case .path(let test):
+            return test.holds(subject.url.path, glob: true)
         case .owner(let test):
             return test.holds(subject.owner, glob: false)
         case .group(let test):

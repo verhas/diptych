@@ -211,6 +211,21 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            HStack {
+                // The scripts that come with Diptych, in the browser window
+                // in front: Settings has no sheet of that kind of its own.
+                Button("Get Scripts\u{2026}") {
+                    guard let model = KeyRouter.shared.allModels
+                        .first(where: { $0.window?.isVisible == true }) else { return }
+                    model.window?.makeKeyAndOrderFront(nil)
+                    model.requestGetScripts()
+                }
+                .disabled(!store.configuration.scriptsEnabled)
+                Text("Pick from the scripts that come with Diptych.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
 
 

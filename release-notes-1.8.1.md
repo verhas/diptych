@@ -189,6 +189,64 @@ for the file -- no fonts, spelling or services. The tree's has them too.
 
 ---
 
+## Links in the flat view
+
+**`link`** is a new test in the flat view's expression: true for a symbolic
+link, whether it leads to a file, to a folder, or to nothing. A link is also
+what it leads to, so `link and directory` finds links to folders, and `not
+link` leaves every link out. The expression can also be asked about any one
+file now, not only during the flat view's walk -- the groundwork for using it
+in other places.
+
+**`link broken`** finds the links that lead nowhere -- the ones with the red
+dot -- whether a target is missing or the links go round, and **`link loop`**
+only the ones that go round, a link to itself included. **`link not broken`**
+and **`link not loop`** are short for `link and not link broken` and `link and
+not link loop`, and keep to links, while `not link broken` takes every plain
+file as well. A broken link is not a folder, so it is a `file`: `link and (file
+or directory)` is every link.
+
+**`path`** tests the whole path, as `name` tests the last part of it:
+`path = "*/.git/*"` (a pattern's `*` crosses `/` here), `path ~ /regex/`, and
+`!=` and `!~` for not. A leading `~/` is your home folder.
+
+---
+
+## Scripts: apply-to takes any expression
+
+A script's **`apply-to:`** header is now an expression of the flat view's
+language, asked of each selected item on its own: `file and name = "*.jpg"`,
+`image and located`, `path != "*/.git/*"`. The old `file, directory, link`
+still reads the same, since a comma is OR. A header that does not parse, or
+that nothing can pass, is reported at startup with its line.
+
+Two things now follow the flat view rather than the old list. A link also
+counts as what it leads to, so `apply-to: file` is offered for a link to a
+file -- write `file and not link` to keep links out. An app or other package
+is one item, a file, so `apply-to: directory` no longer takes it.
+
+**`extensions:`** is deprecated. It is still obeyed, but
+`apply-to: name = "*.txt", name = "*.png"` says the same.
+
+---
+
+## Scripts that come with Diptych
+
+**File ▸ Get Scripts…** lists the scripts Diptych carries with it -- make a
+zip, show full details, make a script editable or read-only again, and where
+am I -- to tick and install into `~/.diptych/scripts`. Nothing is downloaded:
+they are part of the application and signed with it. **Show Source** shows a
+script in full, and **Compare with Yours** puts it beside one already installed
+under that name. Installed scripts are written readable by you alone, so they
+pass every rule at once; whatever was there goes to the Trash first, and each
+still asks before it first runs. The menu item appears while scripts are
+switched on; Settings ▸ Behaviour has the same button.
+
+Scripts take two new headers, `# source:` and `# version:`, and accept a third,
+`# signature:`, for scripts that may one day come from GitHub.
+
+---
+
 ## Property lists in Quick Look
 
 Space on a `.plist` shows it as the tree in Text Edit shows it: Key, Type and
@@ -204,4 +262,4 @@ Nothing to do.
 
 ---
 
-*1137 tests.*
+*1187 tests.*
