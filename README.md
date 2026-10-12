@@ -916,6 +916,93 @@ was, a removed lens stays put — and AVIF it refuses outright. A test writes
 every field the window offers, alone and all together, into both JPEG and HEIC
 and checks each one stays.
 
+## Comparing two files
+
+**⌘D**, File ▸ Compare, or the toolbar: two files side by side -- two selected
+in one pane, or one in each. The diff is the standard library's; what Diptych
+adds is the alignment. A rewritten line shows as one changed line, not as a
+deletion followed by an addition, and a run of changed lines counts as one
+difference, because that is what "next" means to a reader. The words that
+changed are marked within each line.
+
+There is find, jumping between differences, *only what differs*, *ignore
+spacing*, and wrapping that applies to both sides or to neither.
+
+- **A padlock on each side, and only one opens.** To edit the other file, save,
+  close and compare again -- editing both halves at once makes it easy to lose
+  track of which is which. Return splits a line, Backspace at its start joins
+  it to the one above, Escape puts the line back, and one visit to a line is
+  one undo step. **One press takes a whole difference from the other side**,
+  and one press undoes it.
+- **Saving keeps what is easy to lose**: the line endings, whether the file
+  ended in a newline, its encoding, and its permissions, owner and extended
+  attributes. An unchanged file is never rewritten, and a file something else
+  changed since the window opened is refused rather than overwritten.
+- **The window keeps up.** It watches both files and reloads when either
+  changes, including when a file is replaced outright. It never throws away
+  typing on the side you unlocked; Save warns about that instead.
+- **Replace "name"** appears when a file is compared with its own `(my
+  version)` copy: one press saves it, puts it in the original's place, and
+  sends the old version to the Trash.
+
+## Compare Folders
+
+Select two folders -- one in each pane, or two in one -- and press **⌘D**.
+Every file is paired with its match on the other side, or listed on its own
+when it has none.
+
+**Matched by path, or by content.** A pair is the same relative path on both
+sides. A file with no match by path is paired with an unmatched file of the
+same bytes elsewhere, which is what a rename looks like after a folder was
+copied. Only with *Content* ticked: without reading the bytes, a rename cannot
+be told from an unrelated file of the same size. Folders and links are never
+matched by content.
+
+**What differs is shown as letters**, each in its own colour, with a legend
+at the foot of the window:
+
+| | |
+| --- | --- |
+| **F** | one is a file, the other a folder |
+| **N** | matched by content -- the name or the place differs |
+| **S** | size |
+| **C** | content |
+| **P** | permissions |
+| **X** | extended attributes |
+| **A** | access control list |
+| **M** | modification date |
+| **B** | creation ("born") date |
+| **O** | owner or group |
+
+Hovering over a row says which side is newer when a date differs, and *Same
+content as: …* for a file whose bytes appear more than once. Empty files are
+left out of that, since every empty file matches every other.
+
+**What is compared** is a checkbox each, on the window: Content, Permissions,
+Extended attributes, ACL, Modified, Created and Owner/group. Settings holds the
+defaults: content alone, out of the box. Access time is not offered, because
+comparing a file reads it, which changes it. **Refresh** appears when a box
+changes after the run, filled in when a checkbox is the reason. Folders whose
+names start with a dot, such as `.git`, are listed but not opened unless
+*Recurse into hidden folders* is ticked. When the two folders being compared
+are dot-folders themselves, they are opened by default.
+
+**The list** has the panes' filter -- a fragment, a shell pattern, or with
+*RegEx* a regular expression, with *Hide* to leave out what does not match --
+plus **Only differences** and **Ignore missing** (what exists on one side
+only).
+
+- **⌘D**, or a double-click on a pair of folders, compares just those two.
+  On a pair of files it opens the two-file comparison above.
+- **⌘I** opens Get Info on whichever sides exist, to compare tags, attributes
+  and ACLs by eye.
+- **⌘G**, or **Go to**, sends the pair back to the window the comparison came
+  from: each pane selects its side, and the left one becomes active. With one
+  side only, only that pane moves.
+
+The window only shows; it copies nothing. An agent can read what it shows
+through `get_directory_diff`, and open one with `open_diff`.
+
 ## Comparing two files that are not text
 
 ⌘D on two files opens the comparison window. When either of them is **not
@@ -2912,20 +2999,17 @@ cannot ship on the Mac App Store. Grant it Full Disk Access under
 
 ## Not done yet
 
-- **First click when Diptych is not frontmost** selects nothing -- macOS spends
-  it activating the app. Patching `acceptsFirstMouse` by re-classing SwiftUI's
-  private table view crashed AppKit's derived-property system, so it was
-  reverted; a local `.leftMouseDown` monitor is the safe route.
-- **Progress and cancel for copy/move.** `FileManager.copyItem` reports no
-  progress. Either wrap the call in an `NSProgress` via
-  `becomeCurrent(withPendingUnitCount:)`, or write a chunked copy over
-  `FileHandle` and report bytes yourself.
-- **Quick Look on F3** via `QLPreviewPanel`, instead of opening the default app.
-- **Drag and drop** between panes and with Finder: `.draggable` /
-  `.dropDestination` with `UTType.fileURL`.
-- **Per-pane tabs.** `⌘T` gives macOS window tabs -- a tab is a whole two-pane
-  session. A macOS window tab is a whole window, so a tab here is a
-  whole two-pane session. Tabs *inside* a pane -- what file managers usually
-  mean -- would be an array of directories per `PaneModel` plus a `TabView`.
-- **Type-ahead find**, bookmarks/favourites, remembering pane directories across
-  launches (`@AppStorage`).
+- **First click when Diptych is not frontmost** may select nothing -- macOS
+  spends it bringing the app forward. Patching `acceptsFirstMouse` by
+  re-classing SwiftUI's private table view crashed AppKit's derived-property
+  system, so it was reverted; a local `.leftMouseDown` monitor is the safe
+  route. `ClickRouter` already does this for a click into a window behind the
+  Quick Look panel; whether it covers an inactive app is not yet checked.
+- **Tabs inside a pane.** `⌘T` gives macOS window tabs, each a whole two-pane
+  window. Tabs *inside* a pane -- what file managers usually mean -- would be a
+  list of folders per `PaneModel` plus a tab strip.
+- **Synchronising from Compare Folders**: copying, replacing or deleting
+  differences one way or both, reviewed first and undone in one step.
+- **Archives as folders**: going into a zip or tar with Return and copying out
+  of it with F5, and a command to make one.
+- **Open With ▸ and Share ▸** in the right-click menu, as in Finder.
