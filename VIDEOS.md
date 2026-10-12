@@ -224,3 +224,23 @@ View ▸ Calculate Directory Sizes, or **∑** in the toolbar.
   per volume, so a second request waits its turn.
 - The Info window shows the same total.
 - View ▸ Clear Directory Sizes.
+
+## 22. File servers -- idea
+
+Go ▸ Connect to Server… (⌘K), with a NAS on the network.
+
+- Typing `nas/photos`, and the system's own password window with *Remember in
+  Keychain*.
+- The server found on the network, and a double-click instead of typing.
+- Starring it: it appears in the sidebar under Servers. Connect When Diptych
+  Starts.
+- Copying from the server to the Mac with the other pane, one keystroke.
+- A change made on another computer appearing within seconds.
+- Quitting Diptych, disconnecting the server, starting again: the pane brings
+  the server back and opens the same folder.
+- An FTP server: read-only, and the menu items greyed out; a file opened in
+  Text Edit there says the volume is read-only.
+- Going back into a big folder: its rows at once, "as listed at …, reading it
+  again" in the status line, then the fresh listing.
+- The sidebar's free space for the server, and the refresh interval in
+  Settings set to 0.

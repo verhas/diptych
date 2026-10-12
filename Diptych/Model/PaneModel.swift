@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Observation
 
 /// State of one pane: which directory it shows, the rows, the selection.
@@ -45,6 +46,12 @@ final class PaneModel {
     @ObservationIgnored private var directoryBeforeLoad: URL?
 
     var isNavigating: Bool { loadingDirectory != nil }
+    /// How many entries of the folder being opened have been read so far:
+    /// what a slow server shows while it is being listed.
+    private(set) var loadedCount = 0
+    /// Set while the rows are the ones a server's folder had when it was
+    /// last listed -- shown at once, and replaced when it has been read again.
+    private(set) var listedEarlier: Date?
     private(set) var errorText: String?
     /// Set when the failure was TCC refusing access rather than the folder
     /// being missing or broken -- Time Machine volumes are the common case.
@@ -395,8 +402,27 @@ final class PaneModel {
     /// The window model, so a pane change can trigger a save.
     @ObservationIgnored weak var owner: AppModel?
 
+    /// What the folder is on: this Mac's own disk, or a server -- where it
+    /// is never told of changes made elsewhere, and where some servers let
+    /// nothing be written.
+    private(set) var volume = VolumeFacts.local
+
+    /// The server this folder is on, when it is not connected: the pane
+    /// waits here, offering to connect, rather than going elsewhere.
+    private(set) var awaitingServer: KnownServer?
+    /// The folder last listed. A server's folder that vanishes from under it
+    /// was disconnected on purpose, more often than not -- Finder's eject --
+    /// and is not mounted again unasked; one arrived at is.
+    @ObservationIgnored private var listed: URL?
+    /// The servers known; the tests give it one of their own.
+    @ObservationIgnored var servers = ServerStore.shared
+
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedPath: String?
+    /// On a server, a look every few seconds for what changed there.
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    /// On a server, pictures' details read after the rows are shown.
+    @ObservationIgnored private var mediaTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     init(directory: URL) {
@@ -504,6 +530,7 @@ final class PaneModel {
         // is going to a folder.
         let wasFlat = flat != nil
         if wasFlat { leaveFlatState() }
+        if url != directory { awaitingServer = nil }
         directory = url
         selection = []
         renamingID = nil
@@ -644,8 +671,7 @@ final class PaneModel {
     /// How the walk is going, while it is.
     struct FlatProgress: Equatable {
         var found: Int
-        var folders: Int
-        var current: URL
+        var walk: FlatScanner.Progress
     }
 
     private(set) var flatProgress: FlatProgress?
@@ -770,6 +796,10 @@ final class PaneModel {
     /// The tree walked, the rows arriving as they are found.
     private func scanFlat() {
         guard let view = flat else { return }
+        if volume.isNetwork {
+            owner?.flash("On a server: the flat view reads every folder below this one over "
+                         + "the network. Stop ends it.", error: false)
+        }
         flatTask?.cancel()
         loadTask?.cancel()
         items = []
@@ -785,7 +815,7 @@ final class PaneModel {
             return
         }
         isLoading = true
-        flatProgress = FlatProgress(found: 0, folders: 0, current: view.root)
+        flatProgress = FlatProgress(found: 0, walk: .init(current: view.root))
         let key = FlatCacheKey(view: view, showHidden: showHidden)
         let stream = FlatScanner.scan(root: view.root, query: query, showHidden: showHidden,
                                       columns: ConfigStore.shared.configuration.columns)
@@ -793,10 +823,9 @@ final class PaneModel {
             for await event in stream {
                 guard let self, self.flat == view, !Task.isCancelled else { return }
                 switch event {
-                case .found(let batch, let folders, let current):
+                case .found(let batch, let walk):
                     self.items.append(contentsOf: batch)
-                    self.flatProgress = FlatProgress(found: self.items.count, folders: folders,
-                                                     current: current)
+                    self.flatProgress = FlatProgress(found: self.items.count, walk: walk)
                 case .finished(let unreadable):
                     self.flatUnreadable = unreadable
                     self.flatProgress = nil
@@ -929,6 +958,7 @@ final class PaneModel {
 
     deinit {
         watcher?.cancel()
+        pollTask?.cancel()
     }
 
     /// Watch `directory`, replacing any previous watch. Cheap to call often --
@@ -950,13 +980,17 @@ final class PaneModel {
         watchedPath = nil
 
         Task { [weak self] in
-            let fd = await BlockingWork.run { Darwin.open(path, O_EVTONLY) }
-            guard fd >= 0 else { return }
+            let (fd, facts) = await BlockingWork.run {
+                (Darwin.open(path, O_EVTONLY), VolumeFacts.of(URL(fileURLWithPath: path)))
+            }
             // The pane may have moved on while the disk was waking up.
             guard let self, self.directory.path == path else {
-                Darwin.close(fd)
+                if fd >= 0 { Darwin.close(fd) }
                 return
             }
+            if self.volume != facts { self.volume = facts }
+            self.pollServer(facts.isNetwork)
+            guard fd >= 0 else { return }
             self.installWatch(fd: fd, path: path)
         }
     }
@@ -978,6 +1012,45 @@ final class PaneModel {
         watcher = source
         watchedPath = path
         source.resume()
+    }
+
+    /// The kernel reports what this Mac changes, never what another machine
+    /// changes on a server. So a pane on a server looks at the folder's
+    /// modification date every few seconds while Diptych is in front, and
+    /// lists it again when that moves -- and every time Diptych comes to the
+    /// front, since a WebDAV server need not move it at all.
+    private func pollServer(_ on: Bool) {
+        pollTask?.cancel()
+        pollTask = nil
+        guard on else { return }
+        let path = directory.path
+        pollTask = Task { [weak self] in
+            var seen: Date?
+            var wasActive = NSApp?.isActive ?? true
+            while !Task.isCancelled {
+                // Read each time round, so a change in Settings takes at once.
+                let interval = Self.serverPollSeconds
+                try? await Task.sleep(for: .seconds(interval > 0 ? Double(interval) : 2))
+                guard !Task.isCancelled, let self, self.directory.path == path else { return }
+                let active = NSApp?.isActive ?? true
+                defer { wasActive = active }
+                guard interval > 0, active, !self.isFlat, !self.isLoading else { continue }
+                let modified = await BlockingWork.run {
+                    (try? URL(fileURLWithPath: path)
+                        .resourceValues(forKeys: [.contentModificationDateKey]))?
+                        .contentModificationDate
+                }
+                guard !Task.isCancelled, self.directory.path == path else { return }
+                let changed = seen != nil && modified != seen
+                seen = modified
+                if changed || !wasActive { self.reload() }
+            }
+        }
+    }
+
+    /// Settings ▸ Behaviour ▸ File Servers; 0 is never.
+    static var serverPollSeconds: Int {
+        max(0, ConfigStore.shared.configuration.serverRefreshSeconds)
     }
 
     private func directoryChanged() {
@@ -1024,6 +1097,7 @@ final class PaneModel {
         let columns = ConfigStore.shared.configuration.columns
         isLoading = true
         errorText = nil
+        loadedCount = 0
 
         if let previous {
             // Cleared, not left standing. Nothing can be selected, opened,
@@ -1033,15 +1107,53 @@ final class PaneModel {
             loadingDirectory = target
             items = []
             selection = []
+            listedEarlier = nil
+            // A folder on a server listed before in this run: its rows as
+            // they were, at once, while it is read again behind them. They
+            // are this folder's rows, so they may be used meanwhile.
+            if let earlier = ListingCache.shared.rows(of: target, showHidden: hidden) {
+                directoryBeforeLoad = nil
+                loadingDirectory = nil
+                items = earlier.rows
+                listedEarlier = earlier.at
+                if !applyPendingSelection(in: items) { landOnSomethingToPreview() }
+            }
         }
 
         loadTask = Task { [weak self] in
             do {
-                let loaded = try await DirectoryLoader.load(directory: target,
-                                                           showHidden: hidden,
-                                                           columns: columns)
+                // Asked of the folder itself: the pane's facts are still
+                // those of where it came from, on arriving at a server.
+                let onServer = await BlockingWork.run { VolumeFacts.of(target).isNetwork }
                 guard !Task.isCancelled else { return }
+                var loaded = try await DirectoryLoader.load(
+                    directory: target, showHidden: hidden, columns: columns,
+                    deferMedia: onServer,
+                    counted: { [weak pane = self] count in
+                        Task { @MainActor in
+                            guard let pane, pane.directory == target else { return }
+                            pane.loadedCount = count
+                        }
+                    })
+                guard !Task.isCancelled else { return }
+                // A server's folder is listed again every time it changes:
+                // what an unchanged file said is kept, not read again, so the
+                // columns do not go blank and fill up each time.
+                if onServer, let previous = self?.items {
+                    let known = Dictionary(previous.map { ($0.url, $0) },
+                                           uniquingKeysWith: { a, _ in a })
+                    for index in loaded.indices {
+                        if let old = known[loaded[index].url],
+                           old.modified == loaded[index].modified {
+                            loaded[index].media = old.media
+                        }
+                    }
+                }
                 self?.finish(loaded, for: target)
+                if onServer {
+                    ListingCache.shared.keep(loaded, of: target, showHidden: hidden)
+                    self?.readMedia(for: target, columns: columns)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.fail(error, for: target)
@@ -1066,7 +1178,9 @@ final class PaneModel {
 
     private func decorateWithGit(for target: URL) {
         gitTask?.cancel()
-        guard GitService.shared.isEnabled else {
+        // Not on a server: `git status` reads every file of the repository,
+        // and over the network that is minutes, not milliseconds.
+        guard GitService.shared.isEnabled, !volume.isNetwork else {
             gitRoot = nil
             gitBranch = nil
             gitAhead = 0
@@ -1128,9 +1242,37 @@ final class PaneModel {
         }
     }
 
+    /// What pictures and videos say about themselves, read after the rows
+    /// are on screen when the folder is on a server: a few files at a time,
+    /// each batch shown as it comes.
+    private func readMedia(for target: URL, columns: [FileColumn]) {
+        guard DirectoryLoader.keys(for: columns).contains(DirectoryLoader.mediaKey) else { return }
+        let wanted = items.filter { !$0.isParent && !$0.isDirectory && $0.media == nil }.map(\.url)
+        guard !wanted.isEmpty else { return }
+        mediaTask?.cancel()
+        mediaTask = Task { [weak self] in
+            for start in stride(from: 0, to: wanted.count, by: 24) {
+                let batch = Array(wanted[start..<min(start + 24, wanted.count)])
+                let found = await BlockingWork.run {
+                    batch.map { ($0, MediaCache.shared.info(for: $0)) }
+                }
+                guard !Task.isCancelled, let self, self.directory == target, !self.isFlat else {
+                    return
+                }
+                let byURL = Dictionary(found.map { ($0.0, $0.1) }, uniquingKeysWith: { a, _ in a })
+                for index in self.items.indices {
+                    if let media = byURL[self.items[index].url] { self.items[index].media = media }
+                }
+            }
+        }
+    }
+
     private func finish(_ loaded: [FileItem], for target: URL) {
         // A newer navigation won -- or the pane went flat meanwhile.
         guard target == directory, !isFlat else { return }
+        awaitingServer = nil
+        listed = target
+        listedEarlier = nil
         items = loaded
         decorateWithGit(for: target)
         isLoading = false
@@ -1193,6 +1335,27 @@ final class PaneModel {
 
     private func fail(_ error: Error, for target: URL) {
         guard target == directory else { return }
+        listedEarlier = nil
+        ListingCache.shared.forget(target)
+
+        // On a server that has gone -- after sleep, or since the last run.
+        // Not a folder that was deleted: its server is simply not there.
+        if !FileManager.default.fileExists(atPath: target.path),
+           let (server, mountPoint) = servers.server(mountedAbove: target.path),
+           !FileManager.default.fileExists(atPath: mountPoint) {
+            let arriving = awaitingServer?.id != server.id && listed != target
+            items = []
+            isLoading = false
+            loadingDirectory = nil
+            directoryBeforeLoad = nil
+            errorIsPermission = false
+            awaitingServer = server
+            errorText = "\(server.title) is not connected."
+            // Once on arriving -- at startup, or from the history -- and not
+            // on every look: otherwise it is the button, or waking up.
+            if arriving { owner?.reconnect(self) }
+            return
+        }
 
         // The directory itself is gone -- deleted from under us, or renamed.
         if !FileManager.default.fileExists(atPath: target.path) {
@@ -1226,5 +1389,44 @@ final class PaneModel {
             || underlying?.code == Int(EPERM)
             || underlying?.code == Int(EACCES)
         errorText = error.localizedDescription
+        // NFS asks no password: the server decides by the user's number,
+        // which has to be the same on both machines.
+        if errorIsPermission, volume.typeName == "nfs" {
+            errorText = (errorText ?? "") + " On NFS the server goes by your user number, "
+                + "\(getuid()) on this Mac; it has to be yours on the server too."
+        }
+    }
+}
+
+/// Folders on servers as they were last listed in this run, so going back
+/// into one shows its rows at once rather than after the network has
+/// answered. Never on disk, and only the last few.
+@MainActor
+final class ListingCache {
+
+    static let shared = ListingCache()
+    nonisolated static let limit = 40
+
+    private struct Key: Hashable {
+        let path: String
+        let showHidden: Bool
+    }
+    private var entries: [(key: Key, rows: [FileItem], at: Date)] = []
+
+    func rows(of folder: URL, showHidden: Bool) -> (rows: [FileItem], at: Date)? {
+        let key = Key(path: folder.standardizedFileURL.path, showHidden: showHidden)
+        return entries.first { $0.key == key }.map { ($0.rows, $0.at) }
+    }
+
+    func keep(_ rows: [FileItem], of folder: URL, showHidden: Bool) {
+        let key = Key(path: folder.standardizedFileURL.path, showHidden: showHidden)
+        entries.removeAll { $0.key == key }
+        entries.insert((key, rows, Date()), at: 0)
+        if entries.count > Self.limit { entries.removeLast() }
+    }
+
+    func forget(_ folder: URL) {
+        let path = folder.standardizedFileURL.path
+        entries.removeAll { $0.key.path == path }
     }
 }

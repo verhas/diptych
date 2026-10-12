@@ -112,17 +112,26 @@ final class TransferProgress {
     /// Only once there is enough to extrapolate from. An estimate offered in
     /// the first moments of a copy is noise, and a wrong one is worse than none.
     var remaining: String? {
-        let elapsed = Date().timeIntervalSince(startedAt)
-        guard bytesTotal > 0, bytesDone > 0, elapsed > 2 else { return nil }
-        let rate = Double(bytesDone) / elapsed
-        guard rate > 0 else { return nil }
-        let left = Double(bytesTotal - bytesDone) / rate
-        guard left > 1, left < 60 * 60 * 24 else { return nil }
+        guard bytesTotal > 0, let rate else { return nil }
+        return Self.duration(Double(bytesTotal - bytesDone) / rate).map { "about \($0) left" }
+    }
 
+    /// Bytes a second so far; nil in the first moments, when it is noise.
+    var rate: Double? {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard bytesDone > 0, elapsed > 2 else { return nil }
+        let rate = Double(bytesDone) / elapsed
+        return rate > 0 ? rate : nil
+    }
+
+    /// "4 minutes, 10 seconds"; nil for under a second or over a day.
+    static func duration(_ seconds: Double) -> String? {
+        guard seconds > 1, seconds < 60 * 60 * 24 else { return nil }
         let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = left < 60 ? [.second] : [.minute, .second]
+        formatter.allowedUnits = seconds < 60 ? [.second]
+            : seconds < 60 * 60 ? [.minute, .second] : [.hour, .minute]
         formatter.unitsStyle = .full
-        return formatter.string(from: left).map { "about \($0) left" }
+        return formatter.string(from: seconds)
     }
 
     func update(bytes: Int64, item: String) {

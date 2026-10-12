@@ -208,8 +208,10 @@ struct PaneView: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
                         .frame(width: 12, height: 12)
-                    Text("\(progress.found) found in \(progress.folders) folders \u{2014} "
-                         + (progress.current.path as NSString).abbreviatingWithTildeInPath)
+                    Text("\(progress.found.formatted()) found among "
+                         + "\(progress.walk.seen.formatted()) items in "
+                         + "\(progress.walk.folders.formatted()) folders \u{2014} "
+                         + (progress.walk.current.path as NSString).abbreviatingWithTildeInPath)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
@@ -595,7 +597,17 @@ struct PaneView: View {
                     .controlSize(.small)
                 Text("Opening \u{201C}\(target.lastPathComponent)\u{201D}\u{2026}")
                     .font(.system(size: 12))
-                Text("A volume that is spinning up can take several seconds.")
+                if pane.loadedCount > 0 {
+                    Text("\(pane.loadedCount.formatted()) items read so far")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+                // What the folder's path says it is on; the pane's own facts
+                // are still those of where it came from.
+                Text(VolumeList.shared.volume(containing: target)?.isNetwork
+                     ?? pane.volume.isNetwork
+                     ? "A folder on a server can take a while over the network."
+                     : "A volume that is spinning up can take several seconds.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Cancel") { pane.cancelLoad() }
@@ -633,12 +645,24 @@ struct PaneView: View {
                         NSWorkspaceOpener.openFullDiskAccessSettings()
                     }
                 }
+
+                if pane.awaitingServer != nil {
+                    if model.connectingTo != nil {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Connect") { model.reconnect(pane) }
+                        Button("Go Home") {
+                            pane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+                        }
+                        .buttonStyle(.link)
+                    }
+                }
             }
             .padding(22)
             .frame(maxWidth: 340)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .shadow(radius: 12, y: 3)
-            .allowsHitTesting(pane.errorIsPermission)
+            .allowsHitTesting(pane.errorIsPermission || pane.awaitingServer != nil)
         }
     }
 
@@ -896,6 +920,12 @@ struct PaneView: View {
             } else {
                 Text(summary)
             }
+            if let at = pane.listedEarlier {
+                Text("as listed at \(at.formatted(date: .omitted, time: .shortened)), "
+                     + "reading it again\u{2026}")
+                    .foregroundStyle(.orange)
+                    .lineLimit(1)
+            }
             Spacer()
             gitSummary
         }
@@ -1060,8 +1090,27 @@ struct PaneView: View {
         if selected.isEmpty {
             return "\(visible.count) items"
         }
-        let bytes = selected.filter { !$0.isEnterable }.reduce(Int64(0)) { $0 + $1.byteSize }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        // A folder counts at its worked-out size, once Calculate Directory
+        // Sizes has one -- as it stands, so the total grows with it.
+        var bytes: Int64 = 0
+        var growing = false
+        var uncounted = 0
+        for item in selected {
+            guard item.isEnterable else { bytes += item.byteSize; continue }
+            // A link to a folder is not what is in it: not counted, as before.
+            if item.isSymlink { continue }
+            switch DirectorySizes.shared.shown(for: item.url) {
+            case .done(let size)?: bytes += size
+            case .updating(let size)?: bytes += size; growing = true
+            case .waiting?: growing = true
+            case nil: uncounted += 1
+            }
+        }
+        var size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        if growing { size += " so far" }
+        if uncounted > 0, uncounted < selected.count {
+            size += uncounted == 1 ? ", 1 folder not counted" : ", \(uncounted) folders not counted"
+        }
         return "\(selected.count) of \(visible.count) selected  --  \(size)"
     }
 }

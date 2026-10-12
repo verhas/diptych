@@ -299,7 +299,10 @@ struct ContentView: View {
         if let progress = model.transferProgress {
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(progress.verb) \(progress.itemCount) item"
-                     + (progress.itemCount == 1 ? "" : "s"))
+                     + (progress.itemCount == 1 ? "" : "s")
+                     + (progress.itemCount > 1
+                        ? " \u{2014} \(min(progress.itemsDone + 1, progress.itemCount)) of "
+                          + "\(progress.itemCount)" : ""))
                     .font(.system(size: 12, weight: .medium))
 
                 if let fraction = progress.fraction {
@@ -315,9 +318,21 @@ struct ContentView: View {
                 // Transfers run one at a time, so anything asked for meanwhile
                 // is waiting rather than lost. Saying so is the difference
                 // between "queued" and "ignored".
-                if model.queuedTransfers > 0 {
-                    Text("\(model.queuedTransfers) more waiting")
-                        .font(.caption).foregroundStyle(.secondary)
+                if !model.transferQueue.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Waiting:")
+                        ForEach(model.transferQueue.prefix(4)) { waiting in
+                            Text("\u{2022} " + waiting.description)
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        if model.transferQueue.count > 4 {
+                            Text("and \(model.transferQueue.count - 4) more")
+                        }
+                        if let all = model.transfersRemaining {
+                            Text(all)
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
 
                 HStack {
@@ -811,6 +826,9 @@ struct DialogSheet: View {
             case .getScripts:
                 GetScriptsView(model: model) { model.dialog = nil }
 
+            case .connectServer:
+                ConnectServerView(model: model) { model.dialog = nil }
+
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
                 Text("You can choose a format once and for all in Settings.")
@@ -883,7 +901,7 @@ struct DialogSheet: View {
         // folder, and at 470 a rename was broken over three lines. Get
         // Scripts shows a script's source, whose lines are long.
         .frame(width: dialog == .getScripts ? 640
-               : dialog == .historyStep || dialog == .historyMany || dialog == .runArguments
+               : dialog == .historyStep || dialog == .connectServer || dialog == .historyMany || dialog == .runArguments
                ? 600 : 470)
     }
 

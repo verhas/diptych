@@ -273,6 +273,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "Diptych browses your Desktop folder.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Diptych looks for file servers on your network while Connect to Server is open.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Diptych browses your Documents folder.";
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Diptych browses your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -301,6 +302,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSDesktopFolderUsageDescription = "Diptych browses your Desktop folder.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Diptych looks for file servers on your network while Connect to Server is open.";
 				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "Diptych browses your Documents folder.";
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Diptych browses your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

@@ -28,6 +28,12 @@ enum WriteTrouble {
         if code == NSFileWriteVolumeReadOnlyError {
             return "That disk is read-only, so nothing on it can be changed."
         }
+        // Before the permissions: they can say rw- on a volume -- an FTP
+        // server, a share mounted read-only -- that takes no writes at all.
+        if let volume = readOnlyVolume(of: url) {
+            return "\(volume) is mounted read-only, so nothing on it can be changed from this "
+                 + "Mac, whatever \u{201C}\(name)\u{201D}\u{2019}s permissions say."
+        }
 
         // Locked in the Finder sense: the user can undo this one themselves,
         // and the Finder's own wording is the one they will recognise.
@@ -54,5 +60,14 @@ enum WriteTrouble {
              + "\n\nThere is nothing you need to change. If it keeps happening, copying the "
              + "file and working on the copy will get past it."
              + "\n\nWhat macOS said: \(error.localizedDescription)"
+    }
+
+    /// The volume `url` is on, quoted -- "“ftp.example.com”" -- when it is
+    /// mounted read-only; nil when it takes writes.
+    static func readOnlyVolume(of url: URL) -> String? {
+        let values = try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey,
+                                                       .volumeLocalizedNameKey])
+        guard values?.volumeIsReadOnly == true else { return nil }
+        return values?.volumeLocalizedName.map { "\u{201C}\($0)\u{201D}" } ?? "Its volume"
     }
 }

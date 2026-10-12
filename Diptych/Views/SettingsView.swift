@@ -229,6 +229,27 @@ struct BehaviourSettingsView: View {
             Divider()
 
 
+            Text("File Servers").font(.headline)
+            HStack {
+                Text("Look for changes every")
+                TextField("", value: $store.configuration.serverRefreshSeconds,
+                          format: .number)
+                    .frame(width: 50)
+                    .multilineTextAlignment(.trailing)
+                Stepper("", value: $store.configuration.serverRefreshSeconds, in: 0...3600)
+                    .labelsHidden()
+                Text("seconds")
+            }
+            Text("macOS does not say when another computer changes a folder on a server, so "
+                 + "a pane there looks at the folder this often while Diptych is in front, and "
+                 + "lists it again each time Diptych comes to the front. 0 turns both off: "
+                 + "only Refresh lists it again.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
                 .toggleStyle(.checkbox)
             Text("Quit sits one key away from Close Window and Select All.")

@@ -52,11 +52,15 @@ final class TextEditDocument {
     }
 
     var isReadOnly: Bool { !(source?.isWritable ?? false) }
+    /// The volume, quoted, when the file is read-only because that is
+    /// mounted read-only rather than because of its own permissions.
+    private(set) var readOnlyVolume: String?
 
     /// Edited, and not merely edited and then undone back to what was saved.
     var hasUnsavedChanges: Bool { isEdited && currentText() != saved }
 
     func load() {
+        readOnlyVolume = WriteTrouble.readOnlyVolume(of: url)
         let isPlist = TextFormat.of(url, extensions: ConfigStore.shared.configuration.textFormats) == .plist
         plistEncoding = isPlist ? .xml : nil
         if isPlist, let data = try? Data(contentsOf: url), data.starts(with: Array("bplist".utf8)) {

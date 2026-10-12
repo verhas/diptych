@@ -247,6 +247,49 @@ Scripts take two new headers, `# source:` and `# version:`, and accept a third,
 
 ---
 
+## File servers
+
+**Go ▸ Connect to Server…** (`⌘K`) mounts an SMB, NFS, WebDAV, FTP or AFP
+server and opens it in the active pane: `smb://nas/photos`, or just
+`nas/photos`. macOS asks for the name and password itself, and can keep them in
+your Keychain. The sheet lists saved and recent servers, and the ones it finds on
+your network.
+
+- **Servers in the sidebar:** star a server and it appears under **Servers**,
+  a click away, with an eject button while connected and **Connect When Diptych
+  Starts** in its menu.
+- **Coming back:** a pane left on a server connects it again at startup and
+  after the Mac wakes. One whose server was disconnected while it showed it
+  waits, and offers to connect.
+- **Changes made elsewhere show up**, checked every five seconds while Diptych
+  is in front -- or as often as Settings > Behaviour > File Servers says; 0
+  leaves it to Refresh.
+- **Folders open at once the second time:** the rows as last listed, replaced
+  when the server has answered. The first time, the count read so far shows.
+- **Read-only servers** grey out what would change them, and Text Edit and the
+  binary view say it is the volume that is read-only, not the file.
+- **Saves to a server are checked:** a WebDAV refusal on closing the file is
+  reported, and the binary view reads back what it wrote.
+- **Volumes in the sidebar show their size and free space.**
+- **Slow work says so**: the flat view, directory sizes and Compare Folders note
+  that they read over the network.
+- **Git colours are off** on servers, and picture columns fill in after the rows.
+- **`._` files** beside the files they belong to are hidden, as in Finder.
+
+---
+
+## Smaller things
+
+- **The flat view's count moves** while nothing matches: "0 found among 12,400
+  items in 310 folders", not "0 found in 0 folders" for minutes.
+- **Selected folders count at their worked-out size** in the status line, once
+  Calculate Directory Sizes has one -- "so far" while it is still growing.
+- **The transfer panel lists what is waiting**, by name, with an estimate for
+  all of it; a transfer of several items says which one it is on.
+- **Connect to Server's lists** take a click anywhere on a row.
+
+---
+
 ## Property lists in Quick Look
 
 Space on a `.plist` shows it as the tree in Text Edit shows it: Key, Type and
@@ -262,4 +305,4 @@ Nothing to do.
 
 ---
 
-*1187 tests.*
+*1222 tests.*

@@ -13,13 +13,20 @@ import Foundation
 /// interrupted; everything after it can be abandoned.
 enum DirectoryLoader {
 
-    static func load(directory: URL, showHidden: Bool,
-                     columns: [FileColumn]) async throws -> [FileItem] {
+    /// `deferMedia`: without what pictures and videos say about themselves,
+    /// which is read from each file -- on a server, too slow to wait for
+    /// before showing anything. The pane reads it after.
+    /// `counted` hears how many entries have been read so far, a few times
+    /// a second, while a slow folder is being read.
+    static func load(directory: URL, showHidden: Bool, columns: [FileColumn],
+                     deferMedia: Bool = false,
+                     counted: (@Sendable (Int) -> Void)? = nil) async throws -> [FileItem] {
         let cancelled = CancellationFlag()
         return try await withTaskCancellationHandler {
             try await BlockingWork.run {
                 try list(directory: directory, showHidden: showHidden,
-                         columns: columns, cancelled: cancelled)
+                         columns: columns, deferMedia: deferMedia, cancelled: cancelled,
+                         counted: counted)
             }
         } onCancel: {
             cancelled.cancel()
@@ -29,7 +36,9 @@ enum DirectoryLoader {
     /// Exposed for the tests, which is also the only way to check that an
     /// abandoned listing actually stops.
     static func list(directory: URL, showHidden: Bool, columns: [FileColumn],
-                     cancelled: CancellationFlag = CancellationFlag()) throws -> [FileItem] {
+                     deferMedia: Bool = false,
+                     cancelled: CancellationFlag = CancellationFlag(),
+                     counted: ((Int) -> Void)? = nil) throws -> [FileItem] {
         // The single most important performance decision in this whole app.
         //
         // Passing `includingPropertiesForKeys:` makes Foundation batch-prefetch
@@ -41,7 +50,8 @@ enum DirectoryLoader {
         // Always what is needed to classify and draw a row at all -- a tag
         // colours the whole row, so tags too -- plus whatever the enabled
         // columns ask for, and nothing else.
-        let keys = Self.keys(for: columns)
+        var keys = Self.keys(for: columns)
+        if deferMedia { keys.remove(mediaKey) }
 
         // A private FileManager instance rather than `.default`: instances are
         // cheap, and a local one is unambiguously ours, which keeps the
@@ -51,9 +61,9 @@ enum DirectoryLoader {
         var options: FileManager.DirectoryEnumerationOptions = []
         if !showHidden { options.insert(.skipsHiddenFiles) }
 
-        let urls = try fm.contentsOfDirectory(at: directory,
-                                              includingPropertiesForKeys: Self.fileSystemKeys(keys),
-                                              options: options)
+        let urls = Self.withoutAppleDouble(
+            try entries(of: directory, keys: Self.fileSystemKeys(keys), options: options,
+                        fm: fm, cancelled: cancelled, counted: counted))
 
         try Self.stop(if: cancelled)
 
@@ -79,6 +89,56 @@ enum DirectoryLoader {
         return items
     }
 
+    /// What `contentsOfDirectory` answers -- the same entries, the same
+    /// errors -- but read as they come, so a folder on a server can say how
+    /// many it has read while it is still reading, and stop when abandoned.
+    private static func entries(of directory: URL, keys: [URLResourceKey],
+                                options: FileManager.DirectoryEnumerationOptions,
+                                fm: FileManager, cancelled: CancellationFlag,
+                                counted: ((Int) -> Void)?) throws -> [URL] {
+        var failure: Error?
+        guard let enumerator = fm.enumerator(
+            at: directory, includingPropertiesForKeys: keys,
+            options: options.union(.skipsSubdirectoryDescendants),
+            errorHandler: { url, error in
+                // The folder itself cannot be read: that is the answer. One
+                // entry that cannot be is left for its row to show.
+                guard url.standardizedFileURL.path == directory.standardizedFileURL.path else {
+                    return true
+                }
+                failure = error
+                return false
+            }) else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: directory])
+        }
+        var urls: [URL] = []
+        var lastCount = Date()
+        while let url = enumerator.nextObject() as? URL {
+            urls.append(url)
+            if urls.count % 64 == 0 {
+                try Self.stop(if: cancelled)
+                if let counted, Date().timeIntervalSince(lastCount) > 0.2 {
+                    counted(urls.count)
+                    lastCount = Date()
+                }
+            }
+        }
+        if let failure { throw failure }
+        return urls
+    }
+
+    /// `._photo.jpg` beside `photo.jpg`: where macOS keeps a file's extended
+    /// attributes and tags on a disk or server that cannot hold them. Part of
+    /// the file, not a file of its own, so it is not listed -- as Finder does
+    /// not, even with hidden files shown. One with nothing beside it stays.
+    static func withoutAppleDouble(_ urls: [URL]) -> [URL] {
+        let names = Set(urls.map(\.lastPathComponent))
+        return urls.filter { url in
+            let name = url.lastPathComponent
+            guard name.hasPrefix("._"), name.count > 2 else { return true }
+            return !names.contains(String(name.dropFirst(2)))
+        }
+    }
 
     /// Not a key the file system knows: a column that shows what a
     /// picture or video says about itself, which is read from the file.

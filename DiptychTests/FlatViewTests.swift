@@ -479,7 +479,7 @@ final class FlatViewTests: XCTestCase {
     private func walk(_ text: String) -> [String] {
         let query = try! FlatQuery.parse(text).get()
         var found: [FileItem] = []
-        FlatScanner.walk(root: root, query: query, showHidden: false) { batch, _, _ in
+        FlatScanner.walk(root: root, query: query, showHidden: false) { batch, _ in
             found += batch
         }
         return found.map(\.relativePath).sorted()
@@ -541,7 +541,7 @@ final class FlatViewTests: XCTestCase {
         cancelled.cancel()
         var found = 0
         FlatScanner.walk(root: root, query: query, showHidden: false, cancelled: cancelled) {
-            batch, _, _ in found += batch.count
+            batch, _ in found += batch.count
         }
         XCTAssertEqual(found, 0)
     }

@@ -1,0 +1,17 @@
+# WebDAV for Diptych's tests: Apache with mod_dav, which supports locking,
+# so macOS mounts it read-write. Started by ../setup.sh.
+services:
+  diptych-webdav:
+    image: httpd:2.4
+    container_name: diptych-webdav
+    restart: unless-stopped
+    ports:
+      - "${DAV_PORT:-8642}:80"
+    environment:
+      DAV_USER: diptych
+      DAV_PASS: ${PASSWORD:-diptych-test}
+    volumes:
+      - ${ROOT:-/srv/diptych}/dav:/data
+      - ./dav.conf:/usr/local/apache2/conf/extra/dav.conf:ro
+      - ./start.sh:/start.sh:ro
+    command: ["sh", "/start.sh"]

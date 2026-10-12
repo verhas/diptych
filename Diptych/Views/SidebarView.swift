@@ -6,6 +6,7 @@ struct SidebarView: View {
 
     @Bindable var model: AppModel
     @Bindable private var volumes = VolumeList.shared
+    @Bindable private var servers = ServerStore.shared
 
     var body: some View {
         List(selection: $model.selectedSidebarEntry) {
@@ -19,6 +20,15 @@ struct SidebarView: View {
                                 Button("Eject") { model.eject(entry) }
                             }
                         }
+                }
+            }
+
+            if !servers.saved.isEmpty {
+                Section("Servers") {
+                    ForEach(servers.saved) { server in
+                        serverRow(server)
+                            .contextMenu { serverMenu(server) }
+                    }
                 }
             }
 
@@ -53,12 +63,68 @@ struct SidebarView: View {
         // exactly what fails when the row you click is the row already showing.
     }
 
-    private func row(_ entry: SidebarEntry) -> some View {
-        HStack(spacing: 6) {
-            Image(nsImage: SidebarIcons.shared.icon(for: entry.url))
-            Text(entry.name)
+    /// A saved server: connected or not, and connecting while it is.
+    private func serverRow(_ server: KnownServer) -> some View {
+        let mounted = volumes.mountPoint(of: server) != nil
+        let connecting = model.connectingTo.map {
+            ServerAddress.withoutPassword($0).absoluteString.lowercased() == server.id
+        } ?? false
+        return HStack(spacing: 6) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 12))
+                .foregroundStyle(mounted ? Color.accentColor : Color.secondary)
+                .frame(width: 16)
+            Text(server.title)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .foregroundStyle(mounted ? .primary : .secondary)
+            Spacer(minLength: 4)
+            if connecting {
+                ProgressView().controlSize(.mini)
+            } else if mounted {
+                Button {
+                    model.disconnect(server)
+                } label: {
+                    Image(systemName: "eject.fill").font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Disconnect \(server.title)")
+            }
+        }
+        .tag("s:" + server.id)
+        .help(server.address + (mounted ? "" : " \u{2014} not connected; click to connect"))
+    }
+
+    @ViewBuilder
+    private func serverMenu(_ server: KnownServer) -> some View {
+        let mounted = volumes.mountPoint(of: server) != nil
+        Button(mounted ? "Open" : "Connect") { model.openServer(server) }
+        if mounted {
+            Button("Disconnect") { model.disconnect(server) }
+        }
+        Divider()
+        Toggle("Connect When Diptych Starts", isOn: Binding(
+            get: { server.openAtLogin },
+            set: { servers.setOpenAtLogin(server, $0) }))
+        Button("Remove from Servers") { servers.setSaved(server, false) }
+    }
+
+    private func row(_ entry: SidebarEntry) -> some View {
+        HStack(spacing: 6) {
+            Image(nsImage: SidebarIcons.shared.icon(for: entry.url, isNetwork: entry.isNetwork))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(entry.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let space = entry.spaceText {
+                    Text(space)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .monospacedDigit()
+                }
+            }
 
             if entry.isEjectable {
                 Spacer(minLength: 4)
@@ -106,11 +172,27 @@ final class SidebarIcons {
         return image
     }()
 
-    func icon(for url: URL) -> NSImage {
+    /// A server's volume: not asked for its icon at all. Over the network
+    /// that is seconds for each one, for a picture of a network drive.
+    @ObservationIgnored private lazy var serverIcon: NSImage = {
+        let image = NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
+                            accessibilityDescription: "Server") ?? placeholder
+        image.size = NSSize(width: 16, height: 16)
+        return image
+    }()
+
+    func icon(for url: URL, isNetwork: Bool = false) -> NSImage {
+        if isNetwork { return serverIcon }
         if let cached = icons[url.path] { return cached }
         fetch(url)
         return placeholder
     }
+
+    /// One icon at a time, on a queue of their own: a few slow disks
+    /// answering for their icons held every thread BlockingWork allows, and
+    /// every listing waited behind them.
+    private static let queue = DispatchQueue(label: "dev.verhas.Diptych.sidebarIcons",
+                                             qos: .utility)
 
     private func fetch(_ url: URL) {
         let path = url.path
@@ -118,8 +200,11 @@ final class SidebarIcons {
         asking.insert(path)
         Task {
             // NSImage is not Sendable, so what crosses back is the bytes.
-            let data = await BlockingWork.run { () -> Data? in
-                NSWorkspace.shared.icon(forFile: path).tiffRepresentation
+            let data = await withCheckedContinuation { continuation in
+                Self.queue.async {
+                    continuation.resume(returning:
+                        NSWorkspace.shared.icon(forFile: path).tiffRepresentation)
+                }
             }
             asking.remove(path)
             guard let data, let image = NSImage(data: data) else { return }

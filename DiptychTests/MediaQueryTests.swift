@@ -403,7 +403,7 @@ final class MediaFileTests: XCTestCase {
     private func walk(_ text: String) -> [String] {
         let query = try! FlatQuery.parse(text, saved: [:]).get()
         var found: [FileItem] = []
-        FlatScanner.walk(root: root, query: query, showHidden: false) { batch, _, _ in
+        FlatScanner.walk(root: root, query: query, showHidden: false) { batch, _ in
             found += batch
         }
         return found.filter { !$0.isDirectory }.map(\.relativePath).sorted()

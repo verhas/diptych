@@ -145,7 +145,8 @@ struct TextEditView: View {
             Spacer()
 
             if document.isReadOnly, document.failure == nil {
-                Label("Read only \u{2014} this file cannot be written to",
+                Label(document.readOnlyVolume.map { "Read only \u{2014} \($0) is mounted read-only" }
+                      ?? "Read only \u{2014} this file cannot be written to",
                       systemImage: "lock")
                     .foregroundStyle(.orange)
             } else if document.isEdited {

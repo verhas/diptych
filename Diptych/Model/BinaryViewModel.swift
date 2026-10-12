@@ -26,6 +26,9 @@ final class BinaryViewModel {
     private(set) var bytes: Data
     private(set) var loadError: String?
     private(set) var isLoading = true
+    /// The volume, quoted, when it is mounted read-only: nothing can be
+    /// typed, and there is nothing to save.
+    private(set) var readOnlyVolume: String?
 
     // MARK: - Edit state
 
@@ -206,6 +209,7 @@ final class BinaryViewModel {
                     return (nil, error.localizedDescription)
                 }
             }.value
+        readOnlyVolume = await Task.detached { WriteTrouble.readOnlyVolume(of: url) }.value
 
         if let data = loaded.data { bytes = data }
         loadError = loaded.message
@@ -394,8 +398,15 @@ final class BinaryViewModel {
     /// Accepts one digit. A byte is committed when its digits are complete, or
     /// as soon as no further digit could fit -- typing `9` then `9` in decimal
     /// gives 99 and moves on, because 99x cannot be a byte.
+    /// False, and says why, on a volume mounted read-only.
+    private func mayEdit() -> Bool {
+        guard let volume = readOnlyVolume else { return true }
+        note("\(volume) is mounted read-only: this file cannot be changed.", error: true)
+        return false
+    }
+
     func type(_ character: Character) {
-        guard accepts(character) else { return }
+        guard accepts(character), mayEdit() else { return }
 
         let candidate = typing + String(character)
         guard let value = parse(candidate) else { return }
@@ -553,7 +564,7 @@ final class BinaryViewModel {
 
     /// Removes the selection, pulling everything after it down.
     func removeSelection() {
-        guard count > 0 else { return }
+        guard count > 0, mayEdit() else { return }
         let range = selection
         materialise()
         guard var content = working else { return }
@@ -580,6 +591,7 @@ final class BinaryViewModel {
     /// selecting four bytes and inserting gives four zeros, which is the only
     /// reading of "insert multiple" that needs no second control.
     func insertZeros(_ requested: Int? = nil) {
+        guard mayEdit() else { return }
         let amount = max(requested ?? selectionCount, 1)
         materialise()
         guard var content = working else { return }
@@ -651,10 +663,18 @@ final class BinaryViewModel {
         return parts.isEmpty ? "Nothing has changed." : parts.joined(separator: ", ")
     }
 
+    /// The file with what was typed over it: what overwriting writes.
+    private var bytesWithEdits: Data {
+        var data = bytes
+        for (offset, value) in edits { data[data.startIndex + offset] = value }
+        return data
+    }
+
     func save() {
-        guard hasEdits else { return }
+        guard hasEdits, mayEdit() else { return }
         let structural = working != nil
         let content = working
+        let expected = content.map { Data($0) } ?? bytesWithEdits
 
         let change = MetadataWrite(
             action: "write \u{201C}\(url.lastPathComponent)\u{201D}",
@@ -663,7 +683,8 @@ final class BinaryViewModel {
                 guard let handle = FileHandle(forUpdatingAtPath: self.url.path) else {
                     return ExtendedAttributes.Failure(code: errno == 0 ? EACCES : errno)
                 }
-                defer { try? handle.close() }
+                var closed = false
+                defer { if !closed { try? handle.close() } }
                 do {
                     if structural, let content {
                         // The length can have changed either way, so the whole
@@ -681,6 +702,10 @@ final class BinaryViewModel {
                         }
                     }
                     try handle.synchronize()
+                    // Closed here, not in the defer: a server -- WebDAV --
+                    // sends the file on closing, and says then if it would not.
+                    closed = true
+                    try handle.close()
                 } catch {
                     return ExtendedAttributes.Failure(message: error.localizedDescription)
                 }
@@ -694,6 +719,12 @@ final class BinaryViewModel {
         switch change.perform() {
         case .succeeded(let warning):
             reload()
+            // Read back: a server can take the write and keep none of it.
+            if bytes != expected {
+                note("Not saved: the file on disk is not what was written. The volume did not "
+                     + "keep the change.", error: true)
+                return
+            }
             note(warning ?? "Saved: \(summary).")
             if warning != nil { statusIsError = true }
         case .cancelled:

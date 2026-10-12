@@ -682,9 +682,16 @@ final class DiffDocument {
         }
 
         let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.truncate(atOffset: 0)
-        try handle.write(contentsOf: data)
+        do {
+            try handle.truncate(atOffset: 0)
+            try handle.write(contentsOf: data)
+        } catch {
+            try? handle.close()
+            throw error
+        }
+        // Not left to a defer: a WebDAV server is sent the file on closing,
+        // and a refusal then is the only word that it was not kept.
+        try handle.close()
     }
 
     /// After the file has been read again following an outside change.

@@ -426,6 +426,11 @@ struct Configuration: Codable, Equatable {
     var moveSound = "Tink"
     var trashSound = "Glass"
 
+    /// How often, in seconds, a pane on a file server looks whether its
+    /// folder has changed there, and lists it again when Diptych comes to
+    /// the front. 0: neither -- only Refresh lists it again.
+    var serverRefreshSeconds = 5
+
     /// The columns a pane actually draws.
     var columns: [FileColumn] {
         let ordered = columnOrder.filter { $0 != .name && enabledColumns.contains($0) }
@@ -450,6 +455,7 @@ struct Configuration: Codable, Equatable {
         case terminalBackground, terminalHeight, showFilesInDiptych
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
         case textFormatExtensions, textLineNumbers, textStyle
+        case serverRefreshSeconds
     }
 
     init() {}
@@ -553,6 +559,8 @@ struct Configuration: Codable, Equatable {
             ?? "#1E1E1E"
         terminalHeight = max(100, (try? container.decode(Double.self, forKey: .terminalHeight))
                                   ?? Self.defaultTerminalHeight)
+        serverRefreshSeconds = min(max(0, (try? container.decode(
+            Int.self, forKey: .serverRefreshSeconds)) ?? 5), 3600)
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

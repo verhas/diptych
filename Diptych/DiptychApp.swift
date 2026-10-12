@@ -244,7 +244,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if !isRunningTests {
-            MainActor.assumeIsolated { StartupWarnings.start() }
+            MainActor.assumeIsolated {
+                StartupWarnings.start()
+                ServerAutoConnect.start()
+                ServerAutoConnect.watchWaking()
+            }
         }
 
         MainActor.assumeIsolated {
@@ -312,12 +316,14 @@ struct FileCommands: Commands {
             Button("New Tab") { model?.newTab() }
                 .keyboardShortcut(.newTab)
                 .disabled(model == nil)
+            // Greyed on a read-only server -- FTP, or a share mounted so --
+            // as is everything below that would change what is there.
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut(.newFolder)
-                .disabled(model == nil || model?.active.isFlat == true)
+                .disabled(model == nil || model?.active.isFlat == true || model?.active.volume.isReadOnly == true)
             Button("New File") { model?.requestNewFile() }
                 .keyboardShortcut(.newFile)
-                .disabled(model == nil || model?.active.isFlat == true)
+                .disabled(model == nil || model?.active.isFlat == true || model?.active.volume.isReadOnly == true)
             // Absent, not greyed, when the setting says so: a command switched
             // off is not a command that is temporarily unavailable.
             if model?.clipboardCommandIsOffered ?? false {
@@ -348,10 +354,10 @@ struct FileCommands: Commands {
                 .keyboardShortcut(.compare)
                 .disabled(model == nil)
             Button("Rename...") { model?.requestRename() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
                 .keyboardShortcut(.renameMany)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
             // Absent unless it can work: switched on, and Apple Intelligence
             // ready on this Mac. Settings says which of the two is missing.
             if model?.namesCanBeSuggested ?? false {
@@ -368,20 +374,21 @@ struct FileCommands: Commands {
 
             Button("Copy to Other Pane") { model?.copySelection() }
                 .keyboardShortcut(.copyToOtherPane)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.inactive.volume.isReadOnly == true)
             Button("Move to Other Pane") { model?.moveSelection() }
                 .keyboardShortcut(.moveToOtherPane)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true
+                          || model?.inactive.volume.isReadOnly == true)
 
             Divider()
 
             Button("Change Permissions...") { model?.requestPermissionEdit() }
                 .keyboardShortcut(.changePermissions)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Change Owner...") { model?.requestOwnerEdit() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Change Group...") { model?.requestGroupEdit() }
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
 
             // Named for what they are. Absent entirely when scripts are
             // switched off, or when none of them suits what is selected --
@@ -420,7 +427,7 @@ struct FileCommands: Commands {
 
             Button("Move to Trash") { model?.trashFromMenu() }
                 .keyboardShortcut(.trashNow)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
 
             Divider()
 
@@ -487,7 +494,7 @@ struct FileCommands: Commands {
             // modifier is where anyone would look for it.
             Button("Paste as Link") { model?.pasteAsLink() }
                 .keyboardShortcut(.pasteAsLink)
-                .disabled(model == nil)
+                .disabled(model == nil || model?.active.volume.isReadOnly == true)
 
             Button("Select All") { dispatch(model?.selectAll, #selector(NSText.selectAll(_:))) }
                 .keyboardShortcut(.selectAll)
@@ -560,6 +567,12 @@ struct FileCommands: Commands {
                 .disabled(model == nil)
             Button("Go to Folder...") { model?.requestPathEdit() }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
+                .disabled(model == nil)
+
+            Divider()
+
+            Button("Connect to Server\u{2026}") { model?.requestConnectToServer() }
+                .keyboardShortcut("k")
                 .disabled(model == nil)
         }
 

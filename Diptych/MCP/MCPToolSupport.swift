@@ -123,8 +123,8 @@ enum MCPToolSupport {
             flatExpression: pane.flat?.expression,
             flatStale: pane.isFlat ? pane.flatStale : nil,
             flatProgress: pane.flatProgress.map {
-                MCPModels.FlatProgress(found: $0.found, foldersRead: $0.folders,
-                                       current: $0.current.path)
+                MCPModels.FlatProgress(found: $0.found, foldersRead: $0.walk.folders,
+                                       current: $0.walk.current.path)
             },
             flatStopped: pane.isFlat ? pane.flatStopped : nil,
             flatUnreadableFolders: pane.isFlat && !pane.flatUnreadable.isEmpty

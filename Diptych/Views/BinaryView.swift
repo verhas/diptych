@@ -348,9 +348,13 @@ struct BinaryView: View {
                     .help("Put the selected bytes back to what the file holds (Delete)")
                 Button("Discard All") { model.revertAll() }
             }
+            if let volume = model.readOnlyVolume {
+                Label("Read only \u{2014} \(volume) is mounted read-only", systemImage: "lock")
+                    .foregroundStyle(.orange)
+            }
             Button("Save\u{2026}") { model.confirmingSave = true }
                 .keyboardShortcut("s")
-                .disabled(!model.hasEdits)
+                .disabled(!model.hasEdits || model.readOnlyVolume != nil)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

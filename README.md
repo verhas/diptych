@@ -199,7 +199,8 @@ alone.
 
 ## Sidebar
 
-`⌃⌘S`, or the toolbar icon, shows a sidebar of **Volumes** and **Favourites**.
+`⌃⌘S`, or the toolbar icon, shows a sidebar of **Volumes**, starred
+**Servers** (see [File servers](#file-servers)) and **Favourites**.
 Clicking a row opens it in the active pane.
 
 The highlighted row is not stored: it is *derived* from where the active pane
@@ -243,6 +244,93 @@ drag arrives with the button already up and clears that. An app is not a folder
 to drop into. A row stops flashing within a moment of the drag ending, however
 it ends: the flash is drawn from the clock rather than a repeating animation,
 and the target is let go once position updates stop.
+
+## File servers
+
+**Go ▸ Connect to Server…** (`⌘K`) mounts a file server and opens it in the
+active pane. The other pane stays where it was, so copying to or from the server
+is one keystroke.
+
+| Address | Server |
+| --- | --- |
+| `smb://nas/photos`, or just `nas/photos` | Windows shares, most NAS boxes, Azure Files |
+| `nfs://host/export/path` | NFS, including Google Cloud Filestore |
+| `https://dav.example.com/remote.php/dav` | WebDAV: Nextcloud, ownCloud, many NAS boxes |
+| `ftp://host` | FTP, which macOS mounts read-only |
+| `afp://old-mac/share` | AFP, for old Macs and Time Capsules |
+
+- **Signing in is the system's.** Mounting goes through NetFS, the same as
+  Finder's Connect to Server: macOS shows its own name-and-password window, with
+  *Remember this password in my keychain*, and asks which shares to mount when an
+  SMB address names none. Diptych never sees a password, and a password typed
+  into an address is never written down.
+- **A folder inside a share opens directly:** `smb://nas/photos/2024` mounts
+  `photos` and opens `2024` in it. A share already mounted, by Diptych or by
+  Finder, is opened without asking the server again.
+- **The sheet lists** saved servers (starred), recent ones, and those **on this
+  network** -- NAS boxes and Macs that announce themselves by Bonjour. A click
+  fills in the address, a double-click connects. The network is looked at only
+  while the sheet is open, and macOS asks once for permission to do so.
+- **SFTP, S3 and other object stores** cannot be mounted by macOS itself; the
+  sheet says so, and names the tools that can (Mountain Duck, rclone, sshfs on
+  macFUSE). Once mounted that way they are folders like any other.
+
+**Starred servers appear in the sidebar** under **Servers**, coloured when
+connected and grey when not. A click connects one, or opens it if it is. Its
+eject button disconnects it, and its context menu has **Connect When Diptych
+Starts**, which mounts it at launch without opening anything. The list lives in
+`~/.diptych/servers.json`, readable by you alone.
+
+**A pane left on a server comes back to it.** When a pane arrives at a folder on
+a server that is not connected -- at startup, or from the history -- Diptych
+connects it and opens the folder. A server disconnected while a pane shows it,
+by Finder's eject say, is not mounted again unasked: the pane stays where it
+was, says which server it is waiting for, and offers **Connect** or **Go Home**.
+After the Mac wakes up, panes on servers are listed again, and one whose server
+went away while asleep connects it. Servers mounted by Finder are remembered too,
+so this works for them as well.
+
+**On a server, some things behave differently:**
+
+- **Changes made on other machines show up.** The kernel reports only what this
+  Mac changes, so a pane on a server looks at the folder every five seconds while
+  Diptych is in front, and lists it again whenever Diptych comes to the front.
+  Settings > Behaviour > File Servers sets how often; 0 turns both off, and
+  only Refresh lists the folder again.
+- **A folder listed before opens at once.** Going back into a folder on a
+  server shows its rows as they were last listed in this run, and the status
+  line says *as listed at 14:02, reading it again…* until the fresh listing
+  replaces them. A folder never listed yet shows how many items have been read
+  so far while it is being read.
+- **A read-only server** -- FTP, or a share mounted read-only -- greys out New
+  Folder, New File, Rename, Rename Many, Move to Trash, Paste as Link, the
+  permission and owner commands, and Copy or Move into it; a drop or a paste
+  into it says why it was refused instead of failing halfway. Text Edit and the
+  binary view say the volume is mounted read-only -- not the file, whose
+  permissions may well say `rw-` -- and the binary view takes no edits there.
+- **A save is checked.** A WebDAV server is sent the file when it is closed,
+  and a refusal then is reported rather than lost; the binary view reads the
+  file back after saving and says so if the server did not keep the change.
+- **What reads everything over the network says so first:** the flat view,
+  Calculate Directory Sizes, and Compare Folders with Content ticked each show a
+  note as they start. The flat view's Stop and Clear Directory Sizes end them.
+- **Version tracking is off** for folders on a server: `git status` reads every
+  file of the repository.
+- **Picture and video columns fill in after the rows**, a few files at a time,
+  instead of holding up the listing; a file that has not changed is not read
+  again when the folder is listed again.
+- **`._` files are hidden.** macOS keeps a file's tags and extended attributes in
+  `._name` beside it on a server or disk that cannot hold them; Diptych leaves it
+  out, as Finder does, even with hidden files shown -- on any volume.
+- **NFS asks for no password:** the server goes by your user number, and a
+  refused folder says so, with the number.
+- **The sidebar shows each volume's size and free space**, looked at again each
+  minute while Diptych is in front. A server's volume gets a network-drive icon
+  rather than asking the server for its own, which takes seconds each.
+
+**To try it out**, `test-servers/` has a script that sets up SMB (read-write
+and read-only), NFS, FTP and WebDAV test servers on a Debian machine on your
+network -- a Raspberry Pi will do -- all announced by Bonjour.
 
 ## Sounds
 
@@ -2397,8 +2485,10 @@ them twice.
 continuation -- a second one started while that dialog is open would strand the
 first for ever. Serialised is not the same as ignored, though: asking for
 another transfer while one runs now says so at once, and the panel carries an
-"N more waiting" line. Before that it looked exactly like nothing happening,
-until the second operation began minutes later of its own accord.
+list of what is waiting -- "Copy “a.mov”, “b.mov” and 3 more to “Films”" --
+with an estimate for all of it once the running one has a speed. Before that it
+looked exactly like nothing happening, until the second operation began minutes
+later of its own accord.
 
 The panes are reloaded **and awaited** at the end of each transfer, not fired and
 forgotten. The next transfer in the chain starts the moment the previous one

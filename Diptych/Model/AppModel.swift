@@ -40,6 +40,7 @@ final class AppModel {
         case scriptApproval
         case scriptProblems
         case getScripts
+        case connectServer
         case historyStep
         case historyMany
         case tips
@@ -64,6 +65,7 @@ final class AppModel {
             case .scriptApproval: return "scriptApproval"
             case .scriptProblems: return "scriptProblems"
             case .getScripts:     return "getScripts"
+            case .connectServer:  return "connectServer"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -111,6 +113,11 @@ final class AppModel {
             return nil
         }
         set {
+            if let newValue, newValue.hasPrefix("s:"),
+               let server = ServerStore.shared.saved.first(where: { "s:" + $0.id == newValue }) {
+                openServer(server)
+                return
+            }
             guard let newValue,
                   let entry = (favourites + VolumeList.shared.volumes)
                       .first(where: { $0.id == newValue })
@@ -139,6 +146,12 @@ final class AppModel {
     var permissionScope: String?
 
     var toast: String?
+
+    /// Connect to Server: the address being connected to, while it is, and
+    /// why the last attempt failed.
+    var connectingTo: URL?
+    var connectProblem: String?
+    @ObservationIgnored var connectRequest: ServerMounter.Request?
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
@@ -526,6 +539,11 @@ final class AppModel {
         }
 
         if pair.leftIsDirectory {
+            if left.volume.isNetwork || right.volume.isNetwork {
+                flash("On a server: comparing contents reads every file over the network. "
+                      + "Untick Content in the window to compare without reading them.",
+                      error: false)
+            }
             let directoryPair = DirectoryDiffPair(left: pair.left, right: pair.right)
             // So Cmd-G in that window knows which tab to send the files back to.
             DirectoryDiffOrigins.shared.register(directoryPair, from: self)
@@ -701,6 +719,7 @@ final class AppModel {
     /// and its selection, which is all it renames unless told otherwise.
     func requestRenameMany() {
         let pane = active
+        guard !refusedAsReadOnly(pane, "renamed here") else { return }
         let selected = pane.selectedItems.map(\.url)
         if let flat = pane.flat {
             openRenameWindow?(RenameManyRequest(
@@ -793,17 +812,30 @@ final class AppModel {
     private func transfer(_ kind: FileOperations.Transfer) {
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
-        guard !refusedAsFlatTarget(inactive, kind == .copy ? "copied into" : "moved into")
+        if kind == .move, refusedAsReadOnly(active, "moved from here") { return }
+        guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into")
         else { return }
         performTransfer(urls, to: inactive.directory, kind: kind,
                         into: inactive, from: kind == .move ? active : nil)
     }
 
     /// A flat view lists many folders and is none of them: nothing can be
-    /// copied, moved or made into it. Says so, and is true, when `pane` is one.
-    func refusedAsFlatTarget(_ pane: PaneModel, _ what: String) -> Bool {
-        guard pane.isFlat else { return false }
-        flash("Nothing can be \(what) a flat view: it is many folders, not one", error: true)
+    /// copied, moved or made into it. Nor into a folder on a read-only server.
+    /// Says so, and is true, when `pane` is either.
+    func refusedAsTarget(_ pane: PaneModel, _ what: String) -> Bool {
+        if pane.isFlat {
+            flash("Nothing can be \(what) a flat view: it is many folders, not one", error: true)
+            return true
+        }
+        return refusedAsReadOnly(pane, what + " it")
+    }
+
+    /// FTP, or a share mounted read-only: nothing in `pane` can be changed.
+    /// Said, rather than left to fail halfway through.
+    func refusedAsReadOnly(_ pane: PaneModel, _ what: String) -> Bool {
+        guard pane.volume.isReadOnly else { return false }
+        let name = pane.volume.name ?? pane.directory.lastPathComponent
+        flash("Nothing can be \(what): \u{201C}\(name)\u{201D} is read-only", error: true)
         return true
     }
 
@@ -833,6 +865,7 @@ final class AppModel {
         let pane = active
         let urls = pane.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        guard !refusedAsReadOnly(pane, "moved to the Trash from here") else { return }
 
         // Where the cursor should land afterwards: the row below the last one
         // being deleted, or -- if the deletion runs to the end of the listing --
@@ -872,7 +905,7 @@ final class AppModel {
 
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
-        guard !refusedAsFlatTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in") else { return }
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
@@ -1188,13 +1221,13 @@ final class AppModel {
     @ObservationIgnored private var scriptProblemsWaiting = false
 
     func requestNewFolder() {
-        guard !refusedAsFlatTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in") else { return }
         textInput = suggestedName("untitled folder")
         dialog = .newFolder
     }
 
     func requestNewFile() {
-        guard !refusedAsFlatTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in") else { return }
         textInput = suggestedName("untitled.txt")
         dialog = .newFile
     }
@@ -1264,6 +1297,7 @@ final class AppModel {
     /// Rename happens in the row itself, as in Finder -- no dialog.
     func requestRename() {
         guard let item = singleSelection("rename") else { return }
+        guard !refusedAsReadOnly(active, "renamed here") else { return }
 
         // With the Quick Look panel up it holds key focus, so a text field in
         // this window could never receive typing. Take key back; the panel stays
@@ -1647,18 +1681,49 @@ final class AppModel {
         // Serialised, however, is not the same as ignored: asking for a second
         // transfer while one is running used to look exactly like nothing
         // happening, until it began minutes later of its own accord.
-        if transferProgress != nil || queuedTransfers > 0 {
-            queuedTransfers += 1
-            let verb = kind == .move ? "Move" : "Copy"
-            flash("\(verb) of \(urls.count) item\(urls.count == 1 ? "" : "s") queued",
+        let waiting = QueuedTransfer(verb: kind == .move ? "Move" : "Copy",
+                                     names: urls.map(\.lastPathComponent),
+                                     destination: destination.lastPathComponent)
+        if transferRunning || !transferQueue.isEmpty {
+            transferQueue.append(waiting)
+            flash("\(waiting.verb) of \(urls.count) item\(urls.count == 1 ? "" : "s") queued",
                   error: false)
+            // Measured while it waits, so the estimate can cover it too.
+            Task { [weak self] in
+                let bytes = await BlockingWork.run { FileOperations.totalBytes(of: urls) }
+                guard let self,
+                      let index = self.transferQueue.firstIndex(where: { $0.id == waiting.id })
+                else { return }
+                self.transferQueue[index].bytes = bytes
+            }
         }
 
         enqueueTransfer { [weak self] in
             guard let self else { return }
-            if self.queuedTransfers > 0 { self.queuedTransfers -= 1 }
+            self.transferQueue.removeAll { $0.id == waiting.id }
+            self.transferRunning = true
+            defer { self.transferRunning = false }
             await self.runTransfer(urls, to: destination, kind: kind,
                                    into: destinationPane, from: sourcePane)
+        }
+    }
+
+    /// A copy or move asked for while another runs: what the progress panel
+    /// lists under the one running.
+    struct QueuedTransfer: Identifiable {
+        let id = UUID()
+        let verb: String
+        let names: [String]
+        let destination: String
+        /// How much it is, once measured.
+        var bytes: Int64?
+
+        /// "Copy “a.mov”, “b.mov” and 3 more to “Films”"
+        var description: String {
+            let quoted = names.prefix(2).map { "\u{201C}\($0)\u{201D}" }
+            var what = quoted.joined(separator: ", ")
+            if names.count > 2 { what += " and \(names.count - 2) more" }
+            return "\(verb) \(what) to \u{201C}\(destination)\u{201D}"
         }
     }
 
@@ -1666,8 +1731,26 @@ final class AppModel {
 
     /// The sheet, while there is one. nil means nothing is being shown.
     var transferProgress: TransferProgress?
-    /// Transfers asked for while another was running.
-    private(set) var queuedTransfers = 0
+    /// Transfers asked for while another was running, in the order they
+    /// will run.
+    private(set) var transferQueue: [QueuedTransfer] = []
+    var queuedTransfers: Int { transferQueue.count }
+    /// From the moment a transfer starts, not from when its panel shows.
+    @ObservationIgnored private var transferRunning = false
+
+    /// How long everything still to do will take -- the rest of this
+    /// transfer and all those waiting -- at the speed this one is going.
+    /// Nil until that speed is known, or while a waiting one is unmeasured.
+    var transfersRemaining: String? {
+        guard !transferQueue.isEmpty, let progress = transferProgress,
+              let rate = progress.rate, progress.bytesTotal > 0 else { return nil }
+        var bytes = progress.bytesTotal - progress.bytesDone
+        for waiting in transferQueue {
+            guard let size = waiting.bytes else { return nil }
+            bytes += size
+        }
+        return TransferProgress.duration(Double(bytes) / rate).map { "about \($0) left in all" }
+    }
     @ObservationIgnored private var transferMonitor: TransferMonitor?
     /// What had already arrived when the user pressed Cancel.
     @ObservationIgnored private var cancelledTargets: [URL] = []
@@ -1928,9 +2011,12 @@ final class AppModel {
     func eject(_ entry: SidebarEntry) {
         let name = entry.name
         let mountPoint = entry.url.path
+        let verb = entry.isNetwork ? "disconnect" : "eject"
 
+        // A server's share is unmounted; there is no disk to eject.
         FileManager.default.unmountVolume(at: entry.url,
-                                          options: [.allPartitionsAndEjectDisk]) { [weak self] error in
+                                          options: entry.isNetwork ? []
+                                            : [.allPartitionsAndEjectDisk]) { [weak self] error in
             // Error is not Sendable; the message is.
             let message = error?.localizedDescription
 
@@ -1942,7 +2028,7 @@ final class AppModel {
                 guard let self else { return }
 
                 if let message {
-                    self.flash("Could not eject \(name): \(message)")
+                    self.flash("Could not \(verb) \(name): \(message)")
                     return
                 }
 
@@ -1955,7 +2041,8 @@ final class AppModel {
                 }
 
                 VolumeList.shared.reload()
-                self.flash("Ejected \(name)", error: false)
+                self.flash("\(verb == "eject" ? "Ejected" : "Disconnected") \(name)",
+                           error: false)
             }
         }
     }
@@ -2561,7 +2648,7 @@ final class AppModel {
     /// A cut on the clipboard is left alone: linking to something is not moving
     /// it, so the pending move stays pending and Paste can still perform it.
     func pasteAsLink() {
-        guard !refusedAsFlatTarget(active, "pasted into") else { return }
+        guard !refusedAsTarget(active, "pasted into") else { return }
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else {
             flash("The clipboard holds no files", error: true)
@@ -2586,7 +2673,7 @@ final class AppModel {
 
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
-        guard !refusedAsFlatTarget(active, "pasted into") else { return }
+        guard !refusedAsTarget(active, "pasted into") else { return }
 
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else { return }
@@ -2905,7 +2992,7 @@ final class AppModel {
         // Onto a folder's row it is that folder; onto the flat view itself
         // there is no one folder for it to go in.
         if pane.isFlat, destination == pane.directory {
-            _ = refusedAsFlatTarget(pane, "dropped into")
+            _ = refusedAsTarget(pane, "dropped into")
             return false
         }
         // A failed drop is what makes AppKit slide the drag image back to
@@ -3107,6 +3194,7 @@ final class AppModel {
     func drop(_ urls: [URL], into pane: PaneModel, destination: URL? = nil) -> Bool {
         let destination = destination ?? pane.directory
         defer { dragOrigin = nil }
+        if refusedAsReadOnly(pane, "dropped into it") { return false }
         // Dropping something back into the folder it already lives in.
         let sources = urls.filter { $0.deletingLastPathComponent().path != destination.path }
         guard !sources.isEmpty else {
@@ -3164,6 +3252,7 @@ final class AppModel {
     }
 
     private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {
+        guard !refusedAsReadOnly(active, "changed here") else { return nil }
         let items = active.selectedItems
         guard !items.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -3250,6 +3339,7 @@ final class AppModel {
     /// `anchor` is the row whose cell hosts the editor; the edit still applies
     /// to the whole selection.
     func requestPermissionEdit(anchor: FileItem.ID? = nil) {
+        guard !refusedAsReadOnly(active, "changed here") else { return }
         let selected = active.selectedItems
         guard !selected.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -4000,6 +4090,10 @@ final class AppModel {
 
     func calculateDirectorySizes() {
         guard canCalculateDirectorySizes else { return }
+        if active.volume.isNetwork {
+            flash("On a server: every folder below is read over the network, which can take "
+                  + "long. Clear Directory Sizes stops it.", error: false)
+        }
         DirectorySizes.shared.calculate(DirectorySizes.folders(in: active.rows))
     }
 

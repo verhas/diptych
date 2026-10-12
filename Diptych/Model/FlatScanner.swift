@@ -8,10 +8,18 @@ import Foundation
 /// goes up while it works. Stopped by cancelling the task reading it.
 enum FlatScanner {
 
+    /// How far the walk has got: the folders read, the items looked at in
+    /// them, and the folder being read now.
+    struct Progress: Sendable, Equatable {
+        var folders = 0
+        var seen = 0
+        var current: URL
+    }
+
     enum Event: Sendable {
-        /// Rows found since the last batch; how many folders have been read,
-        /// and the one being read now.
-        case found([FileItem], folders: Int, current: URL)
+        /// Rows found since the last batch -- none, when nothing has passed
+        /// for a while -- and how far the walk has got.
+        case found([FileItem], Progress)
         /// Done: the folders that could not be read.
         case finished(unreadable: [URL])
     }
@@ -28,8 +36,8 @@ enum FlatScanner {
             continuation.onTermination = { _ in cancelled.cancel() }
             Thread.detachNewThread {
                 let unreadable = walk(root: root, query: query, showHidden: showHidden,
-                                      keys: keys, cancelled: cancelled) { batch, folders, current in
-                    continuation.yield(.found(batch, folders: folders, current: current))
+                                      keys: keys, cancelled: cancelled) { batch, progress in
+                    continuation.yield(.found(batch, progress))
                 }
                 if !cancelled.isCancelled {
                     continuation.yield(.finished(unreadable: unreadable))
@@ -40,12 +48,14 @@ enum FlatScanner {
     }
 
     /// The walk itself, on the caller's thread: what the tests drive.
-    /// `report` gets the rows in batches, at most a few times a second.
+    /// `report` gets the rows in batches, a few times a second -- with
+    /// none, while nothing passes, so the counts still move: a tree on a
+    /// server can be read for minutes without a single match.
     @discardableResult
     static func walk(root: URL, query: FlatQuery, showHidden: Bool,
                      keys: Set<URLResourceKey> = DirectoryLoader.keys(for: columns),
                      cancelled: CancellationFlag = CancellationFlag(),
-                     report: ([FileItem], Int, URL) -> Void) -> [URL] {
+                     report: ([FileItem], Progress) -> Void) -> [URL] {
         let fm = FileManager()
         var options: FileManager.DirectoryEnumerationOptions = []
         if !showHidden { options.insert(.skipsHiddenFiles) }
@@ -53,18 +63,27 @@ enum FlatScanner {
         var pending: [(url: URL, prefix: String)] = [(root, "")]
         var unreadable: [URL] = []
         var batch: [FileItem] = []
-        var folders = 0
-        var lastReport = Date.distantPast
+        var progress = Progress(current: root)
+        var lastReport = Date()
 
         while let (folder, prefix) = pending.popLast() {
             if cancelled.isCancelled { return unreadable }
-            folders += 1
-            guard let urls = try? fm.contentsOfDirectory(at: folder,
-                                                         includingPropertiesForKeys: DirectoryLoader.fileSystemKeys(keys),
-                                                         options: options) else {
+            // Said before the folder is read: it is the slow part on a server.
+            progress.current = folder
+            if Date().timeIntervalSince(lastReport) > 0.2 {
+                report(batch, progress)
+                batch = []
+                lastReport = Date()
+            }
+            progress.folders += 1
+            guard let urls = (try? fm.contentsOfDirectory(at: folder,
+                                                          includingPropertiesForKeys: DirectoryLoader.fileSystemKeys(keys),
+                                                          options: options))
+                .map(DirectoryLoader.withoutAppleDouble) else {
                 unreadable.append(folder)
                 continue
             }
+            progress.seen += urls.count
             var below: [(URL, String)] = []
             for (index, url) in urls.enumerated() {
                 if index % 256 == 0, cancelled.isCancelled { return unreadable }
@@ -80,14 +99,9 @@ enum FlatScanner {
             }
             // In listing order, the first folder walked first.
             pending.append(contentsOf: below.reversed())
-
-            if !batch.isEmpty, Date().timeIntervalSince(lastReport) > 0.2 {
-                report(batch, folders, folder)
-                batch = []
-                lastReport = Date()
-            }
         }
-        if !batch.isEmpty || folders > 0 { report(batch, folders, root) }
+        progress.current = root
+        if !batch.isEmpty || progress.folders > 0 { report(batch, progress) }
         return unreadable
     }
 
