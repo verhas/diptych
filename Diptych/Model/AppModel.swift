@@ -1219,11 +1219,9 @@ final class AppModel {
 
         // With the Quick Look panel up it holds key focus, so a text field in
         // this window could never receive typing. Take key back; the panel stays
-        // on screen, which is the whole point -- look at the scan, name it,
-        // move on.
-        if QuickLookController.shared.isVisible {
-            window?.makeKeyAndOrderFront(nil)
-        }
+        // on screen and in front, which is the whole point -- look at the scan,
+        // name it, move on.
+        QuickLookController.shared.yieldKey(to: window)
 
         renameTable = currentTable
         active.renameText = item.name
@@ -1344,7 +1342,7 @@ final class AppModel {
             // thing.
             guard pane === active, pane.selection == [item.id] else { return }
 
-            if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
+            QuickLookController.shared.yieldKey(to: window)
             renameTable = currentTable
             if let suggestion = outcome?.name {
                 let suffix = item.url.pathExtension
@@ -4131,7 +4129,7 @@ extension AppModel {
     func requestValueEdit(anchor: FileItem.ID, column: FileColumn, in pane: PaneModel) {
         guard let item = pane.rows.first(where: { $0.id == anchor }),
               let target = CellEdit.target(column, for: item) else { return }
-        if QuickLookController.shared.isVisible { window?.makeKeyAndOrderFront(nil) }
+        QuickLookController.shared.yieldKey(to: window)
         renameTable = currentTable
         let text = CellEdit.text(of: target, for: item)
         pane.valueEditText = text

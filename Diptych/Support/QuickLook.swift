@@ -45,10 +45,30 @@ final class QuickLookController: NSObject {
         // arrow keys back into the pane. Our window's first responder stays the
         // table throughout, so focus returns to it when the panel closes.
         panel.orderFront(nil)
+        keepAbove(panel)
 
         // The panel takes the keyboard, as a preview panel does: it closes
         // when it stops being key, so it cannot be persuaded to float.
         // `previewPanel(_:handle:)` pushes its arrow keys back into the pane.
+    }
+
+    /// Finder's preview floats: rename the file in the window behind it and
+    /// the preview stays in view, even over a window it half covers. A shared
+    /// QLPreviewPanel sits at the normal window level when its controller is
+    /// not found through the responder chain, so the window that took the
+    /// keyboard back for a rename covered it. Floating, it stays on top.
+    private func keepAbove(_ panel: QLPreviewPanel) {
+        panel.level = .floating
+    }
+
+    /// Gives the keyboard back to a browser window -- for a rename or a value
+    /// edit typed in its rows -- and leaves the panel where it is, in front.
+    /// `makeKey`, not `makeKeyAndOrderFront`: bringing the window forward is
+    /// what buried the preview.
+    func yieldKey(to window: NSWindow?) {
+        guard isVisible, let window else { return }
+        keepAbove(QLPreviewPanel.shared())
+        window.makeKey()
     }
 
     var isVisible: Bool {
@@ -86,6 +106,7 @@ final class QuickLookController: NSObject {
         panel.delegate = self
         panel.reloadData()
         panel.refreshCurrentPreviewItem()
+        keepAbove(panel)
     }
 
     /// The same files, changed in place -- turned, their location removed:
@@ -117,6 +138,9 @@ final class QuickLookController: NSObject {
         if let rendered = linkReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
+            return rendered
+        }
+        if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
             return rendered
         }
         if Self.markdownExtensions.contains(url.pathExtension.lowercased()),
@@ -161,6 +185,27 @@ final class QuickLookController: NSObject {
         // session would otherwise overwrite each other in the scratch directory.
         let stem = directory.replacingOccurrences(of: "/", with: "_")
         let target = scratch.appendingPathComponent("DS_Store\(stem).html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A property list as the structure Text Edit's tree shows, rather than
+    /// Quick Look's source text -- or, for a binary list, a name and a size.
+    private func plistReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= PlistReport.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let html = PlistReport.html(for: data, name: url.lastPathComponent,
+                                    path: url.deletingLastPathComponent().path)
+        // The panel's title is the previewed file's name, so the page is named
+        // after the plist itself -- in a folder of its own per path, so two
+        // Info.plist files do not overwrite each other.
+        let folder = scratch.appendingPathComponent(
+            "plist" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
             return nil
         }

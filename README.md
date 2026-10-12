@@ -1323,6 +1323,25 @@ preview is written to, or every image in every README would break.
 The one gap: Foundation does not parse task lists, so `- [ ] todo` renders as a
 list item whose text begins `[ ]`.
 
+## Previewing a property list
+
+Quick Look shows an XML plist as its source and a binary one as a name and a
+size. Both are rendered instead, through the same hook as `.DS_Store` and
+Markdown: `PlistReport` reads the file with `PropertyListSerialization`, which
+takes XML, binary and OpenStep alike, and lays it out as Text Edit's tree does
+-- Key, Type and Value, one row each, dictionaries and arrays folding under
+their keys with `<details>`, since Quick Look runs no script. An XML list is
+read by `PlistTree`, the tree editor's own reader, so the keys stay in the
+file's order; a binary one goes through its XML form first. The page is
+written as `<name>.plist.html` in a folder of its own per path, because the
+panel's title is the file name, and it stops at 5,000 rows.
+
+The panel's keys belong to the pane behind it. A text, JSON or plist preview
+puts a read-only text view in the panel, and the key router used to treat that
+as a text field and leave the keys alone -- F2 beeped. And the panel floats:
+F2 gives the keyboard back to the browser window with `makeKey`, not
+`makeKeyAndOrderFront`, which brought the window over the preview.
+
 ## Font and zoom
 
 Settings ▸ **Appearance** chooses the font the panes are drawn with, and the

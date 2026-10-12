@@ -98,9 +98,16 @@ final class KeyRouter {
                     return true
                 }
 
+                // The Quick Look panel is a viewer, never an editor. A text,
+                // JSON or plist preview puts a read-only text view in it, and
+                // that text view used to win the "text field" test below -- so
+                // F2 and the rest beeped there, while a PDF preview let them
+                // through. The panel's keys belong to the pane behind it.
+                let previewing = window is QLPreviewPanel
+
                 // Never steal keys from a text field: Return in the path bar
                 // must mean "commit", not "enter directory".
-                if let responder = window.firstResponder,
+                if !previewing, let responder = window.firstResponder,
                    responder is NSText || responder.isKind(of: NSTextView.self) {
                     return false
                 }
@@ -116,7 +123,7 @@ final class KeyRouter {
                 // F2 included, died the moment a preview opened.
                 var target = self.models.lazy.compactMap(\.model)
                     .first { $0.window === window }
-                if target == nil, window is QLPreviewPanel {
+                if target == nil, previewing {
                     target = QuickLookController.shared.owner
                 }
                 guard let model = target else { return false }

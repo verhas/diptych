@@ -171,6 +171,21 @@ for the file -- no fonts, spelling or services. The tree's has them too.
   is only an anchor or a tag -- `defaults: &defaults`, `point: !vector` -- with
   its mapping indented below, as in Docker Compose and CI files, was reported
   as "A key cannot be indented under a line that already has its value".
+- **F2 beeped while Quick Look showed a text, JSON or plist file.** The
+  preview's read-only text took the key as if it were a text field. The keys
+  of the panel now go to the pane behind it, whatever it shows.
+- **Renaming with Quick Look open hid the preview** behind the window you were
+  renaming in. The preview stays in front now, as in Finder -- look at the
+  file, name it, move on, even in a window it half covers.
+
+---
+
+## Property lists in Quick Look
+
+Space on a `.plist` shows it as the tree in Text Edit shows it: Key, Type and
+Value, nested dictionaries and arrays folding under their keys, an XML list in
+its own key order. A binary plist, which Quick Look showed as a name and a
+size, previews the same way.
 
 ---
 
@@ -180,4 +195,4 @@ Nothing to do.
 
 ---
 
-*1133 tests.*
+*1137 tests.*
