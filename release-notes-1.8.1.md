@@ -157,6 +157,8 @@ for the file -- no fonts, spelling or services. The tree's has them too.
   shaded only its last line; the element is now shaded from its `<`.
 - **⌘F did nothing in the tree.** It looked in the hidden text.
 - **Wrap lines** is greyed out in the tree, which has no lines to wrap.
+- **The tree's line-number gutter drew its edge up through the toolbar**,
+  across the Save button. It stops at the gutter now.
 - **Text typed in a tree row was lost when you clicked elsewhere.** It stayed
   in the row, unsaved, in the colours of a row being edited -- white on a light
   background. Clicking away now keeps it, as Return does.

@@ -10,6 +10,10 @@ final class TreeLineGutter: NSRulerView {
     init(scrollView: NSScrollView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
         ruleThickness = 30
+        // Since macOS 14 a view draws past its bounds unless told not to, and
+        // the rect AppKit asks the ruler to draw can reach above it -- the
+        // separator ran up through the window's toolbar, across Save.
+        clipsToBounds = true
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -41,8 +45,10 @@ final class TreeLineGutter: NSRulerView {
                 text.draw(at: NSPoint(x: bounds.maxX - 6 - size.width, y: rowRect.midY - size.height / 2),
                           withAttributes: attributes)
             }
+            // Within the ruler, as Text Edit's own gutter draws it.
+            let area = rect.intersection(bounds)
             NSColor.separatorColor.setFill()
-            NSRect(x: bounds.maxX - 1, y: rect.minY, width: 1, height: rect.height).fill()
+            NSRect(x: bounds.maxX - 1, y: area.minY, width: 1, height: area.height).fill()
         }
     }
 }

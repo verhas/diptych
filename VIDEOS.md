@@ -46,6 +46,13 @@ Status: **done**, **next**, or **idea**.
 - Hard links: Find Sibling Names, the other names of the same file.
 - The Quick Look page for a link, which shows the link rather than its target.
 
+**Editing note:** the link icons and counts are only a few pixels in a
+1080p frame and can't be read at normal size. Zoom in on them slowly, Ken
+Burns style, while the narration explains them: the arrow, the hard-link
+count, the red dot of a broken link and the orange executable badge. Hold
+long enough to read each one, then zoom back out to the whole window. Do
+the same for the arrow when hovering over it.
+
 ## 6. EXIF and maps -- idea
 
 - The EXIF editor and the map of where a photo was taken.
