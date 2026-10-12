@@ -95,10 +95,20 @@ script, run from its right-click **Run ▸** menu with arguments you type.
 
 ## 10. Rename Many -- idea
 
-- Renaming many files with regular expressions and naming templates.
-- Renaming photos by their EXIF date.
-- The preview before anything is renamed, and how name clashes are handled.
-- Undoing the whole rename at once.
+- One regular expression over a whole folder (⌃⌘R), always matching the
+  whole name, with `$1`, `$2`… in the replacement.
+- Each file shown with the name it would get; non-matching files dimmed.
+- Selection only, and Rename Many on a flat view, across folders.
+- The plan is checked before anything is renamed: clashes are refused, naming
+  both files.
+- **Renames that depend on each other are put in order.** `(.)(..)` → `$2$1`
+  on `ABC`, `BCA` and `CAB` turns each into the next, though every new name is
+  one of the old ones. A chain runs in the order that frees each name before
+  it is needed. A loop like this one has no such order, so one file steps
+  aside under a temporary `.diptych-rename-…` name and takes its new name at
+  the end. The window says when that happens.
+- Undoing the whole rename in one step.
+- Renaming photos by their EXIF date is a job for the agent, not this window.
 
 ## 11. Apple Intelligence -- idea
 
@@ -187,3 +197,19 @@ Right-click ▸ Video ▸ Edit Metadata… on QuickTime and MP4 videos.
 - The EXIF editor's file list: Open, Quick Look, Copy Path.
 - The column headers: showing, hiding and ordering columns.
 - Diptych ▸ Check for Updates…, and the update setting.
+
+## 21. Directory sizes -- idea, about 2 minutes
+
+View ▸ Calculate Directory Sizes, or **∑** in the toolbar.
+
+- Every folder in the pane gets its total in the Size column, everything
+  under it counted. The command is greyed out while the Size column is hidden.
+- The colours: teal for a finished total, orange for one still changing, and
+  `??` for a folder nothing is known about yet.
+- Early estimates that grow as the folders inside are read, with the totals of
+  the folders above following.
+- Sorting by Size while it runs: the rows move as the totals grow.
+- It keeps going in the background while the pane goes elsewhere. One reader
+  per volume, so a second request waits its turn.
+- The Info window shows the same total.
+- View ▸ Clear Directory Sizes.

@@ -614,7 +614,10 @@ out first and refuses, naming the files:
 moves first. That is a topological sort over "my new name is somebody's old
 name". A **cycle** cannot be ordered — `a-b` and `b-a` with `(.*)-(.*)` → `$2-$1`
 swap — so one file steps aside under a `.diptych-rename-…` name and comes back
-at the end, which the window says out loud. A step that fails stops the run,
+at the end, which the window says out loud. A longer loop takes the same single
+step aside: `(.)(..)` → `$2$1` on `ABC`, `BCA` and `CAB` turns each into the
+next -- `ABC` steps aside, `CAB` becomes `ABC`, `BCA` becomes `CAB`, and the
+parked file becomes `BCA`. Every disjoint loop costs one temporary name. A step that fails stops the run,
 because the steps after it were ordered on the assumption that it had happened;
 what was done is reported and can be undone.
 
