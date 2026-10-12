@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-10-11. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-10-13. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -25925,6 +25925,7 @@ P	2566676	6.6066	3.3024	NG	05	Alimosho
 P	2566696	6.6101	3.3097	NG	05	Akowonjo
 P	2591159	4.7614	6.7496	NG	50	Degema Hulk
 P	7732748	6.4463	3.4772	NG	05	Lekki
+P	10276592	4.6884	6.3152	NG	52	Ogbia
 P	12129605	11.5596	9.6641	NG	39	Chakwama
 P	3616035	12.1973	-86.0971	NI	10	Tipitapa
 P	3616232	13.4841	-86.5823	NI	09	Somoto
