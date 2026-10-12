@@ -1,9 +1,11 @@
-# Diptych 1.8.1
+# Diptych 1.9.0
 
-Text Edit becomes an editor for JSON, XML, YAML and TOML: it colours them,
-closes brackets, quotes and XML tags, formats JSON and XML, shows JSON, XML,
-YAML and property lists as a tree that can be edited, and edits by lines as
-IntelliJ does. And a folder's files can be put in an order of your own.
+File servers: Go ▸ Connect to Server mounts SMB, NFS, WebDAV, FTP and AFP
+servers, keeps the ones you star in the sidebar, and brings them back after a
+restart or sleep. Text Edit becomes an editor for JSON, XML, YAML and TOML: it
+colours them, closes brackets, quotes and XML tags, formats JSON and XML, shows
+JSON, XML, YAML and property lists as a tree that can be edited, and edits by
+lines as IntelliJ does. And a folder's files can be put in an order of your own.
 
 ---
 

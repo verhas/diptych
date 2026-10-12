@@ -278,7 +278,7 @@
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Diptych browses your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "Diptych browses removable volumes.";
-				MARKETING_VERSION = 1.8.1;
+				MARKETING_VERSION = 1.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.verhas.Diptych;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -307,7 +307,7 @@
 				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "Diptych browses your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSRemovableVolumesUsageDescription = "Diptych browses removable volumes.";
-				MARKETING_VERSION = 1.8.1;
+				MARKETING_VERSION = 1.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.verhas.Diptych;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
