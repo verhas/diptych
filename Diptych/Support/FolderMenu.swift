@@ -35,6 +35,24 @@ final class FolderMenu: NSObject {
             add("New from Clipboard", .newFromClipboard, to: menu) { model.newFromClipboard() }
         }
 
+        // The scripts that take no items: they are about the folder on
+        // screen, and this is the menu for the folder on screen. The file
+        // menu's own empty-selection case never shows -- SwiftUI asks it only
+        // about rows -- so without this they were reachable from File alone.
+        let scripts = ScriptCatalogue.shared.applicable(to: [], in: pane.directory)
+        if !scripts.isEmpty {
+            let entry = NSMenuItem(title: "Scripts", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for script in scripts {
+                add(script.name, nil, to: sub) {
+                    model.runScript(script, on: [], in: pane.directory)
+                }
+                sub.items.last?.toolTip = script.summary.isEmpty ? nil : script.summary
+            }
+            entry.submenu = sub
+            menu.addItem(entry)
+        }
+
         menu.addItem(.separator())
         add("Paste", .paste, to: menu) { model.pasteIntoActivePane() }
         add("Paste as Link", .pasteAsLink, to: menu) { model.pasteAsLink() }
@@ -55,10 +73,10 @@ final class FolderMenu: NSObject {
         DispatchQueue.main.async { menu.popUp(positioning: nil, at: at, in: nil) }
     }
 
-    private func add(_ title: String, _ shortcut: KeyboardShortcut, to menu: NSMenu,
+    private func add(_ title: String, _ shortcut: KeyboardShortcut?, to menu: NSMenu,
                      run: @escaping () -> Void) {
         let item = NSMenuItem(title: title, action: #selector(chose(_:)), keyEquivalent: "")
-        item.show(shortcut)
+        if let shortcut { item.show(shortcut) }
         item.target = self
         item.tag = actions.count
         actions.append(run)

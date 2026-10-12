@@ -177,6 +177,13 @@ for the file -- no fonts, spelling or services. The tree's has them too.
 - **Renaming with Quick Look open hid the preview** behind the window you were
   renaming in. The preview stays in front now, as in Finder -- look at the
   file, name it, move on, even in a window it half covers.
+- **A name that slipped while being clicked no longer says "Already in".** A
+  drag that puts files back in their own folder now slides home, and the
+  message shows only when the drag went somewhere -- to the other pane, or
+  further than a row or two.
+- **Scripts that take no items are on the empty-space menu.** A script with
+  `args: 0` works on the folder on screen, so right-clicking below the rows
+  offers it under Scripts ▸. It was reachable only from File ▸ Scripts.
 
 ---
 

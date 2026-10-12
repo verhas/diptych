@@ -2860,8 +2860,36 @@ final class AppModel {
             _ = refusedAsFlatTarget(pane, "dropped into")
             return false
         }
-        drop(urls, into: pane, destination: destination)
-        return true
+        // A failed drop is what makes AppKit slide the drag image back to
+        // where it came from -- the right answer to a drop that moves nothing.
+        return drop(urls, into: pane, destination: destination)
+    }
+
+    /// Where a drag out of one of this window's panes began, and the files
+    /// it carried: a drop that puts them back where they are is a wobble of
+    /// the hand during a click far more often than a real attempt to move.
+    private var dragOrigin: (pane: PaneModel, point: NSPoint, url: URL)?
+
+    /// How far, in points, a drag has to travel within its own pane before
+    /// putting a file back in its own folder is worth a word. A row or two:
+    /// clicking a name repeatedly drags it a few points at most.
+    private static let dragWobble: CGFloat = 40
+
+    /// Called as a row's drag begins -- once per dragged row, all at the same
+    /// moment, so the last one to call is as good as the first.
+    func dragStarted(from pane: PaneModel, url: URL) {
+        dragOrigin = (pane, NSEvent.mouseLocation, url)
+    }
+
+    /// Whether a drop that would leave everything where it is deserves the
+    /// "Already in" message: always when it came from elsewhere or landed in
+    /// the other pane, otherwise only when it travelled further than a
+    /// wobble of the mouse.
+    private func dropWasDeliberate(_ urls: [URL], into pane: PaneModel) -> Bool {
+        guard let origin = dragOrigin, urls.contains(origin.url) else { return true }
+        guard origin.pane === pane else { return true }
+        let now = NSEvent.mouseLocation
+        return hypot(now.x - origin.point.x, now.y - origin.point.y) > Self.dragWobble
     }
 
     private func shouldMove(_ urls: [URL], to destination: URL) -> Bool {
@@ -3027,14 +3055,20 @@ final class AppModel {
     ///
     /// `destination` is the specific folder within `pane` the drop landed on --
     /// spring-loading's doing -- or, when nil, the pane's own directory.
-    func drop(_ urls: [URL], into pane: PaneModel, destination: URL? = nil) {
+    @discardableResult
+    func drop(_ urls: [URL], into pane: PaneModel, destination: URL? = nil) -> Bool {
         let destination = destination ?? pane.directory
+        defer { dragOrigin = nil }
         // Dropping something back into the folder it already lives in.
         let sources = urls.filter { $0.deletingLastPathComponent().path != destination.path }
         guard !sources.isEmpty else {
-            // Say so rather than appearing to ignore the drop entirely.
-            flash("Already in \u{201C}\(destination.lastPathComponent)\u{201D}")
-            return
+            // Say so rather than appearing to ignore the drop entirely -- but
+            // not for a name that slipped a few points while being clicked,
+            // where the image sliding home says all there is to say.
+            if dropWasDeliberate(urls, into: pane) {
+                flash("Already in \u{201C}\(destination.lastPathComponent)\u{201D}")
+            }
+            return false
         }
 
         activate(pane)
@@ -3043,6 +3077,7 @@ final class AppModel {
 
         performTransfer(sources, to: destination, kind: move ? .move : .copy,
                         into: pane, from: pane === left ? right : left)
+        return true
     }
 
     private func onSameVolume(_ urls: [URL], as destination: URL) -> Bool {

@@ -516,6 +516,7 @@ struct PaneView: View {
                 TableRow(item)
                     .itemProvider {
                         guard !item.isParent else { return nil }
+                        model.dragStarted(from: pane, url: item.url)
                         // Deliberately not `NSItemProvider(contentsOf:)`, and
                         // not `registerFileRepresentation` either -- both set
                         // up real file-*promise* machinery (visible on the

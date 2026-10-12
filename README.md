@@ -1,6 +1,6 @@
 #  Diptych
 
-*Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.*
+*Diptych — pronounced ‘deep tech’ — a two-pane AI-driven file manager for macOS.*
 
 https://verhas.github.io/diptych/
 
@@ -699,7 +699,8 @@ the selection is left out. The images are listed at the top, each with its
 full path — the window lives on its own, apart from the pane it came from, and
 an agent can open it on images from different folders. Click one to pick it:
 **Space** shows it in Quick Look, **Return** or **F3** opens it, and a
-double-click opens it too. Their fields are below, in three groups: Image and Camera (the TIFF fields — description,
+double-click opens it too; right-click for **Open**, **Quick Look** and **Copy
+Path**. Their fields are below, in three groups: Image and Camera (the TIFF fields — description,
 artist, copyright, make, model), Photo (dates, time zone, lens, exposure, ISO)
 and Location (GPS).
 
@@ -1499,7 +1500,9 @@ symlink is cheap, and doing it during a redraw is not.
   match; a full search of a startup disk takes about two minutes where
   `find / -inum` takes three and a half. Symbolic links are not followed, and
   `/System/Volumes` is skipped: through the firmlinks it is the same files
-  again. Double-click a name, or Show, to see it in a pane.
+  again. Double-click a name, **Show**, or right-click ▸ **Show in Diptych** to
+  see it in a pane; **Copy** puts every name found on the clipboard, one path
+  a line; **Stop** ends a search early.
 - **A broken link** -- one that does not lead to anything -- has a right-click
   menu that leaves out what would have to reach the target: Open, Text Edit,
   Bin Edit, Copy ▸ Content and Rename with Suggested Name. What acts on the
@@ -1563,6 +1566,13 @@ everywhere but in Text Edit. A greyed-out item leaves its keys to the window in
 front, so `⌘↑` and `⌘↓` move to the start and end of the text there, and `⌘⌫`
 and `⇧⌘↑` reach Text Edit's own line commands.
 
+**Right-clicking the empty space below a pane's rows** gives what you can do
+*here* rather than to a file: New Folder, New File, New from Clipboard, the
+**Scripts** that take no items, Paste, Paste as Link, Rename Many…, Select All
+and Refresh. It is an `NSMenu` put up
+by `FolderMenu`, because SwiftUI's `Table` consults its context menu only for
+rows -- right-clicking below the listing used to show nothing at all.
+
 ## Version tracking
 
 Off by default, in Settings ▸ Version Tracking. Diptych runs the `git` already
@@ -1614,9 +1624,23 @@ a terminal.
 
 ### Sending and getting
 
-Two commands in the File menu, shown only when the folder is actually tracked:
-**Send My Work** (⇧⌘S) and **Get the Latest** (⇧⌘D). Right-clicking a file Git
-does not know about offers **Track This File** and **Never Track This**.
+Three commands in the File menu, shown only when the folder is actually tracked:
+**Send My Work** (⇧⌘S), **Get the Latest** (⇧⌘D) and **Check for Changes**
+(⇧⌘K). Right-clicking a file Git does not know about offers **Track This File**
+and **Never Track This**; right-clicking one it does know offers **Stop
+Tracking This File**.
+
+- **Check for Changes** asks the shared copy what it has -- a `fetch`, which
+  touches no file in the folder -- and says how many changes you are behind, or
+  *Nothing new -- you are up to date*. Files someone else has changed as well
+  turn red. It is the only command that reaches the network without being
+  part of a send or a get, so it never runs on a timer; Settings ▸ Version
+  Tracking can run it once per folder when Diptych first opens a tracked
+  folder with changes in it.
+- **Stop Tracking** asks first, then removes the file from version tracking
+  (`git rm --cached`) and leaves it on this Mac. That is a change like any
+  other, so it waits in your next send -- and once sent, everyone else loses
+  their copy the next time they get the latest.
 
 **Send is one action.** Commit and push happen together, because "saved here but
 not shared" is a state with no place in the user's model and is exactly where
@@ -1760,6 +1784,19 @@ Tags switched off costs nothing per row.
 Adding a column means adding a case to `FileColumn`: the settings list is built
 from `allCases`, the loader asks each enabled case which `URLResourceKey`s it
 needs, and the table and comparator switch on it.
+
+## Checking for updates
+
+**Diptych ▸ Check for Updates…** asks GitHub for the latest release and says
+what it found -- a newer version, *you are up to date*, or that GitHub could not
+be reached. A newer version offers **Download and Install**, which downloads the
+disk image to `~/Downloads`, opens it and quits, or **Later**.
+
+Settings ▸ Behaviour ▸ *Check for updates* decides whether Diptych looks by
+itself: **At startup, once a day at most**, **Ask at startup**, or **Never on
+its own**. Until that question has been answered once, nothing reaches the
+network at startup. Only the question goes to GitHub, and nothing is downloaded
+without asking; the menu command looks whenever you ask, whatever is chosen.
 
 ## Directory sizes
 
@@ -2250,7 +2287,12 @@ the pane is a real file reference rather than a URL string.
 
 The drop rule follows Finder: within one volume a drag **moves**, across volumes
 it **copies**. Hold `⌥` to force a copy, `⌘` to force a move. Dropping items back
-into the folder they already live in does nothing.
+into the folder they already live in does nothing: the drop is reported as
+failed, so AppKit slides the drag image back to where it started. *Already in
+"folder"* is said only when the drag meant something -- it landed in the other
+pane, came from elsewhere, or travelled more than 40 points. A name clicked
+several times in a row often drags a few points with it, and saying so each
+time only got in the way.
 
 SwiftUI's URL importer hands over only the *first* item of a multi-item drag, so
 the dropped files are read from the drag pasteboard directly instead. The drop is
@@ -2731,6 +2773,84 @@ attribute and takes it along; copied -- the original still there -- the copy
 inherits the history once and then goes its own way. Nothing is written when a
 menu opens, only when something runs. Where a volume keeps no attributes, a
 moved program simply starts afresh.
+
+## Scripts of your own
+
+Someone who writes shell scripts can put them in **`~/.diptych/scripts`**, and
+they appear as menu commands -- **File ▸ Scripts ▸** and **Right-click ▸
+Scripts ▸** -- for whoever uses that Mac. **Off by default**: Settings ▸
+Behaviour ▸ *Run the scripts in ~/.diptych/scripts*. The menu is absent, not
+greyed, when scripts are off or none of them suits what is selected.
+
+This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
+you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,
+with no typing at all.
+
+**A script says when it applies** in comment lines after the shebang, up to the
+first line that is not a comment:
+
+```sh
+#!/bin/sh
+# name: Make a zip of these
+# description: Puts what is selected into untitled.zip, beside it.
+# apply-to: file, directory, link
+# extensions: txt, png
+# args: 1,
+# only-under: ~/Documents
+# call: $0 $@
+```
+
+| Header | Means |
+| --- | --- |
+| `name` | the menu item's title; the file name without its extension if left out |
+| `description` | the menu item's tooltip |
+| `apply-to` | `file`, `directory`, `link` -- every selected item must be one of these; all three if left out |
+| `extensions` | every selected item must have one of these; any if left out |
+| `args` | how many items: `1` exactly one (the default), `1,3` one to three, `2,` two or more, `0` none -- a script about the folder on screen, offered in File ▸ Scripts when nothing is selected and when right-clicking the empty space below the rows |
+| `only-in` | folders the items must be directly in |
+| `only-under` | folders the items must be in or below |
+| `call` | **required**: the command line -- `$0` is the script, `$1`, `$2`… one item each, `$@` all of them |
+
+A script is offered only when **every** selected item qualifies: a selection of
+three where one is the wrong kind is not two-thirds applicable.
+
+**No shell is involved.** The `call` line is split into words *before* anything
+is substituted, so each item is exactly one argument whatever its name holds --
+`my notes (draft).txt` needs no quoting. `$*` is refused, since it is the thing
+that breaks on a space. The script runs in your home folder, from a private copy
+of what you approved, with the panes in `DIPTYCH_LEFT`, `DIPTYCH_RIGHT`,
+`DIPTYCH_ACTIVE` and `DIPTYCH_OTHER` and its own real path in `DIPTYCH_SCRIPT`;
+a script that wants a pane says so, with `cd "$DIPTYCH_ACTIVE"`. It runs in a
+tab of the **Runs** window, like Run ▸, with Stop, Copy Output, the exit status
+and the timing, and both panes are refreshed when it ends.
+
+**A mistake in a header is reported** when Diptych starts -- an unknown setting
+(`# extension:` for `# extensions:`), a bad `args`, a missing `call`, a `$3` in
+a script never given three items -- with the file and line, rather than the
+script quietly missing from the menu.
+
+**What it will not run.** The danger is not a dishonest author but a script
+that arrived by post, so Diptych refuses a file that:
+
+- came from outside this Mac (it carries `com.apple.quarantine`);
+- belongs to somebody else;
+- can be written to by anyone, you included -- a download lands as
+  `rw-r--r--`, so installing a script has to be a deliberate act, and an
+  approved script cannot change afterwards;
+- anybody else can read -- a script is a fair place to keep something private.
+
+So a script is `r--------` (`400`): select it and press `⌥⌘P` to set that.
+**Nothing lifts these rules**, developer mode included. You are asked before a
+script runs for the first time and again whenever its contents change; the
+approvals are kept, by a hash of the contents, in
+`~/.diptych/scripts-approved.json`. Every rule is checked again at the moment
+of running, and a script changed since it was read is refused rather than run.
+
+**The folder is read once, at startup** -- a script that could change between
+being agreed to and being run would make the agreement worth nothing.
+**Developer mode** (Settings ▸ Behaviour, under the scripts setting) adds **File
+▸ Read the Scripts Folder Again** for whoever is writing scripts. It relaxes
+nothing else.
 
 ## Scripts
 
