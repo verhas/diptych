@@ -6,7 +6,7 @@ import AppKit
 enum AboutPanel {
 
     static let slogan = "Diptych \u{2014} pronounced \u{2018}deep tech\u{2019} \u{2014} "
-        + "a two-pane AI driven file manager for macOS."
+        + "the agentic Swiss pocket knife of file managers for macOS."
 
     static let website = URL(string: "https://verhas.github.io/diptych/")!
 

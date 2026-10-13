@@ -1,6 +1,6 @@
 #  Diptych
 
-*Diptych — pronounced ‘deep tech’ — a two-pane AI-driven file manager for macOS.*
+*Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS.*
 
 https://verhas.github.io/diptych/
 
@@ -2278,8 +2278,13 @@ configurability yet -- localhost is the only option.
 **The token** lives in `~/.diptych/.mcp.token`, not in `config.json` --
 config.json is meant to be readable and hand-editable, which is exactly what a
 credential should not be. The file is set owner-read-only immediately after
-every write. Settings ▸ Agents shows the current token (for pasting
-somewhere by hand) and a **Regenerate** button, which writes a fresh one and
+every write. Settings ▸ Agents shows the token hidden, as
+`••••••••-••••-••••-••••-••••••••••••`, with an eye to show it and a copy
+button beside it (and one beside the port). The field can be edited -- typed
+or pasted, a token from another agent's configuration say -- and takes only a
+UUID: anything else turns red and is let go when the field is left. Clicking
+into it while hidden starts it empty, so editing reveals nothing. **Regenerate**
+writes a fresh one and
 pushes it to the running server immediately -- the old one stops working at
 once, not the next time the server happens to restart. Regenerating means
 re-running **Add Diptych to Agent Config** (or hand-editing `.mcp.json`) and
@@ -2490,10 +2495,19 @@ with an estimate for all of it once the running one has a speed. Before that it
 looked exactly like nothing happening, until the second operation began minutes
 later of its own accord.
 
+**The same transfer is not queued twice.** An item already waiting to be moved,
+or being moved, is not moved again -- it can only leave once -- and one waiting
+to be copied to a folder is not copied there again: a folder grabbed three times
+in a row is one move. *Already being moved* or *Already being copied there* says
+so; the rest of a request that repeats only part of one goes ahead.
+
 The panes are reloaded **and awaited** at the end of each transfer, not fired and
 forgotten. The next transfer in the chain starts the moment the previous one
 returns, and an un-awaited reload was queued behind it -- so a moved item sat
-visibly in the source pane until an unrelated copy had finished.
+visibly in the source pane until an unrelated copy had finished. The wait is
+three seconds at most: a server that has stopped answering would otherwise hold
+the next transfer for ever. The panel goes as soon as the copying is done, before
+the panes are listed, and its **×** hides it at any time -- the transfer goes on.
 
 The panel is an **overlay**, not a sheet. Only one presentation modifier per view
 is reliable here, a clash dialog has to be able to appear *during* a transfer,
@@ -2508,11 +2522,24 @@ the pane is a real file reference rather than a URL string.
 The drop rule follows Finder: within one volume a drag **moves**, across volumes
 it **copies**. Hold `⌥` to force a copy, `⌘` to force a move. Dropping items back
 into the folder they already live in does nothing: the drop is reported as
-failed, so AppKit slides the drag image back to where it started. *Already in
-"folder"* is said only when the drag meant something -- it landed in the other
-pane, came from elsewhere, or travelled more than 40 points. A name clicked
-several times in a row often drags a few points with it, and saying so each
-time only got in the way.
+failed, so AppKit slides the drag image back to where it started, and *Already
+in "folder"* says why.
+
+**A drag that never left a 40-point circle around where it began, within its
+own pane, is a click.** A name clicked, or clicked several times, often drags a
+few points with it -- and that drag could rest on the folder row next door, or
+hold long enough for spring-loading to open a folder, and then drop: a move
+nobody asked for. Where the share could not be written to it came up as a
+permission error out of nowhere; where it could, the move happened. Such a drag
+now neither drops nor spring-loads. A drag that went further and came back --
+to the row next door, say -- is a drag, since the farthest point it reached is
+what counts.
+
+A folder dropped **onto itself, or into a folder inside it**, stays where it is
+too. Nudged a few points, a folder lands on its own row -- a folder, so a place
+to drop into -- and that started a move of the folder into itself, which on a
+server first spent a while measuring it before failing. It slides home now, as a
+file does, and said deliberately the answer is *A folder cannot go into itself*.
 
 SwiftUI's URL importer hands over only the *first* item of a multi-item drag, so
 the dropped files are read from the drag pasteboard directly instead. The drop is
@@ -2688,7 +2715,13 @@ extended attribute, and removing that attribute clears the tags. Each change als
 posts a notification the panes listen for -- a directory watch reports entries
 appearing and vanishing, never a chmod, so without it the pane kept showing the
 old owner or mode until you navigated away and back. The toolbar has a Refresh
-button too.
+button too, which, like `⌘R`, lists the active pane again -- not both: the other
+may be on a server, where listing it is not free.
+
+The spinner in the path bar shows only for a listing that takes more than half
+a second, and has a place of its own whether it spins or not. It used to make
+the bar taller while it showed, so the rows jumped down and back on every
+Refresh.
 
 ### When the file will not have it
 

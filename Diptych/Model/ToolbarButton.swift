@@ -130,7 +130,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     var explanation: String {
         switch self {
         case .singlePane:      "Show one pane instead of two"
-        case .refresh:         "Re-read both panes"
+        case .refresh:         "Re-read the active pane"
         case .swapPanes:       "Swap the left and right panes"
         case .sameFolder:      "Show this folder in the other pane too"
         case .hiddenFiles:     "Show files whose names begin with a dot"

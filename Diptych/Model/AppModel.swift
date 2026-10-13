@@ -1674,6 +1674,15 @@ final class AppModel {
                                  from sourcePane: PaneModel?) {
         guard !urls.isEmpty else { return }
 
+        // The same thing asked for again while it waits or runs -- a folder
+        // grabbed three times, F6 pressed twice. A move cannot happen twice,
+        // and a second identical copy is never what was meant.
+        let urls = urls.filter { !alreadyAsked($0, to: destination, kind: kind) }
+        guard !urls.isEmpty else {
+            flash(kind == .move ? "Already being moved" : "Already being copied there")
+            return
+        }
+
         // Serialised. Every transfer shares one conflict continuation, so a
         // second operation started while a clash dialog is open would overwrite
         // it -- stranding the first task for ever, or answering the wrong one.
@@ -1681,9 +1690,7 @@ final class AppModel {
         // Serialised, however, is not the same as ignored: asking for a second
         // transfer while one is running used to look exactly like nothing
         // happening, until it began minutes later of its own accord.
-        let waiting = QueuedTransfer(verb: kind == .move ? "Move" : "Copy",
-                                     names: urls.map(\.lastPathComponent),
-                                     destination: destination.lastPathComponent)
+        let waiting = QueuedTransfer(kind: kind, sources: urls, target: destination)
         if transferRunning || !transferQueue.isEmpty {
             transferQueue.append(waiting)
             flash("\(waiting.verb) of \(urls.count) item\(urls.count == 1 ? "" : "s") queued",
@@ -1702,7 +1709,11 @@ final class AppModel {
             guard let self else { return }
             self.transferQueue.removeAll { $0.id == waiting.id }
             self.transferRunning = true
-            defer { self.transferRunning = false }
+            self.runningTransfer = waiting
+            defer {
+                self.transferRunning = false
+                self.runningTransfer = nil
+            }
             await self.runTransfer(urls, to: destination, kind: kind,
                                    into: destinationPane, from: sourcePane)
         }
@@ -1712,11 +1723,28 @@ final class AppModel {
     /// lists under the one running.
     struct QueuedTransfer: Identifiable {
         let id = UUID()
-        let verb: String
-        let names: [String]
-        let destination: String
+        let kind: FileOperations.Transfer
+        let sources: [URL]
+        let target: URL
         /// How much it is, once measured.
         var bytes: Int64?
+
+        var verb: String { kind == .move ? "Move" : "Copy" }
+        var names: [String] { sources.map(\.lastPathComponent) }
+        var destination: String { target.lastPathComponent }
+
+        /// Whether this one already does what `kind` of `url` to `to` would:
+        /// any move of it -- it can only leave once -- or a copy of it to the
+        /// same folder.
+        func covers(_ url: URL, to destination: URL, kind: FileOperations.Transfer) -> Bool {
+            let path = url.standardizedFileURL.path
+            guard self.kind == kind,
+                  sources.contains(where: { $0.standardizedFileURL.path == path }) else {
+                return false
+            }
+            return kind == .move
+                || target.standardizedFileURL.path == destination.standardizedFileURL.path
+        }
 
         /// "Copy “a.mov”, “b.mov” and 3 more to “Films”"
         var description: String {
@@ -1737,6 +1765,14 @@ final class AppModel {
     var queuedTransfers: Int { transferQueue.count }
     /// From the moment a transfer starts, not from when its panel shows.
     @ObservationIgnored private var transferRunning = false
+    /// The one running, to tell a request that repeats it.
+    @ObservationIgnored private var runningTransfer: QueuedTransfer?
+
+    private func alreadyAsked(_ url: URL, to destination: URL,
+                              kind: FileOperations.Transfer) -> Bool {
+        ([runningTransfer].compactMap { $0 } + transferQueue)
+            .contains { $0.covers(url, to: destination, kind: kind) }
+    }
 
     /// How long everything still to do will take -- the rest of this
     /// transfer and all those waiting -- at the speed this one is going.
@@ -1824,6 +1860,26 @@ final class AppModel {
             await previous?.value
             await work()
         }
+    }
+
+    /// Lists a pane again and waits for it -- but on a slow or silent
+    /// server only so long, since the next transfer waits behind this. The
+    /// listing goes on and lands when it does.
+    private static func awaitListing(_ pane: PaneModel?,
+                                     atMost limit: Duration = .seconds(3)) async {
+        guard let pane else { return }
+        pane.reload()
+        let deadline = ContinuousClock.now + limit
+        while pane.isLoading, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// The panel's ×: out of the way, the transfer going on behind it.
+    func hideTransferPanel() {
+        guard transferProgress != nil else { return }
+        transferProgress = nil
+        flash("The transfer goes on in the background", error: false)
     }
 
     private func runTransfer(_ urls: [URL], to destination: URL,
@@ -1961,9 +2017,15 @@ final class AppModel {
         // starts the moment this function returns, and an un-awaited reload
         // queued behind it only landed when *that* one finished -- so a moved
         // item sat visibly in the source pane until an unrelated copy was done.
+        // The work is over, so is its panel -- not after the listings below,
+        // which on a server that has stopped answering never come back, and
+        // left a panel with nothing to cancel on screen for good.
+        reveal.cancel()
+        transferProgress = nil
+
         destinationPane.pendingSelection = Set(outcome.succeeded)
-        await sourcePane?.reloadAndWait()
-        await destinationPane.reloadAndWait()
+        await Self.awaitListing(sourcePane)
+        await Self.awaitListing(destinationPane)
 
         if monitor.isCancelled {
             // What has already landed is real. Whether to keep it is a
@@ -3014,17 +3076,32 @@ final class AppModel {
     /// moment, so the last one to call is as good as the first.
     func dragStarted(from pane: PaneModel, url: URL) {
         dragOrigin = (pane, NSEvent.mouseLocation, url)
+        dragFarthest = 0
     }
 
-    /// Whether a drop that would leave everything where it is deserves the
-    /// "Already in" message: always when it came from elsewhere or landed in
-    /// the other pane, otherwise only when it travelled further than a
-    /// wobble of the mouse.
-    private func dropWasDeliberate(_ urls: [URL], into pane: PaneModel) -> Bool {
-        guard let origin = dragOrigin, urls.contains(origin.url) else { return true }
-        guard origin.pane === pane else { return true }
+    /// How far from where it began the drag has been at any moment -- not
+    /// just where it ends, so a drag that went out and came back to the row
+    /// next door is still a drag.
+    private var dragFarthest: CGFloat = 0
+
+    /// Called on every position update of a drag.
+    private func dragMoved() {
+        guard let origin = dragOrigin else { return }
         let now = NSEvent.mouseLocation
-        return hypot(now.x - origin.point.x, now.y - origin.point.y) > Self.dragWobble
+        dragFarthest = max(dragFarthest, hypot(now.x - origin.point.x, now.y - origin.point.y))
+    }
+
+    /// A drag of this pane's own rows that has never gone further than a
+    /// wobble of the hand: a click, as far as anyone meant. Dropped, it would
+    /// move what was clicked into the folder row next to it -- or into a
+    /// folder that spring-loading opened while the button was held -- and on
+    /// a share that can be written to, it did.
+    private func isWobble(_ urls: [URL], in pane: PaneModel) -> Bool {
+        guard let origin = dragOrigin, origin.pane === pane, urls.contains(origin.url) else {
+            return false
+        }
+        dragMoved()
+        return dragFarthest <= Self.dragWobble
     }
 
     private func shouldMove(_ urls: [URL], to destination: URL) -> Bool {
@@ -3092,8 +3169,10 @@ final class AppModel {
         // marked the folder under the pointer as the target again -- with
         // no drag left to clear it, the row went on flashing for a minute.
         // No mouse button down means no drag, so nothing to spring-load.
+        dragMoved()
         guard NSEvent.pressedMouseButtons & 1 != 0,
-              let (pane, item) = rowUnderPointer(), item.isEnterable else {
+              let (pane, item) = rowUnderPointer(), item.isEnterable,
+              !(dragOrigin?.pane === pane && dragFarthest <= Self.dragWobble) else {
             cancelSpringLoad()
             return
         }
@@ -3194,15 +3273,22 @@ final class AppModel {
     func drop(_ urls: [URL], into pane: PaneModel, destination: URL? = nil) -> Bool {
         let destination = destination ?? pane.directory
         defer { dragOrigin = nil }
+        // A click that slipped: nothing was meant to go anywhere, and the
+        // image sliding home is all there is to say.
+        if isWobble(urls, in: pane) { return false }
         if refusedAsReadOnly(pane, "dropped into it") { return false }
-        // Dropping something back into the folder it already lives in.
-        let sources = urls.filter { $0.deletingLastPathComponent().path != destination.path }
+        // Dropping something back into the folder it already lives in -- or a
+        // folder onto itself or into a folder of its own. A folder nudged a
+        // few points lands on its own row, which is a folder to drop into.
+        let sources = urls.filter { !Self.droppedHome($0, into: destination) }
         guard !sources.isEmpty else {
-            // Say so rather than appearing to ignore the drop entirely -- but
-            // not for a name that slipped a few points while being clicked,
-            // where the image sliding home says all there is to say.
-            if dropWasDeliberate(urls, into: pane) {
+            // Say so rather than appearing to ignore the drop entirely. (A
+            // name that slipped while being clicked was let go above.)
+            let parents = urls.map { $0.standardizedFileURL.deletingLastPathComponent().path }
+            if parents.allSatisfy({ $0 == destination.standardizedFileURL.path }) {
                 flash("Already in \u{201C}\(destination.lastPathComponent)\u{201D}")
+            } else {
+                flash("A folder cannot go into itself")
             }
             return false
         }
@@ -3214,6 +3300,17 @@ final class AppModel {
         performTransfer(sources, to: destination, kind: move ? .move : .copy,
                         into: pane, from: pane === left ? right : left)
         return true
+    }
+
+    /// Whether dropping `url` into `destination` would leave it where it is:
+    /// its own folder, itself, or -- for a folder -- somewhere inside it.
+    /// Compared by the paths alone, with no look at the disk: on a server
+    /// each look is a round trip, and both come from the same listings.
+    nonisolated static func droppedHome(_ url: URL, into destination: URL) -> Bool {
+        let item = url.standardizedFileURL.path
+        let target = destination.standardizedFileURL.path
+        return url.standardizedFileURL.deletingLastPathComponent().path == target
+            || target == item || target.hasPrefix(item + "/")
     }
 
     private func onSameVolume(_ urls: [URL], as destination: URL) -> Bool {
@@ -4071,9 +4168,10 @@ final class AppModel {
     func goBack()    { active.goBack() }
     func goForward() { active.goForward() }
 
-    func refreshPanes() {
-        left.reload()
-        right.reload()
+    /// The toolbar's Refresh: the active pane only, as ⌘R. The other one
+    /// may be on a server, where listing it again is not free.
+    func refreshActivePane() {
+        active.reload()
     }
 
     /// Only with the Size column shown: that is where the totals go.

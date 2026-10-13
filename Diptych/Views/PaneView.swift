@@ -29,6 +29,8 @@ struct PaneView: View {
     /// The mouse is over the path bar: Option then shows the links too,
     /// without clicking into the text first.
     @State private var pathBarHovered = false
+    /// The loading spinner, once a listing has taken half a second.
+    @State private var showsSpinner = false
     /// Where the caret is in the flat view's expression, for its hint.
     @State private var flatCaret = 0
     @State private var flatFieldHeight = FlatExpressionField.lineHeight
@@ -387,9 +389,23 @@ struct PaneView: View {
             }
             .onHover { pathBarHovered = $0 }
 
-            if pane.isLoading {
-                ProgressView().controlSize(.small).scaleEffect(0.6)
-            }
+            // A fixed place, drawn whether or not it spins: a spinner that
+            // came and went made the bar taller -- scaleEffect shrinks only
+            // the drawing -- and the rows jumped down and back on every
+            // Refresh. And only for a listing that takes a while: one back
+            // within half a second is not worth a flicker.
+            Color.clear
+                .frame(width: 12, height: 12)
+                .overlay {
+                    if showsSpinner {
+                        ProgressView().controlSize(.mini)
+                    }
+                }
+                .task(id: pane.isLoading) {
+                    guard pane.isLoading else { showsSpinner = false; return }
+                    try? await Task.sleep(for: .milliseconds(500))
+                    if !Task.isCancelled, pane.isLoading { showsSpinner = true }
+                }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)

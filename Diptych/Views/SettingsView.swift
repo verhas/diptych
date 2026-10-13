@@ -37,8 +37,34 @@ struct SettingsView: View {
             if let window {
                 AppWindows.shared.register(window)
                 WindowSubjects.shared.register(window, kind: "settings", description: "Settings")
+                ClickAwayEndsEditing.install(in: window)
             }
         })
+    }
+}
+
+/// A click anywhere but in a text field ends the typing in one. AppKit
+/// leaves the caret in the last field until another field takes it, so a
+/// field looked done with -- after clicking a checkbox or the empty space
+/// beside it -- still took the next keys: a Delete meant for nothing emptied
+/// the plist extensions.
+@MainActor
+enum ClickAwayEndsEditing {
+
+    private static var watched: Set<ObjectIdentifier> = []
+
+    static func install(in window: NSWindow) {
+        guard watched.insert(ObjectIdentifier(window)).inserted else { return }
+        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak window] event in
+            guard let window, event.window === window,
+                  window.firstResponder is NSText else { return event }
+            // The frame view's hit test takes window coordinates.
+            let hit = window.contentView?.superview?.hitTest(event.locationInWindow)
+            if !(hit is NSText || hit is NSTextField) {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
     }
 }
 
@@ -922,7 +948,9 @@ struct SoundSettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
 
-            Group {
+            // A grid, so the pickers line up after the longest name rather
+            // than each starting where its own name ends.
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 picker("Copy", \Configuration.copySound)
                 picker("Move", \Configuration.moveSound)
                 picker("Move to Trash", \Configuration.trashSound)
@@ -953,11 +981,14 @@ struct SoundSettingsView: View {
                 Sounds.play(newValue)
             })
 
-        return HStack {
+        return GridRow {
+            Text(title + ":")
+                .gridColumnAlignment(.trailing)
             Picker(title, selection: binding) {
                 ForEach(names, id: \.self) { Text($0).tag($0) }
             }
-            .frame(maxWidth: 320)
+            .labelsHidden()
+            .frame(width: 220)
 
             Button {
                 Sounds.play(store.configuration[keyPath: keyPath])

@@ -69,4 +69,19 @@ final class MCPConfigWriterTests: XCTestCase {
 
         XCTAssertThrowsError(try MCPConfigWriter.merge(port: 8787, token: "tok-1", into: root))
     }
+
+    // MARK: - The token in Settings
+
+    func testATokenIsOnlyAUUIDAndHidesItsCharacters() {
+        XCTAssertTrue(MCPTokenStore.isValid("0F8B2A7C-1D3E-4F5A-9B6C-7D8E9F0A1B2C"))
+        XCTAssertTrue(MCPTokenStore.isValid("0f8b2a7c-1d3e-4f5a-9b6c-7d8e9f0a1b2c"))
+        XCTAssertFalse(MCPTokenStore.isValid("secret"))
+        XCTAssertFalse(MCPTokenStore.isValid("0F8B2A7C-1D3E-4F5A-9B6C"))
+        XCTAssertFalse(MCPTokenStore.isValid(""))
+        XCTAssertEqual(MCPTokenStore.masked("0F8B2A7C-1D3E-4F5A-9B6C-7D8E9F0A1B2C"),
+                       "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}-"
+                       + "\u{2022}\u{2022}\u{2022}\u{2022}-\u{2022}\u{2022}\u{2022}\u{2022}-"
+                       + "\u{2022}\u{2022}\u{2022}\u{2022}-"
+                       + String(repeating: "\u{2022}", count: 12))
+    }
 }

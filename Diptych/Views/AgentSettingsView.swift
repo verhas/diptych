@@ -25,14 +25,17 @@ struct AgentSettingsView: View {
 
             if store.configuration.mcpServerEnabled {
                 LabeledContent("Port") {
-                    TextField("", value: $store.configuration.mcpServerPort, format: .number)
-                        .frame(width: 80)
+                    HStack {
+                        TextField("", value: $store.configuration.mcpServerPort,
+                                  format: .number.grouping(.never))
+                            .frame(width: 80)
+                        copyButton(String(store.configuration.mcpServerPort), what: "port")
+                    }
                 }
                 LabeledContent("Token") {
                     HStack {
-                        Text(MCPTokenStore.shared.token)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
+                        TokenField()
+                        copyButton(MCPTokenStore.shared.token, what: "token")
                         Button("Regenerate") { MCPTokenStore.shared.regenerate() }
                     }
                 }
@@ -81,6 +84,17 @@ struct AgentSettingsView: View {
         }
     }
 
+    private func copyButton(_ text: String, what: String) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } label: {
+            Image(systemName: "doc.on.doc")
+        }
+        .buttonStyle(.borderless)
+        .help("Copy the \(what)")
+    }
+
     private func explanation(_ text: String) -> some View {
         Text(text)
             .font(.caption)
@@ -96,5 +110,65 @@ struct AgentSettingsView: View {
         panel.directoryURL = AgentWorkspace.directory
         guard panel.runModal() == .OK, let url = panel.url else { return }
         store.configuration.agentDirectory = NamingTemplate.tilde(url.path)
+    }
+}
+
+/// The MCP token: hidden as dots until the eye shows it, and editable --
+/// typed or pasted -- but taken only once it is a UUID.
+private struct TokenField: View {
+
+    @State private var shown = false
+    @State private var draft = ""
+    @State private var editing = false
+    @FocusState private var focused: Bool
+
+    private var token: String { MCPTokenStore.shared.token }
+    private var draftIsValid: Bool {
+        MCPTokenStore.isValid(draft.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            // One field throughout -- two, swapped as it takes the caret,
+            // would lose the caret in the swap. Hidden, it shows the token's
+            // shape only, and a click into it starts it empty, so editing
+            // reveals nothing.
+            TextField("", text: Binding(
+                get: { editing || shown ? draft : MCPTokenStore.masked(token) },
+                set: { draft = $0 }))
+                .focused($focused)
+                .onSubmit { focused = false }
+                .font(.system(.body, design: .monospaced))
+                .textFieldStyle(.roundedBorder)
+                .foregroundStyle(editing && !draftIsValid ? Color.red : Color.primary)
+                .help(editing && !draftIsValid
+                      ? "A token is a UUID: 8-4-4-4-12 hexadecimal digits" : "")
+                .frame(width: 310)
+
+            Button {
+                shown.toggle()
+            } label: {
+                Image(systemName: shown ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .help(shown ? "Hide the token" : "Show the token")
+        }
+        .onAppear { draft = token }
+        .onChange(of: token) { _, new in if !editing { draft = new } }
+        .onChange(of: focused) { _, isFocused in
+            if isFocused {
+                draft = shown ? token : ""
+                editing = true
+            } else {
+                commit()
+            }
+        }
+    }
+
+    /// Takes a UUID; anything else is let go, and the token stays as it was.
+    private func commit() {
+        if draftIsValid { MCPTokenStore.shared.set(draft) }
+        editing = false
+        draft = token
     }
 }

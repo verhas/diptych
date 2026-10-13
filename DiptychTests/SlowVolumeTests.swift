@@ -171,12 +171,42 @@ final class SlowVolumeTests: XCTestCase {
     // MARK: - Waiting transfers
 
     func testAWaitingTransferSaysWhatAndWhere() {
-        let one = AppModel.QueuedTransfer(verb: "Copy", names: ["a.mov"], destination: "Films")
+        let one = AppModel.QueuedTransfer(kind: .copy, sources: [folder.appendingPathComponent("a.mov")],
+                                              target: URL(fileURLWithPath: "/Films"))
         XCTAssertEqual(one.description, "Copy \u{201C}a.mov\u{201D} to \u{201C}Films\u{201D}")
-        let many = AppModel.QueuedTransfer(verb: "Move", names: ["a", "b", "c", "d"],
-                                           destination: "x")
+        let many = AppModel.QueuedTransfer(kind: .move,
+                                           sources: ["a", "b", "c", "d"]
+                                               .map { folder.appendingPathComponent($0) },
+                                           target: URL(fileURLWithPath: "/x"))
         XCTAssertEqual(many.description,
                        "Move \u{201C}a\u{201D}, \u{201C}b\u{201D} and 2 more to \u{201C}x\u{201D}")
+    }
+
+    func testAFolderDroppedOnItselfOrInsideStaysHome() {
+        let photos = folder.appendingPathComponent("photos")
+        XCTAssertTrue(AppModel.droppedHome(photos, into: folder), "its own folder")
+        XCTAssertTrue(AppModel.droppedHome(photos, into: photos), "its own row")
+        XCTAssertTrue(AppModel.droppedHome(photos, into: photos.appendingPathComponent("2024")))
+        XCTAssertTrue(AppModel.droppedHome(URL(fileURLWithPath: photos.path + "/"), into: photos),
+                      "a folder's URL ends in a slash")
+        XCTAssertFalse(AppModel.droppedHome(photos, into: folder.appendingPathComponent("photos-old")))
+        XCTAssertFalse(AppModel.droppedHome(photos, into: folder.appendingPathComponent("other")))
+    }
+
+    func testATransferAskedForAgainIsKnown() {
+        let a = folder.appendingPathComponent("a")
+        let films = URL(fileURLWithPath: "/Films")
+        let move = AppModel.QueuedTransfer(kind: .move, sources: [a], target: films)
+        XCTAssertTrue(move.covers(a, to: films, kind: .move))
+        XCTAssertTrue(move.covers(a, to: URL(fileURLWithPath: "/Other"), kind: .move),
+                      "it can only leave once")
+        XCTAssertFalse(move.covers(folder.appendingPathComponent("b"), to: films, kind: .move))
+
+        let copy = AppModel.QueuedTransfer(kind: .copy, sources: [a], target: films)
+        XCTAssertTrue(copy.covers(a, to: films, kind: .copy))
+        XCTAssertFalse(copy.covers(a, to: URL(fileURLWithPath: "/Other"), kind: .copy),
+                       "a copy elsewhere is another copy")
+        XCTAssertFalse(copy.covers(a, to: films, kind: .move))
     }
 
     func testDurationsInWords() {

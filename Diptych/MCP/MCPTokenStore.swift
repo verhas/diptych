@@ -29,6 +29,29 @@ final class MCPTokenStore {
         Task { await MCPServer.shared.updateToken(token) }
     }
 
+    /// A token typed or pasted in Settings -- one already in an agent's
+    /// configuration, say. Only a UUID is taken, kept as written, since the
+    /// server compares it exactly with what the agent sends.
+    @discardableResult
+    func set(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isValid(trimmed) else { return false }
+        guard trimmed != token else { return true }
+        token = Self.write(trimmed)
+        Task { await MCPServer.shared.updateToken(token) }
+        return true
+    }
+
+    nonisolated static func isValid(_ text: String) -> Bool {
+        UUID(uuidString: text) != nil
+    }
+
+    /// What the token looks like with its characters hidden: its shape,
+    /// `••••••••-••••-…`, and nothing of it.
+    nonisolated static func masked(_ text: String) -> String {
+        String(text.map { $0 == "-" ? "-" : "\u{2022}" })
+    }
+
     private static func load() -> String? {
         guard let data = try? Data(contentsOf: url),
               let text = String(data: data, encoding: .utf8)

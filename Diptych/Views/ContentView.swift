@@ -298,12 +298,26 @@ struct ContentView: View {
     private var transferOverlay: some View {
         if let progress = model.transferProgress {
             VStack(alignment: .leading, spacing: 8) {
-                Text("\(progress.verb) \(progress.itemCount) item"
-                     + (progress.itemCount == 1 ? "" : "s")
-                     + (progress.itemCount > 1
-                        ? " \u{2014} \(min(progress.itemsDone + 1, progress.itemCount)) of "
-                          + "\(progress.itemCount)" : ""))
-                    .font(.system(size: 12, weight: .medium))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(progress.verb) \(progress.itemCount) item"
+                         + (progress.itemCount == 1 ? "" : "s")
+                         + (progress.itemCount > 1
+                            ? " \u{2014} \(min(progress.itemsDone + 1, progress.itemCount)) of "
+                              + "\(progress.itemCount)" : ""))
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    // Always a way to get it off the screen: a server that has
+                    // stopped answering can hold a copy -- and its Stopping --
+                    // for as long as it likes.
+                    Button {
+                        model.hideTransferPanel()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Hide this panel; the transfer goes on")
+                }
 
                 if let fraction = progress.fraction {
                     ProgressView(value: fraction)
@@ -445,7 +459,7 @@ struct ContentView: View {
         switch kind {
         case .singlePane:      model.isSinglePane.toggle()
         case .hiddenFiles:     model.showHidden.toggle()
-        case .refresh:         model.refreshPanes()
+        case .refresh:         model.refreshActivePane()
         case .directorySizes:  model.calculateDirectorySizes()
         case .swapPanes:       model.swapPanes()
         case .sameFolder:      model.syncPanes()
