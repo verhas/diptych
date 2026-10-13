@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS</title>
-<meta name="description" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS. Free and open source, Norton-Commander style, written in Swift and SwiftUI. Compare files, bytes, or whole folders; version tracking; no telemetry.">
+<title>Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS</title>
+<meta name="description" content="Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS. Free and open source, Norton-Commander style, written in Swift and SwiftUI. Flat view with a find-like filter language, file servers, a structural JSON/XML/YAML/plist editor, safe shell scripts, folder comparison; no telemetry.">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/icon.png">
 
-<meta property="og:title" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS">
-<meta property="og:description" content="Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS. Free and open source. Two panes, Norton-Commander style. No telemetry, ever.">
+<meta property="og:title" content="Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS">
+<meta property="og:description" content="Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS. Free and open source. Two panes, Norton-Commander style. No telemetry, ever.">
 <meta property="og:image" content="https://verhas.github.io/diptych/assets/icon.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
@@ -95,7 +95,10 @@
   }
   nav .links a.cta:hover { background: var(--navy-3); }
 
-  @media (max-width: 640px) {
+  @media (max-width: 900px) {
+    nav .links { gap: 18px; }
+  }
+  @media (max-width: 820px) {
     nav .links a:not(.cta) { display: none; }
   }
 
@@ -251,7 +254,7 @@
   }
   .card h3 { font-size: 17px; margin: 0 0 8px; letter-spacing: -0.005em; }
   .card p { font-size: 14.5px; color: var(--muted); margin: 0; }
-  .card kbd {
+  .card kbd, .list-check kbd, .lede kbd {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     background: var(--paper-2);
     border: 1px solid var(--line);
@@ -374,6 +377,130 @@
   footer a:hover { color: var(--ink); }
   footer .flinks { display: flex; gap: 20px; }
 
+  /* Drawn windows: the flat view and the tree editor. Always dark, as the
+     agent terminal is, so they read the same in either appearance. */
+  .win {
+    max-width: 860px;
+    margin: 0 auto 48px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    background: #15172b;
+    color: #e6e6f0;
+    font: 13.5px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  }
+  .win .titlebar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 9px 14px;
+    background: #2a2d48;
+    color: #a9acd0;
+    font-size: 12px;
+  }
+  .win .titlebar i {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #4a4e74; display: inline-block;
+  }
+  .win .titlebar span { margin-left: 10px; }
+  .win .field {
+    margin: 12px 14px 4px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: #0e1022;
+    border: 1px solid #3a3e66;
+    font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    color: #fff;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .win .hint { margin: 0 14px 10px; font-size: 12px; color: #8f93b8; }
+  .win .kw { color: #f2a53c; }
+  .win .str { color: #8fd18f; }
+  .win .num { color: #7fb2ff; }
+  .win .rx { color: #e6a0e6; }
+  .win .cmt { color: #6f7396; }
+  .win table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .win th {
+    text-align: left; font-weight: 600; color: #8f93b8;
+    padding: 5px 14px; border-bottom: 1px solid #2c2f4a; font-size: 12px;
+  }
+  .win td { padding: 4px 14px; white-space: nowrap; }
+  .win tr.sel td { background: #2f4f9a; }
+  .win td.dim, .win .dim { color: #7c80a6; }
+  .win td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .win .status {
+    padding: 7px 14px; border-top: 1px solid #2c2f4a;
+    font-size: 12px; color: #8f93b8;
+  }
+  .win .scroll { overflow-x: auto; }
+  .win .el { color: #7fb2ff; }
+  .win .at { color: #f2a53c; }
+  .win .badge {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 0 4px; margin-right: 4px; border-radius: 4px;
+    background: #f2a53c; color: #241503;
+  }
+  .win .bool { color: #ff8fc8; }
+  .win .ln { color: #5d6189; text-align: right; width: 1%; padding-right: 4px; }
+  .win .ind1 { padding-left: 30px; }
+  .win .ind2 { padding-left: 48px; }
+  .win .ghost { color: #6f7396; }
+  .win .caret { border-left: 2px solid #fff; margin: 0 1px; }
+  .win pre {
+    margin: 0; padding: 12px 16px;
+    font: 13.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+    overflow-x: auto;
+  }
+
+  /* A plain two-column table, for the server addresses. */
+  .table-scroll { max-width: 880px; margin: 0 auto 40px; overflow-x: auto; }
+  .plain {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+  }
+  .plain th, .plain td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .plain th { font-size: 12.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .plain td:last-child { color: var(--muted); }
+  .plain code { font-size: 13px; white-space: nowrap; }
+
+  .code-list {
+    max-width: 880px;
+    margin: 0 auto 44px;
+    padding: 18px 22px;
+    border-radius: 14px;
+    background: #15172b;
+    color: #e6e6f0;
+    font: 13.5px/1.75 ui-monospace, "SF Mono", Menlo, monospace;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .code-list .kw { color: #f2a53c; }
+  .code-list .str { color: #8fd18f; }
+  .code-list .num { color: #7fb2ff; }
+  .code-list .rx { color: #e6a0e6; }
+  .code-list .cmt { color: #6f7396; }
+
+  .sub-head {
+    max-width: 880px;
+    margin: 48px auto 14px;
+    font-size: 19px;
+    letter-spacing: -0.01em;
+  }
+  .grid.tight { max-width: 880px; margin: 0 auto; }
+  .sub-text {
+    max-width: 880px;
+    margin: -4px auto 18px;
+    font-size: 14.5px;
+    color: var(--muted);
+  }
+  .grid.tight .card { padding: 20px 20px; }
+  .card code { font-size: 12.5px; }
+
   @media (prefers-color-scheme: dark) {
     :root {
       --paper: #14162a;
@@ -396,9 +523,12 @@
     <span class="brand">Diptych</span>
     <div class="links">
       <a href="#agent">Agent</a>
-      <a href="#new">New</a>
-      <a href="#features">Features</a>
+      <a href="#flat">Flat view</a>
+      <a href="#editor">Editor</a>
+      <a href="#servers">Servers</a>
+      <a href="#scripts">Scripts</a>
       <a href="#compare">Compare</a>
+      <a href="#info">Info</a>
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">Source</a>
       <a class="cta" href="#download">Download</a>
     </div>
@@ -408,13 +538,14 @@
 <header class="hero">
   <div class="wrap">
     <img class="icon" src="assets/icon.png" alt="Diptych icon">
-    <p class="slogan">Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.</p>
+    <p class="slogan">Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS.</p>
     <h1>A two-pane file manager,<br>the Norton&nbsp;Commander way.</h1>
     <p class="tagline">
       Diptych is a free, open-source file manager for macOS — two panes, a
       keyboard that does the work, an AI agent that sees what you see and asks
-      before it touches anything, and a genuinely useful way to compare two
-      files, two folders, or two whole trees of them.
+      before it touches anything, a whole tree in one filtered list, an
+      editor that knows JSON, XML and YAML, your file servers, and a
+      genuinely useful way to compare two files or two whole folders.
     </p>
     <div class="cta-row">
       <a class="btn btn-primary" id="download-btn"
@@ -439,7 +570,7 @@
 <section class="alt" id="agent">
   <div class="wrap">
     <div class="section-head">
-      <p class="kicker">New in 1.5</p>
+      <p class="kicker">AI agent</p>
       <h2>Your AI agent sees what you see</h2>
       <p class="lede">
         At the bottom of every window there is an agent terminal: Claude Code,
@@ -505,48 +636,382 @@
   </div>
 </section>
 
-<section id="new">
+<section class="alt" id="flat">
   <div class="wrap">
     <div class="section-head">
-      <p class="kicker">New in 1.8</p>
-      <h2>A whole tree in one list, and pictures you can fix</h2>
+      <p class="kicker">Flat view</p>
+      <h2>A whole tree in one list, filtered by a query language</h2>
       <p class="lede">
-        A pane can show a folder and everything under it, filtered by an
-        expression much like <code>find</code>'s. Pictures get an EXIF editor
-        and the everyday fixes, done on this Mac. And Text Edit learns what
-        your JSON, XML, TOML and YAML files are meant to look like.
+        <kbd>⇧⌘F</kbd> turns a pane into one list of a folder and everything
+        under it, filtered by an expression much like <code>find</code>'s —
+        but readable, completed as you type, and warned about when it can
+        never match. The rows are ordinary rows: copy, move, rename, trash,
+        or Rename Many all of them at once.
       </p>
+    </div>
+
+    <div class="win" role="img" aria-label="A pane in flat view, filtering for large movies with an expression">
+      <div class="titlebar"><i></i><i></i><i></i><span>~/Movies — flat</span></div>
+      <div class="field"><span class="kw">size</span> &gt; <span class="num">500MB</span> <span class="kw">and</span> (<span class="kw">name</span> = <span class="str">"*.mov"</span>, <span class="kw">format</span> = <span class="str">"mp4"</span>) <span class="kw">and</span> <span class="kw">taken</span> <span class="kw">between</span> [<span class="num">2024-06</span>, <span class="num">2024-08</span>]</div>
+      <p class="hint">taken — the date the video was taken, compared as modified is</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Name</th><th style="text-align:right">Size</th><th>Taken</th></tr></thead>
+          <tbody>
+            <tr><td><span class="dim">2024/Summer/</span>IMG_4471.mov</td><td class="r">1.2 GB</td><td>2024-07-02 18:41</td></tr>
+            <tr class="sel"><td><span class="dim">2024/Summer/Lake/</span>IMG_4519.mov</td><td class="r">812 MB</td><td>2024-07-14 09:05</td></tr>
+            <tr><td><span class="dim">2024/Summer/Lake/</span>drone-pass.mp4</td><td class="r">2.4 GB</td><td>2024-07-14 11:30</td></tr>
+            <tr><td><span class="dim">Imports/</span>GX010233.mp4</td><td class="r">3.9 GB</td><td>2024-08-21 16:12</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="status">4 found among 12,400 items in 310 folders</div>
+    </div>
+
+    <h3 class="sub-head">What it can ask</h3>
+    <div class="grid tight">
+      <div class="card">
+        <h3>Names and paths</h3>
+        <p><code>name = "*.txt"</code>, <code>name ~ /^IMG_\d+/i</code>,
+          <code>path != "*/.git/*"</code> — shell patterns or regular
+          expressions, and <code>!=</code> or <code>!~</code> for not.</p>
+      </div>
+      <div class="card">
+        <h3>Sizes and dates</h3>
+        <p><code>size &gt; 10MB</code>, <code>modified &lt; 2025-01-01</code>,
+          <code>created = 2024-07</code> for the whole month,
+          <code>size between (1MB, 10MB]</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Folders, files and links</h3>
+        <p><code>directory traversed</code> to walk without listing,
+          <code>directory listed</code> for the opposite;
+          <code>link broken</code>, <code>link loop</code>,
+          <code>link and directory</code>.</p>
+      </div>
+      <div class="card">
+        <h3>Permissions and owners</h3>
+        <p><code>access = "rwx***---"</code>, place by place;
+          <code>owner = "peter"</code>, <code>group ~ /staff/</code>,
+          <code>xattr("com.apple.quarantine")</code>.</p>
+      </div>
+      <div class="card">
+        <h3>What is inside</h3>
+        <p><code>contains "TODO"</code>, or line by line as
+          <code>grep</code>: <code>contains ~ /FIXME|XXX/</code>. Binary
+          files are never searched for text by chance.</p>
+      </div>
+      <div class="card">
+        <h3>Pictures and videos</h3>
+        <p><code>camera = "*iPhone*"</code>, <code>iso &gt;= 1600</code>,
+          <code>city = "Budapest"</code>, <code>near(47.49, 19.04, 5km)</code>,
+          <code>duration &gt; 10min</code> — from the header, never the
+          pixels, and never sent anywhere.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-head">Written like this</h3>
+    <p class="sub-text">Comments go between <code>/*</code> and <code>*/</code>,
+      anywhere in an expression and over several lines — which is also the
+      quick way to switch part of one off for a run without deleting it.</p>
+    <div class="code-list"><span class="cmt">/* walk everywhere, list only text files mentioning TODO */</span>
+<span class="kw">directory traversed</span>, <span class="kw">file and contains</span> ~ <span class="rx">/TODO|FIXME/</span>
+
+<span class="cmt">/* only into folders named src, and the Swift files there */</span>
+(<span class="kw">directory and name</span> = <span class="str">"src"</span>) <span class="kw">or</span> (<span class="kw">file and name</span> = <span class="str">"*.swift"</span>)
+
+<span class="cmt">/* photos that say where they were taken, from one summer */</span>
+<span class="kw">image and located and taken between</span> [<span class="num">2024-06</span>, <span class="num">2024-08</span>]
+
+<span class="cmt">/* links that lead nowhere, outside .git */</span>
+<span class="kw">link broken and path</span> != <span class="str">"*/.git/*"</span></div>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Completed on <kbd>⌃Space</kbd></b>
+        <span class="desc">What can come next — a test, a unit, a format, the cameras the last walk found, ISO values and f-stops — and a calendar where a date goes.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Mistakes said as you type</b>
+        <span class="desc">Red under what does not parse, with the reason; orange under what parses but can never match — <code>size &gt; 10MB and size &lt; 1MB</code>.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Saved by name, used by name</b>
+        <span class="desc">Save <code>images</code> once, then write <code>images and size &gt; 1MB</code>. Every version is kept, and Undo takes a save back.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Holds still while you work</b>
+        <span class="desc">Rows arrive as they are found; Stop keeps what was found. Renaming changes one row, and the expression turns brown when the list is stale.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Back where you were</b>
+        <span class="desc">Open a folder from the list, and Back returns to the walk at once, the folder you came from selected. Each pane remembers its last six walks.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The same language elsewhere</b>
+        <span class="desc">A script's <code>apply-to:</code> header is an expression of it, asked of each selected file — <code>file and name = "*.jpg"</code>, <code>image and located</code>.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section id="editor">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Text Edit</p>
+      <h2>Edit the text, or edit the structure</h2>
+      <p class="lede">
+        Text Edit keeps what you type exactly as you typed it — quotes stay
+        straight, two hyphens stay two hyphens — and saves the file with the
+        line endings and encoding it came with. JSON, XML, YAML, TOML and
+        property lists are coloured, paired, folded, checked and formatted,
+        and shown as a tree in which you edit the structure while the text
+        stays yours.
+      </p>
+    </div>
+
+    <div class="win" role="img" aria-label="Text Edit showing an XML file as a tree of keys and values, an attribute marked with an @ badge">
+      <div class="titlebar"><i></i><i></i><i></i><span>catalog.xml — XML Edit · tree</span></div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th></th><th>Key</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td class="ln">2</td><td>▾ <span class="el">catalog</span></td><td class="dim">2 children</td></tr>
+            <tr><td class="ln">3</td><td class="ind1">▾ <span class="el">book</span></td><td class="dim">4 children</td></tr>
+            <tr class="sel"><td class="ln">3</td><td class="ind2"><span class="badge">@</span><span class="at">id</span></td><td>bk101</td></tr>
+            <tr><td class="ln">4</td><td class="ind2"><span class="el">author</span></td><td>Gambardella, Matthew</td></tr>
+            <tr><td class="ln">5</td><td class="ind2"><span class="el">title</span></td><td>XML Developer's Guide</td></tr>
+            <tr><td class="ln">6</td><td class="ind2"><span class="dim">#comment</span></td><td class="dim">reprinted ↩ second edition 2001</td></tr>
+            <tr><td class="ln">8</td><td class="ind1">▸ <span class="el">book</span></td><td class="dim">4 children</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="status">Copy XPath → /catalog/book[1]/@id</div>
+    </div>
+
+    <h3 class="sub-head">The tree</h3>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Edited in place</b>
+        <span class="desc">Double-click a key or value; what you type is quoted and escaped as the format needs. Comments, CDATA and long values get a text area, line breaks and all.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Added, moved, retyped</b>
+        <span class="desc">Add Child <kbd>⌃⌘N</kbd>, Add After <kbd>⌘↩</kbd>, Duplicate, Change Type, Delete; drag a node, or <kbd>⇧⌘↑</kbd> <kbd>⇧⌘↓</kbd> it through the structure.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The text stays yours</b>
+        <span class="desc">Every change is a change in the text, touching only that node and its separators — comments and layout stay, and Undo is the text's.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Element or attribute, by a name</b>
+        <span class="desc">Put <code>@</code> before an element's name and <code>&lt;name&gt;Diptych&lt;/name&gt;</code> becomes <code>name="Diptych"</code> on its parent; take it away to go back.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Paths for your tools</b>
+        <span class="desc">Copy XPath, JSON Path, <code>yq</code>'s YAML path, or PlistBuddy's key path for the clicked node. <kbd>⌘F</kbd> finds in names and values, folded or not.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Property lists, binary too</b>
+        <span class="desc">A <code>.plist</code> opens as its tree of String, Integer, Real, Boolean, Date, Data, Dictionary and Array; a binary one is shown as XML and saved as binary — or converted.</span></span>
+      </li>
+    </ul>
+
+    <h3 class="sub-head">The text</h3>
+    <div class="win" role="img" aria-label="Typing XML: the end tag is shown in grey after the caret">
+      <pre><span class="el">&lt;catalog&gt;</span>
+  <span class="el">&lt;book</span> <span class="at">id</span>=<span class="str" style="color:#8fd18f">"bk102"</span><span class="el">&gt;</span>
+    <span class="el">&lt;author&gt;</span>Ralls, Kim<span class="el">&lt;/</span><span class="caret"></span><span class="ghost">author&gt;</span></pre>
     </div>
     <ul class="list-check list-two">
       <li>
         <span class="tick">✓</span>
-        <span><b>Flat view</b>
-        <span class="desc">One list of a folder and all below it, filtered by <code>size &gt; 10MB and name = "*.mov"</code> or <code>contains /todo/i</code> — completed on <kbd>Ctrl</kbd>-<kbd>Space</kbd>, warned when it can never match, saved by name and reused inside other expressions.</span></span>
+        <span><b>XML typed along</b>
+        <span class="desc">What the markup still needs — <code>&gt;</code>, <code>=""</code>, <code>--&gt;</code>, the innermost open element's end tag — shown in grey and taken with <kbd>⌃Space</kbd>. Closing a start tag puts in its end tag.</span></span>
       </li>
       <li>
         <span class="tick">✓</span>
-        <span><b>Rename Many, where you need it</b>
-        <span class="desc">On the selected files, or on everything a flat view found, wherever in the tree they are.</span></span>
+        <span><b>Says where it breaks</b>
+        <span class="desc"><i>Not valid JSON — line 12, column 5: a comma or } is expected</i>, with Show to go there. JSON and TOML fully checked, XML for well-formedness, YAML for the usual mistakes.</span></span>
       </li>
       <li>
         <span class="tick">✓</span>
-        <span><b>An EXIF editor</b>
-        <span class="desc">Dates, camera, description and location on a map — paste a place from Google Maps — for many pictures at once, and an erase that Undo takes back.</span></span>
+        <span><b>Coloured, paired, folded</b>
+        <span class="desc">Keys, strings, numbers, tags and attributes in colour; brackets and quotes close themselves; the structure folds by its chevrons; the matching bracket or tag is marked.</span></span>
       </li>
       <li>
         <span class="tick">✓</span>
-        <span><b>Pictures, fixed in place</b>
-        <span class="desc">Rotate and flip without losing quality, convert and resize, remove the location, cut the subject out of its background, read the text in it — with Vision, never sent anywhere.</span></span>
+        <span><b>Lines, as IntelliJ does them</b>
+        <span class="desc"><kbd>⇧⌘↑</kbd> <kbd>⇧⌘↓</kbd> move lines, <kbd>⌘⌫</kbd> deletes them, <kbd>⌘C</kbd> with nothing selected copies the line, <kbd>⌘/</kbd> comments it, <kbd>⌘G</kbd> goes to one.</span></span>
       </li>
       <li>
         <span class="tick">✓</span>
-        <span><b>A gutter in Text Edit</b>
-        <span class="desc">What changed since the last commit, as IntelliJ shows it, and since the last save; line numbers absolute, relative or off.</span></span>
+        <span><b>Format Document</b>
+        <span class="desc"><kbd>⌥⌘L</kbd> lays JSON and XML out by your indentation — keys in their order, numbers as written, mixed content and <code>xml:space="preserve"</code> untouched. An invalid file is left alone.</span></span>
       </li>
       <li>
         <span class="tick">✓</span>
-        <span><b>Structured files fold, and say where they break</b>
-        <span class="desc">JSON, XML, TOML and YAML fold by their structure, and a mistake is pointed out as you type: line, column, and what is wrong.</span></span>
+        <span><b>A gutter that knows git</b>
+        <span class="desc">What changed since the last commit, as IntelliJ shows it, and since the last save; line numbers absolute, relative or off. Structure emphasis shades the block you are in.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="alt" id="servers">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">File servers</p>
+      <h2>Your NAS, in a pane</h2>
+      <p class="lede">
+        <i>Go ▸ Connect to Server…</i> (<kbd>⌘K</kbd>) mounts a share and
+        opens it in the active pane. Signing in is macOS's own window, with
+        your Keychain — Diptych never sees a password. Star a server and it
+        stays in the sidebar, a click away.
+      </p>
+    </div>
+
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Address</th><th>Server</th></tr></thead>
+        <tbody>
+          <tr><td><code>smb://nas/photos</code>, or just <code>nas/photos</code></td><td>Windows shares, most NAS boxes, Azure Files</td></tr>
+          <tr><td><code>nfs://host/export/path</code></td><td>NFS, Google Cloud Filestore</td></tr>
+          <tr><td><code>https://dav.example.com/remote.php/dav</code></td><td>WebDAV: Nextcloud, ownCloud, many NAS boxes</td></tr>
+          <tr><td><code>ftp://host</code></td><td>FTP, which macOS mounts read-only</td></tr>
+          <tr><td><code>afp://old-mac/share</code></td><td>AFP, for old Macs and Time Capsules</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Found on your network</b>
+        <span class="desc">The sheet lists starred and recent servers, and the NAS boxes and Macs that announce themselves by Bonjour — looked for only while it is open.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Comes back by itself</b>
+        <span class="desc">A pane left on a server connects it again at startup and after the Mac wakes. One whose server was ejected waits, and offers Connect or Go Home.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Changes from other machines show up</b>
+        <span class="desc">A pane on a server looks again every five seconds while Diptych is in front — or as often as Settings says; 0 leaves it to Refresh.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Slow servers stay usable</b>
+        <span class="desc">A folder listed before opens at once, then refreshes; a new one counts as it is read. Picture columns fill in after the rows, and git colours stay off.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Read-only, said plainly</b>
+        <span class="desc">On a read-only share what would change it is greyed out, a drop says why it was refused, and the editors say it is the volume that is read-only, not the file.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Saves that are checked</b>
+        <span class="desc">A WebDAV refusal when the file is closed is reported, not lost; Bin Edit reads back what it wrote. Volumes in the sidebar show their size and free space.</span></span>
+      </li>
+    </ul>
+    <p class="term-note" style="margin:28px 0 0">SFTP and S3 cannot be mounted by macOS itself; mounted with Mountain Duck, rclone or sshfs, they are folders like any other.</p>
+  </div>
+</section>
+
+<section id="scripts">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Scripts and programs</p>
+      <h2>Your shell scripts as menu commands, executed safely</h2>
+      <p class="lede">
+        Put a script in <code>~/.diptych/scripts</code>, say in its header
+        what it applies to, and it appears in the right-click menu for the
+        files it suits. Diptych is strict about what it executes, because the
+        danger is a script that arrived by mail, not the one you wrote.
+      </p>
+    </div>
+
+    <div class="code-list"><span class="cmt">#!/bin/sh</span>
+<span class="cmt"># name: Make a zip of these</span>
+<span class="cmt"># description: Puts what is selected into untitled.zip, beside it.</span>
+<span class="cmt"># apply-to: </span><span class="kw">path</span> != <span class="str">"*/.git/*"</span>
+<span class="cmt"># args: </span><span class="num">1,</span>
+<span class="cmt"># only-under: </span><span class="str">~/Documents</span>
+<span class="cmt"># call: </span><span class="kw">$0 $@</span></div>
+
+    <p class="sub-text" style="text-align:center">Or start with the ones that come with Diptych:
+      <i>File ▸ Get Scripts…</i> installs them from inside the app, signed with
+      it — read each one first with Show Source.</p>
+
+    <h3 class="sub-head">Executed safely</h3>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Nothing quarantined</b>
+        <span class="desc">A file macOS has marked with <code>com.apple.quarantine</code> — one that came from a browser, mail or a chat — is refused.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Yours, and read-only</b>
+        <span class="desc">A script must belong to you and be writable by no one, you included, so an approved script cannot change afterwards: <code>r--------</code>.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Approved, and approved again</b>
+        <span class="desc">You approve a script before its first run and whenever its contents change, by a hash. Every rule is checked again at the moment it runs.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Every name is one argument</b>
+        <span class="desc">The <code>call</code> line is split into words before anything is put in, and no shell reads it: <code>my notes (draft).txt</code> arrives whole.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Read when Diptych starts</b>
+        <span class="desc">The scripts folder is read once, so what you approved is what runs. Developer mode adds a menu item to read it again while you write one.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Off until you switch it on</b>
+        <span class="desc">Scripts are a setting, off by default. Mistakes in a header are reported with the file and the line, not left as a missing menu item.</span></span>
+      </li>
+    </ul>
+
+    <h3 class="sub-head">Running programs</h3>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Run with Arguments…</b>
+        <span class="desc"><kbd>⌥↩</kbd> on any executable: arguments and environment variables, the exact command shown first, the earlier runs a <kbd>↑</kbd> away, and templates you keep.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>A real terminal for each run</b>
+        <span class="desc">Tabs of one Runs window — colours, progress bars, questions — with Stop, Run Again, Copy Output, the exit status and the time it took.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Downloaded programs are asked about</b>
+        <span class="desc">macOS checks downloaded apps; nobody checks downloaded scripts. Diptych asks before one with quarantine runs.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>No agent can run anything</b>
+        <span class="desc">Running is never offered over MCP — but an agent can read a run's output, so “why did that fail?” needs no copying.</span></span>
       </li>
     </ul>
   </div>
@@ -565,9 +1030,9 @@
         <div class="glyph">⇥</div>
         <h3>Two panes, one keyboard</h3>
         <p><kbd>Tab</kbd> switches panes, <kbd>F5</kbd>/<kbd>F6</kbd> copy or
-          move to the other side, and every command lives in the Files menu
-          too, with a shortcut, for the days F-keys are busy dimming your
-          screen.</p>
+          move to the other side, <kbd>⇧⌘↑</kbd>/<kbd>⇧⌘↓</kbd> put files in an
+          order of your own, and every command lives in the menus too, for
+          the days F-keys are busy dimming your screen.</p>
       </div>
       <div class="card">
         <div class="glyph">↺</div>
@@ -592,18 +1057,37 @@
       </div>
       <div class="card">
         <div class="glyph">▤</div>
-        <h3>Text Edit &amp; Bin Edit</h3>
-        <p>A small, honest text editor that never “corrects” a quote or a
-          dash — with git change bars, folding and syntax checks for JSON,
-          XML, TOML and YAML — and a hex editor for the files that aren’t text at all —
-          both built in, no other app needed.</p>
+        <h3>Bin Edit</h3>
+        <p>A hex editor for the files that aren’t text at all, built in —
+          and it reads back what it saved, so a server that quietly
+          dropped the change cannot fool you.</p>
       </div>
       <div class="card">
-        <div class="glyph">ⓘ</div>
-        <h3>An Info window worth opening</h3>
-        <p>Permissions, ACL, extended attributes, tags, what a file says
-          about itself — EXIF, GPS, PDF metadata — and what else has it
-          open, all in one window.</p>
+        <div class="glyph">⌖</div>
+        <h3>An EXIF editor</h3>
+        <p>Dates, camera, description and location on a map — paste a
+          place from Google Maps — for many pictures at once, and an erase
+          that Undo takes back.</p>
+      </div>
+      <div class="card">
+        <div class="glyph">◩</div>
+        <h3>Pictures, fixed in place</h3>
+        <p>Rotate and flip without losing quality, convert and resize,
+          remove the location, cut out the subject, read the text in it —
+          with Vision, on this Mac, never sent anywhere.</p>
+      </div>
+      <div class="card">
+        <div class="glyph">⌂</div>
+        <h3>Instead of Finder, if you like</h3>
+        <p>Other apps' <i>Show in Finder</i> can open the folder in Diptych,
+          the file selected — one setting, and one to undo it.</p>
+      </div>
+      <div class="card">
+        <div class="glyph">⇉</div>
+        <h3>Copies you can watch</h3>
+        <p>A panel with the file, the bytes and an estimate, a Cancel that
+          really stops — and a queue that lists what is waiting, by name,
+          with a time for all of it.</p>
       </div>
     </div>
   </div>
@@ -612,7 +1096,7 @@
 <section id="compare">
   <div class="wrap">
     <div class="section-head">
-      <p class="kicker">New in 1.3</p>
+      <p class="kicker">Compare</p>
       <h2>Compare files, bytes, or whole folders</h2>
       <p class="lede">
         Two text files get a real line-by-line diff. Two of anything else get
@@ -621,6 +1105,7 @@
         nobody has to memorise the letters.
       </p>
     </div>
+    <h3 class="sub-head">Two folders</h3>
     <div class="mockup-stage" style="margin-bottom:48px;">
       <div class="shot-frame">
         <img src="assets/screenshot-compare.png" alt="The Compare Folders window, showing two folders' files paired up with coloured difference badges and a legend">
@@ -648,24 +1133,90 @@
         <span class="desc">Search the list, open a subfolder’s own comparison, or send a pair straight back to the panes it came from — ⌘G and it’s selected, ready to act on.</span></span>
       </li>
     </ul>
-  </div>
-</section>
 
-<section class="alt" id="gallery">
-  <div class="wrap">
-    <div class="section-head">
-      <p class="kicker">In practice</p>
-      <h2>More of Diptych</h2>
-      <p class="lede">A real line-by-line diff, and the Info window's Attributes tab.</p>
-    </div>
-    <div class="grid gallery-grid">
+    <h3 class="sub-head">Two files</h3>
+    <div class="mockup-stage" style="margin-bottom:48px;">
       <div class="shot-frame">
         <img src="assets/screenshot-file-diff.png" alt="Diptych comparing two versions of a text file, line by line, with the changed lines highlighted">
       </div>
-      <div class="shot-frame">
+    </div>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Lines aligned as a reader would</b>
+        <span class="desc">A rewritten line is one changed line, not a deletion and an addition; the words that changed are marked within it; a run of changes is one difference to jump to.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Edit one side, safely</b>
+        <span class="desc">A padlock on each side, and only one opens. One press takes a whole difference from the other side; saving keeps the line endings, encoding, permissions and attributes.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Find, only what differs, ignore spacing</b>
+        <span class="desc">And wrapping on both sides or neither. The window watches both files and reloads when either changes.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Anything else, byte by byte</b>
+        <span class="desc">Two files that are not text get a straight answer: identical, different from the first byte, the same for the first N bytes — in decimal and hex — or one the beginning of the other.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="alt" id="info">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Information</p>
+      <h2>Everything about a file, in one window</h2>
+      <p class="lede">
+        <kbd>⌘I</kbd> opens an Info window for the file: what the file system
+        keeps about it, what the file says about itself, and who has it open
+        — each tab applied on its own, and every refusal said out loud.
+      </p>
+    </div>
+    <div class="mockup-stage" style="margin-bottom:48px;">
+      <div class="shot-frame" style="max-width:720px">
         <img src="assets/screenshot-info.png" alt="The Info window's Attributes tab, listing a file's extended attributes with their raw values">
       </div>
     </div>
+    <div class="grid tight">
+      <div class="card">
+        <h3>General</h3>
+        <p>Rename in place, the kind and size, and the created and modified
+          dates — editable, not just shown.</p>
+      </div>
+      <div class="card">
+        <h3>Permissions and ACL</h3>
+        <p>Owner and group pickers, the nine bits and setuid, setgid and
+          sticky with the octal mode, and the access control list as
+          <code>ls -le</code> writes it.</p>
+      </div>
+      <div class="card">
+        <h3>Extended attributes</h3>
+        <p>Every attribute <code>xattr</code> shows — text values edited in
+          place, binary ones shown as hex and removable, quarantine
+          included.</p>
+      </div>
+      <div class="card">
+        <h3>Tags and folder icons</h3>
+        <p>Finder tags with their colours, and a folder's custom icon
+          shown, set or taken away.</p>
+      </div>
+      <div class="card">
+        <h3>Details</h3>
+        <p>What the file says about itself: EXIF and GPS with a map link,
+          PDF pages and permissions, a film's tracks and codecs, and what
+          Spotlight knows.</p>
+      </div>
+      <div class="card">
+        <h3>Open By</h3>
+        <p>Which programs have the file open — or, for a folder, anything
+          inside it, or stand in it — which is what stops it being moved.</p>
+      </div>
+    </div>
+    <p class="term-note" style="margin:28px 0 0">A change the file will not take is reported, then offered with a brief unlock and relock, then with your password.</p>
   </div>
 </section>
 
@@ -673,41 +1224,44 @@
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Why another file manager</p>
-      <h2>Native, quiet, and yours to build on</h2>
-      <p class="lede">No Electron, no account, no upsell, and nothing that
-        leaves your Mac unless you explicitly ask it to.</p>
+      <h2>Because your agent should work where you do</h2>
+      <p class="lede">Diptych is built around an AI agent that sees your
+        panes, works through the same operations you do, and changes nothing
+        you have not reviewed.</p>
     </div>
     <div class="why-grid">
       <div class="why-item">
         <p class="num">01</p>
-        <h3>Native Swift and SwiftUI</h3>
-        <p>Not a wrapped web page. It starts instantly, uses the memory a Mac
-          app should, and looks like it belongs on your desktop, because it
-          was actually built for it.</p>
+        <h3>The agent sees what you see</h3>
+        <p>Not a chat window beside your files: the selection, both panes,
+          what a comparison or a flat view found. “These”, “the other side”
+          and “the ones that differ” mean what they mean to you.</p>
       </div>
       <div class="why-item">
         <p class="num">02</p>
-        <h3>No telemetry, ever</h3>
-        <p>Diptych makes no network request you didn’t ask for — not even
-          version tracking, off until you switch it on in Settings, or
-          checking for a newer release, which asks before it ever makes
-          one. Nothing is collected, nothing is phoned home.</p>
+        <h3>It proposes, you decide</h3>
+        <p>Moves, renames, permissions, tags: the agent hands over a list,
+          you review it, untick what you don't want, and run it. Undo takes
+          back what it did, as it takes back what you did.</p>
       </div>
       <div class="why-item">
         <p class="num">03</p>
-        <h3>Free, and the source is right there</h3>
-        <p>Not a trial, not a “free tier”. The whole thing, including the
-          test suite, is on GitHub for anyone to read, build, or send a pull
-          request to.</p>
+        <h3>Workflows in a sentence</h3>
+        <p>Rename photos by the date they were taken, sort invoices into
+          folders by year, find what is in one tree and not the other — asked
+          in words, not hunted for in menus no file manager could have
+          enough of.</p>
       </div>
       <div class="why-item">
         <p class="num">04</p>
-        <h3>Signed and notarized</h3>
-        <p>Every release is signed with a Developer ID and notarized by
-          Apple, so it opens the way any other Mac app does — no
-          right-click-to-bypass required.</p>
+        <h3>A Swiss pocket knife of a file manager</h3>
+        <p>Around the agent, the tools you would otherwise open five apps
+          for: a query language for whole trees, an editor for structured
+          files, folder comparison, file servers, scripts — made in
+          Switzerland.</p>
       </div>
     </div>
+    <p class="term-note" style="margin:40px 0 0">And the basics, as they should be everywhere: free and open source, native, signed and notarized by Apple, no telemetry, no account.</p>
   </div>
 </section>
 
@@ -737,7 +1291,7 @@
 
 <footer>
   <div class="wrap">
-    <span>© <span id="year"></span> Peter Verhas · Diptych — pronounced ‘deep tech’ — a two-pane AI driven file manager for macOS.</span>
+    <span>© <span id="year"></span> Peter Verhas · Diptych — pronounced ‘deep tech’ — the agentic Swiss pocket knife of file managers for macOS.</span>
     <div class="flinks">
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/verhas/diptych/issues" target="_blank" rel="noopener">Issues</a>
