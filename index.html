@@ -81,7 +81,8 @@
   }
   nav .links {
     display: flex;
-    gap: 26px;
+    align-items: center;
+    gap: 20px;
     font-size: 14.5px;
     font-weight: 500;
   }
@@ -95,10 +96,10 @@
   }
   nav .links a.cta:hover { background: var(--navy-3); }
 
-  @media (max-width: 900px) {
-    nav .links { gap: 18px; }
+  @media (max-width: 1240px) {
+    nav .links { gap: 14px; font-size: 13.5px; }
   }
-  @media (max-width: 820px) {
+  @media (max-width: 1100px) {
     nav .links a:not(.cta) { display: none; }
   }
 
@@ -528,6 +529,9 @@
       <a href="#servers">Servers</a>
       <a href="#scripts">Scripts</a>
       <a href="#compare">Compare</a>
+      <a href="#sync">Sync</a>
+      <a href="#duplicates">Duplicates</a>
+      <a href="#paste-special">Paste Special</a>
       <a href="#info">Info</a>
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">Source</a>
       <a class="cta" href="#download">Download</a>
@@ -545,8 +549,8 @@
       keyboard that does the work, an AI agent that sees what you see and asks
       before it touches anything, a whole tree in one filtered list, an
       editor that knows JSON, XML and YAML, your file servers, and a
-      genuinely useful way to compare two files or two whole folders.
-    </p>
+      genuinely useful way to compare and sync two folders, find the
+      duplicates, and paste one file’s properties onto many.</p>
     <div class="cta-row">
       <a class="btn btn-primary" id="download-btn"
          href="https://github.com/verhas/diptych/releases/latest">
@@ -1119,13 +1123,13 @@
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Compare</p>
-      <h2>Compare files and folders, sync them, find the duplicates</h2>
+      <h2>Compare files, bytes, or whole folders</h2>
       <p class="lede">
         Two text files get a real line-by-line diff. Two of anything else get
         an honest byte-by-byte answer. Two whole folders get a window of
         their own — every file paired up, colour-coded, with a legend so
-        nobody has to memorise the letters — and can then be synced. And
-        one file, or one folder, can be searched for copies of itself.
+        nobody has to memorise the letters — ready to be
+        <a href="#sync">synced</a>.
       </p>
     </div>
     <h3 class="sub-head">Two folders</h3>
@@ -1154,54 +1158,6 @@
         <span class="tick">✓</span>
         <span><b>Filter, drill in, jump back</b>
         <span class="desc">Search the list, open a subfolder’s own comparison, or send a pair straight back to the panes it came from — ⌘G and it’s selected, ready to act on.</span></span>
-      </li>
-    </ul>
-
-    <h3 class="sub-head">Sync</h3>
-    <ul class="list-check list-two" style="margin-bottom:48px;">
-      <li>
-        <span class="tick">✓</span>
-        <span><b>Both ways, each change the way it was made</b>
-        <span class="desc">For two folders where neither is the master. Each sync is remembered, so next time an edit, a new file, a deletion or a rename is carried to the other side.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>Conflicts are yours to decide</b>
-        <span class="desc">A file changed on both sides waits for you: either way, keep both, or leave it for next time — or Newer Wins for all of them at once. A click opens the two side by side.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>Or one way: make this side the same as that</b>
-        <span class="desc">Missing items copied, extra ones deleted, changed files replaced, a renamed file renamed rather than copied again, and a file that differs only in its permissions or dates given just those.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>The plan first, nothing lost</b>
-        <span class="desc">Every change is listed before anything is made. Deleted files and the old versions of replaced ones go to the Trash, and a replacement takes the old name only once it is complete.</span></span>
-      </li>
-    </ul>
-
-    <h3 class="sub-head">Duplicates</h3>
-    <ul class="list-check list-two" style="margin-bottom:48px;">
-      <li>
-        <span class="tick">✓</span>
-        <span><b>Every set of copies in a folder</b>
-        <span class="desc">Grouped by their bytes and listed as they are found, with the letters of the folder comparison for what else differs: dates, permissions, attributes, owner.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>The copies of one file, nearest first</b>
-        <span class="desc">Its folder, the folders under it, then one folder further up at a time, then the other volumes you tick — with a line saying how wide it has gone, and Stop once that is wide enough.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>To the Trash, never the last copy</b>
-        <span class="desc">Select and move the extra copies to the Trash, and Undo brings them back. Selecting every copy of a group greys the button, and the window says why.</span></span>
-      </li>
-      <li>
-        <span class="tick">✓</span>
-        <span><b>Links followed, and warned about</b>
-        <span class="desc">A link is listed with the file it leads to, wherever that is, and a link that would lead nowhere once its file is in the Trash is named before you go ahead.</span></span>
       </li>
     </ul>
 
@@ -1236,7 +1192,156 @@
   </div>
 </section>
 
-<section class="alt" id="info">
+<section class="alt" id="sync">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Sync</p>
+      <h2>Two folders, made the same — one way or both</h2>
+      <p class="lede">
+        A Compare Folders window shows how two folders differ; its
+        <i>Sync</i> menu makes them agree. Every change is listed before
+        any is made, and nothing is lost on the way: what goes, goes to the
+        Trash.
+      </p>
+    </div>
+
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Sync ▸</th><th>For</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><b>Make Right Same as Left</b><br>or Left Same as Right</td><td>a backup, a copy on a USB disk, a folder on the NAS</td><td>The target ends up as if it had been deleted and copied over again — but only what differs is touched.</td></tr>
+          <tr><td><b>Sync Both Ways…</b></td><td>a folder kept on two Macs, where neither is the master</td><td>Each change goes the way it was made: an edit, a new file, a deletion or a rename is carried to the other side.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The plan first</b>
+        <span class="desc">The folders are compared afresh and every change listed — copied, deleted, replaced, renamed — before anything is made. Any row can be changed or left out.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Only what differs</b>
+        <span class="desc">Missing items copied, extra ones deleted, changed files replaced; a file that differs only in its permissions, attributes or dates gets just those set.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>A rename is a rename</b>
+        <span class="desc">A file the comparison recognised by its bytes under another name is renamed on the other side, not copied there again.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>It remembers the last sync</b>
+        <span class="desc">Both ways, Diptych keeps a record of each sync, so next time it can tell a file deleted on one side from a file new on the other.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Conflicts are yours to decide</b>
+        <span class="desc">A file changed on both sides waits: either way, Keep Both — the older one renamed — or Leave as Is. Newer Wins decides them all at once, and a click opens the two side by side.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Nothing lost by accident</b>
+        <span class="desc">Deleted files and the old versions of replaced ones go to the Trash, and a replacement takes the old name only once it is complete — which matters on a server that drops the connection.</span></span>
+      </li>
+    </ul>
+    <p class="term-note" style="margin:28px 0 0">A sync goes as far as the comparison looks: untick the dates, and a date alone is no reason to change anything. Dates are copied to the nanosecond.</p>
+  </div>
+</section>
+
+<section id="duplicates">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Find Duplicates</p>
+      <h2>Every copy of a file, nearest first</h2>
+      <p class="lede">
+        <i>File ▸ Find Duplicates…</i> on a folder finds every set of files in
+        it holding the same bytes. On one file, it finds that file’s copies —
+        in its own folder first, then wider and wider, until you say it is
+        wide enough.
+      </p>
+    </div>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Listed as they are found</b>
+        <span class="desc">Grouped by their bytes, with the pane’s icons for links and executables and the Compare Folders letters for what else differs: dates, permissions, attributes, owner.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Wider, a step at a time</b>
+        <span class="desc">Its folder, the folders under it, then one folder further up each time, then other volumes — and a line above the progress says how wide it has gone. Stop keeps what was found.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The disks you choose</b>
+        <span class="desc">Each other volume has its own checkbox: the USB backup, yes; the video server, no.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>To the Trash, never the last copy</b>
+        <span class="desc">Select the extra copies and move them to the Trash; Undo brings them back. Selecting every copy of a group greys the button, and the window says why.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Links followed</b>
+        <span class="desc">A symbolic link is listed with the file it leads to, wherever that is. Hard links count as duplicates only when you ask.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Warned before a link breaks</b>
+        <span class="desc">A link that would lead nowhere once the selected files are in the Trash is named in purple; a click lists every such link and where it leads.</span></span>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="alt" id="paste-special">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Paste Special and copying</p>
+      <h2>One file’s properties, onto many</h2>
+      <p class="lede">
+        Copy one file, select a dozen others, and <i>Edit ▸ Paste Special</i>
+        gives them just one thing of it — its permissions, its dates, its
+        location — leaving their contents alone. One step in Undo, however
+        many files it touched.
+      </p>
+    </div>
+
+    <h3 class="sub-head">Paste Special</h3>
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Paste</th><th>Onto the selected files</th></tr></thead>
+        <tbody>
+          <tr><td>Permissions, Owner, Group</td><td>the copied file’s mode, setuid, setgid and sticky included, its owner and its group</td></tr>
+          <tr><td>Modified Date, Created Date</td><td>to the nanosecond, so a comparison then finds them the same</td></tr>
+          <tr><td>Extended Attributes, Access Control List</td><td>made the same as the copied file’s — what it lacks is taken away</td></tr>
+          <tr><td>Location, EXIF</td><td>for JPEG and HEIC pictures: where it was taken, or every EXIF field — never which way up it is, or its size</td></tr>
+          <tr><td>All of the Above</td><td>everything that applies to each file</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-head">What a copy keeps</h3>
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Settings ▸ Behaviour ▸ Copying</th><th>Kept, as Finder does</th><th>Or</th></tr></thead>
+        <tbody>
+          <tr><td>Created and modified date</td><td>the original’s, to the nanosecond</td><td>the time of the copy</td></tr>
+          <tr><td>Permissions</td><td>the original’s</td><td>a new file’s, 0666 less the umask; or your own for files and for folders, in the panes' permission grid</td></tr>
+          <tr><td>Group</td><td>the original’s</td><td>the target folder’s, when it has the setgid bit, as on Linux</td></tr>
+          <tr><td>Extended attributes, ACL</td><td>all of them</td><td>none</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="term-note" style="margin:28px 0 0">A downloaded file stays quarantined whatever is set, a move always keeps everything, and EXIF is part of a picture’s contents, so a copy always has it.</p>
+  </div>
+</section>
+
+<section id="info">
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Information</p>
@@ -1291,7 +1396,7 @@
   </div>
 </section>
 
-<section>
+<section class="alt">
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Why another file manager</p>
@@ -1336,7 +1441,7 @@
   </div>
 </section>
 
-<section class="alt" id="download">
+<section id="download">
   <div class="wrap">
     <div class="download-box">
       <p class="kicker" style="color:#f2a53c;">Get Diptych</p>
