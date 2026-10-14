@@ -57,10 +57,11 @@ enum ClickAwayEndsEditing {
         guard watched.insert(ObjectIdentifier(window)).inserted else { return }
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak window] event in
             guard let window, event.window === window,
-                  window.firstResponder is NSText else { return event }
+                  window.firstResponder is NSText
+                    || window.firstResponder is PermissionEditorView else { return event }
             // The frame view's hit test takes window coordinates.
             let hit = window.contentView?.superview?.hitTest(event.locationInWindow)
-            if !(hit is NSText || hit is NSTextField) {
+            if !(hit is NSText || hit is NSTextField || hit is PermissionEditorView) {
                 window.makeFirstResponder(nil)
             }
             return event
@@ -282,6 +283,10 @@ struct BehaviourSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            CopySettingsView()
 
             Divider()
 
@@ -1171,5 +1176,107 @@ struct TextStyleSettings: View {
             return "1 tab (\(width) wide)"
         }
         return width == 1 ? "1 space" : "\(width) spaces"
+    }
+}
+
+/// What a copy keeps besides its bytes.
+struct CopySettingsView: View {
+
+    @Bindable private var store = ConfigStore.shared
+
+    private var copying: Binding<CopySettings> { $store.configuration.copying }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Which grid the caret is in, and in which triple, for the label.
+    @State private var scope: [Int: String] = [:]
+
+    private func permissionRow(_ title: String, _ text: Binding<String>,
+                               field: Int) -> some View {
+        let mode = CopySettings.mode(from: text.wrappedValue) ?? 0
+        return GridRow {
+            Text(title)
+            PermissionField(mode: mode,
+                            onCursor: { scope[field] = PermissionEditorView.scope(at: $0) },
+                            onCommit: { text.wrappedValue = FileOperations.rwxString($0) },
+                            onCancel: {},
+                            autoFocus: false,
+                            onEdit: { text.wrappedValue = FileOperations.rwxString($0) })
+                .frame(width: 90, height: 18)
+                .border(Color(nsColor: .separatorColor))
+            Text(String(format: "%04o", mode)).monospacedDigit().foregroundStyle(.secondary)
+            Text(scope[field] ?? "").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Copying").font(.headline)
+            caption("What a copy takes along besides its contents, for every copy made in the "
+                    + "panes, by dragging, or by an agent. A move keeps everything, being the same "
+                    + "file; so does a sync in Compare Folders, whose job is to make the two sides "
+                    + "the same.")
+
+            Picker("Created date", selection: copying.createdDate) {
+                Text("The original\u{2019}s").tag(CopySettings.DateChoice.original)
+                Text("The time of the copy").tag(CopySettings.DateChoice.now)
+            }
+            .fixedSize()
+            Picker("Modified date", selection: copying.modifiedDate) {
+                Text("The original\u{2019}s").tag(CopySettings.DateChoice.original)
+                Text("The time of the copy").tag(CopySettings.DateChoice.now)
+            }
+            .fixedSize()
+
+            Picker("Permissions", selection: copying.permissions) {
+                Text("The original\u{2019}s").tag(CopySettings.PermissionChoice.original)
+                Text("A new file\u{2019}s: 0666, a folder 0777, less the umask")
+                    .tag(CopySettings.PermissionChoice.umask)
+                Text("These:").tag(CopySettings.PermissionChoice.fixed)
+            }
+            .fixedSize()
+            if store.configuration.copying.permissions == .fixed {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                    permissionRow("Files", copying.filePermissions, field: 0)
+                    permissionRow("Folders", copying.folderPermissions, field: 1)
+                }
+                .padding(.leading, 20)
+                caption("Click a grid and type, as in the panes: r, w and x set the bit in the "
+                        + "user, group or other triple the caret is in, Shift clears it and "
+                        + "Option toggles it; s sets setuid in the user triple and setgid in "
+                        + "the group triple, t sets the sticky bit in the other triple; Tab "
+                        + "moves to the next triple. Every bit is set as shown, whether macOS "
+                        + "makes use of it on that kind of item or not.")
+            }
+            caption("A link has no permissions of its own and is left alone.")
+
+            Picker("Group", selection: copying.group) {
+                Text("The original\u{2019}s").tag(CopySettings.GroupChoice.original)
+                Text("The target folder\u{2019}s, when it has the setgid bit")
+                    .tag(CopySettings.GroupChoice.setgid)
+            }
+            .fixedSize()
+            caption("The original\u{2019}s group only where you belong to it; otherwise the copy "
+                    + "gets the group macOS gives it. With setgid, a copy put in a folder with "
+                    + "the setgid bit takes that folder\u{2019}s group, and so does everything in "
+                    + "a copied folder that has it, as on Linux.")
+
+            Toggle("Copy extended attributes", isOn: copying.extendedAttributes)
+                .toggleStyle(.checkbox)
+            caption("Off, the copy has none: no Finder tags, no Finder comment, no colour label. "
+                    + "The quarantine mark of a downloaded file stays regardless, and so does what "
+                    + "macOS keeps for itself and lets nobody remove.")
+            Toggle("Copy the access control list", isOn: copying.accessControlList)
+                .toggleStyle(.checkbox)
+
+            caption("EXIF data and a picture\u{2019}s location are not set here: they are part "
+                    + "of the file\u{2019}s contents, so a copy always has them. Edit \u{25B8} "
+                    + "Paste Special and the EXIF editor change them on a file.")
+        }
     }
 }

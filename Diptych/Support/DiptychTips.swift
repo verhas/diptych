@@ -35,7 +35,8 @@ enum DiptychTips {
         "Command-Shift-period shows or hides files whose names begin with a dot.",
         "typing while a pane has focus jumps straight to the first file whose name starts with what"
             + " you typed, with no need to press any special key first.",
-        "Command-Plus, Command-Minus and Command-0 change the size of the text in both panes;"
+        "Command-Plus, Command-Minus and Command-0 change the size of the text in both panes -- or in"
+            + " Text Edit, while it is in front;"
             + " Command-Plus is silently mirrored by Command-Equals, because the menu's own Command-Plus"
             + " only matches when Shift is actually held.",
         "a locked-out folder -- a Time Machine volume, a protected system folder -- looks exactly"
@@ -47,8 +48,9 @@ enum DiptychTips {
             + " extension, not a generic name like item-003.log.log.",
         "dragging a file over a folder row and pausing makes it flash, and after a short wait the"
             + " pane navigates into that folder on its own, the same spring-loading Finder does.",
-        "if you drop before the spring-loading delay finishes, the file lands in the pane's current"
-            + " folder instead of the one you were hovering over.",
+        "dropping a file on a folder row puts it in that folder at once, without waiting for the"
+            + " folder to spring open; dropped on an app, it goes into the pane's folder, not inside the"
+            + " app.",
         "Command-D compares the two selected items -- two files open a text or byte comparison, two"
             + " folders open a Compare Folders window.",
         "comparing a file with a folder is refused outright, rather than guessing which one you"
@@ -218,8 +220,8 @@ enum DiptychTips {
         "a script's approval is remembered by the exact content you agreed to, so editing the script"
             + " even slightly makes Diptych ask again.",
         "a script file's own header comments -- everything from the line after the shebang up to the"
-            + " first non-comment line -- declare its name, description, which extensions it applies to, how"
-            + " many items it needs, and the command it runs.",
+            + " first non-comment line -- declare its name, description, what it applies to, how many items"
+            + " it needs, and the command it runs.",
         "a script's call line is split into separate arguments before anything is substituted into"
             + " it, which is what lets it run correctly on a file called \"my notes (draft).txt\" with no"
             + " quoting rules for anybody to remember.",
@@ -229,8 +231,8 @@ enum DiptychTips {
         "a script can be restricted to only being offered inside specific folders, or inside a folder"
             + " and everything beneath it, using its own header settings.",
         "Command-Option-P opens the permission editor for the current selection.",
-        "the Files menu shows Track This File and Never Track This File only for files Git does not"
-            + " already know about, and Stop Tracking only for files it does.",
+        "a file's right-click menu shows Track This File and Never Track This only for files Git does"
+            + " not already know about, and Stop Tracking only for files it does.",
         "Stop Tracking removes a file from version tracking on your next send, but leaves the file"
             + " itself sitting right there on disk.",
         "Apple Intelligence is switched off by default for everything Diptych can use it for, and the"
@@ -337,8 +339,9 @@ enum DiptychTips {
             + " put it.",
         "the Name column can never be turned off and is always shown first; every other column can be"
             + " switched on or off and dragged into whatever order you like in Settings.",
-        "Diptych's available columns are Name, Size, Kind, Date Modified, Date Created, Date Added,"
-            + " Extension, Permissions, Owner, Group, Tags and Git.",
+        "besides Name, Size, Kind, the dates, Extension, Permissions, Owner, Group, Tags and Git,"
+            + " a pane can show what pictures and videos say about themselves: Date Taken, Camera, Lens,"
+            + " ISO, Aperture, Shutter, Dimensions, Duration, Location, City, Country, Rating and more.",
         "turning a column off and back on again returns it to the same position it held before,"
             + " instead of moving it to the end of the list.",
         "Diptych keeps one shared undo history for the whole application, the way Finder does, rather"
@@ -402,10 +405,10 @@ enum DiptychTips {
         "a folder containing several different kinds of Git changes lists every one of them,"
             + " comma-separated and each in its own colour, rather than collapsing them into a single"
             + " worst-case word.",
-        "the status line at the bottom of a pane totals the size of only the selected files, leaving"
-            + " folders out of that number since their own size on disk is not what \"selected\" is really"
-            + " asking about.",
-        "Settings has seven tabs of its own: Columns, Toolbar, Appearance, Behaviour, Apple"
+        "the status line at the bottom of a pane totals the size of the selected files; a selected"
+            + " folder counts only once Calculate Directory Sizes has worked out its total -- \"so far\" while"
+            + " that is still growing.",
+        "Settings has eight tabs of its own: Columns, Toolbar, Appearance, Behaviour, Agents, Apple"
             + " Intelligence, Version Tracking and Sounds.",
         "the pane font, and its size, can be changed independently of the system font from the"
             + " Appearance tab, with a live preview row showing exactly what it will look like.",
@@ -420,7 +423,10 @@ enum DiptychTips {
             + " window starts with; each open window still keeps its own copy you can change independently"
             + " afterward.",
         "a script is only offered in the menu when every single item you have selected qualifies for"
-            + " it -- kind, extension and folder scope all have to match every item, not just most of them.",
+            + " it -- its apply-to expression and folder scope have to hold for every item, not just most"
+            + " of them.",
+        "a script's apply-to: header is an expression of the flat view's language, asked of each"
+            + " selected item -- file and name = \"*.jpg\", image and located, path != \"*/.git/*\".",
         "a script declared with no item requirement at all is offered based on the folder currently"
             + " showing in the pane, rather than on whatever happens to be selected.",
         "in a script's call line, $0 stands for the script's own path, and $1, $2 and so on stand for"
@@ -442,9 +448,9 @@ enum DiptychTips {
             + " the window.",
         "the New Folder and New File dialogs name the exact folder the new item will be created in"
             + " before you confirm, so there is no surprise about where it lands.",
-        "the permission editor lets you type octal digits straight into the Permissions column, and"
-            + " the column heading itself relabels to User, Group or Other while your caret sits in that"
-            + " field.",
+        "in the permission editor, r, w and x set a bit in the triple the caret is in, Shift clears"
+            + " it and Option toggles it, and the column heading relabels to User, Group or Other while"
+            + " your caret sits in that triple.",
         "undo tracks a file by its device and inode number, not by its name, so renaming or moving a"
             + " file before you undo an earlier step does not confuse which file the undo actually applies"
             + " to.",
@@ -483,5 +489,204 @@ enum DiptychTips {
             + " ~/.diptych/state.json.",
         "pressing Back or Forward skips silently over any folder that no longer exists on disk,"
             + " rather than getting stuck retracing the same dead end over and over.",
+        // 1.3.3 to 1.4.1: updates, the agent, the path bar, copying contents.
+        "Diptych ▸ Check for Updates… asks GitHub right away; Settings ▸ Behaviour decides whether it"
+            + " also looks by itself at startup, at most once a day, and nothing reaches the network until"
+            + " you have answered that question once.",
+        "right-clicking the path bar offers Add to Favourites, which is the only way to put / itself"
+            + " in the sidebar.",
+        "File ▸ Add Diptych to Agent Config (.mcp.json)… lets an AI agent started in that folder -- Claude"
+            + " Code, Codex, anything that speaks MCP -- ask Diptych what is selected, what each pane shows"
+            + " and what a comparison found.",
+        "an agent never changes your files behind your back: what it wants done arrives as a list of"
+            + " operations, each ticked, and nothing happens until you press Execute -- and Undo takes it"
+            + " back.",
+        "while agent access is on, a small dot in the toolbar pulses green on each request and red on a"
+            + " refused one, and clicking it opens MCP Activity with every call and its arguments.",
+        "starting Diptych a second time brings the running one forward instead of opening another, so"
+            + " \"the selection\" always means one particular window's selection.",
+        "right-click menus show the same shortcuts as the menu bar, and Rename… shows F2 and Move to"
+            + " Trash shows the Delete key, which asks first -- Command-Delete in the menu bar trashes without"
+            + " asking.",
+        "Edit ▸ Copy Contents, Control-Command-C, puts what is inside a file on the clipboard -- text as"
+            + " text, a picture or PDF as itself -- the reverse of New from Clipboard.",
+
+        // 1.5 and 1.6: the agent terminal, attributes, runs.
+        "Control-` opens a terminal under the panes with your AI agent already running in it and"
+            + " already connected to Diptych; clicking the thin strip folds it away with everything still"
+            + " running.",
+        "the agent terminal starts in ~/.diptych/agentic, not in your files, with instructions telling"
+            + " the agent to change files only through Diptych, as proposals you review.",
+        "dropping files on the agent terminal types their paths in, quoted for the shell.",
+        "in the agent terminal, selecting text copies it as you let go of the mouse, and Command-C does"
+            + " nothing, so a Command-C pressed from habit cannot replace what you copied.",
+        "the agent command -- Claude Code by default, or Codex, Copilot or anything else -- and the"
+            + " folder it starts in are set in Settings ▸ Agents.",
+        "Settings ▸ Behaviour ▸ Show files in Diptych instead of Finder makes other apps' Show in"
+            + " Finder open the folder in Diptych, with the file selected.",
+        "every extended attribute change is read back afterwards, because macOS accepts some changes"
+            + " -- removing com.apple.provenance above all -- and then quietly ignores them.",
+        "Get Info ▸ Attributes ▸ Identify App… names the app behind a file's com.apple.provenance"
+            + " attribute, from macOS's own database, and remembers the answer for every file with that ID.",
+        "a shell script, a Python script or a compiled tool has Run ▸ in its right-click menu, and Run"
+            + " with Arguments… (Option-Return) remembers what it was run with, most recent first.",
+        "Run with Arguments… can set environment variables, and a set of arguments saved as a template"
+            + " stays in the Run menu, marked Ⓣ, never rolled off.",
+        "every run is a tab of the Runs window, a real terminal, which says how it ended and how long it"
+            + " took, as time reports it.",
+        "runs and everything they printed are kept in ~/.diptych/runs -- a day by default, as long as"
+            + " Settings ▸ Behaviour says -- so you can ask your agent \"why did the build fail?\" and it"
+            + " reads the output itself.",
+        "a program's argument history is a small JSON file in ~/.diptych/run-history; Run with"
+            + " Arguments… ▸ Edit History File… opens it, and \"fixed\": true keeps a list exactly as written.",
+        "typing or pasting a file's path into the path bar and pressing Return goes to its folder,"
+            + " selects the file and opens it.",
+        "a broken link's right-click menu leaves out what needs the target, and keeps Get Info, where a"
+            + " new target can be typed to repair it.",
+
+        // 1.7: links.
+        "a number after a link's arrow, like (2), says how many links it goes through to reach a real"
+            + " file; a red dot means it ends nowhere, and a red broken circle that its links go round in a"
+            + " loop.",
+        "double-clicking a link's arrow goes to its target; Go to Final Target goes past every link in"
+            + " a chain to the file or folder at the end.",
+        "Quick Look on a link shows the link itself -- every step it goes through and how it ends --"
+            + " not its target.",
+        "a grey number after a file's name, like (2), says the file has that many hard links, and"
+            + " right-click ▸ Find Sibling Names finds the others, nearest first.",
+
+        // 1.7.1: cloud folders, copying text.
+        "a file Dropbox refuses to send to the Trash is moved there anyway, and Undo puts it back where"
+            + " it was.",
+        "Copy File Names and Copy Full Paths say exactly what they copied, and the text of an error"
+            + " message can be selected and copied, with a Copy button for the whole of it.",
+
+        // 1.8: flat view, pictures, Text Edit's gutter.
+        "View ▸ Flat View, Command-Shift-F, turns a pane into one list of its folder and everything"
+            + " under it, filtered by an expression such as file and name = \"*.jpg\" and size > 1MB.",
+        "the flat view's expression can ask pictures and videos what they say about themselves:"
+            + " camera = \"*iPhone*\", iso > 1600, taken = 2024-07, near(47.4979, 19.0402, 5km), city ="
+            + " \"Budapest\".",
+        "Control-Space in a flat view's expression offers what can come next, and where a date goes it"
+            + " opens a calendar.",
+        "in a flat view's expression, between takes a range as a mathematician writes it: size between"
+            + " (1MB, 10MB] leaves 1 MB out and takes 10 MB in.",
+        "right-click ▸ Save Expression keeps an expression under a name, and the name can then be used"
+            + " inside other expressions; each is a JSON file in ~/.diptych/filters, older versions"
+            + " included.",
+        "a flat view holds still: only ▶ walks the tree again, and an expression that no longer fits"
+            + " what is listed turns brown until it is run again.",
+        "a flat view is a source, not a target: its rows can be copied, moved, renamed and trashed, but"
+            + " nothing can be put into it.",
+        "Rename Many works only on the selected files when there are any, and on every row of a flat"
+            + " view, each renamed in its own folder.",
+        "right-click ▸ Image ▸ Edit EXIF… edits the dates, camera, description and location of many"
+            + " pictures at once, with a map, and Save is one step in Undo.",
+        "pasting a Google Maps link, coordinates or a plus code into the EXIF editor's Latitude or"
+            + " Longitude fills in all four location fields.",
+        "right-click ▸ Image ▸ Rotate turns a JPEG or HEIC by its orientation tag alone, so not a bit of"
+            + " its quality is lost.",
+        "right-click ▸ Image ▸ Remove Background cuts out the subject and Recognize Text… reads the text"
+            + " in a picture, both with Vision, on this Mac, never sent anywhere.",
+        "Remove Location takes out where a picture was taken, and nothing else, before you share it.",
+        "clicking a date, or a picture's camera value, in a selected row lets you type over it like a"
+            + " name; Return sets it for the whole selection, and Undo takes it back.",
+        "right-click ▸ Video ▸ Edit Metadata… gives QuickTime and MP4 videos the EXIF editor's date,"
+            + " location and description, without encoding the video again.",
+        "View ▸ Calculate Directory Sizes, or ∑ in the toolbar, puts every folder's total in the Size"
+            + " column, in teal, growing as it reads -- orange while a total is still changing, ?? before"
+            + " anything is known.",
+        "holding Option over the path bar turns it into links, one per folder, so you can go up several"
+            + " levels in one click.",
+        "the circle between Back and Forward lists every folder the pane has been in, most recent first,"
+            + " and survives a restart.",
+        "dragging a column header moves the column, and right-clicking a header shows every column to"
+            + " tick on or off -- greyed when it would be empty in that pane.",
+        "Text Edit's gutter shows what changed since the last commit, as IntelliJ does, and in a thinner"
+            + " bar what changed since the last save.",
+        "Text Edit folds JSON, XML, TOML and YAML, and a red line under its bar says where a file breaks"
+            + " its format, with Show to go there.",
+        "the town a picture was taken in is looked up on this Mac, from a list in"
+            + " ~/.diptych/exif/places.json you can correct, never asked of a service.",
+
+        // 1.9: servers, Text Edit as a structure editor, scripts.
+        "Go ▸ Connect to Server…, Command-K, mounts SMB, NFS, WebDAV, FTP and AFP servers; a starred"
+            + " server stays in the sidebar under Servers and can connect when Diptych starts.",
+        "a pane left on a file server connects it again at startup and after the Mac wakes, and shows a"
+            + " folder it has read before at once, replacing it when the server has answered.",
+        "a pane on a file server looks for changes made elsewhere every five seconds while Diptych is in"
+            + " front; Settings ▸ Behaviour ▸ File Servers sets how often, and 0 leaves it to Refresh.",
+        "Command-Shift-Up and Command-Shift-Down move the selected file up or down, putting a folder's"
+            + " files in an order of your own until you sort or leave.",
+        "Control-Command-T shows a JSON, XML, YAML or property list file as a tree, edited in place,"
+            + " and every change is a change in the text, so comments and layout stay.",
+        "Option-Command-L formats a JSON or XML document, and an invalid one is left untouched, with the"
+            + " place it breaks.",
+        "in Text Edit, Command-Shift-Up and Down move lines, Command-Delete deletes them, and Command-C"
+            + " with nothing selected copies the whole line, as in IntelliJ.",
+        "Command-G in Text Edit asks for a line number and goes there, in the text or in the tree.",
+        "Text Edit closes brackets, quotes and XML tags as you type, and Control-Space takes the grey"
+            + " text it suggests.",
+        "Option-Command-Up and Down shade one more or one fewer level of the structure around the caret"
+            + " in Text Edit.",
+        "a binary property list opens in Text Edit as XML and is saved back as binary, and Space shows"
+            + " any property list as a tree in Quick Look.",
+        "a file's Text Edit menu item is named after its format -- JSON Edit, XML Edit, YAML Edit --"
+            + " and Settings ▸ Behaviour ▸ Text Edit says which extensions count as which.",
+        "the flat view's expression knows links: link broken finds links that lead nowhere, link loop"
+            + " the ones going round, and path = \"*/.git/*\" tests the whole path.",
+        "File ▸ Get Scripts… installs scripts that come with Diptych -- make a zip, show full details,"
+            + " where am I -- and Compare with Yours puts one beside the copy you have.",
+
+        // 1.9.1: clicks and transfers.
+        "a drag that never goes further than 40 points from where it started is a click, so a name that"
+            + " slips while you click it cannot drop into the folder next to it.",
+        "a move or copy already waiting in the transfer queue is not queued again, and the transfer"
+            + " panel's × hides it while the copying goes on.",
+        "the MCP token in Settings ▸ Agents is hidden behind an eye, with buttons to copy it and the"
+            + " port.",
+
+        // 1.10: sync, duplicates, Paste Special, what a copy keeps.
+        "Compare Folders ▸ Sync ▸ Make Right Same as Left makes one folder the same as the other,"
+            + " listing every change before it makes any, and a file renamed on one side is renamed, not"
+            + " copied again.",
+        "Sync Both Ways remembers each sync in ~/.diptych/sync, so the next one knows which side an edit,"
+            + " a new file, a deletion or a rename was made on.",
+        "a file changed on both sides since the last sync waits for you to decide: either way, Keep"
+            + " Both, or Leave as Is -- and Newer Wins decides them all at once.",
+        "a sync sends deleted files and the old versions of replaced ones to the Trash, and a"
+            + " replacement takes the old name only once it is complete.",
+        "a sync goes only as far as the comparison looks: with the dates unticked, a date alone is no"
+            + " reason to change anything.",
+        "when two files have the same text but are not the same file, the comparison window names what"
+            + " else differs -- permissions, owner, flags, dates, each extended attribute -- and shows both"
+            + " values.",
+        "Command-Shift-I in Compare Folders shows the selected pair's properties side by side, folders"
+            + " and links included.",
+        "File ▸ Find Duplicates… on a folder lists every set of files in it holding the same bytes, in"
+            + " groups, as they are found.",
+        "Find Duplicates on one file looks nearest first -- its folder, the folders under it, then one"
+            + " folder further up at a time -- and a line above the progress says how wide it has gone.",
+        "Find Duplicates looks at other volumes only where you tick them, one checkbox per volume.",
+        "Find Duplicates never lets you move every copy of a file to the Trash, and when that is what"
+            + " greys the button, the window says so in orange.",
+        "Find Duplicates names, in purple, any link that would lead nowhere once the selected files are"
+            + " in the Trash; a click lists every one and where it leads.",
+        "copying one file and choosing Edit ▸ Paste Special pastes just its permissions, dates, owner,"
+            + " group, extended attributes, ACL, location or EXIF onto every selected file -- or All of the"
+            + " Above.",
+        "Paste Special is one step in Undo, however many files it changed.",
+        "dates are copied to the nanosecond -- by a copy, a sync and Paste Special -- since a date"
+            + " rounded to a microsecond makes two files look different in a comparison.",
+        "Settings ▸ Behaviour ▸ Copying decides what a copy keeps: the original's dates or the time of"
+            + " the copy, its permissions or your own, its group, attributes and ACL.",
+        "the permissions a copy gets can be set separately for files and for folders, setuid, setgid"
+            + " and sticky included, in the same grid the panes use.",
+        "a copy put into a folder with the setgid bit can take that folder's group, as on Linux -- one"
+            + " choice in Settings ▸ Behaviour ▸ Copying.",
+        "a downloaded file stays quarantined even when copies are set to leave extended attributes"
+            + " behind, so copying a download is never a way past Gatekeeper.",
+        "a move always keeps everything about a file, whatever Settings says about copies: it is the"
+            + " same file, somewhere else.",
     ]
 }

@@ -90,6 +90,37 @@ final class FileHistory {
         /// What it should be now, for the step to apply cleanly.
         let from: Date
         let to: Date
+        /// `to` to the nanosecond, where it is known: a `Date` keeps about a
+        /// microsecond, and a date set from it is not quite the one it was.
+        var exactTo: FileTime? = nil
+    }
+
+    /// A file's date as the file system keeps it, to the nanosecond.
+    struct FileTime: Sendable, Equatable {
+        var seconds: Int
+        var nanoseconds: Int
+
+        init(seconds: Int, nanoseconds: Int) {
+            self.seconds = seconds
+            self.nanoseconds = nanoseconds
+        }
+
+        init(_ spec: timespec) {
+            self.init(seconds: Int(spec.tv_sec), nanoseconds: Int(spec.tv_nsec))
+        }
+
+        init(_ date: Date) {
+            let whole = date.timeIntervalSince1970.rounded(.down)
+            self.init(seconds: Int(whole),
+                      nanoseconds: min(Int(((date.timeIntervalSince1970 - whole) * 1e9).rounded()),
+                                       999_999_999))
+        }
+
+        var date: Date {
+            Date(timeIntervalSince1970: Double(seconds) + Double(nanoseconds) / 1e9)
+        }
+
+        var spec: timespec { timespec(tv_sec: seconds, tv_nsec: nanoseconds) }
     }
 
     /// A file whose bytes were changed in place -- its EXIF, say -- and a
@@ -105,9 +136,17 @@ final class FileHistory {
         let snapshot: URL
     }
 
+    /// An access control list, as `acl_to_text` writes it; nil is none.
+    struct ACLChange: Sendable {
+        let url: URL
+        /// What it should be now, for the step to apply cleanly.
+        let from: String?
+        let to: String?
+    }
+
     /// What doing a step does. Undo and redo are the same things in
     /// opposite directions.
-    enum Action: Sendable {
+    indirect enum Action: Sendable {
         case relocate([Relocation])
         case trash([Removal])
         case permissions([PermissionChange])
@@ -116,6 +155,12 @@ final class FileHistory {
         case contents([ContentChange])
         case savedExpressions([SavedExpressionChange])
         case dates([DateChange])
+        case acls([ACLChange])
+        /// Several kinds of change made as one step -- Paste Special ▸ All of
+        /// the Above. Done in the order listed, both ways: a file's bytes put
+        /// back first, its dates last, so putting the bytes back does not
+        /// leave the modification date of that moment.
+        case several([Action])
     }
 
     /// A flat view expression saved under a name: what its file is to hold
@@ -674,6 +719,36 @@ final class FileHistory {
                 }
             }
             doable = .dates(ok)
+
+        case .acls(let changes):
+            var ok: [ACLChange] = []
+            for change in changes {
+                let name = quoted(change.url.lastPathComponent)
+                guard exists(change.url) else {
+                    problems.append("\(name) is no longer in \(folder(of: change.url)).")
+                    continue
+                }
+                ok.append(change)
+                let path = FileOperations.attributeTarget(change.url)
+                if AccessControl.text(of: path) != change.from {
+                    warnings.append("\(name) has had its access control list changed since.")
+                }
+            }
+            doable = .acls(ok)
+
+        case .several(let actions):
+            var parts: [Action] = []
+            for action in actions {
+                let part = plan(Entry(name: entry.name, told: entry.told, action: action),
+                                direction: direction)
+                problems += part.problems
+                warnings += part.warnings
+                if !part.doable.isEmpty { parts.append(part.doable) }
+            }
+            // Said once, not once for every kind of change.
+            problems = Array(NSOrderedSet(array: problems)) as? [String] ?? problems
+            warnings = Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
+            doable = .several(parts)
         }
 
         return Plan(direction: direction, entry: entry, doable: doable,
@@ -682,8 +757,31 @@ final class FileHistory {
 
     // MARK: - Doing
 
+    /// A file's created or modified date as the file system has it.
+    nonisolated static func exactDate(_ which: DateChange.Which, of url: URL) -> FileTime? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        return FileTime(which == .created ? info.st_birthtimespec : info.st_mtimespec)
+    }
+
+    /// Set to the nanosecond, with `setattrlist`: `FileManager` takes a
+    /// `Date`, and a date set from one comes out a few hundred nanoseconds
+    /// off -- two files whose dates were made the same, not the same.
+    nonisolated static func setDate(_ which: DateChange.Which, _ time: FileTime,
+                                    of url: URL) throws {
+        var list = attrlist()
+        list.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        list.commonattr = attrgroup_t(which == .created ? ATTR_CMN_CRTIME : ATTR_CMN_MODTIME)
+        var spec = time.spec
+        guard setattrlist(url.path, &list, &spec, MemoryLayout<timespec>.size, 0) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+    }
+
     nonisolated static func date(_ which: DateChange.Which, of url: URL) -> Date? {
-        let values = try? url.resourceValues(forKeys: [.creationDateKey,
+        // A URL of its own: one keeps what it read the first time, and a
+        // date read again after a change has to be the new one.
+        let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.creationDateKey,
                                                        .contentModificationDateKey])
         return which == .created ? values?.creationDate : values?.contentModificationDate
     }
@@ -691,18 +789,51 @@ final class FileHistory {
     /// Does an action and returns the one that reverses what was actually done.
     private static func run(_ action: Action) async -> Done {
         switch action {
+        case .several(let actions):
+            var done = Done(inverse: .several([]), touched: [])
+            var inverses: [Action] = []
+            for part in actions {
+                let result = await run(part)
+                if !result.inverse.isEmpty { inverses.append(result.inverse) }
+                done.touched += result.touched
+                done.failures += result.failures
+            }
+            done.inverse = .several(inverses)
+            done.touched = Array(NSOrderedSet(array: done.touched)) as? [URL] ?? done.touched
+            return done
+
+        case .acls(let changes):
+            let outcome = await BlockingWork.run { () -> ([ACLChange], [String]) in
+                var done: [ACLChange] = []
+                var failures: [String] = []
+                for change in changes {
+                    let path = FileOperations.attributeTarget(change.url)
+                    if let failure = AccessControl.setText(change.to ?? "", on: path) {
+                        failures.append("The access control list of "
+                                        + "\(quoted(change.url.lastPathComponent)) could not be "
+                                        + "set back: \(failure.message)")
+                    } else {
+                        done.append(ACLChange(url: change.url, from: change.to, to: change.from))
+                    }
+                }
+                return (done, failures)
+            }
+            return Done(inverse: .acls(outcome.0), touched: outcome.0.map(\.url),
+                        failures: outcome.1)
+
         case .dates(let changes):
             let outcome = await BlockingWork.run { () -> ([DateChange], [String]) in
                 var done: [DateChange] = []
                 var failures: [String] = []
                 for change in changes {
-                    let key: FileAttributeKey = change.which == .created ? .creationDate
-                                                                         : .modificationDate
+                    // To the nanosecond both ways: what it is now is what
+                    // the way back sets.
+                    let now = exactDate(change.which, of: change.url)
                     do {
-                        try FileManager.default.setAttributes([key: change.to],
-                                                              ofItemAtPath: change.url.path)
+                        try setDate(change.which, change.exactTo ?? FileTime(change.to),
+                                    of: change.url)
                         done.append(DateChange(url: change.url, which: change.which,
-                                               from: change.to, to: change.from))
+                                               from: change.to, to: change.from, exactTo: now))
                     } catch {
                         failures.append("The date of \(quoted(change.url.lastPathComponent)) "
                                         + "could not be set back: \(error.localizedDescription)")
@@ -946,6 +1077,9 @@ extension FileHistory.Action {
         case .contents(let changes): changes.count
         case .savedExpressions(let changes): changes.count
         case .dates(let changes): changes.count
+        case .acls(let changes): changes.count
+        // The files, near enough: each kind of change counts each file once.
+        case .several(let actions): actions.map(\.count).max() ?? 0
         }
     }
 }

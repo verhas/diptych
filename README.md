@@ -769,8 +769,8 @@ nothing left to show, the panel closes rather than sitting there looking broken.
 **Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
 did to files: a copy, a move (by F5/F6, paste or drag), a rename, a new file or
 folder, New from Clipboard, a link, **Move to Trash**, a permission change, an
-**owner or group change** — from the panes or from the Info window — and an
-**EXIF change**. The menu names the step: *Undo Move*, *Redo Rename*.
+**owner or group change** — from the panes or from the Info window — an
+**EXIF change** and a **Paste Special**. The menu names the step: *Undo Move*, *Redo Rename*.
 
 **Edit ▸ Undo or Redo Many…** (⌃⌘Z, caught in `KeyRouter` because the menu
 never receives that combination — something between the keyboard and the menu
@@ -1072,6 +1072,18 @@ spacing*, and wrapping that applies to both sides or to neither.
 - **Replace "name"** appears when a file is compared with its own `(my
   version)` copy: one press saves it, puts it in the original's place, and
   sends the old version to the Trash.
+- **Everything besides the text, under the names.** One line says whether the
+  two differ in anything else, and in what: size, permissions, owner, group,
+  flags, the modification and creation dates (to the nanosecond, when they
+  are the same second), the access control list and each extended attribute
+  by name. The arrow opens the values side by side, the different ones
+  marked, and *Show the same ones too* adds the rest. A tag list or other
+  property list attribute is shown as what it holds, text as text, and
+  anything else as hex. It opens by itself when the text is the same and
+  something else is not, which is what the folder comparison or a sync meant
+  by "different". Two files whose text is the same but whose bytes are not
+  -- line endings, a byte-order mark, another encoding -- are said to be so.
+  A chmod, a new tag or an attribute set elsewhere shows up at once.
 
 ## Compare Folders
 
@@ -1122,14 +1134,91 @@ only).
 
 - **⌘D**, or a double-click on a pair of folders, compares just those two.
   On a pair of files it opens the two-file comparison above.
+- **⇧⌘I**, or **Properties**, shows the two sides' permissions, owner,
+  flags, dates, ACL and extended attributes next to each other, what differs
+  first -- for two folders or two links as much as for two files.
 - **⌘I** opens Get Info on whichever sides exist, to compare tags, attributes
   and ACLs by eye.
 - **⌘G**, or **Go to**, sends the pair back to the window the comparison came
   from: each pane selects its side, and the left one becomes active. With one
   side only, only that pane moves.
 
-The window only shows; it copies nothing. An agent can read what it shows
-through `get_directory_diff`, and open one with `open_diff`.
+An agent can read what the window shows through `get_directory_diff`, and
+open one with `open_diff`.
+
+### Syncing both ways
+
+**Sync ▸ Sync Both Ways…** is for two folders where neither is the master --
+a laptop's copy and a server's, say -- and each change should go whichever way
+it was made.
+
+After every sync Diptych records how each path stood on each side, in
+`~/.diptych/sync`, one small JSON file per pair of folders -- size,
+modification date, permissions, and a digest of attributes, ACL and owner.
+The next sync measures each side against that record:
+
+| Since the last sync | Suggested |
+| --- | --- |
+| changed on one side | carried to the other |
+| new on one side | copied to the other |
+| deleted on one side, unchanged on the other | deleted there too |
+| renamed on one side (same bytes, the N badge) | renamed on the other |
+| changed on both sides | **conflict** |
+| deleted on one side, changed on the other -- for a folder, anything in it | **conflict** |
+| differs, though neither side changed | **conflict** |
+| only a folder's dates differ | the newer dates, never a conflict |
+
+Every row of the list has a menu: *Left → right*, *Left ← right* (or *Delete
+on the right/left*), *Keep both* for two files, and *Leave as is*. A conflict
+starts on **Decide…**, and Sync waits until every one is decided; **Newer
+Wins**, **Keep Both** and **Leave as Is** decide them all at once.
+
+- *Keep both* changes both folders: each ends up with both files, the newer
+  under its name and the older beside it as `name (right copy).ext`.
+- *Leave as is* changes nothing: each side keeps its own, and the next sync
+  asks again -- as it does for anything that fails.
+
+Two files at the same path show their name as a link: a click opens them in
+the comparison window, to see what differs -- or to edit one into the other
+before deciding. When it is not the text that differs, the window says what
+does: permissions, dates, attributes, the ACL. Two folders or two links show
+their properties side by side in a popover instead.
+
+**The first sync** of two folders has no record to go by, so nothing on one
+side only can be told to be a deletion: it is copied to the other side, and
+two different files at the same path are a conflict. **Forget the Last Sync**
+starts over from there. The panes may be swapped between syncs; the record
+is found either way. Files changed on both sides are not merged -- for that,
+use git.
+
+### Making one folder the same as the other
+
+**Sync ▸ Make Right Same as Left →** (or **← Make Left Same as Right**)
+leaves the target folder as deleting it and copying the source over it would
+-- content, permissions, extended attributes, ACLs, modification and creation
+dates -- but touches only what differs:
+
+- missing from the target: **copied**, a folder with everything in it;
+- not in the source: **deleted**;
+- content differs: **replaced** -- the new copy is made beside the old file and
+  takes its name only once it is whole, so a dropped server connection leaves
+  the old file as it was;
+- only permissions, attributes, ACL or dates differ: those are **set**, the
+  bytes are not copied again;
+- the same bytes under another name or in another folder (the **N** badge):
+  **renamed** there, not copied a second time;
+- a file where a folder should be, or a link that differs: deleted and copied.
+
+The folders are compared again first, then the window lists every change
+before anything is made. Deleted items, and the old versions of replaced ones,
+go to the Trash; *Delete outright* is there for a server whose volume has none.
+Folder dates are put back after their contents changed. A failed step is
+listed and the rest go on; **Stop** stops after the current file.
+
+The sync goes as far as the comparison looks: with *Modified* unticked, two
+files that differ only in their dates stay as they are. Whatever is copied or
+changed gets everything, ticked or not. One folder inside the other cannot be
+synced.
 
 ## Comparing two files that are not text
 
@@ -1149,6 +1238,9 @@ Sizes are given twice, rounded and exact: "5 KB (5'120 bytes)". The files are
 read a megabyte at a time and the comparison stops at the first difference —
 two disk images are not going into memory to answer a question usually settled
 by the first kilobyte.
+
+Under the verdict is the same properties line as for two texts: permissions,
+owner, dates, ACL and attributes, side by side.
 
 ## Text Edit
 
@@ -1762,6 +1854,92 @@ There is no syscall to repoint a symlink, so applying a new target removes the
 link and makes it again. If creating the replacement fails the original is put
 back, rather than leaving a hole where a link used to be.
 
+## Find Duplicates
+
+**File ▸ Find Duplicates…**, right-click ▸ **Find Duplicates…**, or the
+toolbar button (switched on in Settings ▸ Toolbar), with one item selected,
+opens a window for it. Nothing is read until **Start**; **Stop** ends a search
+early, and what was found stays. Closing the window stops the search too.
+
+- **For a file**, it lists every file holding the same bytes, nearest first:
+  its own folder, then the folders under it a level at a time. With **Search
+  the whole volume**, then the folder above without the part already read,
+  and so on up to the top of the volume -- on the startup disk that is `/`,
+  the data volume only, `/System/Volumes` skipped since it is the same files
+  again. Below them, **a checkbox for each other mounted volume**, all off:
+  the ones ticked are searched after that, the same way, in the order listed
+  -- the USB backup disk, say, and not the video server. The selected file is
+  listed first.
+- **A line above the progress says how wide the search has gone**: *Its own
+  folder*, *Subfolders, a level at a time*, *Wider: everything under
+  ~/Documents* -- one folder further up each time -- and *Another volume:
+  "Backup"*. Stop it once it has gone wide enough; what was found stays, and
+  the line says where it stopped.
+- **For a folder**, it lists the files inside it that hold the same bytes, in
+  groups -- with **Search in subfolders too**, a level at a time down the
+  tree. Only files that share their size with another one are read, and each
+  of them once.
+- **Display links as duplicates** lists other names of the same file -- hard
+  links -- and symbolic links leading to a file of the same content, marked as
+  such. A link is followed: it is listed together with the file it leads to,
+  wherever that file is, even outside what is searched -- and that file is not
+  listed a second time when the search reaches it. Off, a second name of a file
+  is left out, and links are not looked at.
+  Empty files are never duplicates: every empty file is the same as every
+  other.
+- **Each file** is shown with its full path and the pane's marks: its icon, the
+  link arrow and how far the link goes, the hard-link count, the executable
+  mark. The Compare Folders letters say what sets it apart from the group's
+  first file besides the bytes: **N**ame, **P**ermissions, e**X**tended
+  attributes, **A**CL, **M**odified, **B**orn, **O**wner. A click on the path
+  shows the file selected in its folder, in the active pane of the window the
+  search came from.
+- **Select the ones to throw away**, or a whole group with the box in its
+  header. **Move Selected to Trash** stays greyed while every file of some
+  group is selected, and a line above it says so and why: this is for keeping
+  one of each, never for losing all of them. A symbolic link left unselected
+  does not count as kept -- once its file is in the Trash it leads nowhere.
+  Undo in the browser window puts them back.
+- **A link left without its file is said, in purple.** When a listed symbolic
+  link is not selected but the file it leads to -- or a link on its way there
+  -- is, the button stays on, and a line above it names the link and where it
+  leads. Two lines at most: a click on it, or on the orange one, opens a sheet
+  with the whole list -- every link, and every file going to the Trash that
+  they lead to.
+
+## Paste Special
+
+**Edit ▸ Paste Special**, and the same on a right-click, makes one property of
+the copied file the same on every selected item: copy one file (⌘C, here or in
+Finder), select the others, and choose what to take from it.
+
+- **Permissions**, **Extended Attributes**, **Access Control List**,
+  **Modified Date**, **Created Date**, **Owner**, **Group**, **Location** and
+  **EXIF**. Extended attributes and the ACL are made *the same*: what the
+  copied file has is set, what it lacks is taken away -- an ACL included. The
+  attributes macOS keeps for itself, `com.apple.provenance`, are left, and so
+  is a value no program may read.
+- **Location** is the GPS fields alone; **EXIF** is every field, the location
+  with it, except which way up the picture is and how big it is -- those
+  belong to each picture. A field the copied picture lacks is taken out of
+  the others. Both are greyed when the copied file has none, or when any
+  selected file is not a JPEG or HEIC picture. Written the way the EXIF
+  editor writes, without touching a pixel.
+- **All of the Above** does every one of them. It works whatever the files
+  are: the EXIF is copied only from a picture that has some, and only onto
+  the selected pictures that can take it -- the rest get everything else.
+- **Dates are copied to the nanosecond**, the way the file system keeps them,
+  and Undo puts them back the same way: set through a `Date` they came out a
+  few hundred nanoseconds off, and the two files still differed.
+- **A modification date older than the creation date** takes the creation date
+  back with it: macOS has no file changed before it was made. Undo puts both
+  back.
+- **Owner and group** are a plain `chown`: giving a file to somebody else takes
+  an administrator, and what was refused is listed; Get Info's Change Owner…
+  asks for the password.
+- **One step in Undo**, whatever it took in -- *Undo Paste Permissions*,
+  *Undo Paste Special*. A file already the same is left alone.
+
 ## The menu bar
 
 **File**, **Edit**, **Go**, **Window**, **Help** -- Finder's arrangement, and for
@@ -2002,6 +2180,50 @@ Tags switched off costs nothing per row.
 Adding a column means adding a case to `FileColumn`: the settings list is built
 from `allCases`, the loader asks each enabled case which `URLResourceKey`s it
 needs, and the table and comparator switch on it.
+
+### What a copy keeps
+
+Settings ▸ Behaviour ▸ **Copying** decides what a copy takes along besides its
+contents. Out of the box it is everything, as Finder does it:
+
+| | Kept (default) | Or |
+|---|---|---|
+| Created date | the original's, to the nanosecond | the time of the copy |
+| Modified date | the original's, to the nanosecond | the time of the copy |
+| Permissions | the original's | a new file's, 0666 less the umask (a folder 0777); or ones set for files and for folders |
+| Group | the original's | the target folder's, when that folder has the setgid bit |
+| Extended attributes | all of them | none |
+| Access control list | the original's | none |
+
+It applies to every copy: Copy and Paste, a drag, and an agent's batch copy,
+and to everything inside a copied folder. A move keeps everything whatever is
+set here, since it is the same file somewhere else. So does a sync in Compare
+Folders, whose job is to make both sides the same.
+
+- **Set permissions** are edited with the same grid as in the panes, one for
+  files and one for folders, the octal value beside each: r, w and x set a bit
+  in the triple the caret is in, Shift clears and Option toggles it, s sets
+  setuid or setgid and t the sticky bit. All twelve bits are set as shown, on
+  files and folders alike, whether macOS makes use of them there or not. A
+  link has no permissions of its own and is left alone. config.json keeps them
+  in `ls` form, `filePermissions` and `folderPermissions`.
+- **The group** is the original's where you belong to it. Chosen instead, a
+  copy put in a folder with the setgid bit takes that folder's group, and so
+  does everything inside a copied folder that has it, as on Linux. Changing a
+  file's group makes macOS clear its setuid and setgid bits; when the
+  permissions are to be the original's, they are put back.
+- **Without extended attributes** the copy loses its Finder tags, comment and
+  colour label. The quarantine mark of a downloaded file stays regardless:
+  removing it would let a downloaded program run unchecked just because it
+  was copied. Whatever macOS keeps for itself and lets nobody remove stays too.
+- **EXIF data and a picture's location** have no setting. They are part of the
+  file's contents, so a copy always has them; Paste Special and the EXIF editor
+  change them on a file.
+
+An agent can change the same settings with `set_setting`: `copyCreatedDate`,
+`copyModifiedDate` (`original`, `now`), `copyPermissions` (`original`,
+`umask`, `fixed`), `copyFilePermissions`, `copyFolderPermissions`, `copyGroup`
+(`original`, `setgid`), `copyExtendedAttributes` and `copyAccessControlList`.
 
 ## Checking for updates
 
@@ -2315,7 +2537,7 @@ window go to "the" Diptych, which only means something if there is one.
 | `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly, and for two files, so can `ignoreWhitespace`/`wraps` -- reopening a pair already open updates that window instead of refusing |
 | `open_info_window` | Opens the Info window for one explicit path |
 | `open_exif_editor` | Opens the EXIF editor on explicit JPEG/HEIC paths, which may be in different folders -- something a right-click on one pane's selection cannot do. Nothing is written by the tool: you edit, tick and save (or cancel) in the window, and a save is one EXIF Change in Undo. A path that is missing, a folder, or another kind of file is reported, and then nothing is opened |
-| `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
+| `list_settings` | A curated, scalar subset of Settings an agent can read: version tracking, scripts, Apple Intelligence, startup tips, sounds, sort order, name suggestion style, Compare Folders defaults, what a copy keeps, the update-check preference, and more -- not layout things (columns, toolbar, favourites) or MCP's own enable/port |
 | `set_setting` | Changes one setting by key, from `list_settings` |
 | `show_flat_view` | Turns a pane into a [flat view](#flat-view) of a folder with an expression, and returns at once as the walk starts, with the expression's warnings -- so "list every image under here that the group can read" is shown in the pane, not just answered. A syntax error comes back with its position; `off: true` goes back to the folder. `get_pane` lists the rows found so far, says the pane is flat and with which expression, and -- while the walk is still collecting -- `flatProgress`: how many found, how many folders read, and the one being read; also whether it was stopped, is stale, or skipped unreadable folders |
 | `close_window` | Closes a window by the number `list_windows` reports, running the same unsaved-changes prompt `⌘W` would |
@@ -2462,6 +2684,15 @@ back as it goes and takes `COPYFILE_QUIT` for an answer -- while still carrying
 metadata, extended attributes and ACLs, which a hand-rolled read/write loop would
 silently drop. Progress is therefore **per byte**, not per file, which is the
 only granularity that helps when the transfer is one large file.
+
+`copyfile` does not keep the creation date: it sets the modification date, and
+the copy is left created at the moment of the copy -- or at the modification
+date, when that is older. Once the copy is done, the creation dates of the
+file, or of everything in the folder, are set from the originals with
+`setattrlist`, to the nanosecond. Foundation's `copyItem`, used where nothing
+reports progress, keeps a file's creation date but not a folder's, so the same
+is done after it. What Settings ▸ Behaviour ▸ Copying then leaves out (see
+*What a copy keeps*) is taken off the finished copy.
 
 A subtlety that cost a real bug: returning `COPYFILE_CONTINUE` from an *error*
 stage tells copyfile to carry on, and the whole call then reports success. A
@@ -3204,6 +3435,6 @@ cannot ship on the Mac App Store. Grant it Full Disk Access under
 - **Tabs inside a pane.** `⌘T` gives macOS window tabs, each a whole two-pane
   window. Tabs *inside* a pane -- what file managers usually mean -- would be a
   list of folders per `PaneModel` plus a tab strip.
-- **Synchronising from Compare Folders**: copying, replacing or deleting
-  differences one way or both, reviewed first and undone in one step.
+- **Undo for a sync** in Compare Folders. Deleted and replaced files are in
+  the Trash until then.
 - **Open With ▸ and Share ▸** in the right-click menu, as in Finder.

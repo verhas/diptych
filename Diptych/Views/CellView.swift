@@ -218,7 +218,7 @@ struct CellView: View {
                         // and where it says what the link points to, the next
                         // step only, whether or not anything is there.
                         .overlay(LinkArrowMarker(toolTip: arrowToolTip))
-                    linkSteps
+                    LinkSteps(item: item)
                 }
                 if item.isExecutable {
                     Image(systemName: "terminal.fill")
@@ -264,13 +264,47 @@ struct CellView: View {
             + (item.linkTargetExists ? " \u{2014} double-click the arrow to go there" : "")
     }
 
+    // MARK: - Permissions
+
+    @ViewBuilder
+    private var permissionsCell: some View {
+        if pane.permissionEditAnchor == item.id {
+            PermissionField(mode: pane.permissionMode,
+                            onCursor: { model.permissionCursorMoved(to: $0) },
+                            onCommit: { model.commitPermissionEdit($0) },
+                            onCancel: { model.cancelPermissionEdit() })
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if item.isSymlink {
+            // A link's own bits are always rwxr-xr-x on macOS and govern
+            // nothing -- its target's do. Shown, they were noise, and offered
+            // an edit that could only fail.
+            Text("")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Text(item.text(for: column))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                // Same font the editor draws with, so the columns of characters
+                // line up between an edited row and its neighbours.
+                .font(PaneFont.monospacedSwiftUI)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// How far a link goes, drawn after its arrow -- in a pane, and wherever else
+/// a file is listed with the pane's marks.
+struct LinkSteps: View {
+
+    let item: FileItem
+
     /// How far a link goes, after its arrow. A plain number when it reaches
     /// something through more than one link; a red dot when it ends at nothing
     /// -- "(3)" before it when that is the third link along; a red broken
     /// circle when the links go round, with how many can be followed first.
     /// A bare dot or circle is (1) or (0): nothing to count.
     @ViewBuilder
-    private var linkSteps: some View {
+    var body: some View {
         if let chain = item.linkChain {
             if chain.finalTarget != nil {
                 if chain.length > 1 {
@@ -304,32 +338,5 @@ struct CellView: View {
         Text("(\(count))")
             .font(.system(size: PaneFont.size * 0.8))
             .foregroundStyle(colour)
-    }
-
-    // MARK: - Permissions
-
-    @ViewBuilder
-    private var permissionsCell: some View {
-        if pane.permissionEditAnchor == item.id {
-            PermissionField(mode: pane.permissionMode,
-                            onCursor: { model.permissionCursorMoved(to: $0) },
-                            onCommit: { model.commitPermissionEdit($0) },
-                            onCancel: { model.cancelPermissionEdit() })
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if item.isSymlink {
-            // A link's own bits are always rwxr-xr-x on macOS and govern
-            // nothing -- its target's do. Shown, they were noise, and offered
-            // an edit that could only fail.
-            Text("")
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(item.text(for: column))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                // Same font the editor draws with, so the columns of characters
-                // line up between an edited row and its neighbours.
-                .font(PaneFont.monospacedSwiftUI)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }

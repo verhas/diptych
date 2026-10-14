@@ -249,6 +249,8 @@ final class ClipboardWatcher {
     static let shared = ClipboardWatcher()
 
     private(set) var kind: Clipboard.Kind = .empty
+    /// The one file copied, for Paste Special; nil for none or several.
+    private(set) var pasteSource: PasteSpecial.Source?
     @ObservationIgnored private var lastChange = -1
     @ObservationIgnored private var timer: Timer?
 
@@ -263,6 +265,8 @@ final class ClipboardWatcher {
         guard NSPasteboard.general.changeCount != lastChange else { return }
         lastChange = NSPasteboard.general.changeCount
         kind = Clipboard.contents().kind
+        let urls = Clipboard.fileURLs()
+        pasteSource = urls.count == 1 ? PasteSpecial.Source.read(urls[0]) : nil
         // Copied while Diptych is in front: New from Clipboard may be next.
         if kind != .empty, NSApp.isActive {
             ClipboardNamePrefetcher.shared.anticipateInKeyWindow()

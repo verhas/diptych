@@ -21,7 +21,11 @@ Status: **done**, **next**, or **idea**.
   different, and what exists only on one side.
 - How renamed files are recognised.
 - Drilling into one pair of files to see the text differences.
+- A pair that differs only in permissions or a tag: the comparison window
+  opens the properties side by side by itself.
 - Copying a difference across, and undoing it.
+- Compare Folders ▸ Properties (⇧⌘I) on a pair of folders or links.
+- Syncing has its own video (23), and so has Find Duplicates (24).
 
 ## 3. Flat view and the selection expression -- idea
 
@@ -162,6 +166,14 @@ script, run from its right-click **Run ▸** menu with arguments you type.
 - Editing permissions with F4.
 - Changing the owner and the group.
 - Extended attributes, quarantine, and where a file was downloaded from.
+- What a copy keeps: copy a tagged file with the default settings and show the
+  dates, tags and permissions in Properties side by side; switch Settings ▸
+  Behaviour ▸ Copying to the time of the copy, no attributes, `rw-r-----` in the
+  file grid and the group of a setgid folder,
+  copy again and compare. A downloaded file stays quarantined either way.
+- Paste Special: copy one photo, select a dozen others, paste its Location;
+  then All of the Above onto a mixed selection, and Undo as one step. The
+  dates match to the nanosecond in Properties side by side.
 - Directory sizes.
 
 ## 17. Making the panes your own -- idea
@@ -244,3 +256,44 @@ Go ▸ Connect to Server… (⌘K), with a NAS on the network.
   again" in the status line, then the fresh listing.
 - The sidebar's free space for the server, and the refresh interval in
   Settings set to 0.
+
+## 23. Syncing two folders -- idea
+
+Compare Folders ▸ Sync, with a photo folder and its copy on a USB disk.
+
+- **One way:** Sync ▸ Make Right Same as Left. The folders compared afresh and
+  the plan listed before anything happens: copied, deleted, replaced, and a
+  file that differs only in its permissions or dates getting just those set.
+- A file renamed on the left is renamed on the right, not copied again.
+- After the sync: the deleted files and the old versions of the replaced ones
+  are in the Trash. A sync goes only as far as the comparison looks: untick
+  the dates, and dates alone are no reason to change anything.
+- **Both ways:** Sync ▸ Sync Both Ways… on a folder kept on two Macs. The first
+  sync copies whatever is on one side only to the other.
+- Then edit a file on the left, delete one on the right, rename a third, and
+  sync again: each change goes the way it was made, because the last sync was
+  recorded in `~/.diptych/sync`.
+- A conflict: the same file edited on both sides. A click on its name opens the
+  two side by side; decide it with Keep Both, and each side has both files,
+  the older one renamed. Newer Wins and Leave as Is for the rest at once.
+- A server without a Trash: *Delete outright*.
+
+## 24. Finding duplicates -- idea
+
+File ▸ Find Duplicates…, right-click, or the toolbar button switched on in
+Settings ▸ Toolbar.
+
+- **A folder:** a photo folder with years of imports. The groups appear as
+  they are found, each with the Compare Folders letters for what else differs
+  -- dates, permissions, attributes.
+- Selecting all but one in each group, Move Selected to Trash, and Undo. Select
+  every copy of a group and the button greys, with the reason in orange.
+- **One file:** one photo, looked for nearest first -- its folder, the
+  subfolders, then a folder further up each time. The stage line above the
+  progress says how wide it has gone; Stop once it is wide enough.
+- The other volumes, each with its own checkbox: the USB backup ticked, the
+  video server not.
+- Links: a symbolic link listed with the file it leads to, even outside the
+  folder. Trashing that file shows a purple warning, and a click lists every
+  link that would lead nowhere.
+- A click on a path shows the file in the browser.

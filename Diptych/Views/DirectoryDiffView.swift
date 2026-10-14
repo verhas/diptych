@@ -15,6 +15,9 @@ struct DirectoryDiffView: View {
     @State private var model: DirectoryDiffModel
     @Environment(\.openWindow) private var openWindow
     @State private var notice: String?
+    /// The pair whose properties are shown in a popover.
+    @State private var propertiesOf: DiffPair?
+    @State private var propertiesOpen: Bool? = true
     /// The Diptych tab this comparison was opened from, if it is still open --
     /// nil for a window restored across a relaunch, or one whose tab has since
     /// closed, in which case Cmd-G has nowhere to send anything.
@@ -38,6 +41,7 @@ struct DirectoryDiffView: View {
             content
             Divider()
             legend
+            syncStatus
             if let notice {
                 Divider()
                 HStack {
@@ -50,6 +54,23 @@ struct DirectoryDiffView: View {
             }
         }
         .navigationTitle(pair.title)
+        .sheet(item: $model.syncPlan) { plan in
+            DirectorySyncSheet(plan: plan, options: model.appliedOptions,
+                               onCancel: { model.syncPlan = nil },
+                               onConfirm: { outright in
+                                   Task { await model.runSync(plan, deleteOutright: outright) }
+                               })
+        }
+        .sheet(item: $model.twoWayPlan) { plan in
+            TwoWaySyncSheet(plan: plan, options: model.appliedOptions,
+                            onCancel: { model.twoWayPlan = nil },
+                            onConfirm: { choices, outright in
+                                Task {
+                                    await model.runTwoWay(plan, choices: choices,
+                                                          deleteOutright: outright)
+                                }
+                            })
+        }
         // Guarded to run once per *real* window rather than on `.onAppear`
         // or `.task`: a `WindowGroup(for:)` scene can keep a closed window's
         // state and never call either again when the same pair of folders is
@@ -94,11 +115,23 @@ struct DirectoryDiffView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 refreshButton
+                syncMenu
                 Button("Get Info") { showInfo(model.selectedPair) }
                     .keyboardShortcut("i", modifiers: .command)
                     .disabled(model.selectedPair == nil)
                     .help("Open Get Info on whichever side or sides exist, to compare them "
                           + "side by side")
+                Button("Properties") { propertiesOf = model.selectedPair.flatMap(Self.sides) }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                    .disabled(model.selectedPair.flatMap(Self.sides) == nil)
+                    .help("Permissions, owner, flags, dates, access control list and extended "
+                          + "attributes of the two, side by side")
+                    .popover(item: $propertiesOf) { sides in
+                        PropertiesPanel(properties: PropertyComparison.of(sides.left, sides.right),
+                                        isOpen: $propertiesOpen, contentIsSame: true)
+                            .padding(12)
+                            .frame(width: 600)
+                    }
                 Button("Go to") { goToOrigin(model.selectedPair) }
                     .keyboardShortcut("g", modifiers: .command)
                     .disabled(origin == nil || model.selectedPair == nil)
@@ -131,6 +164,82 @@ struct DirectoryDiffView: View {
             Button("Refresh") { Task { await model.load() } }
                 .buttonStyle(.bordered)
                 .help(refreshHelp)
+        }
+    }
+
+    /// Makes one side the same as the other, after a fresh comparison and a
+    /// look at what is about to change.
+    private var syncMenu: some View {
+        Menu("Sync") {
+            Button("Sync Both Ways\u{2026}") {
+                Task { await model.planTwoWay() }
+            }
+            .help("Each change goes the way it was made since the last sync; what changed "
+                  + "on both sides is yours to decide")
+            Divider()
+            Button("Make Right Same as Left \u{2192}") {
+                Task { await model.planMirror(.leftToRight) }
+            }
+            Button("\u{2190} Make Left Same as Right") {
+                Task { await model.planMirror(.rightToLeft) }
+            }
+            Divider()
+            Button("Forget the Last Sync") { model.forgetLastSync() }
+                .help("The next sync both ways starts as the first: nothing on one side only "
+                      + "counts as deleted")
+        }
+        .fixedSize()
+        .disabled(model.whySyncIsUnavailable != nil)
+        .help(model.whySyncIsUnavailable
+              ?? "Make the two folders the same, both ways or one way. Shows what it will do "
+               + "first.")
+    }
+
+    /// While a sync runs, how far it has got and a way to stop it; after, what
+    /// it did and anything it could not do.
+    @ViewBuilder
+    private var syncStatus: some View {
+        if let progress = model.syncProgress {
+            Divider()
+            HStack(spacing: 10) {
+                ProgressView(value: Double(progress.step), total: Double(max(progress.of, 1)))
+                    .frame(width: 140)
+                Text("\(progress.step) of \(progress.of)  \(progress.path)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("Stop") { model.stopSync() }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        } else if let report = model.syncReport {
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(report)
+                        .font(.subheadline)
+                        .foregroundStyle(model.syncFailures.isEmpty ? Color.secondary : Color.orange)
+                    Spacer()
+                    Button("OK") { model.dismissSyncReport() }
+                }
+                if !model.syncFailures.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(model.syncFailures.enumerated()), id: \.offset) { _, failure in
+                                Text("\(failure.relativePath): \(failure.message)")
+                                    .font(.caption)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 90)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
         }
     }
 
@@ -472,7 +581,7 @@ struct DirectoryDiffView: View {
     /// cannot: "these two differ" was already visible, "in what" was not --
     /// and the same list, spelt out, is the legend at the foot of the window
     /// for whoever has not memorised the letters yet.
-    private static let badgeSpecs:
+    static let badgeSpecs:
         [(kind: DirectoryComparison.Difference, letter: String, color: Color,
           help: String, label: String)] = [
         (.kind, "F", .brown, "one is a file, the other a folder", "File vs. folder"),
@@ -494,7 +603,7 @@ struct DirectoryDiffView: View {
             if !badges.isEmpty {
                 HStack(spacing: 2) {
                     ForEach(badges, id: \.letter) { spec in
-                        badge(spec.letter, color: spec.color, help: spec.help)
+                        Self.badge(spec.letter, color: spec.color, help: spec.help)
                     }
                 }
             }
@@ -502,7 +611,7 @@ struct DirectoryDiffView: View {
         .frame(width: CGFloat(max(badges.count, 1)) * 17 + 6)
     }
 
-    private func badge(_ letter: String, color: Color, help: String) -> some View {
+    static func badge(_ letter: String, color: Color, help: String) -> some View {
         Text(letter)
             .font(.system(size: 9, weight: .bold, design: .rounded))
             .frame(width: 15, height: 15)
@@ -519,7 +628,7 @@ struct DirectoryDiffView: View {
         FlowLayout(spacing: 12) {
             ForEach(Self.badgeSpecs, id: \.letter) { spec in
                 HStack(spacing: 4) {
-                    badge(spec.letter, color: spec.color, help: spec.help)
+                    Self.badge(spec.letter, color: spec.color, help: spec.help)
                     Text(spec.label)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -565,6 +674,12 @@ struct DirectoryDiffView: View {
     /// Get Info on whichever side or sides exist, so the two can be put next
     /// to each other and compared by eye -- tags, xattrs, ACL and all the rest
     /// a badge only says is there, not what it is.
+    /// Both sides of a pair, when there are two.
+    private static func sides(_ pair: DirectoryComparison.Pair) -> DiffPair? {
+        guard let left = pair.left, let right = pair.right else { return nil }
+        return DiffPair(left: left.url, right: right.url)
+    }
+
     private func showInfo(_ pair: DirectoryComparison.Pair?) {
         filterIsFocused = false
         guard let pair else { return }
@@ -607,7 +722,7 @@ struct DirectoryDiffView: View {
 
 /// Lays its children out left to right, wrapping to a new line when the next
 /// one would not fit -- what the legend needs, and what an `HStack` cannot do.
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,

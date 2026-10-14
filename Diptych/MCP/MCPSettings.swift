@@ -43,7 +43,58 @@ enum MCPSettings {
              })
     }
 
+    private static func choice<E>(_ key: String, _ description: String,
+                                  _ path: WritableKeyPath<Configuration, E>) -> Item
+        where E: RawRepresentable & CaseIterable, E.RawValue == String {
+        let allowed = E.allCases.map(\.rawValue)
+        return Item(key: key, kind: "enum", description: description, allowedValues: allowed,
+                    get: { .string(ConfigStore.shared.configuration[keyPath: path].rawValue) },
+                    set: { value in
+                        guard let raw = value.stringValue, let parsed = E(rawValue: raw) else {
+                            return "\(key) must be one of \(allowed.joined(separator: ", "))."
+                        }
+                        ConfigStore.shared.configuration[keyPath: path] = parsed
+                        return nil
+                    })
+    }
+
+    private static func permissions(_ key: String, _ what: String,
+                                    _ path: WritableKeyPath<Configuration, String>) -> Item {
+        Item(key: key, kind: "string",
+             description: "The permissions copied \(what) get when copyPermissions is fixed, "
+                 + "as ls shows them: rw-r--r--, with s/S and t/T for setuid, setgid and sticky.",
+             allowedValues: nil,
+             get: { .string(ConfigStore.shared.configuration[keyPath: path]) },
+             set: { value in
+                 guard let text = value.stringValue, CopySettings.mode(from: text) != nil else {
+                     return "\(key) must be nine characters like rw-r--r--."
+                 }
+                 ConfigStore.shared.configuration[keyPath: path] = text
+                 return nil
+             })
+    }
+
     static let items: [Item] = [
+        bool("copyExtendedAttributes", "A copy takes the original's extended attributes along.",
+             \.copying.extendedAttributes),
+        bool("copyAccessControlList", "A copy takes the original's access control list along.",
+             \.copying.accessControlList),
+        choice("copyCreatedDate",
+               "A copy's created date: the original's, or the time of the copy (now).",
+               \.copying.createdDate),
+        choice("copyModifiedDate",
+               "A copy's modified date: the original's, or the time of the copy (now).",
+               \.copying.modifiedDate),
+        choice("copyPermissions",
+               "A copy's permissions: the original's, 0666 (folders 0777) less the umask, "
+               + "or copyFilePermissions and copyFolderPermissions (fixed).",
+               \.copying.permissions),
+        permissions("copyFilePermissions", "files", \.copying.filePermissions),
+        permissions("copyFolderPermissions", "folders", \.copying.folderPermissions),
+        choice("copyGroup",
+               "A copy's group: the original's, or (setgid) the target folder's when that "
+               + "folder has the setgid bit.",
+               \.copying.group),
         bool("confirmQuit", "Ask before quitting.", \.confirmQuit),
         bool("gitEnabled", "Version tracking.", \.gitEnabled),
         bool("gitCheckOnOpen",

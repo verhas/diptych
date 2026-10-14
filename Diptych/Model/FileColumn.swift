@@ -426,6 +426,9 @@ struct Configuration: Codable, Equatable {
     var moveSound = "Tink"
     var trashSound = "Glass"
 
+    /// What a copy keeps besides its bytes. Everything, out of the box.
+    var copying = CopySettings()
+
     /// How often, in seconds, a pane on a file server looks whether its
     /// folder has changed there, and lists it again when Diptych comes to
     /// the front. 0: neither -- only Refresh lists it again.
@@ -455,7 +458,7 @@ struct Configuration: Codable, Equatable {
         case terminalBackground, terminalHeight, showFilesInDiptych
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
         case textFormatExtensions, textLineNumbers, textStyle
-        case serverRefreshSeconds
+        case serverRefreshSeconds, copying
     }
 
     init() {}
@@ -561,6 +564,7 @@ struct Configuration: Codable, Equatable {
                                   ?? Self.defaultTerminalHeight)
         serverRefreshSeconds = min(max(0, (try? container.decode(
             Int.self, forKey: .serverRefreshSeconds)) ?? 5), 3600)
+        copying = (try? container.decode(CopySettings.self, forKey: .copying)) ?? CopySettings()
     }
 
     /// Repairs anything a hand-edited file or a newer build might have left

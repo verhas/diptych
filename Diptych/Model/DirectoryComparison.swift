@@ -116,7 +116,7 @@ enum DirectoryComparison {
     /// The link's own access control list -- `acl_get_link_np`, not
     /// `acl_get_file`, for the reason `readNoFollow` does not use plain
     /// `getxattr`.
-    private static func acl(at path: String, isSymlink: Bool) -> String? {
+    static func acl(at path: String, isSymlink: Bool) -> String? {
         guard isSymlink else { return AccessControl.text(of: path) }
         guard let acl = acl_get_link_np(path, ACL_TYPE_EXTENDED) else { return nil }
         defer { acl_free(UnsafeMutableRawPointer(acl)) }

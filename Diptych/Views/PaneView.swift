@@ -752,6 +752,9 @@ struct PaneView: View {
                     act(ids) { model.findSiblingNames(of: item) }
                 }
             }
+            if ids.count == 1 {
+                Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
+            }
             // Only when an image whose EXIF can be changed is selected; the
             // editor takes those and leaves anything else out.
             // Any picture; the EXIF items only for the ones whose EXIF can be
@@ -888,6 +891,11 @@ struct PaneView: View {
                 .keyboardShortcut(.paste)
             Button("Paste as Link") { activate(); model.pasteAsLink() }
                 .keyboardShortcut(.pasteAsLink)
+            PasteSpecialMenu(model: model,
+                             targets: pane.rows.filter { ids.contains($0.id) && !$0.isParent }
+                                 .map(\.url)) { part in
+                act(ids) { model.pasteSpecial(part) }
+            }
 
             Divider()
 

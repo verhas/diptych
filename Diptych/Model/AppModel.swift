@@ -235,6 +235,7 @@ final class AppModel {
     @ObservationIgnored var openNewWindow: (() -> Void)?
     @ObservationIgnored var openInfoWindow: ((URL) -> Void)?
     @ObservationIgnored var openSiblingsWindow: ((URL) -> Void)?
+    @ObservationIgnored var openDuplicatesWindow: ((URL) -> Void)?
     @ObservationIgnored var openExifWindow: (([URL]) -> Void)?
     @ObservationIgnored var openVideoWindow: (([URL]) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
@@ -1893,6 +1894,8 @@ final class AppModel {
         // tree the walk is not free, and a bar without a total is just a
         // spinner.
         let monitor = TransferMonitor()
+        // Read once, so one copy is made one way throughout.
+        let copying = ConfigStore.shared.configuration.copying
         let totalBytes = await BlockingWork.run { FileOperations.totalBytes(of: urls) }
         let progress = TransferProgress(verb: kind == .move ? "Moving" : "Copying",
                                         itemCount: urls.count, bytesTotal: totalBytes)
@@ -1996,7 +1999,8 @@ final class AppModel {
             if let message = await FileOperations.shared.transferOne(source, to: target,
                                                                      kind: kind,
                                                                      overwrite: overwrite,
-                                                                     monitor: monitor) {
+                                                                     monitor: monitor,
+                                                                     copying: copying) {
                 // Cancellation is not a failure to report item by item; the
                 // user knows what they did.
                 if monitor.isCancelled { cancelledTargets = outcome.succeeded; break }
@@ -3637,6 +3641,68 @@ final class AppModel {
     /// file's other names, its hard links, outwards from its folder.
     func findSiblingNames(of item: FileItem) {
         openSiblingsWindow?(item.url)
+    }
+
+    /// One item selected, a file or a folder: what Find Duplicates is for.
+    var canFindDuplicates: Bool { active.selectedItems.count == 1 }
+
+    /// File ▸ Find Duplicates: a window that searches for files holding the
+    /// same bytes as the selected file, or for every set of them in the
+    /// selected folder. A click on one found shows it here.
+    func findDuplicates() {
+        guard canFindDuplicates, let item = active.selectedItems.first else { return }
+        DuplicateOrigins.shared.register(item.url, from: self)
+        openDuplicatesWindow?(item.url)
+    }
+
+    // MARK: - Paste Special
+
+    /// What Paste Special changes: the selected items.
+    var pasteSpecialTargets: [URL] {
+        active.selectedItems.filter { !$0.isParent }.map(\.url)
+    }
+
+    /// For the selection, or for the rows a right-click is about.
+    func canPasteSpecial(_ part: PasteSpecial.Part, targets: [URL]? = nil) -> Bool {
+        !active.volume.isReadOnly
+            && PasteSpecial.isAvailable(part, source: ClipboardWatcher.shared.pasteSource,
+                                        targets: targets ?? pasteSpecialTargets)
+    }
+
+    /// One property of the copied file made the same on every selected item.
+    func pasteSpecial(_ part: PasteSpecial.Part) {
+        guard !refusedAsReadOnly(active, "changed") else { return }
+        let urls = Clipboard.fileURLs()
+        guard urls.count == 1, let source = urls.first else {
+            flash("Copy one item first: Paste Special pastes its properties", error: true)
+            return
+        }
+        let targets = pasteSpecialTargets
+        // Read again: the copied file may have changed since the menu looked.
+        guard PasteSpecial.isAvailable(part, source: .read(source), targets: targets) else {
+            flash("\(part.title) cannot be pasted onto the selection", error: true)
+            return
+        }
+        Task {
+            let result = await PasteSpecial.paste(part, from: source, to: targets)
+            active.reload()
+            inactive.reload()
+            let from = "\u{201C}\(source.lastPathComponent)\u{201D}"
+            guard result.failures.isEmpty else {
+                let shown = result.failures.prefix(12).joined(separator: "\n")
+                let more = result.failures.count > 12
+                    ? "\n\u{2026} and \(result.failures.count - 12) more" : ""
+                dialog = .message("Paste \(part.title) from \(from) could not change everything.\n\n"
+                                  + shown + more
+                                  + (result.changed.isEmpty ? ""
+                                     : "\n\nThe rest were changed; Undo puts them back."))
+                return
+            }
+            let count = result.changed.count
+            flash(count == 0 ? "Nothing to change: already the same as \(from)"
+                  : "\(part.title) of \(from) pasted onto \(count) item\(count == 1 ? "" : "s")",
+                  error: false)
+        }
     }
 
     /// The selected images whose EXIF can be edited: not every image, only

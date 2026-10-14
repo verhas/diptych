@@ -553,7 +553,8 @@ final class BatchOperationsModel {
             case .copy:
                 guard let source = row.source, let target = row.targetPath else { continue }
                 if let error = await FileOperations.shared.transferOne(
-                    source, to: target, kind: .copy, overwrite: true) {
+                    source, to: target, kind: .copy, overwrite: true,
+                    copying: ConfigStore.shared.configuration.copying) {
                     rowResults[row.id] = error
                     failed.insert(row.id)
                 } else {

@@ -18,6 +18,7 @@ struct DiptychApp: App {
     static let batchOperationsWindowID = "diptych.batchOperations"
     static let runWindowID = "diptych.run"
     static let siblingsWindowID = "diptych.siblings"
+    static let duplicatesWindowID = "diptych.duplicates"
     static let exifWindowID = "diptych.exif"
     static let videoWindowID = "diptych.video"
 
@@ -67,6 +68,13 @@ struct DiptychApp: App {
             if let url { SiblingsView(url: url) }
         }
         .defaultSize(width: 680, height: 380)
+        .restorationBehavior(.disabled)
+
+        // One search for duplicates per file or folder.
+        WindowGroup(id: DiptychApp.duplicatesWindowID, for: URL.self) { $url in
+            if let url { DuplicatesView(url: url) }
+        }
+        .defaultSize(width: 820, height: 560)
         .restorationBehavior(.disabled)
 
         // One EXIF editor per set of images: asking again for the same ones
@@ -353,6 +361,8 @@ struct FileCommands: Commands {
             Button("Compare") { model?.showDiff() }
                 .keyboardShortcut(.compare)
                 .disabled(model == nil)
+            Button("Find Duplicates\u{2026}") { model?.findDuplicates() }
+                .disabled(model?.canFindDuplicates != true)
             Button("Rename...") { model?.requestRename() }
                 .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
@@ -495,6 +505,8 @@ struct FileCommands: Commands {
             Button("Paste as Link") { model?.pasteAsLink() }
                 .keyboardShortcut(.pasteAsLink)
                 .disabled(model == nil || model?.active.volume.isReadOnly == true)
+            // The copied file's permissions, dates, EXIF... onto the selection.
+            PasteSpecialMenu(model: model)
 
             Button("Select All") { dispatch(model?.selectAll, #selector(NSText.selectAll(_:))) }
                 .keyboardShortcut(.selectAll)

@@ -67,6 +67,12 @@ final class DiffDocument {
     private(set) var binary: BinaryComparison?
     private(set) var isComparingBytes = false
 
+    /// Everything besides the bytes: permissions, owner, dates, flags, the
+    /// access control list and every extended attribute. What two files a
+    /// folder comparison or a sync calls different differ in, when it is not
+    /// the text.
+    private(set) var properties: PropertyComparison?
+
     /// Which side the user has unlocked, and nil while the window is read only.
     private(set) var editable: Side?
     /// Whether anything has actually been written yet.
@@ -156,6 +162,7 @@ final class DiffDocument {
         leftWatcher = nil
         rightWatcher = nil
         reloadTask?.cancel()
+        propertiesTask?.cancel()
     }
 
     private func watch(_ url: URL) -> DispatchSourceFileSystemObject? {
@@ -163,9 +170,20 @@ final class DiffDocument {
         guard fd >= 0 else { return nil }
 
         let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd, eventMask: [.write, .delete, .rename, .extend], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.diskChanged(url) }
+            fileDescriptor: fd, eventMask: [.write, .delete, .rename, .extend, .attrib],
+            queue: .main)
+        source.setEventHandler { [weak self, unowned source] in
+            let events = source.data
+            MainActor.assumeIsolated {
+                // A chmod, a tag, an xattr: only the properties are read
+                // again. Reading the text again would set the access time,
+                // which is an attribute change of its own.
+                if events == .attrib {
+                    self?.refreshProperties(comparingBytes: false)
+                } else {
+                    self?.diskChanged(url)
+                }
+            }
         }
         // The cancel handler owns closing the descriptor; closing it anywhere
         // else races the source and can shut down an unrelated file.
@@ -189,6 +207,8 @@ final class DiffDocument {
             rightWatcher = watch(url)
         }
 
+        refreshProperties()
+
         // Never discard unsaved typing to reflect a change made elsewhere --
         // `save()` already refuses to save over a file changed underneath it,
         // which is the moment this conflict actually needs deciding.
@@ -208,6 +228,7 @@ final class DiffDocument {
 
     func load() async {
         let pair = pair
+        refreshProperties()
         let outcome: Result<(SourceFile, SourceFile), Error> = await BlockingWork.run {
             do { return .success((try TextDiff.load(pair.left), try TextDiff.load(pair.right))) }
             catch { return .failure(error) }
@@ -236,6 +257,24 @@ final class DiffDocument {
                 return
             }
             failure = (error as? TextDiff.Failure)?.message ?? error.localizedDescription
+        }
+    }
+
+    @ObservationIgnored private var propertiesTask: Task<Void, Never>?
+
+    /// Read off the main thread, and only the last one asked for kept. The
+    /// bytes are compared again only when they can have changed: reading
+    /// them on an attribute change could itself be one.
+    func refreshProperties(comparingBytes: Bool = true) {
+        let pair = pair
+        propertiesTask?.cancel()
+        propertiesTask = Task { [weak self] in
+            var read = await BlockingWork.run {
+                PropertyComparison.of(pair.left, pair.right, comparingBytes: comparingBytes)
+            }
+            guard !Task.isCancelled, let self else { return }
+            if !comparingBytes { read.bytesAreSame = self.properties?.bytesAreSame }
+            self.properties = read
         }
     }
 

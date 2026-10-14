@@ -177,6 +177,143 @@ final class DirectoryDiffModel {
         isLoading = false
     }
 
+    // MARK: - Making one side the same as the other
+
+    /// The plan waiting to be confirmed; the window shows it while set.
+    var syncPlan: DirectorySync.Plan?
+    /// The same for a sync both ways, with its conflicts to decide.
+    var twoWayPlan: DirectorySync.TwoWayPlan?
+    /// Where the record of the last sync is kept -- elsewhere in tests.
+    @ObservationIgnored var baselines = SyncBaselineStore.shared
+    /// Which step is running and on what, while a sync runs.
+    private(set) var syncProgress: (step: Int, of: Int, path: String)?
+    /// What the last sync did, or did not manage to do.
+    private(set) var syncReport: String?
+    private(set) var syncFailures: [DirectorySync.Failure] = []
+    @ObservationIgnored private var syncMonitor: TransferMonitor?
+
+    var isSyncing: Bool { syncProgress != nil }
+
+    /// Why the folders cannot be made the same right now, or nil when they
+    /// can.
+    var whySyncIsUnavailable: String? {
+        if FileOperations.isDescendant(left, of: right) || FileOperations.isDescendant(right, of: left) {
+            return "One folder is inside the other."
+        }
+        if isLoading || isSyncing { return "Busy." }
+        if failure != nil { return "The folders could not be compared." }
+        return nil
+    }
+
+    /// Compares again -- the plan must be made from the folders as they are
+    /// now, not as they were when the window was opened -- then offers the
+    /// plan for confirmation.
+    func planMirror(_ direction: DirectorySync.Direction) async {
+        guard whySyncIsUnavailable == nil else { return }
+        syncReport = nil
+        syncFailures = []
+        await load()
+        guard failure == nil else { return }
+        syncPlan = DirectorySync.mirror(pairs, direction: direction, left: left, right: right)
+    }
+
+    /// Compares again, then works out what changed on each side since the
+    /// last sync. Already in sync, it only says so -- and records it, so the
+    /// first sync of two folders that are already the same is this.
+    func planTwoWay() async {
+        guard whySyncIsUnavailable == nil else { return }
+        syncReport = nil
+        syncFailures = []
+        await load()
+        guard failure == nil else { return }
+        let (pairs, left, right, options, baselines) = (pairs, left, right, appliedOptions, baselines)
+        // Off the main thread: a server can take its time over each look.
+        let plan = await BlockingWork.run {
+            DirectorySync.twoWay(pairs, baseline: baselines.baseline(left: left, right: right),
+                                 left: left, right: right, options: options)
+        }
+        guard !plan.isEmpty else {
+            recordBaseline()
+            syncReport = "Already in sync."
+            return
+        }
+        twoWayPlan = plan
+    }
+
+    func runTwoWay(_ plan: DirectorySync.TwoWayPlan, choices: [String: DirectorySync.Choice],
+                   deleteOutright: Bool) async {
+        twoWayPlan = nil
+        let steps = plan.resolve(choices)
+        guard !steps.isEmpty else {
+            recordBaseline()
+            syncReport = "Nothing changed."
+            return
+        }
+        await runSync(steps, deleteOutright: deleteOutright)
+    }
+
+    func forgetLastSync() {
+        baselines.forget(left: left, right: right)
+        syncReport = "The last sync is forgotten: the next sync both ways starts as the first."
+        syncFailures = []
+    }
+
+    /// What both folders look like now, for the next sync both ways to
+    /// measure against. Only from a comparison that worked.
+    private func recordBaseline() {
+        guard failure == nil else { return }
+        let previous = baselines.baseline(left: left, right: right)
+        let baseline = SyncBaseline.after(pairs, left: left, right: right, previous: previous)
+        do {
+            try baselines.save(baseline)
+        } catch {
+            syncFailures.append(DirectorySync.Failure(
+                relativePath: baselines.directory.path,
+                message: "The record of this sync could not be saved, so the next sync both "
+                    + "ways starts as a first one: \(error.localizedDescription)"))
+        }
+    }
+
+    func runSync(_ plan: DirectorySync.Plan, deleteOutright: Bool) async {
+        syncPlan = nil
+        twoWayPlan = nil
+        guard !plan.isEmpty else { return }
+        let monitor = TransferMonitor()
+        syncMonitor = monitor
+        let total = plan.steps.count
+        syncProgress = (0, total, "")
+        let outcome = await DirectorySync.run(plan, deleteOutright: deleteOutright,
+                                              monitor: monitor) { step, path in
+            Task { @MainActor in
+                guard self.syncProgress != nil else { return }
+                self.syncProgress = (step + 1, total, path)
+            }
+        }
+        syncMonitor = nil
+        syncProgress = nil
+        syncFailures = outcome.failures
+        syncReport = Self.report(outcome, of: total)
+        await load()
+        recordBaseline()
+    }
+
+    func stopSync() {
+        syncMonitor?.cancel()
+    }
+
+    private static func report(_ outcome: DirectorySync.Outcome, of total: Int) -> String {
+        let done = "\(outcome.done) of \(total) change\(total == 1 ? "" : "s") made"
+        if outcome.cancelled { return "Stopped: \(done)." }
+        if outcome.failures.isEmpty { return "Done: \(done)." }
+        let failed = outcome.failures.count
+        return "\(done); \(failed) could not be made."
+    }
+
+    func dismissSyncReport() {
+        syncReport = nil
+        syncFailures = []
+    }
+
     var selectedPair: DirectoryComparison.Pair? {
         guard let selection else { return nil }
         return pairs.first { $0.id == selection }

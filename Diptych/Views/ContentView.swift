@@ -155,6 +155,9 @@ struct ContentView: View {
             model.openNewWindow = { openWindow(id: DiptychApp.windowGroupID) }
             model.openInfoWindow = { openWindow(id: DiptychApp.infoWindowID, value: $0) }
             model.openSiblingsWindow = { openWindow(id: DiptychApp.siblingsWindowID, value: $0) }
+            model.openDuplicatesWindow = {
+                openWindow(id: DiptychApp.duplicatesWindowID, value: $0)
+            }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
@@ -472,6 +475,7 @@ struct ContentView: View {
         case .view:            model.viewSelection()
         case .getInfo:         model.showInfo()
         case .compare:         model.showDiff()
+        case .findDuplicates:  model.findDuplicates()
         case .rename:          model.requestRename()
         case .copyToOther:     model.copySelection()
         case .moveToOther:     model.moveSelection()
@@ -504,6 +508,7 @@ struct ContentView: View {
         case .sendWork, .getLatest,
              .checkForChanges:          model.gitBusy
         case .directorySizes:           !model.canCalculateDirectorySizes
+        case .findDuplicates:           !model.canFindDuplicates
         default:                        false
         }
     }

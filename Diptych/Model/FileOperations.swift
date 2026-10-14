@@ -129,6 +129,10 @@ actor FileOperations {
         monitor.flush()
 
         if result == 0 {
+            // copyfile sets the modification date and leaves the creation
+            // date as the moment of the copy -- or, when that is later, as the
+            // modification date. Finder's and Foundation's copies keep it.
+            DirectorySync.copyCreationDates(from: source, to: target)
             let moved = context.finished + context.current
             monitor.addCompleted(moved)
             return .done(bytes: moved)
@@ -154,17 +158,32 @@ actor FileOperations {
 
     /// Moves or copies one item to an exact target, which the caller has
     /// already resolved against any name clash.
+    ///
+    /// `copying` decides what a copy keeps besides its bytes; a move keeps
+    /// everything, being the same file.
     func transferOne(_ source: URL, to target: URL, kind: Transfer,
-                     overwrite: Bool, monitor: TransferMonitor? = nil) -> String? {
+                     overwrite: Bool, monitor: TransferMonitor? = nil,
+                     copying: CopySettings = CopySettings()) -> String? {
         let fm = FileManager()
 
         /// A copy that reports progress when there is somewhere to report it,
         /// and Foundation's otherwise -- which keeps every existing caller, and
         /// every test, on exactly the path it had before.
         func put(_ from: URL, _ to: URL) throws {
+            try copy(from, to)
+            // The copy is made and stays made: a fresh copy is the copier's
+            // own, so taking something off it does not fail in practice, and
+            // throwing here would throw the copy away with it.
+            if kind == .copy { _ = copying.apply(to: to) }
+        }
+
+        func copy(_ from: URL, _ to: URL) throws {
             guard let monitor else {
                 switch kind {
-                case .copy: try fm.copyItem(at: from, to: to)
+                case .copy:
+                    try fm.copyItem(at: from, to: to)
+                    // Foundation keeps a file's creation date, not a folder's.
+                    DirectorySync.copyCreationDates(from: from, to: to)
                 case .move: try fm.moveItem(at: from, to: to)
                 }
                 return

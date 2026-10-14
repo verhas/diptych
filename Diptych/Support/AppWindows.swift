@@ -41,10 +41,21 @@ final class AppWindows {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
             MainActor.assumeIsolated {
-                guard let self, self.known.contains(where: { $0.window === window }) else { return }
+                // Any ordinary window as well, registered by its view or not:
+                // a new kind of window that forgets to is still on the list.
+                guard let self, self.known.contains(where: { $0.window === window })
+                    || Self.isOrdinary(window) else { return }
                 self.register(window)
             }
         }
+    }
+
+    /// A window of its own -- not a panel (alerts, Open and Save, Quick
+    /// Look), a sheet, a popover or anything else hanging off another window.
+    private static func isOrdinary(_ window: NSWindow) -> Bool {
+        !(window is NSPanel) && window.canBecomeMain && window.sheetParent == nil
+            && window.parent == nil && window.styleMask.contains(.titled)
+            && window.level == .normal
     }
 
     /// Kept in the order each window first opened, not most-recently-used:

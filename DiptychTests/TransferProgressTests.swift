@@ -74,6 +74,31 @@ final class TransferProgressTests: XCTestCase {
                        Data("v".utf8))
     }
 
+    func testCopyingKeepsTheCreationDateToTheNanosecond() throws {
+        // copyfile alone gives the copy the modification date as its creation
+        // date; the one from the pane has to match the original's.
+        let source = try makeFile("tree/dated.bin")
+        try makeFile("tree/inner/deep.bin")
+        let inner = root.appendingPathComponent("tree/inner/deep.bin")
+        let created = FileHistory.FileTime(seconds: 1_600_000_000, nanoseconds: 987_654_321)
+        let modified = FileHistory.FileTime(seconds: 1_700_000_000, nanoseconds: 123_456_789)
+        for url in [source, inner] {
+            try FileHistory.setDate(.modified, modified, of: url)
+            try FileHistory.setDate(.created, created, of: url)
+        }
+
+        let copy = root.appendingPathComponent("tree-copy")
+        let result = FileOperations.copyWithProgress(root.appendingPathComponent("tree"),
+                                                     to: copy, monitor: TransferMonitor())
+
+        guard case .done = result else { return XCTFail("\(result)") }
+        for path in ["dated.bin", "inner/deep.bin"] {
+            let url = copy.appendingPathComponent(path)
+            XCTAssertEqual(FileHistory.exactDate(.created, of: url), created, path)
+            XCTAssertEqual(FileHistory.exactDate(.modified, of: url), modified, path)
+        }
+    }
+
     func testAnAlreadyCancelledCopyWritesNothing() throws {
         let source = try makeFile("src.bin", kilobytes: 64)
         let target = root.appendingPathComponent("dst.bin")

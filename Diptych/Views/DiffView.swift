@@ -22,6 +22,7 @@ struct DiffView: View {
     @State private var guard_ = CloseGuard()
     @State private var window: NSWindow?
     @State private var wheel = SidewaysWheel()
+    @State private var propertiesOpen: Bool?
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -136,6 +137,9 @@ struct DiffView: View {
                 }
             }
 
+            PropertiesPanel(properties: document.properties, isOpen: $propertiesOpen,
+                            contentIsSame: document.binary?.isIdentical == true)
+
             if let failure = document.failure {
                 Label(failure, systemImage: "exclamationmark.circle")
                     .font(.subheadline).foregroundStyle(.orange)
@@ -174,6 +178,9 @@ struct DiffView: View {
                 side(.left)
                 side(.right)
             }
+            PropertiesPanel(properties: document.properties, isOpen: $propertiesOpen,
+                            contentIsSame: document.failure == nil && document.left != nil
+                                && diff.isIdentical && !document.isDirty)
             HStack(spacing: 12) {
                 Text(summary)
                     .font(.subheadline)
@@ -303,10 +310,20 @@ struct DiffView: View {
 
     private var summary: String {
         if let failure = document.failure { return failure }
-        guard !diff.isIdentical else { return "These two files are the same." }
+        guard !diff.isIdentical else { return sameText }
         let count = diff.changeStarts.count
         return "\(count) difference\(count == 1 ? "" : "s")"
             + (document.isDirty ? "  \u{2022}  not saved yet" : "")
+    }
+
+    /// The same text is not always the same file.
+    private var sameText: String {
+        let properties = document.properties
+        if properties?.bytesAreSame == false { return "The text is the same, the bytes are not." }
+        if properties?.differing.isEmpty == false {
+            return "The content is the same; other properties are not."
+        }
+        return "These two files are the same."
     }
 
     // MARK: - The comparison
@@ -318,7 +335,10 @@ struct DiffView: View {
         } else if document.left == nil {
             message("Reading\u{2026}")
         } else if diff.isIdentical && !document.isDirty {
-            message("Every line matches, including the blank ones.")
+            message(document.properties?.bytesAreSame == false
+                    ? "Every line matches, including the blank ones -- the bytes do not: the "
+                        + "line endings, a byte-order mark or the encoding differ."
+                    : "Every line matches, including the blank ones.")
         } else {
             GeometryReader { geometry in
               let text = textWidths(in: geometry.size.width)
