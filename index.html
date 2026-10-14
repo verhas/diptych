@@ -1089,6 +1089,28 @@
           really stops — and a queue that lists what is waiting, by name,
           with a time for all of it.</p>
       </div>
+      <div class="card">
+        <div class="glyph">⎘</div>
+        <h3>Paste Special</h3>
+        <p>Copy one file, select a dozen, and paste just its permissions,
+          dates, owner, attributes, ACL, location or EXIF onto them — or all
+          of the above. Dates to the nanosecond, and one step to undo.</p>
+      </div>
+      <div class="card">
+        <div class="glyph">⚙</div>
+        <h3>Copies that keep what you choose</h3>
+        <p>The original’s dates or the time of the copy; its permissions, a
+          new file’s, or your own for files and folders, setuid and sticky
+          included; the group of a setgid folder; attributes and ACL, or
+          none. A downloaded file stays quarantined either way.</p>
+      </div>
+      <div class="card">
+        <div class="glyph">⇄</div>
+        <h3>Properties side by side</h3>
+        <p>Two files with the same text are not always the same file. The
+          comparison names what else differs — permissions, owner, flags,
+          dates, ACL, each attribute — and shows both values.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -1097,12 +1119,13 @@
   <div class="wrap">
     <div class="section-head">
       <p class="kicker">Compare</p>
-      <h2>Compare files, bytes, or whole folders</h2>
+      <h2>Compare files and folders, sync them, find the duplicates</h2>
       <p class="lede">
         Two text files get a real line-by-line diff. Two of anything else get
-        an honest byte-by-byte answer. And two whole folders get a window of
+        an honest byte-by-byte answer. Two whole folders get a window of
         their own — every file paired up, colour-coded, with a legend so
-        nobody has to memorise the letters.
+        nobody has to memorise the letters — and can then be synced. And
+        one file, or one folder, can be searched for copies of itself.
       </p>
     </div>
     <h3 class="sub-head">Two folders</h3>
@@ -1134,6 +1157,54 @@
       </li>
     </ul>
 
+    <h3 class="sub-head">Sync</h3>
+    <ul class="list-check list-two" style="margin-bottom:48px;">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Both ways, each change the way it was made</b>
+        <span class="desc">For two folders where neither is the master. Each sync is remembered, so next time an edit, a new file, a deletion or a rename is carried to the other side.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Conflicts are yours to decide</b>
+        <span class="desc">A file changed on both sides waits for you: either way, keep both, or leave it for next time — or Newer Wins for all of them at once. A click opens the two side by side.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Or one way: make this side the same as that</b>
+        <span class="desc">Missing items copied, extra ones deleted, changed files replaced, a renamed file renamed rather than copied again, and a file that differs only in its permissions or dates given just those.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The plan first, nothing lost</b>
+        <span class="desc">Every change is listed before anything is made. Deleted files and the old versions of replaced ones go to the Trash, and a replacement takes the old name only once it is complete.</span></span>
+      </li>
+    </ul>
+
+    <h3 class="sub-head">Duplicates</h3>
+    <ul class="list-check list-two" style="margin-bottom:48px;">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Every set of copies in a folder</b>
+        <span class="desc">Grouped by their bytes and listed as they are found, with the letters of the folder comparison for what else differs: dates, permissions, attributes, owner.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The copies of one file, nearest first</b>
+        <span class="desc">Its folder, the folders under it, then one folder further up at a time, then the other volumes you tick — with a line saying how wide it has gone, and Stop once that is wide enough.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>To the Trash, never the last copy</b>
+        <span class="desc">Select and move the extra copies to the Trash, and Undo brings them back. Selecting every copy of a group greys the button, and the window says why.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Links followed, and warned about</b>
+        <span class="desc">A link is listed with the file it leads to, wherever that is, and a link that would lead nowhere once its file is in the Trash is named before you go ahead.</span></span>
+      </li>
+    </ul>
+
     <h3 class="sub-head">Two files</h3>
     <div class="mockup-stage" style="margin-bottom:48px;">
       <div class="shot-frame">
@@ -1159,7 +1230,7 @@
       <li>
         <span class="tick">✓</span>
         <span><b>Anything else, byte by byte</b>
-        <span class="desc">Two files that are not text get a straight answer: identical, different from the first byte, the same for the first N bytes — in decimal and hex — or one the beginning of the other.</span></span>
+        <span class="desc">Two files that are not text get a straight answer: identical, different from the first byte, the same for the first N bytes — in decimal and hex — or one the beginning of the other. Under it, as for text, whatever else differs, side by side.</span></span>
       </li>
     </ul>
   </div>
