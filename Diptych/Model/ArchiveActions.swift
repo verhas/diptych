@@ -22,6 +22,19 @@ enum RestoreChoice: Sendable {
     case administrator, without, cancel
 }
 
+/// The password an encrypted archive or disk image needs.
+struct PasswordQuestion: Equatable, Sendable {
+    let name: String
+    /// The last one typed did not open it.
+    let wasWrong: Bool
+}
+
+/// An archive being unpacked to be shown in a pane, for the pane's notice.
+struct OpeningArchive {
+    let name: String
+    let job: Archiving.Job
+}
+
 /// The Archive menu: Create Archive…, Extract Here, Extract to Other Pane.
 extension AppModel {
 
@@ -43,6 +56,50 @@ extension AppModel {
     }
 
     // MARK: - Extracting
+
+    // MARK: - Passwords
+
+    /// Asked for, and asked again while it is wrong: `attempt` is run with
+    /// each one typed until it does not fail for the password. Not asked
+    /// at all when none is needed.
+    func withPassword<T: Sendable>(for name: String, needed: Bool, newline: Bool,
+                                   _ attempt: @escaping (Archiving.PasswordFile?) async
+                                       -> Result<T, Archiving.Failure>)
+        async -> Result<T, Archiving.Failure> {
+        guard needed else { return await attempt(nil) }
+        var wasWrong = false
+        while true {
+            guard let typed = await askPassword(PasswordQuestion(name: name, wasWrong: wasWrong)) else {
+                return .failure(Archiving.Failure(message: "Cancelled."))
+            }
+            let secret: Archiving.PasswordFile
+            do { secret = try Archiving.PasswordFile(typed, endsWithNewline: newline) }
+            catch { return .failure(error) }
+            let result = await attempt(secret)
+            if case .failure(let failure) = result, failure.isWrongPassword {
+                wasWrong = true
+                continue
+            }
+            return result
+        }
+    }
+
+    private func askPassword(_ question: PasswordQuestion) async -> String? {
+        await withCheckedContinuation { continuation in
+            passwordAnswer = continuation
+            passwordQuestion = question
+            dialog = .password
+        }
+    }
+
+    /// The question's buttons: the password, or nil for Cancel.
+    func answerPassword(_ password: String?) {
+        dialog = nil
+        passwordQuestion = nil
+        let answer = passwordAnswer
+        passwordAnswer = nil
+        answer?.resume(returning: password)
+    }
 
     /// The selected archives Extract understands.
     var extractableSelection: [URL] {
@@ -114,13 +171,22 @@ extension AppModel {
         let differences: [Archiving.Difference]
         let sha256: String
         let quarantine: Data?
+        /// Kept until root has unpacked it too.
+        let password: Archiving.PasswordFile?
     }
 
     private func extractOne(_ archive: URL, into destination: URL)
         async -> Result<[URL], Archiving.Failure> {
-        let prepared = await BlockingWork.run { () -> Result<Unpacked, Archiving.Failure> in
-            Result { () throws(Archiving.Failure) -> Unpacked in
-                try Self.unpack(archive, for: destination)
+        guard let kind = Archiving.kind(of: archive) else {
+            return .failure(Archiving.Failure(message: "This is not an archive Diptych can extract."))
+        }
+        let needed = await BlockingWork.run { Archiving.needsPassword(archive, kind: kind) }
+        let prepared = await withPassword(for: archive.lastPathComponent, needed: needed,
+                                          newline: kind == .zip) { secret in
+            await BlockingWork.run { () -> Result<Unpacked, Archiving.Failure> in
+                Result { () throws(Archiving.Failure) -> Unpacked in
+                    try Self.unpack(archive, for: destination, password: secret)
+                }
             }
         }
         let unpacked: Unpacked
@@ -156,7 +222,8 @@ extension AppModel {
     /// Unpacked next to where it goes, so moving it there is a rename. The
     /// archive is read twice, before and after, and must not have changed
     /// in between: what root unpacks later is checked against the same sum.
-    nonisolated private static func unpack(_ archive: URL, for destination: URL)
+    nonisolated private static func unpack(_ archive: URL, for destination: URL,
+                                           password: Archiving.PasswordFile?)
         throws(Archiving.Failure) -> Unpacked {
         guard let kind = Archiving.kind(of: archive) else {
             throw Archiving.Failure(message: "This is not an archive Diptych can extract.")
@@ -178,14 +245,16 @@ extension AppModel {
         let folder = scratch.appendingPathComponent("x")
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: false)
-            let entries = try Archiving.entries(of: archive, kind: kind)
-            try Archiving.unpack(archive, kind: kind, into: folder)
+            let entries = try Archiving.entries(of: archive, kind: kind, password: password)
+            try Archiving.unpack(archive, kind: kind, into: folder, password: password,
+                                 entries: entries)
             guard Archiving.sha256(of: archive) == before else {
                 throw Archiving.Failure(message: "The archive changed while it was being read.")
             }
             return Unpacked(kind: kind, scratch: scratch, folder: folder, entries: entries,
                             differences: Archiving.differences(entries, in: folder),
-                            sha256: before, quarantine: Archiving.quarantine(of: archive))
+                            sha256: before, quarantine: Archiving.quarantine(of: archive),
+                            password: password)
         } catch let failure as Archiving.Failure {
             try? manager.removeItem(at: scratch)
             throw failure
@@ -244,7 +313,8 @@ extension AppModel {
                                              kind: unpacked.kind,
                                              differences: unpacked.differences,
                                              placement: placement, destination: destination,
-                                             quarantine: unpacked.quarantine)
+                                             quarantine: unpacked.quarantine,
+                                             password: unpacked.password?.url)
         switch Privileged.run(script) {
         case .succeeded:
             try? FileManager.default.removeItem(at: unpacked.scratch)
@@ -265,6 +335,93 @@ extension AppModel {
                 try? FileManager.default.removeItem(at: wrapper)
             }
             return .failure(Archiving.Failure(message: "As administrator: \(message)"))
+        }
+    }
+
+    // MARK: - Opening as a folder
+
+    /// An archive or a disk image, selected alone: what Open as Folder opens.
+    var openableAsFolder: URL? {
+        guard active.selectedItems.count == 1, let item = active.selectedItems.first,
+              !item.isDirectory, Self.opensAsFolder(item.url) else { return nil }
+        return item.url
+    }
+
+    nonisolated static func opensAsFolder(_ url: URL) -> Bool {
+        Archiving.isExtractable(url) || DiskImaging.isDiskImage(url)
+    }
+
+    /// Return on an archive or an image, when Settings says it opens here.
+    func opensInPane(_ url: URL) -> Bool {
+        ConfigStore.shared.configuration.openArchivesAsFolders && Self.opensAsFolder(url)
+    }
+
+    func openSelectionAsFolder() {
+        guard let url = openableAsFolder else { return }
+        openAsFolder(url, in: active)
+    }
+
+    /// The archive unpacked and shown, read-only, in `pane`; a disk image
+    /// mounted and its volume shown.
+    func openAsFolder(_ url: URL, in pane: PaneModel) {
+        if DiskImaging.isDiskImage(url) {
+            mount(url, in: pane)
+            return
+        }
+        guard let kind = Archiving.kind(of: url) else { return }
+        if let root = ArchiveBrowsing.existing(for: url) {
+            pane.navigate(to: root)
+            return
+        }
+        guard pane.openingArchive == nil else { return }
+        let job = Archiving.Job()
+        Task {
+            let needed = await BlockingWork.run { Archiving.needsPassword(url, kind: kind) }
+            let result = await withPassword(for: url.lastPathComponent, needed: needed,
+                                            newline: kind == .zip) { secret in
+                pane.openingArchive = OpeningArchive(name: url.lastPathComponent, job: job)
+                return await BlockingWork.run { () -> Result<URL, Archiving.Failure> in
+                    Result { () throws(Archiving.Failure) -> URL in
+                        try ArchiveBrowsing.open(url, kind: kind, password: secret, job: job)
+                    }
+                }
+            }
+            pane.openingArchive = nil
+            switch result {
+            case .success(let root):
+                pane.navigate(to: root)
+            case .failure(let failure):
+                guard failure.message != "Cancelled.", !job.isCancelled else { return }
+                dialog = .notice(title: "\u{201C}\(url.lastPathComponent)\u{201D} Could Not Be Opened",
+                                 text: failure.message)
+            }
+        }
+    }
+
+    /// Attached as Finder attaches it, asking for the password of an
+    /// encrypted one, and its volume shown in the pane. Ejected from the
+    /// sidebar like any disk.
+    private func mount(_ image: URL, in pane: PaneModel) {
+        flash("Mounting \u{201C}\(image.lastPathComponent)\u{201D}\u{2026}", error: false)
+        Task {
+            let needed = await BlockingWork.run { DiskImaging.isEncrypted(image) }
+            let result = await withPassword(for: image.lastPathComponent, needed: needed,
+                                            newline: false) { secret in
+                await BlockingWork.run { () -> Result<URL, Archiving.Failure> in
+                    Result { () throws(Archiving.Failure) -> URL in
+                        try DiskImaging.mount(image, password: secret)
+                    }
+                }
+            }
+            toast = nil
+            switch result {
+            case .success(let point):
+                pane.navigate(to: point)
+            case .failure(let failure):
+                guard failure.message != "Cancelled." else { return }
+                dialog = .notice(title: "\u{201C}\(image.lastPathComponent)\u{201D} Could Not Be Mounted",
+                                 text: failure.message)
+            }
         }
     }
 

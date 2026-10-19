@@ -719,5 +719,21 @@ enum DiptychTips {
         "Make PDF puts a JPEG into the PDF as the JPEG it is, so the PDF is no bigger and no worse.",
         "Quick Look in Diptych shows every page of an old-style JPEG TIFF, as scanners wrote them,"
             + " where macOS itself shows only a thumbnail.",
+
+        // Archives as folders, disk images, passwords.
+        "Return on a zip, tar or Apple Archive opens it as a read-only folder: Quick Look, compare"
+            + " and copy out without extracting it.",
+        "inside an archive opened as a folder, the path bar reads ~/Downloads/photos.zip/2024, and"
+            + " Up from its top lands on the archive.",
+        "Return on a .dmg or .iso mounts it and shows its volume in the pane; eject it from the"
+            + " sidebar.",
+        "Create Archive makes disk images too: a compressed .dmg, encrypted if you like, or an .iso"
+            + " for a virtual machine.",
+        "a zip under AES-256 is strong but Archive Utility cannot open it; ZipCrypto opens"
+            + " everywhere and keeps out only someone who is not trying.",
+        "an Apple Encrypted Archive, .aea, wants a password of at least 20 characters -- Create"
+            + " Archive says so before it starts.",
+        "a password for an archive or a disk image goes to the tool in a file only you can read,"
+            + " never on its command line, and Diptych never keeps it.",
     ]
 }

@@ -419,8 +419,13 @@ struct PaneView: View {
     /// bar, that path -- its folders all links, its file's name the end of
     /// them -- so a path to a file is one click from its folder.
     private var crumbTarget: (url: URL, lastIsLink: Bool) {
-        let here = pane.directory.standardizedFileURL.path
-        guard pane.isEditingPath else { return (pane.directory, pane.isFlat) }
+        let here = ArchiveBrowsing.shown(pane.directory).standardizedFileURL.path
+        guard pane.isEditingPath else { return (ArchiveBrowsing.shown(pane.directory), pane.isFlat) }
+        if let inside = ArchiveBrowsing.actual(URL(fileURLWithPath: PathCompletion.resolve(
+            pathText, base: ArchiveBrowsing.shown(pane.directory).path))) {
+            let shown = ArchiveBrowsing.shown(inside)
+            return (shown, shown.standardizedFileURL.path != here || pane.isFlat)
+        }
         let typed = URL(fileURLWithPath: PathCompletion.resolve(pathText, base: pane.directory.path))
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: typed.path, isDirectory: &isDirectory) {
@@ -433,16 +438,25 @@ struct PaneView: View {
 
     /// A folder above, from the links: the folder it came out of is selected,
     /// as going up does, and any typing in the path bar is given up.
+    /// Inside an opened archive, the links name the archive and its
+    /// folders; each leads to where it was unpacked.
     private func goToCrumb(_ folder: URL, cameFrom: URL?) {
         activate()
         endPathEdit()
-        pane.navigate(to: folder)
-        if let cameFrom { pane.pendingSelection = [cameFrom] }
+        pane.navigate(to: ArchiveBrowsing.actual(folder) ?? folder)
+        if let cameFrom {
+            // Up out of an archive the archive itself is selected, a file.
+            let from = ArchiveBrowsing.actual(cameFrom).flatMap { inside in
+                ArchiveBrowsing.opened(containing: inside)?.root == inside ? nil : inside
+            } ?? cameFrom
+            pane.pendingSelection = [from]
+        }
     }
 
-    /// `/Users/verhasp/Documents` shown as `~/Documents`.
+    /// `/Users/verhasp/Documents` shown as `~/Documents`; a folder inside an
+    /// opened archive as inside the archive.
     private var displayPath: String {
-        (pane.directory.path as NSString).abbreviatingWithTildeInPath
+        (ArchiveBrowsing.shown(pane.directory).path as NSString).abbreviatingWithTildeInPath
     }
 
     private func beginPathEdit(selectingAll: Bool = false) {
@@ -452,7 +466,7 @@ struct PaneView: View {
         // straight away and Tab completes inside this directory rather than
         // re-completing its own name. "/" is the one path that already ends in
         // one.
-        let path = pane.directory.path
+        let path = ArchiveBrowsing.shown(pane.directory).path
         pathText = path.hasSuffix("/") ? path : path + "/"
         pane.isEditingPath = true
     }
@@ -482,7 +496,9 @@ struct PaneView: View {
         // Resolved against the pane, so a bare name or a "../" means what it
         // says in a shell: relative to where you are, not to wherever the
         // process happens to think it is standing.
-        let expanded = PathCompletion.resolve(pathText, base: pane.directory.path)
+        var expanded = PathCompletion.resolve(pathText, base: ArchiveBrowsing.shown(pane.directory).path)
+        // A path into an opened archive, as the path bar shows it.
+        if let inside = ArchiveBrowsing.actual(URL(fileURLWithPath: expanded)) { expanded = inside.path }
 
         // Navigating to a path that is not there used to leave the pane looking
         // like an empty folder. Refuse instead, and stay in the editor so the
@@ -599,8 +615,43 @@ struct PaneView: View {
         // Applied to the table and *then* overlaid, not the other way round:
         // `.disabled` reaches everything inside the view it modifies, and an
         // overlay added first would have had its Cancel button disabled too.
-        .disabled(pane.isNavigating)
+        .disabled(pane.isNavigating || pane.openingArchive != nil)
         .overlay { loadingNotice }
+        .overlay { openingArchiveNotice }
+    }
+
+    /// An archive being unpacked to be shown: how far, and Stop.
+    @ViewBuilder
+    private var openingArchiveNotice: some View {
+        if let opening = pane.openingArchive {
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                let progress = opening.job.snapshot()
+                VStack(spacing: 10) {
+                    Text("Opening \u{201C}\(opening.name)\u{201D}\u{2026}")
+                        .font(.system(size: 12))
+                    if let fraction = progress.fraction {
+                        ProgressView(value: fraction).frame(width: 220)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(progress.totalBytes > 0
+                         ? "\(ByteCountFormatter.string(fromByteCount: progress.bytes, countStyle: .file)) of "
+                           + ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file)
+                         : "Reading what it holds\u{2026}")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Text("Unpacked once, read-only, until Diptych quits.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Stop") { opening.job.cancel() }
+                        .keyboardShortcut(.cancelAction)
+                }
+                .padding(18)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     /// Shown only while moving to a *different* directory. A refresh in place
@@ -709,6 +760,13 @@ struct PaneView: View {
         }
         Menu("Archive") {
             Button("Create Archive\u{2026}") { act(ids) { model.requestCreateArchive() } }
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isDirectory, AppModel.opensAsFolder(item.url) {
+                Divider()
+                Button(DiskImaging.isDiskImage(item.url) ? "Mount in Pane" : "Open as Folder") {
+                    act(ids) { model.openSelectionAsFolder() }
+                }
+            }
             if !archives.isEmpty {
                 Divider()
                 Button("Extract Here") { act(ids) { model.extractHere() } }

@@ -53,6 +53,8 @@ final class PaneModel {
     /// last listed -- shown at once, and replaced when it has been read again.
     private(set) var listedEarlier: Date?
     private(set) var errorText: String?
+    /// An archive being unpacked to be shown here.
+    var openingArchive: OpeningArchive?
     /// Set when the failure was TCC refusing access rather than the folder
     /// being missing or broken -- Time Machine volumes are the common case.
     private(set) var errorIsPermission = false
@@ -585,13 +587,16 @@ final class PaneModel {
 
     // MARK: - Persistence
 
+    /// An opened archive is gone when Diptych is next started: the pane is
+    /// saved as next to it.
     var snapshot: PaneState {
-        PaneState(directory: directory.path,
+        PaneState(directory: (ArchiveBrowsing.opened(containing: directory)?.archive
+                                .deletingLastPathComponent() ?? directory).path,
                   sortField: (sortOrder.first?.column ?? .name).rawValue,
                   sortAscending: (sortOrder.first?.order ?? .forward) == .forward,
-                  recent: recent.map(\.path),
+                  recent: recent.filter { !ArchiveBrowsing.isInside($0) }.map(\.path),
                   flatDraft: flatDraft,
-                  flatExpression: flat?.expression)
+                  flatExpression: ArchiveBrowsing.isInside(directory) ? nil : flat?.expression)
     }
 
     func restore(_ state: PaneState) {
@@ -614,6 +619,14 @@ final class PaneModel {
         guard directory.pathComponents.count > 1 else { return }
         let leaving = directory
 
+        // Out of the top of an opened archive: beside it, on it.
+        if let opened = ArchiveBrowsing.opened(containing: directory),
+           opened.root.standardizedFileURL == directory.standardizedFileURL {
+            navigate(to: opened.archive.deletingLastPathComponent())
+            pendingSelection = [opened.archive]
+            return
+        }
+
         // Through navigate(), not by assigning `directory`: going up is a
         // navigation like any other and belongs in the history and in the saved
         // state. Setting the property directly skipped both.
@@ -634,6 +647,11 @@ final class PaneModel {
         // broken -- the row is listed, but there is nothing on the other end.
         guard FileManager.default.fileExists(atPath: item.url.path) else {
             owner?.flash("\u{201C}\(item.name)\u{201D} can\u{2019}t be opened \u{2014} the link is broken")
+            return
+        }
+
+        if !item.isEnterable, let owner, owner.opensInPane(item.url) {
+            owner.openAsFolder(item.url, in: self)
             return
         }
 

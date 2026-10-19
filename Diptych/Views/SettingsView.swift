@@ -277,6 +277,18 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Toggle("Return opens archives and disk images in the pane",
+                   isOn: $store.configuration.openArchivesAsFolders)
+                .toggleStyle(.checkbox)
+            Text("A zip, tar or Apple Archive is shown as a read-only folder, a disk image is "
+                 + "mounted and its volume shown. Off, they open as in Finder. Archive \u{25B8} "
+                 + "Open as Folder does it either way.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Ask before quitting", isOn: $store.configuration.confirmQuit)
                 .toggleStyle(.checkbox)
             Text("Quit sits one key away from Close Window and Select All.")

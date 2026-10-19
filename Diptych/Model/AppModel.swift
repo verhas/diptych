@@ -51,6 +51,7 @@ final class AppModel {
         case recognizeText
         case restoreFromArchive
         case makePDF
+        case password
 
         var id: String {
             switch self {
@@ -78,6 +79,7 @@ final class AppModel {
             case .recognizeText:      return "recognizeText"
             case .restoreFromArchive: return "restoreFromArchive"
             case .makePDF:            return "makePDF"
+            case .password:           return "password"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -251,6 +253,10 @@ final class AppModel {
     /// unpacking it as the user did not give.
     var restoreQuestion: RestoreQuestion?
     @ObservationIgnored var restoreAnswer: CheckedContinuation<RestoreChoice, Never>?
+    /// The password an encrypted archive or disk image asks for, while it
+    /// is asked. The answer is never kept.
+    var passwordQuestion: PasswordQuestion?
+    @ObservationIgnored var passwordAnswer: CheckedContinuation<String?, Never>?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?,
                                                          urls: [URL],
                                                          before: [(String?, String?)])?

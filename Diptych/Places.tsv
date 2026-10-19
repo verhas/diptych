@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-10-18. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-10-19. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -3053,7 +3053,7 @@ R	RU	46	Mordoviya Republic
 R	RU	45	Mariy-El Republic
 R	RU	43	Lipetsk Oblast
 R	RU	42	Leningradskaya Oblast'
-R	RU	66	St.-Petersburg
+R	RU	66	St. Petersburg
 R	RU	41	Kursk Oblast
 R	RU	38	Krasnodar Krai
 R	RU	37	Kostroma Oblast
@@ -5039,9 +5039,11 @@ P	7701354	23.7298	90.3854	BD	81	Azimpur
 P	7926419	25.6647	89.5026	BD	87	Paotana Hat
 P	8299875	22.6906	92.2347	BD	84	Karnaphuli
 P	8740356	23.3919	89.9839	BD	81	Bhanga
+P	9171969	24.0696	90.2221	BD	81	Kaliakair
 P	9827976	23.7362	90.4143	BD	81	Paltan
 P	11876505	23.7897	90.4104	BD	81	Gulshan
 P	13589478	23.7277	90.4192	BD	81	Motijheel
+P	13715450	23.1837	89.1764	BD	82	Jessore Cantonment
 P	2783081	51.2198	4.3266	BE	VLG	Zwijndrecht
 P	2783089	50.8127	3.3385	BE	VLG	Zwevegem
 P	2783175	50.8695	3.8105	BE	VLG	Zottegem
@@ -11657,6 +11659,7 @@ P	2814791	47.6232	8.2172	DE	01	Waldshut-Tiengen
 P	2814874	48.2085	12.3989	DE	02	Waldkraiburg
 P	2814883	48.0958	7.9637	DE	01	Waldkirch
 P	2815137	50.8758	7.6169	DE	07	Waldbröl
+P	2815174	49.2306	9.2172	DE	01	Bad Friedrichshall
 P	2815330	48.8324	9.3164	DE	01	Waiblingen
 P	2815487	49.2499	8.5126	DE	01	Waghäusel
 P	2815559	49.2667	6.7833	DE	09	Wadgassen
@@ -20094,6 +20097,8 @@ P	10878435	12.1458	75.1748	IN	13	Trikarpūr North
 P	10878443	12.1165	75.1852	IN	13	Trikarpūr South
 P	10878482	12.0343	75.2378	IN	22	Mādāyi
 P	10878484	12.0735	75.2412	IN	22	Kunnimangalam
+P	10880198	25.7671	85.8792	IN	34	Chaita
+P	10880526	25.7276	85.7865	IN	34	Chand Chaur
 P	10883966	14.7178	76.7468	IN	19	Molakālumuru
 P	10888572	13.0193	76.1243	IN	19	Satyāmangala
 P	10892271	12.0588	75.3248	IN	13	Pariyāram
@@ -20138,6 +20143,7 @@ P	10925009	11.6832	75.7108	IN	13	Kunnummal
 P	10925345	11.4048	75.7236	IN	13	Chēmanchēri
 P	10926303	11.4982	75.6807	IN	13	Kizhariyūr
 P	10926750	31.6863	74.8875	IN	23	Nangli
+P	10929452	11.5273	75.7549	IN	13	Nocchād
 P	10929613	11.4525	75.7666	IN	13	Ulliyeri
 P	10929640	11.3615	75.7782	IN	13	Icchannūr
 P	10929642	11.3537	75.7580	IN	13	Talakkolattur

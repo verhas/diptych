@@ -537,6 +537,15 @@ final class BatchOperationsModel {
                 failed.insert(row.id)
                 continue
             }
+            // An archive opened as a folder is read-only: copied out of,
+            // never changed.
+            if row.targetPath.map(ArchiveBrowsing.isInside) == true
+                || (row.kind != .copy && row.source.map(ArchiveBrowsing.isInside) == true) {
+                rowResults[row.id] = "Skipped: it is inside an archive opened as a folder, which "
+                    + "is read-only. Extract it to change it."
+                failed.insert(row.id)
+                continue
+            }
 
             switch row.kind {
             case .move:

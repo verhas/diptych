@@ -268,6 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if !isRunningTests {
+            // What a crash left of archives opened as folders.
+            Task.detached(priority: .utility) { ArchiveBrowsing.removeAll() }
             MainActor.assumeIsolated {
                 StartupWarnings.start()
                 ServerAutoConnect.start()
@@ -285,6 +287,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Archives opened as folders were unpacked for this run only.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            ArchiveBrowsing.removeAll()
+        }
         // The agent terminals' shells, and the agents in them, end with the
         // app rather than being left to notice their terminal has gone.
         MainActor.assumeIsolated {
@@ -611,6 +617,9 @@ struct FileCommands: Commands {
             Button("Create Archive\u{2026}") { model?.requestCreateArchive() }
                 .disabled(model?.canCreateArchive != true)
             Divider()
+            Button(model?.openableAsFolder.map(DiskImaging.isDiskImage) == true
+                   ? "Mount in Pane" : "Open as Folder") { model?.openSelectionAsFolder() }
+                .disabled(model?.openableAsFolder == nil)
             Button("Extract Here") { model?.extractHere() }
                 .disabled(model?.canExtract != true)
             Button("Extract to Other Pane") { model?.extractToOtherPane() }

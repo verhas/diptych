@@ -26,7 +26,7 @@ struct CreateArchiveView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
         }
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 620, minHeight: 560)
         .navigationTitle("Create Archive \u{2014} \(NamingTemplate.tilde(request.folder.path))")
         .onChange(of: model.made) { _, made in
             if made != nil { dismiss() }
@@ -85,13 +85,16 @@ struct CreateArchiveView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 300)
+                .frame(width: 470)
             }
             switch model.options.format {
             case .zip:          zipOptions
             case .tar:          tarOptions
             case .appleArchive: appleArchiveOptions
+            case .diskImage:    diskImageOptions
+            case .iso:          isoOptions
             }
+            if model.options.needsPassword { passwordRows }
             GridRow {
                 Text("Name")
                 HStack(spacing: 4) {
@@ -121,19 +124,49 @@ struct CreateArchiveView: View {
 
     @ViewBuilder
     private var zipOptions: some View {
+        let encrypted = model.options.zipEncryption != .none
         GridRow {
             Text("Mac data")
             VStack(alignment: .leading, spacing: 2) {
                 Toggle("Keep it in a __MACOSX folder, as Finder does",
-                       isOn: $model.options.zipMacMetadata)
+                       isOn: encrypted ? .constant(false) : $model.options.zipMacMetadata)
                     .toggleStyle(.checkbox)
-                Text(model.options.zipMacMetadata
+                    .disabled(encrypted)
+                Text(encrypted
+                     ? "A zip under a password holds the bytes and the permissions only: ditto, "
+                       + "which writes the __MACOSX folder, cannot encrypt."
+                     : model.options.zipMacMetadata
                      ? "Extended attributes, tags, resource forks and ACLs come back when the "
                        + "archive is opened on a Mac. Elsewhere the folder shows up as clutter."
                      : "The bytes and the permissions only: tidy anywhere, but tags and other "
                        + "attributes are left out.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        GridRow {
+            Text("Password")
+            VStack(alignment: .leading, spacing: 2) {
+                Picker("", selection: $model.options.zipEncryption) {
+                    ForEach(Archiving.ZipEncryption.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 260)
+                switch model.options.zipEncryption {
+                case .none:
+                    EmptyView()
+                case .aes256:
+                    Text("Strong. Opened by 7-Zip, Keka, The Unarchiver and Windows 11 \u{2014} "
+                         + "not by Archive Utility, nor by double-clicking it in Finder.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .zipCrypto:
+                    Text("Weak: it keeps out someone glancing, not someone trying \u{2014} free "
+                         + "tools open it without the password in minutes. Finder, Windows and "
+                         + "every unzip open it.")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         GridRow {
@@ -196,10 +229,102 @@ struct CreateArchiveView: View {
             .toggleStyle(.checkbox)
         }
         GridRow {
+            Text("Password")
+            Toggle("Encrypt it, as an Apple Encrypted Archive (.aea)",
+                   isOn: $model.options.aarEncrypted)
+                .toggleStyle(.checkbox)
+        }
+        GridRow {
             Text("")
-            Text("Opened by Archive Utility, or by aa on the command line. Not readable on "
-                 + "Windows or Linux.")
+            Text(model.options.aarEncrypted
+                 ? "AES-256 under a password of at least "
+                   + "\(Archiving.Options.shortestAppleArchivePassword) characters. Opened by "
+                   + "Archive Utility on macOS 13 and later, or by aea on the command line."
+                 : "Opened by Archive Utility, or by aa on the command line. Not readable on "
+                   + "Windows or Linux.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var diskImageOptions: some View {
+        GridRow {
+            Text("Image")
+            Picker("", selection: $model.options.diskImageFormat) {
+                ForEach(DiskImaging.Format.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 300)
+        }
+        GridRow {
+            Text("Volume")
+            Picker("", selection: $model.options.diskImageFilesystem) {
+                ForEach(DiskImaging.Filesystem.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 300)
+        }
+        GridRow {
+            Text("Encryption")
+            Picker("", selection: $model.options.diskImageEncryption) {
+                ForEach(DiskImaging.Encryption.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 180)
+        }
+        GridRow {
+            Text("")
+            Text("The items go at the top of a volume named after the image, with their "
+                 + "attributes, tags and ACLs. Double-clicked, it mounts like any disk.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var isoOptions: some View {
+        GridRow {
+            Text("File systems")
+            Picker("", selection: $model.options.isoFilesystems) {
+                ForEach(DiskImaging.ISOFilesystems.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .frame(width: 260)
+        }
+        GridRow {
+            Text("")
+            Text("For a virtual machine, a disc to burn, or a computer that is not a Mac. "
+                 + "Mac attributes are left out; Joliet keeps names up to 64 characters, UDF "
+                 + "longer ones and files over 4 GB. It cannot be encrypted.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Typed twice, and never kept: not in the settings, not after the
+    /// window closes.
+    @ViewBuilder
+    private var passwordRows: some View {
+        GridRow {
+            Text("")
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    SecureField("Password", text: $model.password)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                    SecureField("Again", text: $model.passwordAgain)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 200)
+                }
+                if let problem = model.passwordProblem, !model.password.isEmpty {
+                    Text(problem)
+                        .font(.caption).foregroundStyle(.red)
+                } else {
+                    Text("Forget it and nothing opens the archive \u{2014} not Diptych, not Apple.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 
@@ -241,6 +366,9 @@ struct CreateArchiveView: View {
             return "Putting the items together\u{2026}"
         case .finishing:
             return "Finishing \u{201C}\(model.target.lastPathComponent)\u{201D}\u{2026}"
+        case .converting:
+            return model.options.diskImageEncryption == .none
+                ? "Converting the image\u{2026}" : "Converting and encrypting the image\u{2026}"
         case .archiving:
             let amount = "\(bytes(progress.bytes)) of \(bytes(progress.totalBytes))"
             guard progress.countsFiles else { return amount }
@@ -272,6 +400,7 @@ struct CreateArchiveView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Create") { model.create() }
                     .keyboardShortcut(.defaultAction)
+                    .disabled(model.passwordProblem != nil)
             }
         }
     }

@@ -107,9 +107,17 @@ final class ArchivingTests: XCTestCase {
                                              name: "dev.diptych.test"))
     }
 
+    func testAZipOfOneFileHoldsJustTheFile() throws {
+        let (_, notes) = try makeSources()
+        let zip = try create([notes], Archiving.Options(), named: "notes.zip")
+        XCTAssertEqual(try zipNames(zip).filter { !$0.hasPrefix("__MACOSX") }, ["notes.txt"])
+        let folderZip = try create([notes.deletingLastPathComponent()], Archiving.Options(), named: "src.zip")
+        XCTAssertTrue(try zipNames(folderZip).contains("src/notes.txt"), "a folder is kept whole")
+    }
+
     func testSeveralItemsGoSideBySideAtTheTop() throws {
         let (folder, notes) = try makeSources()
-        for format in Archiving.Format.allCases {
+        for format in [Archiving.Format.zip, .tar, .appleArchive] {
             var options = Archiving.Options()
             options.format = format
             let archive = try create([folder, notes], options, named: "both.\(options.fileExtension)")
@@ -125,7 +133,7 @@ final class ArchivingTests: XCTestCase {
         try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
         let other = elsewhere.appendingPathComponent("other.txt")
         try Data("x".utf8).write(to: other)
-        for format in Archiving.Format.allCases {
+        for format in [Archiving.Format.zip, .tar, .appleArchive] {
             var options = Archiving.Options()
             options.format = format
             let archive = try create([folder.appendingPathComponent("a.txt"), other], options,
@@ -139,7 +147,7 @@ final class ArchivingTests: XCTestCase {
         let (folder, notes) = try makeSources()
         let big = folder.appendingPathComponent("big")
         try Data(repeating: 7, count: 3_000_000).write(to: big)
-        for format in Archiving.Format.allCases {
+        for format in [Archiving.Format.zip, .tar, .appleArchive] {
             var options = Archiving.Options()
             options.format = format
             let job = Archiving.Job()

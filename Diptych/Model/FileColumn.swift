@@ -316,6 +316,11 @@ struct Configuration: Codable, Equatable {
     /// Cmd-W and Cmd-A.
     var confirmQuit = true
 
+    /// Return on a zip, a tar, an Apple Archive or a disk image opens it in
+    /// the pane, as a folder. Off, it goes to the app that opens it in
+    /// Finder.
+    var openArchivesAsFolders = true
+
     /// Run the scripts in ~/.diptych/scripts.
     ///
     /// Off by default, and it must stay a decision somebody makes knowingly:
@@ -445,6 +450,7 @@ struct Configuration: Codable, Equatable {
         case soundsEnabled, copySound, moveSound, trashSound
         case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
+        case openArchivesAsFolders
         case useAppleIntelligence, nameSeparatorEnabled, nameSeparator, nameUnicode
         case nameGermanSpelling, nameExcerptLength, prefetchClipboardNames
         case directoryDiffComparePermissions, directoryDiffCompareAttributes
@@ -484,6 +490,8 @@ struct Configuration: Codable, Equatable {
         clipboardImageFormat =
             (try? container.decode(ClipboardImageFormat.self, forKey: .clipboardImageFormat)) ?? .png
         confirmQuit = (try? container.decode(Bool.self, forKey: .confirmQuit)) ?? true
+        openArchivesAsFolders =
+            (try? container.decode(Bool.self, forKey: .openArchivesAsFolders)) ?? true
         scriptsEnabled = (try? container.decode(Bool.self, forKey: .scriptsEnabled)) ?? false
         scriptsDeveloperMode =
             (try? container.decode(Bool.self, forKey: .scriptsDeveloperMode)) ?? false

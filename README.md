@@ -2025,9 +2025,11 @@ has for it, called by its full path:
 
 | Format | Made by | Options |
 |---|---|---|
-| **ZIP**, the default | `ditto -c -k`, as Finder's Compress | Mac data in a `__MACOSX` folder as Finder writes it (on by default), or the bytes and permissions only; compression none, fastest, normal or smallest |
+| **ZIP**, the default | `ditto -c -k`, as Finder's Compress; under a password `tar --format zip` | Mac data in a `__MACOSX` folder as Finder writes it (on by default), or the bytes and permissions only; compression none, fastest, normal or smallest; a password, AES-256 or ZipCrypto |
 | **tar** | `/usr/bin/tar` (libarchive) | gzip, bzip2, xz or none; extended attributes, ACLs and file flags or not; owners as names and numbers, numbers only, or root and wheel |
-| **Apple Archive** (`.aar`) | `aa archive` | LZFSE, LZMA, zlib, LZ4 or none; owners and groups, extended attributes, ACLs each kept or not |
+| **Apple Archive** (`.aar`, `.aea` encrypted) | `aa archive`, encrypted by `aea encrypt` | LZFSE, LZMA, zlib, LZ4 or none; owners and groups, extended attributes, ACLs each kept or not; a password |
+| **Disk Image** (`.dmg`) | `hdiutil create`, `attach`, `ditto`, `convert` | compressed LZFSE, zlib or LZMA, read-only, or read/write; APFS or Mac OS Extended; AES-128 or AES-256 under a password |
+| **ISO** (`.iso`) | `hdiutil makehybrid` | ISO 9660, Joliet and UDF, ISO 9660 and Joliet only, or UDF only |
 
 - **The name** is the item's for one, *Archive* for several, numbered when it
   is taken -- *Archive 2.tar.gz*. It goes next to the items, or into the
@@ -2048,12 +2050,48 @@ has for it, called by its full path:
   the bytes passing between them are counted.
 - A zip always records each item's owner and group, as numbers: ditto writes
   them in an old Info-ZIP field, and no option leaves them out.
-- What was chosen last is offered next time. Undo moves the archive to the
-  Trash.
+- What was chosen last is offered next time -- never a password. Undo moves
+  the archive to the Trash.
+
+**Under a password.** The password is typed twice in the window and handed to
+the tool in a file only you can read, in a folder only you can enter, removed
+when the tool is done -- never on its command line, where `ps` shows it to
+every user of the Mac.
+
+- **A zip** is written by tar, as ditto cannot encrypt: the bytes and the
+  permissions, no `__MACOSX`. **AES-256** (WinZip's) is strong, and opened by
+  7-Zip, Keka, The Unarchiver and Windows 11 but not by Archive Utility.
+  **ZipCrypto** is the original scheme: Finder, Windows and every unzip open
+  it, and so does anyone who tries for a few minutes with a free tool -- it
+  keeps out someone glancing, not someone trying.
+- **An Apple Encrypted Archive** (`.aea`) is AES-256 with an scrypt-derived
+  key, opened by Archive Utility on macOS 13 and later. `aea` refuses a
+  password shorter than 20 characters, and the window says so first.
+- **A disk image** is encrypted by `hdiutil convert -encryption`, and asks for
+  its password when mounted, as any encrypted image does.
+
+**Disk images.** A `.dmg` is made the way `build.sh` makes Diptych's own: an
+empty image sized for what goes in, attached out of sight, the items copied in
+with `ditto -V` -- attributes, tags and ACLs kept, a line per file for the bar
+-- detached, and converted to the format chosen, with hdiutil's own percent
+shown. `hdiutil create -srcfolder` would do it in one go, and fails as a whole
+with nothing but "Resource busy" when any step is unhappy. An `.iso` is
+`hdiutil makehybrid` of the items in a folder of clones; it cannot be
+encrypted, keeps no Mac attributes, and its bar is the image's size as it is
+written.
 
 **Extract Here** puts what is in the archive next to it; **Extract to Other
 Pane** into the other pane's folder. zip (and jar, war, ipa), tar compressed
-or not (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`…) and `.aar`.
+or not (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`…), `.aar` and `.aea`.
+
+- **An encrypted archive asks for its password**, and again while it is
+  wrong. A zip is encrypted when an entry in its central directory says so;
+  its password is checked by Diptych first -- WinZip AES keeps two bytes
+  derived with the key, ZipCrypto a byte of the file's CRC at the end of its
+  12-byte header -- because tar, given a wrong one, asks for another ten
+  thousand times and takes a quarter of a minute to say so. tar then unpacks
+  it, reading the password on its standard input; `aea decrypt` unpacks an
+  `.aea` into `aa extract`.
 
 - **One item at the top** comes out as itself, numbered if the name is taken.
   **Several** come out in a new folder named after the archive, as Archive
@@ -2076,6 +2114,40 @@ or not (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`…) and `.aar`.
 - **A downloaded archive's quarantine** goes onto everything that comes out
   of it, as Archive Utility does.
 - Undo moves what was extracted to the Trash.
+
+### An archive opened as a folder
+
+**Return** on a zip, tar or Apple Archive -- or **Archive ▸ Open as Folder**,
+whatever Settings says -- shows what is in it in the pane, as a folder.
+
+- It is **unpacked once**, as you, into a folder named after the archive in
+  Diptych's caches, with a bar of how far, and Stop. A zip's bar is ditto's
+  line per file; a tar or an Apple Archive is read through a pipe, and the
+  bytes passed are the progress. What it holds is listed first, and refused
+  when it is more than the disk has free.
+- **Everything that works on files works inside it**: Quick Look, Compare,
+  Copy and drag out, the flat view, Find Duplicates.
+- **Read-only.** The folder counts as a read-only volume, named after the
+  archive: Rename, Move, Trash, New Folder and drops are greyed or refused,
+  and the agent's batch operations skip anything inside it. Extract it to
+  change it.
+- **The path bar names it inside the archive** --
+  `~/Downloads/photos.zip/2024` -- and typing or Option-clicking such a path
+  goes there. Up from its top lands next to the archive, with the archive
+  selected.
+- Opened again while it has not changed, it is shown at once; changed, it is
+  unpacked again. Everything unpacked goes when Diptych quits, and anything a
+  crash left when it starts. A pane left inside one is saved as next to it.
+- An encrypted one asks for its password; a downloaded one's quarantine goes
+  on everything in it.
+
+**A disk image** -- `.dmg`, `.iso`, `.cdr`, `.sparseimage` -- is mounted
+instead, as a double-click in Finder mounts it, asking for the password of an
+encrypted one, and the pane goes to its volume. It is in the sidebar with the
+other disks, and ejected from there.
+
+Off in **Settings ▸ Behaviour**, Return opens them as Finder would; **Open as
+Folder** -- **Mount in Pane** for an image -- does it either way.
 
 ## The menu bar
 
@@ -3561,7 +3633,60 @@ bookmarks), which is unworkable for a file manager. The cost is that this app
 cannot ship on the Mac App Store. Grant it Full Disk Access under
 *System Settings > Privacy & Security* to stop the per-folder consent prompts.
 
-## Not done yet
+## Roadmap
+
+Ideas, roughly in the order they would be useful, and the loose ends left
+over. None of it is promised.
+
+### Archives and disk images
+
+- **An archive opened without unpacking it all.** Opened as a folder, it is
+  unpacked whole first; a very large one could be listed at once and each
+  file taken out only when it is looked at or copied.
+- **Disk images in the sidebar** before they are mounted: dropped on it to
+  mount, kept as favourites.
+
+### Older versions
+
+- **Time Machine and APFS snapshots.** Every backed-up version of a file,
+  each one open to Quick Look, Compare with the current one, or Restore; a
+  folder compared with itself as it was last week.
+- **A Trash browser.** The Trash of every volume in one pane, with where each
+  item came from and Put Back.
+
+### What Finder does not tell
+
+- **Code signature and notarization** in the Info window: who signed an app,
+  whether Apple notarized it, its entitlements, why Gatekeeper would refuse
+  it -- and the same for the agent through MCP.
+- **Checksums.** SHA-256 and the others in Details; a file checked against a
+  `.sha256` file, or against a hash copied from a download page.
+- **Disk use as a treemap.** The directory sizes already measured, drawn as a
+  treemap or sunburst to click into.
+
+### The panes
+
+- **Tabs inside a pane.** `⌘T` gives macOS window tabs, each a whole two-pane
+  window. Tabs *inside* a pane -- what file managers usually mean -- would be a
+  list of folders per `PaneModel` plus a tab strip.
+- **Open With ▸ and Share ▸** in the right-click menu, as in Finder; Share
+  brings AirDrop, Mail and Messages.
+- **Spotlight as a flat view.** `mdfind`'s results in one list, filtered by
+  the flat view's expression: a whole disk searched by content at once.
+
+### Remote
+
+- **An SFTP pane.** macOS cannot mount SFTP; Diptych could browse and copy
+  over the user's own `ssh`, with its keys and `~/.ssh/config`.
+
+### Smaller
+
+- **Split and join** a large file, with a checksum of the whole.
+- **Text encodings and line endings** converted in Text Edit.
+- **PDF pages**: merged, split and turned, beside Make PDF -- or left to the
+  agent, as workflows are.
+
+### Loose ends
 
 - **First click when Diptych is not frontmost** may select nothing -- macOS
   spends it bringing the app forward. Patching `acceptsFirstMouse` by
@@ -3569,9 +3694,5 @@ cannot ship on the Mac App Store. Grant it Full Disk Access under
   system, so it was reverted; a local `.leftMouseDown` monitor is the safe
   route. `ClickRouter` already does this for a click into a window behind the
   Quick Look panel; whether it covers an inactive app is not yet checked.
-- **Tabs inside a pane.** `⌘T` gives macOS window tabs, each a whole two-pane
-  window. Tabs *inside* a pane -- what file managers usually mean -- would be a
-  list of folders per `PaneModel` plus a tab strip.
 - **Undo for a sync** in Compare Folders. Deleted and replaced files are in
   the Trash until then.
-- **Open With ▸ and Share ▸** in the right-click menu, as in Finder.

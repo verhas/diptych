@@ -29,6 +29,9 @@ final class ArchiveWindowModel {
     /// The name without its extension, which follows the format.
     var stem: String
     var intoOtherPane = false
+    /// Only while the window is open.
+    var password = ""
+    var passwordAgain = ""
 
     private(set) var isRunning = false
     /// How far it has got, read from the job four times a second.
@@ -70,11 +73,19 @@ final class ArchiveWindowModel {
 
     var totalSize: Int64 { items.compactMap(\.size).reduce(0, +) }
 
+    /// Why Create cannot go ahead with the password typed, or nil.
+    var passwordProblem: String? {
+        guard options.needsPassword else { return nil }
+        if let problem = options.passwordProblem(password) { return problem }
+        return password == passwordAgain ? nil : "The two passwords differ."
+    }
+
     func create() {
         guard !isRunning else { return }
         let target = target
         let items = request.items
         let options = options
+        let password = options.needsPassword ? password : nil
         let job = Archiving.Job()
         self.job = job
         isRunning = true
@@ -93,7 +104,8 @@ final class ArchiveWindowModel {
         Task {
             let outcome = await BlockingWork.run { () -> Archiving.Failure? in
                 do throws(Archiving.Failure) {
-                    try Archiving.create(items, at: target, options: options, job: job)
+                    try Archiving.create(items, at: target, options: options, password: password,
+                                         job: job)
                     return nil
                 } catch {
                     return error
@@ -105,6 +117,8 @@ final class ArchiveWindowModel {
                 if !job.isCancelled { problem = outcome.message }
                 return
             }
+            self.password = ""
+            passwordAgain = ""
             FileHistory.shared.recordCreation(.made("Create Archive"), of: [target])
             NotificationCenter.default.post(name: Self.created, object: nil,
                                             userInfo: [Self.urlKey: target])

@@ -324,6 +324,15 @@ Archive ▸ Create Archive…, with a folder of photos and a script.
   archive records. Extract Without Them, then Undo, then Restore as
   Administrator… and the password; `ls -l` in the agent terminal shows the bit.
 - A downloaded archive: what comes out is quarantined too.
+- Return on a zip: the bar, then the zip as a folder, the path bar reading
+  `…/photos.zip/2024`. Quick Look a photo inside, copy one out to the other
+  pane, try to rename one -- greyed. Up lands on the zip.
+- A zip under AES-256 and one under ZipCrypto, with the warning; an `.aea`
+  with a long password. Return on each: the password asked, a wrong one asked
+  again.
+- A Disk Image of the same folder, encrypted: Return mounts it after the
+  password, the pane on its volume, ejected from the sidebar. An ISO for a
+  virtual machine.
 
 ## 26. Making files smaller -- idea
 

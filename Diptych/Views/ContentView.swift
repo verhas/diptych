@@ -912,6 +912,11 @@ struct DialogSheet: View {
             case .makePDF:
                 MakePDFView(model: model)
 
+            case .password:
+                if let question = model.passwordQuestion {
+                    PasswordPrompt(question: question) { model.answerPassword($0) }
+                }
+
             case .updateAvailable(let version):
                 confirmation(
                     title: "Diptych \(version) Is Available",
@@ -1414,6 +1419,37 @@ struct FunctionBar: View {
                 Text(title).font(.system(size: 11))
             }
             .frame(minWidth: 74)
+        }
+    }
+}
+
+/// The password of an encrypted archive or disk image. Typed, used and
+/// dropped: Diptych never keeps it.
+private struct PasswordPrompt: View {
+    let question: PasswordQuestion
+    let answer: (String?) -> Void
+    @State private var password = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Text("\u{201C}\(question.name)\u{201D} Is Encrypted")
+            .font(.headline)
+        Text(question.wasWrong ? "That password did not open it. Try again:"
+                               : "Type its password to open it.")
+            .font(.subheadline)
+            .foregroundStyle(question.wasWrong ? .red : .secondary)
+        SecureField("Password", text: $password)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onSubmit { if !password.isEmpty { answer(password) } }
+            .onAppear { focused = true }
+        HStack {
+            Spacer()
+            Button("Cancel") { answer(nil) }
+                .keyboardShortcut(.cancelAction)
+            Button("Open") { answer(password) }
+                .keyboardShortcut(.defaultAction)
+                .disabled(password.isEmpty)
         }
     }
 }
