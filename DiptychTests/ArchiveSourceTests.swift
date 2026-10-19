@@ -69,17 +69,12 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertEqual(run.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o4755)
     }
 
-    func testBackingNamesAreOpaqueButKeepTheExtension() throws {
+    func testTheBackingIsTheExtractedFile() throws {
         let source = try build(try makeZip())
         let invoice = try XCTUnwrap(source.listing(of: "top/2024").first { $0.name == "invoice.pdf" })
-        guard case .file(let path) = invoice.backing else { return XCTFail("no backing") }
-        // store/<number>/invoice.pdf -- a number, not the archive's layout.
-        XCTAssertTrue(path.hasPrefix("store/"), path)
-        XCTAssertTrue(path.hasSuffix("/invoice.pdf"), path)
-        let middle = path.dropFirst("store/".count).dropLast("/invoice.pdf".count)
-        XCTAssertNotNil(Int(middle), "the slot is an index")
-
+        XCTAssertEqual(invoice.backing, .file("top/2024/invoice.pdf"))
         let file = try XCTUnwrap(source.localFile(for: invoice))
+        XCTAssertEqual(file, source.root.appendingPathComponent("top/2024/invoice.pdf"))
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "%PDF")
     }
 
@@ -92,15 +87,34 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertEqual(info.st_mode & 0o777, 0o400, "the extracted bytes are read-only")
     }
 
-    func testEveryDirectoryHasAManifestAndNoBackingTreeLeaks() throws {
+    func testEachDirectoryHasAManifestBesideTheRealFiles() throws {
         let source = try build(try makeZip())
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root))
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root.appendingPathComponent("top")))
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root.appendingPathComponent("top/2024")))
-        // The skeleton holds directories and manifests only -- no files.
+        // The real files are there (name-mirror), with the manifest beside them.
         let topReal = try fm.contentsOfDirectory(atPath: source.root.appendingPathComponent("top").path)
-        XCTAssertEqual(Set(topReal), ["__DIPTYCH.json", "2024"])
-        XCTAssertNil(source.capabilities.writable ? true : nil)
+        XCTAssertEqual(Set(topReal), ["__DIPTYCH.json", "notes.txt", "run", "2024"])
+        XCTAssertFalse(source.capabilities.writable)
+    }
+
+    func testTheLoaderShowsArchivePermissionsAndHidesTheManifest() throws {
+        let source = try build(try makeZip())
+        let rows = try DirectoryLoader.list(directory: source.root.appendingPathComponent("top"),
+                                            showHidden: true,
+                                            columns: [.name, .permissions, .owner])
+            .filter { !$0.isParent }
+        XCTAssertFalse(rows.contains { $0.name == "__DIPTYCH.json" }, "the manifest is hidden")
+        XCTAssertEqual(Set(rows.map(\.name)), ["notes.txt", "run", "2024"])
+        // The archive's permissions, not the locked copy's 0400.
+        XCTAssertEqual(rows.first { $0.name == "notes.txt" }?.permissions, "-rw-r-----")
+        XCTAssertEqual(rows.first { $0.name == "run" }?.permissions, "-rwsr-xr-x",
+                       "the setuid bit the extracted copy lost")
+        // On disk the file is locked read-only, so the overlay really is from
+        // the manifest and not from a stat.
+        var info = stat()
+        XCTAssertEqual(lstat(source.root.appendingPathComponent("top/notes.txt").path, &info), 0)
+        XCTAssertEqual(info.st_mode & 0o777, 0o400)
     }
 
     func testAManifestNamedEntryDoesNotHideTheRealOne() throws {

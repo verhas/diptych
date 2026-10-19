@@ -118,6 +118,17 @@ Design points that keep it future-proof:
 
 ## The backing store
 
+> **Version 1 uses a locked name-mirror with a manifest overlay, not the
+> indexed store below.** The archive is unpacked into a real directory tree
+> (so copy-out of a whole folder, Quick Look of a folder, and every file
+> operation stay correct with no new code), the tree is locked read-only (so
+> nothing can write over the copy), and each directory carries a manifest the
+> loader overlays for the permissions, owner and group the locked copy cannot
+> show. The indexed store described here needs copy-out to become
+> extract-a-subset first, or copying a folder out would produce an incomplete
+> tree; it is deferred until that is built. The rest of this section is the
+> target design.
+
 Extracted bytes live in a **flat, indexed store**, never a name-mirror of the
 archive:
 
@@ -174,16 +185,20 @@ archive:
 
 ## Migration plan
 
-1. **Format + `ArchiveSource`** — the manifest types and a source that extracts
-   an archive into the indexed store and writes the manifests. *(this increment)*
-2. **Pane wiring** — the directory loader builds `FileItem`s from a manifest
-   when the location is inside a source; Open / Quick Look / copy-out go through
-   the backing. The old direct-extraction path is retired once this is proven.
-3. **`LocalFileSystemSource`** — express the ordinary file system as the
+1. **Format + `ArchiveSource`** — the manifest types and a source that unpacks
+   an archive, writes per-directory manifests and locks it. *(done)*
+2. **Loader overlay** — the directory loader lists the locked tree and overlays
+   each manifest for the archive's permissions, owner and group, hiding the
+   manifest file. `ArchiveBrowsing.open` builds an `ArchiveSource`. *(done)*
+3. **Indexed store + copy-out as extract-a-subset** — move bytes into the
+   opaque store, and intercept copy/drag out of a source to materialize the
+   selected subtree with the archive's metadata. Together, so folder copy-out
+   stays correct.
+4. **`LocalFileSystemSource`** — express the ordinary file system as the
    identity source, so there is one code path. Behaviour is unchanged; this is
    a refactor, done when it buys clarity, not before.
-4. **More file sources** — SFTP (writable: save = upload), disk images.
-5. **v2 object sources** — processes, login items, `defaults`, each with its
+5. **More file sources** — SFTP (writable: save = upload), disk images.
+6. **v2 object sources** — processes, login items, `defaults`, each with its
    own columns and actions, reachable only where someone looks for them.
 
 ## What v2 needs that v1 already provides

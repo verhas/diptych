@@ -14,6 +14,10 @@ import Foundation
 /// See `object-browser-design.md`.
 struct BrowserManifest: Codable, Equatable, Sendable {
 
+    /// Marks the file as one of ours, so the reader can tell it from an
+    /// archive entry that happens to be named like the manifest.
+    static let marker = "diptych.browser.v1"
+    var format = BrowserManifest.marker
     /// Raised only for a change the older reader could not understand.
     var schema = 1
     /// What produced it: "archive" now; "sftp", "process"… later. Data for
@@ -40,13 +44,14 @@ struct BrowserManifest: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schema, source, origin, capabilities, columns, nodes
+        case format, schema, source, origin, capabilities, columns, nodes
     }
 
     // Tolerant of missing fields, so a newer reader opens an older manifest
     // and a reader opens one written without the optional parts.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = (try? container.decode(String.self, forKey: .format)) ?? ""
         schema = (try? container.decode(Int.self, forKey: .schema)) ?? 1
         source = (try? container.decode(String.self, forKey: .source)) ?? ""
         origin = (try? container.decode([String: String].self, forKey: .origin)) ?? [:]

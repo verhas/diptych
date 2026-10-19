@@ -43,20 +43,23 @@ enum BrowserManifestStore {
         return name(0)
     }
 
-    /// The manifest file in `directory`: the `__(n)DIPTYCH.json` with the
-    /// largest n, so an escalated one wins over a shadowed base.
-    static func manifestFile(in directory: URL) -> URL? {
+    /// Our manifest in `directory`, with the file name it is in -- the one
+    /// `__(n)DIPTYCH.json` that parses as ours and carries our marker, so an
+    /// archive entry that merely shares the name is not mistaken for it. Read
+    /// off the main actor by the directory loader.
+    static func located(in directory: URL) -> (manifest: BrowserManifest, fileName: String)? {
         let names = (try? FileManager().contentsOfDirectory(atPath: directory.path)) ?? []
-        let chosen = names.compactMap { name in number(of: name).map { (name, $0) } }
-            .max { $0.1 < $1.1 }?.0
-        return chosen.map { directory.appendingPathComponent($0) }
+        // Largest n first: ours escalates past any real entry of the name.
+        for name in names.filter({ number(of: $0) != nil }).sorted(by: { number(of: $0)! > number(of: $1)! }) {
+            guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)),
+                  let manifest = try? JSONDecoder().decode(BrowserManifest.self, from: data),
+                  manifest.format == BrowserManifest.marker else { continue }
+            return (manifest, name)
+        }
+        return nil
     }
 
-    static func read(in directory: URL) -> BrowserManifest? {
-        guard let file = manifestFile(in: directory),
-              let data = try? Data(contentsOf: file) else { return nil }
-        return try? JSONDecoder().decode(BrowserManifest.self, from: data)
-    }
+    static func read(in directory: URL) -> BrowserManifest? { located(in: directory)?.manifest }
 
     static func write(_ manifest: BrowserManifest, named fileName: String,
                       in directory: URL) throws {

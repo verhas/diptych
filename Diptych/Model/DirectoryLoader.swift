@@ -82,11 +82,48 @@ enum DirectoryLoader {
 
         try Self.stop(if: cancelled)
 
+        items = Self.browserOverlay(items, in: directory)
+
         // Cheap way to know we are not at "/" without string-comparing paths.
         if directory.pathComponents.count > 1 {
             items.insert(FileItem.parent(of: directory), at: 0)
         }
         return items
+    }
+
+    /// Inside an archive opened as a folder each directory carries a manifest
+    /// of the archive's own metadata. The files were extracted and then
+    /// locked read-only, so their on-disk permissions, owner and group are not
+    /// the archive's; the manifest's are overlaid instead, and the manifest
+    /// file itself is hidden. A directory with no manifest -- every ordinary
+    /// one -- is left untouched and pays only a name check.
+    static func browserOverlay(_ items: [FileItem], in directory: URL) -> [FileItem] {
+        guard items.contains(where: { BrowserManifestStore.number(of: $0.name) != nil }),
+              let located = BrowserManifestStore.located(in: directory) else { return items }
+        let byName = Dictionary(located.manifest.nodes.map { ($0.name, $0) },
+                                uniquingKeysWith: { first, _ in first })
+        var result: [FileItem] = []
+        result.reserveCapacity(items.count)
+        for var item in items {
+            if item.name == located.fileName { continue }  // our own manifest
+            if let node = byName[item.name] {
+                if let mode = node.attribute(BrowserManifest.Attribute.mode)?.intValue {
+                    item.mode = mode_t(truncatingIfNeeded: mode)
+                    item.permissions = (item.isDirectory ? "d" : "-")
+                        + FileOperations.rwxString(item.mode)
+                }
+                if let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue,
+                   let pw = getpwuid(uid_t(truncatingIfNeeded: uid)) {
+                    item.owner = String(cString: pw.pointee.pw_name)
+                }
+                if let gid = node.attribute(BrowserManifest.Attribute.gid)?.intValue,
+                   let gr = getgrgid(gid_t(truncatingIfNeeded: gid)) {
+                    item.group = String(cString: gr.pointee.gr_name)
+                }
+            }
+            result.append(item)
+        }
+        return result
     }
 
     /// What `contentsOfDirectory` answers -- the same entries, the same

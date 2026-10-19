@@ -1,24 +1,30 @@
 import Foundation
 import Darwin
 
-/// A browsable source made from an archive: it unpacks the archive once into
-/// an opaque indexed backing store, records every entry's own metadata in
-/// per-directory manifests, and answers listings from those -- never from the
-/// backing files, whose on-disk permissions are locked and whose names are
-/// just numbers.
+/// A browsable source made from an archive.
 ///
-/// This is the manifest-based replacement for the direct extraction in
-/// `ArchiveBrowsing`. It is built and tested on its own first; the pane is
-/// pointed at it in a later step. See `object-browser-design.md`.
+/// The archive is unpacked once, as the user, into a real directory tree under
+/// the caches -- so everything that works on files (Quick Look, Compare, copy
+/// and drag out, the flat view, Find Duplicates) works inside it -- and that
+/// tree is locked read-only so nothing, not even an external app, can quietly
+/// write over the copy. Beside the files, each directory carries a manifest
+/// recording the archive's own metadata: the directory loader lists the real
+/// folder for names and bytes and overlays the manifest for the permissions,
+/// owner and group the locked copy cannot show.
+///
+/// This is the manifest-based replacement for the metadata-blind extraction in
+/// `ArchiveBrowsing`. The opaque indexed backing store in the design document
+/// is a later step, bundled with copy-out as extract-a-subset so that copying
+/// a whole folder out stays correct. See `object-browser-design.md`.
 final class ArchiveSource: BrowserSource, @unchecked Sendable {
 
     typealias Failure = Archiving.Failure
 
     let archive: URL
-    /// Everything for this opened archive: `tree/` (directory skeleton with
-    /// manifests) and `store/` (indexed backing files).
+    /// Everything for this opened archive lives under here, removed when
+    /// Diptych quits.
     let holder: URL
-    /// What the pane navigates: `holder/tree`, the archive's root.
+    /// What the pane navigates: the unpacked tree, named after the archive.
     let root: URL
 
     let capabilities = BrowserManifest.Capabilities(writable: false)
@@ -26,13 +32,13 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
     private init(archive: URL, holder: URL) {
         self.archive = archive
         self.holder = holder
-        self.root = holder.appendingPathComponent("tree")
+        self.root = holder.appendingPathComponent(archive.lastPathComponent)
     }
 
     // MARK: - Building
 
-    /// Unpacks `archive` under `holder` and writes its manifests. `holder`
-    /// must not exist yet; it is made here.
+    /// Unpacks `archive` under `holder`, writes its manifests and locks it.
+    /// `holder` must not exist yet.
     static func build(archive: URL, kind: Archiving.Kind, into holder: URL,
                       password: Archiving.PasswordFile? = nil,
                       job: Archiving.Job = Archiving.Job()) throws(Failure) -> ArchiveSource {
@@ -49,85 +55,78 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
     private func assemble(kind: Archiving.Kind, password: Archiving.PasswordFile?,
                           job: Archiving.Job) throws(Failure) {
         let manager = FileManager()
-        let work = holder.appendingPathComponent("work")
-        let store = holder.appendingPathComponent("store")
-        do {
-            try manager.createDirectory(at: root, withIntermediateDirectories: true)
-            try manager.createDirectory(at: work, withIntermediateDirectories: true)
-            try manager.createDirectory(at: store, withIntermediateDirectories: true)
-        } catch { throw Failure(message: error.localizedDescription) }
+        do { try manager.createDirectory(at: root, withIntermediateDirectories: true) }
+        catch { throw Failure(message: error.localizedDescription) }
 
         let entries = try Archiving.entries(of: archive, kind: kind, password: password, job: job)
-        let byPath = Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
-        try Archiving.unpack(archive, kind: kind, into: work, password: password,
+        let needed = entries.compactMap(\.size).reduce(0, +)
+        if let free = (try? holder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage, needed > free {
+            throw Failure(message: "It holds "
+                          + "\(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)), "
+                          + "more than the disk has free.")
+        }
+        try Archiving.unpack(archive, kind: kind, into: root, password: password,
                              entries: entries, job: job)
         guard !job.isCancelled else { throw Failure(message: "Stopped.") }
 
-        // Each directory's children, built as the extracted tree is walked.
+        // Folded into the files by ditto; left as a folder by tar.
+        let macOSX = root.appendingPathComponent("__MACOSX")
+        if manager.fileExists(atPath: macOSX.path) { ArchiveSource.remove(macOSX) }
+        // A downloaded archive's contents are downloaded too.
+        if let mark = Archiving.quarantine(of: archive) { Archiving.markQuarantined(root, with: mark) }
+
+        try writeManifests(entries: entries)
+        lock()
+    }
+
+    /// One manifest per directory, from the archive's recorded metadata, with
+    /// a name that never overwrites a real entry of that directory.
+    private func writeManifests(entries: [Archiving.Entry]) throws(Failure) {
+        let manager = FileManager()
+        let byPath = Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let sha = Archiving.sha256(of: archive) ?? ""
+
+        // Every directory under the root, and the children in each.
         var children: [String: [BrowserManifest.Node]] = ["": []]
-        var index = 0
-        guard let walker = manager.enumerator(atPath: work.path) else {
+        guard let walker = manager.enumerator(atPath: root.path) else {
             throw Failure(message: "The archive\u{2019}s contents could not be read.")
         }
         while let relative = walker.nextObject() as? String {
-            if relative == "__MACOSX" || relative.hasPrefix("__MACOSX/") { continue }
-            let onDisk = work.appendingPathComponent(relative)
+            let onDisk = root.appendingPathComponent(relative)
             var info = stat()
             guard lstat(onDisk.path, &info) == 0 else { continue }
             let entry = byPath[Archiving.normalized(relative)]
             let parent = (relative as NSString).deletingLastPathComponent
-            let leaf = (relative as NSString).lastPathComponent
             var node = BrowserManifest.Node(id: Archiving.normalized(relative),
-                                            kind: .other, name: leaf)
-            node.attributes[BrowserManifest.Attribute.mode] =
-                .mode(entry?.mode ?? (info.st_mode & 0o7777))
+                                            kind: .file, name: (relative as NSString).lastPathComponent)
+            node.attributes[BrowserManifest.Attribute.mode] = .mode(entry?.mode ?? (info.st_mode & 0o7777))
             node.attributes[BrowserManifest.Attribute.uid] = .user(entry?.uid ?? info.st_uid)
             node.attributes[BrowserManifest.Attribute.gid] = .user(entry?.gid ?? info.st_gid)
             node.attributes[BrowserManifest.Attribute.modified] =
                 .date(Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9)
-
             switch info.st_mode & S_IFMT {
             case S_IFDIR:
                 node.kind = .directory
-                // A bucket of its own, so a manifest is written even when it
-                // is empty.
                 if children[relative] == nil { children[relative] = [] }
-                do { try manager.createDirectory(at: root.appendingPathComponent(relative),
-                                                 withIntermediateDirectories: true) }
-                catch { throw Failure(message: error.localizedDescription) }
             case S_IFLNK:
                 node.kind = .symlink
-                node.linkTarget = (try? manager.destinationOfSymbolicLink(atPath: onDisk.path))
+                node.linkTarget = try? manager.destinationOfSymbolicLink(atPath: onDisk.path)
+                node.backing = .file(Archiving.normalized(relative))
             case S_IFREG:
                 node.kind = .file
                 node.attributes[BrowserManifest.Attribute.size] = .size(entry?.size ?? Int64(info.st_size))
-                index += 1
-                let slot = store.appendingPathComponent(String(index))
-                do {
-                    try manager.createDirectory(at: slot, withIntermediateDirectories: false)
-                    try manager.moveItem(at: onDisk, to: slot.appendingPathComponent(leaf))
-                } catch { throw Failure(message: error.localizedDescription) }
-                node.backing = .file("store/\(index)/\(leaf)")
+                node.backing = .file(Archiving.normalized(relative))
             default:
                 node.kind = .other
             }
             children[parent, default: []].append(node)
         }
 
-        let sha = Archiving.sha256(of: archive) ?? ""
-        try writeManifests(children, sha: sha)
-        try? manager.removeItem(at: work)
-        lock()
-    }
-
-    /// One manifest per directory, its name chosen so it never clashes with a
-    /// real subdirectory of the same name.
-    private func writeManifests(_ children: [String: [BrowserManifest.Node]],
-                                sha: String) throws(Failure) {
         for (directory, nodes) in children {
             let folder = directory.isEmpty ? root : root.appendingPathComponent(directory)
-            let subdirectories = Set(nodes.filter { $0.kind == .directory }.map(\.name))
-            let fileName = BrowserManifestStore.chooseName(avoiding: subdirectories)
+            let taken = Set((try? manager.contentsOfDirectory(atPath: folder.path)) ?? [])
+            let fileName = BrowserManifestStore.chooseName(avoiding: taken)
             var manifest = BrowserManifest(source: "archive",
                                            nodes: nodes.sorted { $0.name < $1.name })
             manifest.origin = ["path": archive.path, "sha256": sha, "holder": holder.path]
@@ -145,25 +144,26 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
 
     func localFile(for node: BrowserManifest.Node) -> URL? {
         guard case .file(let path) = node.backing else { return nil }
-        return holder.appendingPathComponent(path)
+        return root.appendingPathComponent(path)
     }
 
     // MARK: - Locking and removal
 
-    /// The backing bytes read-only and the skeleton traversable but not
-    /// writable, so even an external app cannot quietly save over them.
+    /// The tree traversable but not writable and the files read-only, so even
+    /// an external app cannot save over the copy. Display metadata comes from
+    /// the manifest, so the stripped on-disk permissions are never shown.
     private func lock() {
         let manager = FileManager()
-        for place in [root, holder.appendingPathComponent("store")] {
-            guard let walker = manager.enumerator(atPath: place.path) else { continue }
-            while let relative = walker.nextObject() as? String {
-                let path = place.appendingPathComponent(relative).path
-                var info = stat()
-                guard lstat(path, &info) == 0 else { continue }
-                chmod(path, info.st_mode & S_IFMT == S_IFDIR ? 0o500 : 0o400)
-            }
-            chmod(place.path, 0o500)
+        guard let walker = manager.enumerator(atPath: root.path) else { return }
+        while let relative = walker.nextObject() as? String {
+            let path = root.appendingPathComponent(relative).path
+            var info = stat()
+            guard lstat(path, &info) == 0 else { continue }
+            if info.st_mode & S_IFMT == S_IFLNK { continue }
+            chmod(path, info.st_mode & S_IFMT == S_IFDIR
+                  ? 0o500 : (info.st_mode & 0o100 != 0 ? 0o500 : 0o400))
         }
+        chmod(root.path, 0o500)
     }
 
     /// Removes a holder, giving write permission back first so the locked

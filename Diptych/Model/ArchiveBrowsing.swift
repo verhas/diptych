@@ -22,6 +22,8 @@ nonisolated enum ArchiveBrowsing {
         let archive: URL
         /// The archive's name, holding what was in it.
         let root: URL
+        /// Everything for this opened archive; removed when it is forgotten.
+        let holder: URL
         let stamp: Stamp
     }
 
@@ -152,42 +154,15 @@ nonisolated enum ArchiveBrowsing {
             throw Failure(message: "The archive could not be read.")
         }
         job.set(.counting)
-        let entries = try Archiving.entries(of: archive, kind: kind, password: password, job: job)
-        let manager = FileManager()
         let holder = cacheRoot.appendingPathComponent(UUID().uuidString)
-        let root = holder.appendingPathComponent(archive.lastPathComponent)
-        do {
-            try manager.createDirectory(at: root, withIntermediateDirectories: true)
-        } catch {
-            throw Failure(message: error.localizedDescription)
-        }
-        let needed = entries.compactMap(\.size).reduce(0, +)
-        if let free = (try? holder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
-            .volumeAvailableCapacityForImportantUsage, needed > free {
-            remove(holder)
-            throw Failure(message: "It holds \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)), "
-                          + "more than the disk has free.")
-        }
-        do throws(Failure) {
-            try Archiving.unpack(archive, kind: kind, into: root, password: password,
-                                 entries: entries, job: job)
-        } catch {
-            remove(holder)
-            throw error
-        }
-        guard !job.isCancelled else {
-            remove(holder)
-            throw Failure(message: "Stopped.")
-        }
-        // Folded into the files by ditto; tar leaves it as it is.
-        let macOSX = root.appendingPathComponent("__MACOSX")
-        if manager.fileExists(atPath: macOSX.path) { remove(macOSX) }
-        if let mark = Archiving.quarantine(of: archive) { Archiving.markQuarantined(root, with: mark) }
+        let source = try ArchiveSource.build(archive: archive, kind: kind, into: holder,
+                                             password: password, job: job)
         registry.lock.withLock {
             registry.opened.removeAll { $0.archive.standardizedFileURL == archive.standardizedFileURL }
-            registry.opened.append(Opened(archive: archive, root: root, stamp: stamp))
+            registry.opened.append(Opened(archive: archive, root: source.root, holder: holder,
+                                          stamp: stamp))
         }
-        return root
+        return source.root
     }
 
     // MARK: - Tidying
