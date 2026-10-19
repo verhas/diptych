@@ -67,6 +67,7 @@
     border-bottom: 1px solid var(--line);
   }
   nav .wrap {
+    max-width: 1320px;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -96,10 +97,10 @@
   }
   nav .links a.cta:hover { background: var(--navy-3); }
 
-  @media (max-width: 1240px) {
+  @media (max-width: 1340px) {
     nav .links { gap: 14px; font-size: 13.5px; }
   }
-  @media (max-width: 1100px) {
+  @media (max-width: 1180px) {
     nav .links a:not(.cta) { display: none; }
   }
 
@@ -532,6 +533,8 @@
       <a href="#sync">Sync</a>
       <a href="#duplicates">Duplicates</a>
       <a href="#paste-special">Paste Special</a>
+      <a href="#archives">Archives</a>
+      <a href="#optimize">Optimize</a>
       <a href="#info">Info</a>
       <a href="https://github.com/verhas/diptych" target="_blank" rel="noopener">Source</a>
       <a class="cta" href="#download">Download</a>
@@ -550,7 +553,8 @@
       before it touches anything, a whole tree in one filtered list, an
       editor that knows JSON, XML and YAML, your file servers, and a
       genuinely useful way to compare and sync two folders, find the
-      duplicates, and paste one file’s properties onto many.</p>
+      duplicates, paste one file’s properties onto many, pack and unpack
+      archives, and make photos, PNGs and PDFs smaller.</p>
     <div class="cta-row">
       <a class="btn btn-primary" id="download-btn"
          href="https://github.com/verhas/diptych/releases/latest">
@@ -1338,6 +1342,134 @@
       </table>
     </div>
     <p class="term-note" style="margin:28px 0 0">A downloaded file stays quarantined whatever is set, a move always keeps everything, and EXIF is part of a picture’s contents, so a copy always has it.</p>
+  </div>
+</section>
+
+<section id="archives">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Archives</p>
+      <h2>Zip, tar or Apple Archive — and back out again</h2>
+      <p class="lede">
+        <i>Archive ▸ Create Archive…</i> opens a window listing everything
+        selected, with each format’s own options. <i>Extract Here</i> and
+        <i>Extract to Other Pane</i> unpack zip, tar and <code>.aar</code>
+        files — and ask before anything is restored that only an
+        administrator could set.
+      </p>
+    </div>
+
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Format</th><th>Compression</th><th>Keeps, if you choose</th></tr></thead>
+        <tbody>
+          <tr><td><b>ZIP</b>, the default</td><td>none, fastest, normal or smallest</td><td>tags, extended attributes, resource forks and ACLs in a <code>__MACOSX</code> folder, as Finder’s Compress does — or only the bytes and permissions</td></tr>
+          <tr><td><b>tar</b></td><td>gzip, bzip2, xz, or none</td><td>extended attributes, ACLs and file flags; owners as names and numbers, numbers only, or root and wheel</td></tr>
+          <tr><td><b>Apple Archive</b></td><td>LZFSE, LZMA, zlib, LZ4, or none</td><td>owners and groups, extended attributes and ACLs, each on its own</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>A real progress bar</b>
+        <span class="desc">Bytes and files done of how many, the file being packed and the time left, read from the tool doing the work — and it moves within one big file too.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Nothing half-made</b>
+        <span class="desc">The archive takes its name only once it is complete, and Stop leaves nothing behind. Undo moves it to the Trash.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>From several folders at once</b>
+        <span class="desc">Items side by side at the top of the archive, from wherever a flat view found them. Two of the same name are refused, not overwritten.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Unpacked tidily</b>
+        <span class="desc">One item at the top comes out as itself, numbered if the name is taken; several come out in a new folder named after the archive.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Owners and setuid bits only when you say</b>
+        <span class="desc">When the archive records another owner, a group you are not in, or a setuid, setgid or sticky bit, Diptych lists them and asks: leave them out, or restore them as administrator.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Restored from the bytes it showed you</b>
+        <span class="desc">Restoring unpacks again as root, from a copy only root can reach, checked to be the archive that was listed. What comes out of a download stays quarantined.</span></span>
+      </li>
+    </ul>
+    <p class="term-note" style="margin:28px 0 0">Every archive is unpacked into a temporary folder first, and moved into place only when it is complete.</p>
+  </div>
+</section>
+
+<section class="alt" id="optimize">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="kicker">Optimize File Size and Make PDF</p>
+      <h2>Smaller photos, PNGs and PDFs — before and after, side by side</h2>
+      <p class="lede">
+        <i>File ▸ Optimize File Size…</i> takes a selection of JPEG and HEIC
+        photos, PNGs and PDFs, mixed as they come, and shows what each would
+        save before a byte is written.
+      </p>
+    </div>
+
+    <div class="table-scroll">
+      <table class="plain">
+        <thead><tr><th>Kind</th><th>Its own settings</th></tr></thead>
+        <tbody>
+          <tr><td>JPEG and HEIC photos</td><td>quality, largest size, and which metadata to keep</td></tr>
+          <tr><td>PNG</td><td>the number of colours, dithered or not</td></tr>
+          <tr><td>PDF</td><td>the pictures’ quality and resolution — with the resolution they have now, and how many are black and white</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Every size is real</b>
+        <span class="desc">Each file is optimized again as the settings change, and the list says what it would save. One that would not get smaller is left unticked.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>See the loss before you accept it</b>
+        <span class="desc">Before and after in one picture, with a line to drag across it, zoomed to 100 % or 200 %; a PDF page by page.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Scans left alone when JPEG would not help</b>
+        <span class="desc">A black-and-white scan is already as small as it gets — made a JPEG, it would only grow — so Diptych says so instead of trying.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Replaced in place, one Undo away</b>
+        <span class="desc">The originals are replaced keeping their modified date, and one Undo puts them all back — or the smaller files are saved beside them.</span></span>
+      </li>
+    </ul>
+
+    <h3 class="sub-head">Pictures into a PDF</h3>
+    <ul class="list-check list-two">
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Image ▸ Make PDF…</b>
+        <span class="desc">A page for each picture, and for each page of a multi-page TIFF; one PDF per picture, or one of them all in the pane’s order.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>The right size, nothing lost</b>
+        <span class="desc">The page is the picture’s own size from its resolution — a 300 ppi A4 scan is A4 — or A4 or US Letter. A JPEG goes in as it is, never compressed again.</span></span>
+      </li>
+      <li>
+        <span class="tick">✓</span>
+        <span><b>Old scanner TIFFs, seen again</b>
+        <span class="desc">TIFFs of “old-style JPEG” pages, as scanners and Office Document Imaging wrote them, show only a thumbnail in Finder. Diptych’s Quick Look shows every page, and Make PDF turns them into a PDF.</span></span>
+      </li>
+    </ul>
   </div>
 </section>
 
