@@ -98,7 +98,9 @@ final class DiskImagingTests: XCTestCase {
         XCTAssertEqual(text(point.appendingPathComponent("notes.txt")), "notes")
         XCTAssertEqual(ExtendedAttributes.data(of: point.appendingPathComponent("photos/a.txt").path,
                                                name: "dev.diptych.test"), Data("v".utf8))
-        XCTAssertEqual(job.snapshot().files, 2, "ditto's lines counted while copying in")
+        // "hello" + "notes": the copy-in bar reaches the whole size.
+        XCTAssertEqual(job.snapshot().totalBytes, 10)
+        XCTAssertEqual(job.snapshot().bytes, 10)
         // Nothing left beside it but the image.
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: root.path).sorted(), ["Photos.dmg", "src"])
     }

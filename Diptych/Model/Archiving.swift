@@ -363,7 +363,6 @@ enum Archiving {
                                             sizes: [String: Int64], secret: PasswordFile?,
                                             staging: inout URL?, job: Job) throws(Failure) {
         let names = items.map(\.lastPathComponent)
-        let parents = Set(items.map { $0.deletingLastPathComponent().standardizedFileURL.path })
         let invocation: Invocation
         switch options.format {
         case .diskImage, .iso:
@@ -389,16 +388,16 @@ enum Archiving {
         case .tar:
             invocation = tarInvocation(items, output: partial, options: options)
         case .appleArchive:
-            if parents.count == 1 {
-                invocation = appleArchiveInvocation(folder: items[0].deletingLastPathComponent(),
-                                                    names: names, output: partial,
-                                                    options: options)
-            } else {
-                let stage = try stage(items)
-                staging = stage
-                invocation = appleArchiveInvocation(folder: stage, names: names,
-                                                    output: partial, options: options)
-            }
+            // Always into a folder of clones first -- never `aa archive -d`
+            // on the items' real parent. aa scans the whole directory it is
+            // given before its -include-regex filters the output, and on a
+            // large, live parent (a repository with .git and build products,
+            // a special file, something it cannot encode) that scan fails the
+            // archive outright. The clones are the items and nothing else.
+            let stage = try stage(items)
+            staging = stage
+            invocation = appleArchiveInvocation(folder: stage, names: names,
+                                                output: partial, options: options)
         }
         let byTar = options.format == .tar || (options.format == .zip && secret != nil)
         job.prepare(sizes: byTar ? sizes : [:],
@@ -524,8 +523,11 @@ enum Archiving {
         return quoted
     }
 
-    /// Items from several places side by side in one folder, as clones where
-    /// the volume makes them, so a gigabyte costs nothing to put there.
+    /// Items from several places side by side in one folder, copied with
+    /// `cp -Rp` so everything an archive should keep comes across: the mode
+    /// with its setuid, setgid and sticky bits, the owner, ACLs, file flags
+    /// and extended attributes. clonefile would be free on APFS but clears
+    /// setuid and setgid, and copyItem drops them too.
     nonisolated static func stage(_ items: [URL]) throws(Failure) -> URL {
         let manager = FileManager()
         let stage: URL
@@ -539,12 +541,23 @@ enum Archiving {
             catch { throw Failure(message: error.localizedDescription) }
         }
         for item in items {
+            let destination = stage.appendingPathComponent(item.lastPathComponent)
+            let cp = Process()
+            cp.executableURL = URL(fileURLWithPath: "/bin/cp")
+            cp.arguments = ["-Rp", item.path, destination.path]
+            cp.standardOutput = FileHandle.nullDevice
+            cp.standardError = FileHandle.nullDevice
             do {
-                try manager.copyItem(at: item, to: stage.appendingPathComponent(item.lastPathComponent))
+                try cp.run()
+                cp.waitUntilExit()
             } catch {
                 try? manager.removeItem(at: stage)
                 throw Failure(message: "\u{201C}\(item.lastPathComponent)\u{201D} could not be "
                               + "read: \(error.localizedDescription)")
+            }
+            guard cp.terminationStatus == 0 else {
+                try? manager.removeItem(at: stage)
+                throw Failure(message: "\u{201C}\(item.lastPathComponent)\u{201D} could not be copied.")
             }
         }
         return stage

@@ -255,6 +255,25 @@ final class ArchivingTests: XCTestCase {
                                              name: "dev.diptych.test"))
     }
 
+    /// aa archives the items through a folder of clones, never its real
+    /// parent: `aa archive -d <parent>` scans the whole parent before its
+    /// filter applies, and a sibling it cannot encode -- here a FIFO -- fails
+    /// the whole archive. A copy made of only the chosen items does not.
+    func testAnAppleArchiveIgnoresAnUnencodableSibling() throws {
+        let (folder, notes) = try makeSources()
+        // A named pipe beside the items, in the same parent.
+        XCTAssertEqual(mkfifo(folder.deletingLastPathComponent().appendingPathComponent("pipe").path,
+                              0o644), 0)
+        var options = Archiving.Options()
+        options.format = .appleArchive
+        let archive = try create([folder, notes], options, named: "p.aar")
+        XCTAssertEqual(Set(try entries(archive).map(\.path)),
+                       ["photos", "photos/a.txt", "photos/run", "notes.txt"])
+        let out = try unpack(archive)
+        XCTAssertEqual(try String(contentsOf: out.appendingPathComponent("notes.txt"), encoding: .utf8),
+                       "notes")
+    }
+
     // MARK: - What unpacking does not give
 
     func testDittoDropsSetuidAndThatIsSeen() throws {

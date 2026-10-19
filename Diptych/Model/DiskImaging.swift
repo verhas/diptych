@@ -132,13 +132,23 @@ nonisolated enum DiskImaging {
 
         let device = try attach(blank, at: mount, job: job)
         do throws(Failure) {
-            job.prepare(sizes: [:], roots: items.map(Archiving.resolvedPath), countsFiles: true)
+            // `cp -Rp`, not `ditto`: ditto fails with "Operation not
+            // permitted" copying a file that carries com.apple.provenance --
+            // a system xattr that cannot be written onto a disk image's
+            // volume -- while cp carries what it can and drops what it cannot,
+            // as Finder does. Mode, ACLs, flags, tags and other attributes
+            // still come across. The bar advances a whole item at a time; the
+            // long part of making an image is the conversion afterwards, which
+            // reports its own percent.
+            // The total is already counted by measure() before this runs.
+            job.prepare(sizes: [:], roots: items.map(Archiving.resolvedPath), countsFiles: false)
             job.set(.archiving)
             for item in items {
-                try Archiving.run(Archiving.Invocation(executable: Archiving.ditto, arguments: [
-                    "-V", item.path, mount.appendingPathComponent(item.lastPathComponent).path]),
-                                  job: job, reporter: .ditto)
+                try Archiving.run(Archiving.Invocation(executable: "/bin/cp", arguments: [
+                    "-Rp", item.path, mount.appendingPathComponent(item.lastPathComponent).path]),
+                                  job: job)
                 guard !job.isCancelled else { throw Failure(message: "Stopped.") }
+                job.relayed(Int(bytes(of: item)))
             }
         } catch {
             detach(device)
@@ -186,6 +196,21 @@ nonisolated enum DiskImaging {
             }
         }
         return total + total / 10 + (48 << 20)
+    }
+
+    /// The bytes of the regular files under one item, for the copy-in bar.
+    static func bytes(of item: URL) -> Int64 {
+        var total: Int64 = 0
+        var info = stat()
+        guard lstat(item.path, &info) == 0 else { return 0 }
+        if info.st_mode & S_IFMT == S_IFREG { total += Int64(info.st_size) }
+        if info.st_mode & S_IFMT == S_IFDIR, let walker = FileManager().enumerator(atPath: item.path) {
+            while let relative = walker.nextObject() as? String {
+                if lstat(item.appendingPathComponent(relative).path, &info) == 0,
+                   info.st_mode & S_IFMT == S_IFREG { total += Int64(info.st_size) }
+            }
+        }
+        return total
     }
 
     // MARK: - Making an .iso
