@@ -167,6 +167,55 @@ nonisolated enum ArchiveBrowsing {
 
     // MARK: - Tidying
 
+    /// Gives a copy taken out of an opened archive the archive's own
+    /// permissions, rather than the read-only lock the extracted copy carries.
+    ///
+    /// Browsing an archive unpacks it and locks every file so the cache cannot
+    /// be written over. A copy of one of those files would inherit the lock
+    /// and come out read-only, which is not what the archive held. So after a
+    /// copy out, each item is set to the mode the manifest records -- write
+    /// bits, setuid and all -- and the archive's quarantine is put on it, the
+    /// same as Extract does. The owner stays the user's, as an extract as the
+    /// user gives.
+    nonisolated static func unlockCopy(at target: URL, from source: URL) {
+        guard let opened = opened(containing: source) else { return }
+        let manager = FileManager()
+        // Every item copied, paired with where it came from.
+        var pairs = [(target: target, source: source)]
+        if let walker = manager.enumerator(atPath: target.path) {
+            while let relative = walker.nextObject() as? String {
+                pairs.append((target.appendingPathComponent(relative),
+                              source.appendingPathComponent(relative)))
+            }
+        }
+        // One manifest read per source directory, not per item.
+        var modes: [String: [String: mode_t]] = [:]
+        func mode(of item: URL) -> mode_t? {
+            let directory = item.deletingLastPathComponent().path
+            if modes[directory] == nil {
+                var byName: [String: mode_t] = [:]
+                for node in BrowserManifestStore.read(in: item.deletingLastPathComponent())?.nodes ?? [] {
+                    if let value = node.attribute(BrowserManifest.Attribute.mode)?.intValue {
+                        byName[node.name] = mode_t(truncatingIfNeeded: value)
+                    }
+                }
+                modes[directory] = byName
+            }
+            return modes[directory]?[item.lastPathComponent]
+        }
+        for (target, source) in pairs {
+            if let mode = mode(of: source) {
+                chmod(target.path, mode)
+            } else {
+                var info = stat()
+                if lstat(target.path, &info) == 0 { chmod(target.path, (info.st_mode & 0o7777) | 0o600) }
+            }
+        }
+        if let mark = Archiving.quarantine(of: opened.archive) {
+            Archiving.markQuarantined(target, with: mark)
+        }
+    }
+
     /// Everything unpacked, gone. Called when Diptych starts, for what a
     /// crash left, and when it quits.
     static func removeAll() {

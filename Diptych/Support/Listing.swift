@@ -45,7 +45,13 @@ enum Listing {
             return result
         }
 
-        for child in all.prefix(mostEntries) {
+        // Inside an archive opened as a folder, hide the manifest file, so
+        // Quick Look shows the archive's contents and not the plumbing.
+        let hidden = all.contains { BrowserManifestStore.number(of: $0.lastPathComponent) != nil }
+            ? BrowserManifestStore.located(in: url)?.fileName : nil
+        let shown = all.filter { $0.lastPathComponent != hidden }
+
+        for child in shown.prefix(mostEntries) {
             let values = try? child.resourceValues(forKeys: Set(keys))
             let isDirectory = values?.isDirectory ?? false
             result.entries.append(Entry(name: child.lastPathComponent,
@@ -54,7 +60,7 @@ enum Listing {
                                             : values?.fileSize.map(Int64.init),
                                         modified: values?.contentModificationDate))
         }
-        result.omitted = max(all.count - mostEntries, 0)
+        result.omitted = max(shown.count - mostEntries, 0)
         // Folders first, then by name, as the panes do.
         result.entries.sort {
             $0.isDirectory == $1.isDirectory

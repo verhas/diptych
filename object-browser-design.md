@@ -75,7 +75,7 @@ archive need not be described all at once.
   "schema": 1,
   "source": "archive",                 // "sftp", "process"… later
   "origin": { "path": "...", "sha256": "...", "holder": "..." },
-  "capabilities": { "writable": false, "actions": [] },
+  "capabilities": { "writable": false },
   "columns": null,                     // null = the standard file columns
   "nodes": [
     {
@@ -110,9 +110,14 @@ Design points that keep it future-proof:
   points into the opaque store; generated content (a process report, a folder
   listing) is `report`; a lazy source leaves it absent until materialized. So
   "open this" never means "re-read its display metadata."
-- **`capabilities`** carry `writable` and a list of source-named `actions`.
-  v1 archives are read-only with no actions. A future source adds actions
-  (kill, enable/disable) here without a format change.
+- **`source` is the listing's type, and the code dispatches on it.** Diptych
+  is not a pluggable host of uniform items whose actions are declared as data
+  — a file, an image, a directory and an archive already behave differently,
+  and a process list would offer a different Kill for a user process than for
+  a system one. So menus and actions are written in code, keyed by this type
+  and reading each node's attributes; they are **not** listed in the manifest.
+- **`capabilities`** carries `writable` (and may grow other true/false
+  capabilities). It does not carry an action list.
 - **`columns`** is `null` for file sources (use the standard ones). A future
   object source supplies its own; the pane renders what it is told.
 
@@ -207,8 +212,9 @@ archive:
 - Backing as `report` for generated detail views — Diptych already generates
   HTML reports (folders, plists, `.DS_Store`), so a process report is the same
   shape.
-- `capabilities.actions` for non-file verbs (kill, enable/disable) — a field in
-  the format now; the UI surfaces them as a context menu later.
+- Non-file verbs (kill, enable/disable) — written in code keyed by the
+  listing's type, reading each node's attributes, and surfaced as a context
+  menu; not declared as data in the manifest.
 - Admin elevation for privileged actions — `Privileged.run` already exists.
 
 ## What v2 still needs (deliberately deferred)

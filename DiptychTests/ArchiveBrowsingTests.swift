@@ -160,6 +160,41 @@ final class ArchiveBrowsingTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent("cache").path))
     }
 
+    func testACopyOutGetsTheArchivePermissionsNotTheLock() throws {
+        // A zip with a 0640 file and a setuid program.
+        let src = root.appendingPathComponent("perms")
+        try fm.createDirectory(at: src.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        let notes = src.appendingPathComponent("notes.txt")
+        try Data("notes".utf8).write(to: notes)
+        XCTAssertEqual(chmod(notes.path, 0o640), 0)
+        let run = src.appendingPathComponent("bin/run")
+        try Data("#!/bin/sh\n".utf8).write(to: run)
+        XCTAssertEqual(chmod(run.path, 0o4755), 0)
+        let zip = root.appendingPathComponent("perms.zip")
+        do { try Archiving.create([src], at: zip, options: Archiving.Options()) }
+        catch { return XCTFail(error.message) }
+
+        let folder = try open(zip)
+        func mode(_ url: URL) -> mode_t { var i = stat(); lstat(url.path, &i); return i.st_mode & 0o7777 }
+        // In the opened archive the file is locked read-only.
+        XCTAssertEqual(mode(folder.appendingPathComponent("perms/notes.txt")), 0o400)
+
+        // A file copied out is given the archive's mode, writable again.
+        let copiedFile = root.appendingPathComponent("out-notes.txt")
+        try fm.copyItem(at: folder.appendingPathComponent("perms/notes.txt"), to: copiedFile)
+        ArchiveBrowsing.unlockCopy(at: copiedFile,
+                                   from: folder.appendingPathComponent("perms/notes.txt"))
+        XCTAssertEqual(mode(copiedFile), 0o640)
+
+        // A folder copied out gets each item's recorded mode, setuid included.
+        let copiedDir = root.appendingPathComponent("out-perms")
+        try fm.copyItem(at: folder.appendingPathComponent("perms"), to: copiedDir)
+        ArchiveBrowsing.unlockCopy(at: copiedDir, from: folder.appendingPathComponent("perms"))
+        XCTAssertEqual(mode(copiedDir.appendingPathComponent("notes.txt")), 0o640)
+        XCTAssertEqual(mode(copiedDir.appendingPathComponent("bin/run")), 0o4755,
+                       "the setuid bit is restored on the copy")
+    }
+
     func testArchivesAndImagesOpenAsFolders() {
         for name in ["a.zip", "a.tar.gz", "a.tgz", "a.aar", "a.aea", "a.dmg", "a.iso"] {
             XCTAssertTrue(AppModel.opensAsFolder(URL(fileURLWithPath: "/x/" + name)), name)

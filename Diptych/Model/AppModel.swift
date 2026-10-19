@@ -2050,6 +2050,12 @@ final class AppModel {
                 }
                 done.append((source, target))
                 if overwrite { replaced.insert(target) }
+                // A copy taken out of an opened archive gets the archive's own
+                // permissions, not the read-only lock the cache copy carries.
+                if kind == .copy, ArchiveBrowsing.isInside(source) {
+                    let (from, to) = (source, target)
+                    await BlockingWork.run { ArchiveBrowsing.unlockCopy(at: to, from: from) }
+                }
                 outcome.succeeded.append(target)
                 progress.finishedItem()
             }

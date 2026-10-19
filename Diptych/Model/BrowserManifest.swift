@@ -20,8 +20,14 @@ struct BrowserManifest: Codable, Equatable, Sendable {
     var format = BrowserManifest.marker
     /// Raised only for a change the older reader could not understand.
     var schema = 1
-    /// What produced it: "archive" now; "sftp", "process"… later. Data for
-    /// the reader, never shown.
+    /// The kind of listing this is: "archive" now; "sftp", "process"… later.
+    ///
+    /// This is what the code dispatches on. Diptych is not a pluggable host of
+    /// uniform items with their actions declared as data -- a file, an image,
+    /// a directory and an archive already behave differently, and a process
+    /// list would offer a different Kill for a user process than for a system
+    /// one. So the menus and actions are written in code, keyed by this type
+    /// and reading each node's attributes, not listed in the manifest.
     var source: String
     /// Source-specific locator and freshness, opaque to the UI (an archive's
     /// path, its SHA-256, the holder its backing store is under).
@@ -60,15 +66,13 @@ struct BrowserManifest: Codable, Equatable, Sendable {
         nodes = (try? container.decode([Node].self, forKey: .nodes)) ?? []
     }
 
-    /// What may be done to a source, beyond reading it.
+    /// What may be done to a source, beyond reading it. Verbs that are not the
+    /// file ones -- kill, disable -- are not listed here: they belong to the
+    /// code that owns the listing's type, which decides them per node.
     struct Capabilities: Codable, Equatable, Sendable {
         /// Items can be changed in place -- contents, permissions, anything.
         /// False for an archive; a future SFTP source sets it.
         var writable = false
-        /// Verbs the source offers that are not the file ones -- "kill",
-        /// "disable" -- named by the source, surfaced later as a menu. Empty
-        /// for a file source.
-        var actions: [String] = []
     }
 
     /// A column a non-file source wants shown. Absent for file sources, which

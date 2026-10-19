@@ -134,6 +134,15 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertTrue(names.contains("b.txt"))
     }
 
+    func testQuickLookOfAFolderHidesTheManifest() throws {
+        let source = try build(try makeZip())
+        let listing = Listing.folder(at: source.root.appendingPathComponent("top"))
+        let names = Set(listing.entries.map(\.name))
+        XCTAssertFalse(names.contains { BrowserManifestStore.number(of: $0) != nil },
+                       "no manifest file in the Quick Look listing")
+        XCTAssertEqual(names, ["notes.txt", "run", "2024"])
+    }
+
     func testRemovalClearsTheLockedHolder() throws {
         let source = try build(try makeZip())
         XCTAssertTrue(fm.fileExists(atPath: source.holder.path))
