@@ -15,7 +15,11 @@ Status: **done**, **next**, or **idea**.
 - Content: two panes, the keyboard, Quick Look, Text Edit, the agent and its
   review window, and undo.
 
-## 2. Comparing directories -- idea
+## 2. Comparing directories -- done
+
+- File: `~/Movies/Diptych-02-comparing-directories.mp4`. 1:50 long, 1080p at
+  30 fps, music "Wallpaper" by Kevin MacLeod (CC BY 4.0), as the intro.
+- Demo folders: `test_folder/make-12-compare.sh`.
 
 - Compare Folders between the two panes: what is the same, what is
   different, and what exists only on one side.
@@ -27,7 +31,12 @@ Status: **done**, **next**, or **idea**.
 - Compare Folders ▸ Properties (⇧⌘I) on a pair of folders or links.
 - Syncing has its own video (23), and so has Find Duplicates (24).
 
-## 3. Flat view and the selection expression -- idea
+## 3. Flat view and the selection expression -- done
+
+- File: `~/Movies/Diptych-03-flat-view.mp4`. 1:53 long, 1080p at 30 fps,
+  music "Wallpaper" by Kevin MacLeod (CC BY 4.0).
+- Demo tree: `test_folder/make-13-flat.sh`. Handing the selection to the agent
+  is left to video 9.
 
 - A whole folder tree shown as one list.
 - Selecting files with an expression: by name, size, date and type.
@@ -196,6 +205,8 @@ Right-click ▸ Image ▸ on one or more pictures.
 - Remove Background: the subject cut out with Vision, on this Mac.
 - Recognize Text…: into a `.txt` beside each picture, which the flat view's
   `contains` then finds, or into its Spotlight comment.
+- Make PDF…: a multi-page TIFF of old scans into one PDF, and a dozen
+  photos into one PDF on A4 pages, a sideways one turned upright.
 - Set as Desktop Picture.
 - Undo for all of it.
 
@@ -297,3 +308,36 @@ Settings ▸ Toolbar.
   folder. Trashing that file shows a purple warning, and a click lists every
   link that would lead nowhere.
 - A click on a path shows the file in the browser.
+
+## 25. Archives -- idea
+
+Archive ▸ Create Archive…, with a folder of photos and a script.
+
+- The window: everything selected listed, ZIP chosen. Create, and the zip
+  appears selected; open it in Quick Look to show `__MACOSX` is not among the
+  files but the tags came back.
+- Untick the Mac data, make it again, and show the zip on a Windows share
+  without the clutter.
+- tar.gz with the owners as root and wheel; Apple Archive with LZMA.
+- Several items from a flat view in one archive; two of the same name refused.
+- Extract Here on a zip holding a setuid program: the question, with what the
+  archive records. Extract Without Them, then Undo, then Restore as
+  Administrator… and the password; `ls -l` in the agent terminal shows the bit.
+- A downloaded archive: what comes out is quarantined too.
+
+## 26. Making files smaller -- idea
+
+File ▸ Optimize File Size…, on a folder of phone photos, screenshots and a
+scanned PDF, all selected at once.
+
+- The window: every file with the size it would have; the settings of each
+  kind, one group each.
+- Drag the photo quality down and watch the sizes change; drag across the
+  picture to move the line between before and after, then zoom to 100 %.
+- A screenshot at 256 colours, then 32 with and without dithering; a
+  transparent PNG keeping its colours.
+- The scanned PDF at 150 and at 72 pixels per inch, page by page.
+- A file that would not get smaller, unticked in orange.
+- Optimize, Get Info on one: the same file, same date; Undo puts them all
+  back.
+

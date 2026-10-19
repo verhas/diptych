@@ -49,6 +49,8 @@ final class AppModel {
         case runArguments
         case convertImages
         case recognizeText
+        case restoreFromArchive
+        case makePDF
 
         var id: String {
             switch self {
@@ -74,6 +76,8 @@ final class AppModel {
             case .runArguments:       return "runArguments"
             case .convertImages:      return "convertImages"
             case .recognizeText:      return "recognizeText"
+            case .restoreFromArchive: return "restoreFromArchive"
+            case .makePDF:            return "makePDF"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -241,6 +245,12 @@ final class AppModel {
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
+    @ObservationIgnored var openArchiveWindow: ((ArchiveRequest) -> Void)?
+    @ObservationIgnored var openOptimizeWindow: ((OptimizeRequest) -> Void)?
+    /// Extract's question, while it is asked: what the archive records that
+    /// unpacking it as the user did not give.
+    var restoreQuestion: RestoreQuestion?
+    @ObservationIgnored var restoreAnswer: CheckedContinuation<RestoreChoice, Never>?
     @ObservationIgnored private var pendingOwnerChange: (owner: String, group: String?,
                                                          urls: [URL],
                                                          before: [(String?, String?)])?
@@ -328,6 +338,29 @@ final class AppModel {
         // the one a pane is showing, since that is where it was opened from.
         // An EXIF editor has rewritten images, which changes their size and
         // date but not their folder, so the folder's watcher says nothing.
+        // Create Archive has made one: shown, and selected where it was
+        // asked for.
+        NotificationCenter.default.addObserver(
+            forName: ArchiveWindowModel.created, object: nil, queue: .main
+        ) { [weak self] note in
+            let url = note.userInfo?[ArchiveWindowModel.urlKey] as? URL
+            MainActor.assumeIsolated {
+                guard let self, let url else { return }
+                self.show([url], in: url.deletingLastPathComponent())
+            }
+        }
+        // Optimize File Size has rewritten files, or made new ones beside them.
+        NotificationCenter.default.addObserver(
+            forName: OptimizeModel.optimized, object: nil, queue: .main
+        ) { [weak self] note in
+            let urls = note.userInfo?["urls"] as? [URL] ?? []
+            MainActor.assumeIsolated {
+                guard let self, let first = urls.first else { return }
+                urls.forEach { IconCache.forget($0) }
+                self.show(urls, in: first.deletingLastPathComponent())
+                QuickLookController.shared.refresh()
+            }
+        }
         for name in [RenameManyModel.renamed, ExifEditorModel.saved] {
             NotificationCenter.default.addObserver(
                 forName: name, object: nil, queue: .main
@@ -3889,6 +3922,77 @@ final class AppModel {
         makeImages(urls, undoName: options.longestSide != nil && options.format == .same
                    ? "Resize" : "Convert") { url throws(ImageMaking.Failure) in
             try ImageMaking.convert(url, options)
+        }
+    }
+
+    // MARK: - PDFs from pictures
+
+    /// The pictures Make PDF is about to use, in the pane's order, while its
+    /// dialog is open.
+    var pdfImages: [URL] = []
+    /// How many pages each gives: a TIFF can have many.
+    var pdfPageCounts: [URL: Int] = [:]
+    var pdfOptions = PDFMaking.Options()
+
+    func requestMakePDF(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        pdfImages = urls
+        pdfPageCounts = [:]
+        pdfOptions.folder = nil
+        pdfOptions.combine = urls.count > 1 && pdfOptions.combine
+        pdfOptions.name = urls.count == 1
+            ? urls[0].deletingPathExtension().lastPathComponent
+            : urls[0].deletingLastPathComponent().lastPathComponent
+        dialog = .makePDF
+        Task {
+            let counts = await BlockingWork.run { () -> [URL: Int] in
+                Dictionary(uniqueKeysWithValues: urls.map { ($0, PDFMaking.pageCount(of: $0)) })
+            }
+            if pdfImages == urls { pdfPageCounts = counts }
+        }
+    }
+
+    func makePDF() {
+        let urls = pdfImages
+        let options = pdfOptions
+        dialog = nil
+        let pane = active
+        flash(options.combine || urls.count == 1 ? "Making the PDF\u{2026}"
+                                                 : "Making \(urls.count) PDFs\u{2026}", error: false)
+        Task {
+            let outcome = await BlockingWork.run { () -> ([URL], [String]) in
+                var made: [URL] = []
+                var failures: [String] = []
+                let groups: [[URL]] = options.combine ? [urls] : urls.map { [$0] }
+                for group in groups {
+                    let folder = options.folder ?? group[0].deletingLastPathComponent()
+                    let stem = options.combine
+                        ? (options.name.trimmingCharacters(in: .whitespaces).isEmpty
+                           ? "Pictures" : options.name.replacingOccurrences(of: "/", with: ":"))
+                        : group[0].deletingPathExtension().lastPathComponent
+                    let target = FileOperations.uniqueURL(
+                        for: folder.appendingPathComponent(stem).appendingPathExtension("pdf"))
+                    do throws(PDFMaking.Failure) {
+                        try PDFMaking.write(group, to: target, pageSize: options.pageSize)
+                        made.append(target)
+                    } catch {
+                        failures.append(error.message)
+                    }
+                }
+                return (made, failures)
+            }
+            FileHistory.shared.recordCreation(.made("Make PDF"), of: outcome.0)
+            if let first = outcome.0.first {
+                show(outcome.0, in: first.deletingLastPathComponent())
+                other(than: pane).reload()
+            }
+            if !outcome.1.isEmpty {
+                dialog = .notice(title: outcome.0.isEmpty ? "No PDF was made" : "Not every PDF was made",
+                                 text: outcome.1.joined(separator: "\n"))
+            } else {
+                flash(outcome.0.count == 1 ? "PDF made, undoable"
+                                           : "\(outcome.0.count) PDFs made, undoable", error: false)
+            }
         }
     }
 

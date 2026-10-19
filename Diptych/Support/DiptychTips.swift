@@ -688,5 +688,36 @@ enum DiptychTips {
             + " behind, so copying a download is never a way past Gatekeeper.",
         "a move always keeps everything about a file, whatever Settings says about copies: it is the"
             + " same file, somewhere else.",
+
+        // The Archive menu.
+        "Archive ▸ Create Archive… makes a zip, a tar.gz or an Apple Archive of the selection, and the"
+            + " window lists everything that goes in before anything is made.",
+        "a zip from Create Archive keeps tags and other Mac data in a __MACOSX folder, as Finder's"
+            + " Compress does -- or, unticked, only the bytes and permissions, for anyone not on a Mac.",
+        "a zip always records each file's owner and group as numbers, in an old Info-ZIP field;"
+            + " a tar archive can record root and wheel instead, as software packages do.",
+        "Archive ▸ Extract Here asks before anything is moved when the archive records owners, groups"
+            + " or setuid bits that unpacking it as you did not give -- and restores them as"
+            + " administrator only if you say so.",
+        "ditto drops setuid, setgid and sticky when it unpacks a zip, Archive Utility keeps only"
+            + " sticky, and aa and tar -p keep all three on your own files.",
+        "everything extracted from a downloaded archive is quarantined too, as Archive Utility does.",
+
+        // Optimize File Size.
+        "File ▸ Optimize File Size… makes photos, PNGs and PDFs smaller, mixed in one selection, each"
+            + " kind with its own settings.",
+        "Optimize File Size shows the sizes the files would really have, worked out as you move the"
+            + " sliders, and unticks any that would not get smaller.",
+        "in Optimize File Size, drag across the picture to move the line between before and after,"
+            + " and zoom to 100 % to judge the loss pixel by pixel.",
+        "a screenshot saved as PNG often shrinks by two thirds with 256 colours, and few people can"
+            + " tell -- Optimize File Size shows it before and after.",
+        "Optimize File Size makes a PDF smaller through a Quartz filter, as Preview's Reduce File Size"
+            + " does, but with the quality and resolution you choose.",
+        "Image ▸ Make PDF… turns pictures into a PDF, a page each, and a multi-page TIFF into a PDF of"
+            + " as many pages.",
+        "Make PDF puts a JPEG into the PDF as the JPEG it is, so the PDF is no bigger and no worse.",
+        "Quick Look in Diptych shows every page of an old-style JPEG TIFF, as scanners wrote them,"
+            + " where macOS itself shows only a thumbnail.",
     ]
 }

@@ -158,6 +158,8 @@ struct ContentView: View {
             model.openDuplicatesWindow = {
                 openWindow(id: DiptychApp.duplicatesWindowID, value: $0)
             }
+            model.openArchiveWindow = { openWindow(id: DiptychApp.archiveWindowID, value: $0) }
+            model.openOptimizeWindow = { openWindow(id: DiptychApp.optimizeWindowID, value: $0) }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
@@ -476,6 +478,7 @@ struct ContentView: View {
         case .getInfo:         model.showInfo()
         case .compare:         model.showDiff()
         case .findDuplicates:  model.findDuplicates()
+        case .createArchive:   model.requestCreateArchive()
         case .rename:          model.requestRename()
         case .copyToOther:     model.copySelection()
         case .moveToOther:     model.moveSelection()
@@ -509,6 +512,7 @@ struct ContentView: View {
              .checkForChanges:          model.gitBusy
         case .directorySizes:           !model.canCalculateDirectorySizes
         case .findDuplicates:           !model.canFindDuplicates
+        case .createArchive:            !model.canCreateArchive
         default:                        false
         }
     }
@@ -902,6 +906,12 @@ struct DialogSheet: View {
             case .recognizeText:
                 recognizeText
 
+            case .restoreFromArchive:
+                restoreFromArchive
+
+            case .makePDF:
+                MakePDFView(model: model)
+
             case .updateAvailable(let version):
                 confirmation(
                     title: "Diptych \(version) Is Available",
@@ -922,6 +932,36 @@ struct DialogSheet: View {
         .frame(width: dialog == .getScripts ? 640
                : dialog == .historyStep || dialog == .connectServer || dialog == .historyMany || dialog == .runArguments
                ? 600 : 470)
+    }
+
+    /// Extract: the archive records owners, groups or special permissions
+    /// that unpacking it as the user did not give.
+    @ViewBuilder
+    private var restoreFromArchive: some View {
+        if let question = model.restoreQuestion {
+            Text("Restore What \u{201C}\(question.archiveName)\u{201D} Records?")
+                .font(.headline)
+            Text("Unpacked as you, the files are yours, in groups you belong to, and without "
+                 + "setuid or setgid where the tool drops them. The archive says otherwise for:")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(question.lines, id: \.self) { Text("\u{2022} " + $0) }
+            }
+            Text("Restoring it unpacks the archive again as root, after macOS asks for an "
+                 + "administrator password. Only do it for an archive you trust: it can make "
+                 + "programs that run as their owner, root included.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Cancel") { model.answerRestore(.cancel) }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Restore as Administrator\u{2026}") { model.answerRestore(.administrator) }
+                Button("Extract Without Them") { model.answerRestore(.without) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
     }
 
     /// Recognize Text: where to keep what is read. Asked each time, the last

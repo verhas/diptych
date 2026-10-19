@@ -1653,6 +1653,17 @@ as a text field and leave the keys alone -- F2 beeped. And the panel floats:
 F2 gives the keyboard back to the browser window with `makeKey`, not
 `makeKeyAndOrderFront`, which brought the window over the preview.
 
+## Previewing an old-style JPEG TIFF
+
+Scanners and Microsoft Office Document Imaging wrote multi-page TIFFs whose
+pages are "old-style JPEG", compression 6. ImageIO has never decoded those, so
+Quick Look showed the thumbnail stored beside a page and then nothing. Each
+page's directory does say where a complete JPEG of it sits in the file -- the
+`JPEGInterchangeFormat` tag -- so `OldJPEGTiff` walks the directories, takes
+those JPEGs out as they are, without decoding the TIFF, and the panel shows a
+page with every one of them, one under the other, numbered. Any other TIFF is
+left to Quick Look.
+
 ## Font and zoom
 
 Settings ▸ **Appearance** chooses the font the panes are drawn with, and the
@@ -1940,10 +1951,136 @@ Finder), select the others, and choose what to take from it.
 - **One step in Undo**, whatever it took in -- *Undo Paste Permissions*,
   *Undo Paste Special*. A file already the same is left alone.
 
+## Making a PDF of pictures
+
+**Right-click ▸ Image ▸ Make PDF…** turns pictures into PDFs: a page for each
+picture, and one for each page of a TIFF that has several.
+
+- **One PDF for each picture, or one of them all**, in the order the pane lists
+  them, under a name of your choosing; next to the pictures or in the other
+  pane's folder.
+- **The page is the picture's own size**, from its resolution -- an A4 page
+  scanned at 300 ppi is an A4 page -- or **A4** or **US Letter**, turned to
+  suit the picture, which is fitted in.
+- **A JPEG goes in as it is.** Quartz writes a picture made from JPEG data
+  as those bytes (`DCTDecode`), so nothing is compressed again and nothing is
+  lost; other pictures go in without loss. A photo taken sideways is turned
+  by the page, not by redrawing its pixels.
+- **Old-style JPEG TIFFs** -- the ones Quick Look could only show as a
+  thumbnail -- are read through the JPEG of each page, as the preview reads
+  them: 22 pages of 2005 scans made a 22-page PDF in a fifth of a second, a
+  little smaller than the TIFF.
+- Undo moves the PDFs to the Trash.
+
+## Optimize File Size
+
+**File ▸ Optimize File Size…**, and on a right-click when a photo, PNG or PDF
+is among the rows, makes them smaller -- several kinds at once. A window lists
+every file with its size, the size it would have and what that saves, and
+under the list the settings of each kind there is:
+
+| Kind | How | Settings |
+|---|---|---|
+| **Photos** (JPEG, HEIC) | Encoded again by ImageIO, in the same format | Quality; the longest side, or the size kept; EXIF, location and the rest kept or not -- the turn that shows it upright always is |
+| **PNG** | A palette, chosen by median cut, with Floyd–Steinberg dithering -- what pngquant does -- or written again without loss | At most 256, 128, 64 or 32 colours, or all of them; dithering |
+| **PDF** | Saved through a Quartz filter of its own, the same kind as Preview's *Reduce File Size*, with the values chosen here | The pictures' quality, and the resolution they are brought down to |
+
+- **The sizes are real.** Each file is optimized into a temporary folder of the
+  window's own -- the selected one first, four at a time -- and made again
+  when a setting of its kind changes. A file that would not get smaller is
+  unticked, in orange; ticking and unticking by hand is kept.
+- **Before and after.** The selected file is shown once, the original left of
+  a line and the optimized one right of it; drag across the picture to move
+  the line, and zoom to 100 % or 200 % to compare pixels. A PDF shows its
+  pages, one at a time.
+- **A PNG with transparency keeps its colours**: the palette here has no room
+  for it, so it is written again without loss, and the row says so.
+- **A PDF's text and drawings stay as they are**; only its pictures change.
+  A signed PDF loses its signature, as it does in Preview.
+- **What a PDF holds is said**: how many pictures, their resolution -- worked
+  out from each picture's width and its page's, which is right for a scan --
+  and how many are black and white. *Keep it* in the resolution menu names
+  the resolution there is now.
+- **A black-and-white scan is left as it is.** One bit per pixel, deflated or
+  in CCITT or JBIG2, is already compact; the filter can only write JPEG,
+  eight bits at least, and the file grew tenfold. Such a PDF, or one with no
+  pictures, is listed with the reason and cannot be ticked -- as no row that
+  would not get smaller can.
+- **Pages go down**: the lower arrow of the page counter is the next page.
+- **Replace the originals**, the default: each stays the same file -- its
+  hard links, permissions, tags -- holding the smaller bytes, and keeps its
+  modified date unless that is unticked. One step of Undo puts every one
+  back. Or **save beside them** as `name (optimized).jpg`.
+- To change the format -- PNG to JPEG, JPEG to HEIC -- use Image ▸
+  Convert….
+
+## Archives
+
+The **Archive** menu, the same on a right-click, and a toolbar button switched
+on in Settings ▸ Toolbar (off by default).
+
+**Create Archive…** opens a window listing everything selected, with the
+format and what that format can keep. Each format is made by the tool macOS
+has for it, called by its full path:
+
+| Format | Made by | Options |
+|---|---|---|
+| **ZIP**, the default | `ditto -c -k`, as Finder's Compress | Mac data in a `__MACOSX` folder as Finder writes it (on by default), or the bytes and permissions only; compression none, fastest, normal or smallest |
+| **tar** | `/usr/bin/tar` (libarchive) | gzip, bzip2, xz or none; extended attributes, ACLs and file flags or not; owners as names and numbers, numbers only, or root and wheel |
+| **Apple Archive** (`.aar`) | `aa archive` | LZFSE, LZMA, zlib, LZ4 or none; owners and groups, extended attributes, ACLs each kept or not |
+
+- **The name** is the item's for one, *Archive* for several, numbered when it
+  is taken -- *Archive 2.tar.gz*. It goes next to the items, or into the
+  other pane's folder.
+- **Several items** sit side by side at the top of the archive. ditto and aa
+  take one folder, so they are given a folder of clones -- free on APFS.
+  Items from a flat view, from several folders, go in together; two of the
+  same name are refused.
+- **Nothing half-made shows.** The archive is written under a hidden name and
+  renamed when complete; **Stop** leaves nothing behind.
+- **A bar, how much of how much, and the time left.** What goes in is counted
+  first; then each tool says how far it has got. `ditto -V` writes a line as
+  it starts each file and its size when done; `tar -v` writes the name as it
+  starts a file and ends the line when done. Inside one big file, the tool's
+  read position is read through libproc, as `lsof` sees it, so a 10 GB file
+  moves the bar too. aa says nothing as it goes, so it archives uncompressed
+  into a second aa that compresses -- `aa archive -a raw | aa convert` -- and
+  the bytes passing between them are counted.
+- A zip always records each item's owner and group, as numbers: ditto writes
+  them in an old Info-ZIP field, and no option leaves them out.
+- What was chosen last is offered next time. Undo moves the archive to the
+  Trash.
+
+**Extract Here** puts what is in the archive next to it; **Extract to Other
+Pane** into the other pane's folder. zip (and jar, war, ipa), tar compressed
+or not (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`…) and `.aar`.
+
+- **One item at the top** comes out as itself, numbered if the name is taken.
+  **Several** come out in a new folder named after the archive, as Archive
+  Utility does it.
+- **First as you.** The archive is unpacked into a temporary folder on the
+  same volume -- `ditto -x -k`, `tar -xp`, `aa extract` -- so the files are
+  yours, in the groups you belong to. Then what the archive records is read
+  (tar's mtree listing, which reads the uid and gid a zip holds, or aa's JSON
+  listing) and compared with what came out.
+- **When the archive records more** -- another owner, a group you are not in,
+  a setuid, setgid or sticky bit the tool dropped (ditto drops all three) --
+  Diptych says so, item counts by owner and group, and asks: **Extract Without
+  Them**, **Restore as Administrator…** or **Cancel**.
+- **Restore as Administrator** asks macOS for the password once and runs a
+  script as root: the archive is copied into a folder only root can enter,
+  must still have the SHA-256 it had when it was read, is unpacked there, each
+  owner, group and mode is set from what was listed -- written into the
+  script, not read from a file the user could change in between -- and the
+  result is moved into place. Cancelling the password extracts as you.
+- **A downloaded archive's quarantine** goes onto everything that comes out
+  of it, as Archive Utility does.
+- Undo moves what was extracted to the Trash.
+
 ## The menu bar
 
-**File**, **Edit**, **Go**, **Window**, **Help** -- Finder's arrangement, and for
-the same reason. There used to be a `Files` menu alongside `File`, which was a
+**File**, **Edit**, **View**, **Go**, **Archive**, **Window**, **Help** --
+Finder's arrangement, with Archive added, and for the same reason. There used to be a `Files` menu alongside `File`, which was a
 coin toss every time: the two names say nothing about which holds what.
 
 The split is Finder's: what you do *to* an item is in **File** -- Open, Get Info,

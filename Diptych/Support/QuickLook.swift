@@ -143,6 +143,10 @@ final class QuickLookController: NSObject {
         if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
             return rendered
         }
+        if ["tif", "tiff"].contains(url.pathExtension.lowercased()),
+           let rendered = oldJPEGTiffReport(for: url) {
+            return rendered
+        }
         if Self.markdownExtensions.contains(url.pathExtension.lowercased()),
            let rendered = markdownReport(for: url) {
             return rendered
@@ -204,6 +208,26 @@ final class QuickLookController: NSObject {
         // Info.plist files do not overwrite each other.
         let folder = scratch.appendingPathComponent(
             "plist" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A TIFF of old-style JPEG pages, which macOS shows only as a thumbnail:
+    /// its pages, taken out of it.
+    private func oldJPEGTiffReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= OldJPEGTiff.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let pages = OldJPEGTiff.pages(of: data) else { return nil }
+        let html = OldJPEGTiff.html(for: pages, name: url.lastPathComponent,
+                                    path: url.deletingLastPathComponent().path)
+        // Named after the TIFF, so the panel's title is its name.
+        let folder = scratch.appendingPathComponent(
+            "tiff" + url.path.replacingOccurrences(of: "/", with: "_"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {

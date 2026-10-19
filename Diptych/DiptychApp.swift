@@ -21,6 +21,8 @@ struct DiptychApp: App {
     static let duplicatesWindowID = "diptych.duplicates"
     static let exifWindowID = "diptych.exif"
     static let videoWindowID = "diptych.video"
+    static let archiveWindowID = "diptych.archive"
+    static let optimizeWindowID = "diptych.optimize"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -90,6 +92,20 @@ struct DiptychApp: App {
             if let urls { ExifEditorView(urls: urls, kind: .videos) }
         }
         .defaultSize(width: 760, height: 680)
+        .restorationBehavior(.disabled)
+
+        // One Create Archive per selection.
+        WindowGroup(id: DiptychApp.archiveWindowID, for: ArchiveRequest.self) { $request in
+            if let request { CreateArchiveView(request: request) }
+        }
+        .defaultSize(width: 620, height: 640)
+        .restorationBehavior(.disabled)
+
+        // One Optimize File Size per selection.
+        WindowGroup(id: DiptychApp.optimizeWindowID, for: OptimizeRequest.self) { $request in
+            if let request { OptimizeView(request: request) }
+        }
+        .defaultSize(width: 1180, height: 760)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder -- and selection, or flat view.
@@ -363,6 +379,8 @@ struct FileCommands: Commands {
                 .disabled(model == nil)
             Button("Find Duplicates\u{2026}") { model?.findDuplicates() }
                 .disabled(model?.canFindDuplicates != true)
+            Button("Optimize File Size\u{2026}") { model?.requestOptimize() }
+                .disabled(model?.canOptimize != true)
             Button("Rename...") { model?.requestRename() }
                 .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
@@ -586,6 +604,17 @@ struct FileCommands: Commands {
             Button("Connect to Server\u{2026}") { model?.requestConnectToServer() }
                 .keyboardShortcut("k")
                 .disabled(model == nil)
+        }
+
+        // Making archives and opening them, a menu of its own beside Go.
+        CommandMenu("Archive") {
+            Button("Create Archive\u{2026}") { model?.requestCreateArchive() }
+                .disabled(model?.canCreateArchive != true)
+            Divider()
+            Button("Extract Here") { model?.extractHere() }
+                .disabled(model?.canExtract != true)
+            Button("Extract to Other Pane") { model?.extractToOtherPane() }
+                .disabled(model?.canExtractToOtherPane != true)
         }
 
         // Placed *into* the system View menu rather than declared as a second

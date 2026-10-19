@@ -29,6 +29,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     case getInfo
     case compare
     case findDuplicates
+    case createArchive
     case rename
     case copyToOther
     case moveToOther
@@ -68,6 +69,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .getInfo:         "Get Info"
         case .compare:         "Compare"
         case .findDuplicates:  "Find Duplicates"
+        case .createArchive:   "Create Archive"
         case .rename:          "Rename"
         case .copyToOther:     "Copy to Other Pane"
         case .moveToOther:     "Move to Other Pane"
@@ -108,6 +110,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         // else in the toolbar carries them.
         case .compare:         "plusminus.circle"
         case .findDuplicates:  "square.on.square"
+        case .createArchive:   "archivebox"
         case .rename:          "pencil"
         case .copyToOther:     "doc.on.doc"
         case .moveToOther:     "arrow.right.doc.on.clipboard"
@@ -148,6 +151,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .getInfo:         "Everything about the selected file"
         case .compare:         "Compare two files side by side"
         case .findDuplicates:  "Find files with the same content as the selected file, or in the selected folder"
+        case .createArchive:   "Make a zip, tar or Apple Archive of the selection"
         case .rename:          "Rename the selected file"
         case .copyToOther:     "Copy the selection to the other pane"
         case .moveToOther:     "Move the selection to the other pane"

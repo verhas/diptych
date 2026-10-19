@@ -700,6 +700,25 @@ struct PaneView: View {
         body()
     }
 
+    /// Create Archive for anything; Extract only when an archive is among
+    /// the rows.
+    @ViewBuilder
+    private func archiveMenu(for ids: Set<FileItem.ID>) -> some View {
+        let archives = pane.rows.filter {
+            ids.contains($0.id) && !$0.isDirectory && Archiving.isExtractable($0.url)
+        }
+        Menu("Archive") {
+            Button("Create Archive\u{2026}") { act(ids) { model.requestCreateArchive() } }
+            if !archives.isEmpty {
+                Divider()
+                Button("Extract Here") { act(ids) { model.extractHere() } }
+                    .disabled(pane.volume.isReadOnly)
+                Button("Extract to Other Pane") { act(ids) { model.extractToOtherPane() } }
+                    .disabled(model.otherPaneFolder == nil || model.inactive.volume.isReadOnly)
+            }
+        }
+    }
+
     @ViewBuilder
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
         if ids.isEmpty {
@@ -755,6 +774,13 @@ struct PaneView: View {
             if ids.count == 1 {
                 Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
             }
+            archiveMenu(for: ids)
+            // Photos, PNGs and PDFs among the rows: they can be made smaller.
+            if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
+                                           && Optimizing.kind(of: $0.url) != nil }) {
+                Button("Optimize File Size\u{2026}") { act(ids) { model.requestOptimize() } }
+                    .disabled(pane.volume.isReadOnly)
+            }
             // Only when an image whose EXIF can be changed is selected; the
             // editor takes those and leaves anything else out.
             // Any picture; the EXIF items only for the ones whose EXIF can be
@@ -805,6 +831,10 @@ struct PaneView: View {
                     Button(pictures.count == 1 ? "Resize\u{2026}"
                                              : "Resize \(pictures.count) Images\u{2026}") {
                         act(ids) { model.requestConvert(pictures, resizing: true) }
+                    }
+                    Button(pictures.count == 1 ? "Make PDF\u{2026}"
+                                               : "Make PDF of \(pictures.count) Images\u{2026}") {
+                        act(ids) { model.requestMakePDF(pictures) }
                     }
                     Button("Remove Background") {
                         act(ids) { model.removeBackground(of: pictures) }
