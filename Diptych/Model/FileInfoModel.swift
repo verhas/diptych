@@ -335,6 +335,63 @@ final class FileInfoModel {
         }
     }
 
+    // MARK: - Code signature and notarization
+
+    private(set) var signing: CodeSigning.Report?
+    private(set) var isReadingSigning = false
+
+    /// Asked when the Signature tab is first shown: it runs codesign, spctl and
+    /// stapler, so it is not part of opening the window.
+    func readSigning() {
+        guard !isReadingSigning, signing == nil else { return }
+        isReadingSigning = true
+        let url = url
+        Task {
+            signing = await BlockingWork.run { CodeSigning.report(for: url) }
+            isReadingSigning = false
+        }
+    }
+
+    /// The Check Again button: throw away the last answer and read it fresh.
+    func recheckSigning() {
+        signing = nil
+        readSigning()
+    }
+
+    // MARK: - Open using
+
+    private(set) var openWithApps: [OpenWith.App] = []
+    private(set) var hasLoadedOpenWith = false
+
+    /// Asked when the Open Using tab is first shown.
+    func loadOpenWith() {
+        openWithApps = OpenWith.apps(for: url)
+        hasLoadedOpenWith = true
+    }
+
+    /// Open the file in `app` now, leaving the default as it was.
+    func open(with app: OpenWith.App) {
+        OpenWith.open(url, with: app.url)
+        statusIsError = false
+        status = "Opened in \u{201C}\(app.name)\u{201D}."
+    }
+
+    /// Make `app` the default for this kind of file -- every file of the kind,
+    /// not only this one.
+    func makeDefault(_ app: OpenWith.App) {
+        let url = url
+        Task {
+            if let problem = await OpenWith.makeDefault(app.url, for: url) {
+                statusIsError = true
+                status = "Could not set the default app: \(problem)"
+            } else {
+                loadOpenWith()
+                statusIsError = false
+                status = "\u{201C}\(app.name)\u{201D} is now the default for this kind of file."
+            }
+        }
+    }
+
     func isSet(_ bit: mode_t) -> Bool { mode & bit != 0 }
 
     func toggle(_ bit: mode_t) {

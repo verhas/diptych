@@ -112,6 +112,18 @@ the zip:
   checksum files beside it and reports every one as matching or not. It is also
   on the right-click menu.
 
+## More in the Info window
+
+- **Signature**: a file's code signature and what Gatekeeper makes of it --
+  signed or not, whether it verifies, the identifier, team and certificate
+  chain, notarization and whether a ticket is stapled -- gathered from
+  `codesign`, `spctl` and `stapler`, with the tools' own output under a
+  disclosure.
+- **Open Using**: every app that can open the file, the default marked; open it
+  in one, or set the default for its kind.
+- **Share**: the system share sheet (Mail, Messages, AirDrop, Notes, …) for the
+  file.
+
 ## Splitting and joining a file
 
 - **File ▸ Split File…** (also on the right-click menu) cuts a file into
@@ -136,4 +148,4 @@ Nothing to do.
 
 ---
 
-*1411 tests.*
+*1416 tests.*

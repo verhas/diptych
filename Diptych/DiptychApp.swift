@@ -46,7 +46,7 @@ struct DiptychApp: App {
         WindowGroup(id: DiptychApp.infoWindowID, for: URL.self) { $url in
             if let url { InfoView(url: url) }
         }
-        .defaultSize(width: 900, height: 600)
+        .defaultSize(width: 1180, height: 620)
         // Not restored at launch. macOS brings a window group back without the
         // value it was opened with, so what reappeared was an empty window
         // about nothing -- which the user then has to close.

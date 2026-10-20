@@ -24,20 +24,23 @@ struct InfoView: View {
                 tags.tabItem { Label("Tags", systemImage: "tag") }
                 attributes.tabItem { Label("Attributes", systemImage: "list.bullet.rectangle") }
                 access.tabItem { Label("Access", systemImage: "lock.shield") }
+                signature.tabItem { Label("Signature", systemImage: "checkmark.seal") }
                 details.tabItem { Label("Details", systemImage: "text.magnifyingglass") }
+                openUsing.tabItem { Label("Open Using", systemImage: "square.and.arrow.up.on.square") }
                 openBy.tabItem { Label("Open By", systemImage: "bolt.horizontal.circle") }
+                share.tabItem { Label("Share", systemImage: "square.and.arrow.up") }
             }
             .padding(14)
 
             Divider()
             statusBar
         }
-        // Wide enough for seven tabs in the bar. One too many for the width
-        // and macOS folds the *whole* bar into a "more toolbar items" pop-up
-        // where no tab can be chosen at all -- which is what 620 did to six
-        // tabs, and what happened to Settings when it gained one. Measured
-        // through accessibility rather than guessed at.
-        .frame(minWidth: 880, minHeight: 460)
+        // Wide enough for every tab in the bar. One too many for the width and
+        // macOS folds the *whole* bar into a "more toolbar items" pop-up where
+        // no tab can be chosen at all -- which is what 620 did to six tabs, and
+        // what happened to Settings when it gained one. Ten tabs need the room
+        // below; measured through accessibility rather than guessed at.
+        .frame(minWidth: 1180, minHeight: 460)
         .navigationTitle(model.name)
         .onAppear(perform: seedDrafts)
         .background(WindowAccessor { window in
@@ -727,6 +730,169 @@ struct InfoView: View {
         lines.append("Having a file open is not the same as locking it: most programs that "
                      + "hold one open are only reading it.")
         return lines.joined(separator: " ")
+    }
+
+    // MARK: - Code signature and notarization
+
+    private var signature: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Code signature and notarization").font(.headline)
+                    Spacer()
+                    if model.isReadingSigning { ProgressView().controlSize(.small) }
+                    Button("Check Again") { model.recheckSigning() }
+                        .disabled(model.isReadingSigning)
+                }
+
+                if let report = model.signing {
+                    HStack(spacing: 8) {
+                        Image(systemName: signingIcon(report))
+                            .foregroundStyle(signingColour(report))
+                        Text(report.summary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.subheadline)
+
+                    if report.signed {
+                        panel("Signature") {
+                            signingRow("Status", report.valid == true ? "Verifies"
+                                       : report.valid == false ? "Does not verify" : "Unknown")
+                            if report.adhoc { signingRow("Signed", "Ad-hoc (no developer identity)") }
+                            if let identifier = report.identifier { signingRow("Identifier", identifier) }
+                            if let team = report.teamIdentifier { signingRow("Team", team) }
+                            if let timestamp = report.timestamp { signingRow("Timestamp", timestamp) }
+                        }
+                        if !report.authorities.isEmpty {
+                            panel("Certificate chain") {
+                                ForEach(Array(report.authorities.enumerated()), id: \.offset) { _, authority in
+                                    Text(authority).font(.system(size: 11)).textSelection(.enabled)
+                                }
+                            }
+                        }
+                        panel("Gatekeeper") {
+                            signingRow("Assessment", report.accepted == true ? "Accepted"
+                                       : report.accepted == false ? "Rejected" : "Not assessed")
+                            if let source = report.source { signingRow("Source", source) }
+                            signingRow("Notarized", report.notarized ? "Yes" : "No")
+                            if let stapled = report.stapled {
+                                signingRow("Stapled ticket", stapled ? "Yes" : "No")
+                            }
+                        }
+                        DisclosureGroup("What the tools said") {
+                            ScrollView {
+                                Text(report.raw)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 180)
+                        }
+                    }
+                } else if !model.isReadingSigning {
+                    Text("Nothing has been read yet.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .padding(4)
+        }
+        .onAppear { model.readSigning() }
+    }
+
+    private func signingRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).frame(width: 120, alignment: .trailing).foregroundStyle(.secondary)
+            Text(value).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 12))
+    }
+
+    private func signingIcon(_ report: CodeSigning.Report) -> String {
+        if !report.signed { return "xmark.seal" }
+        if report.notarized, report.valid == true { return "checkmark.seal.fill" }
+        if report.valid == false || report.accepted == false { return "exclamationmark.triangle.fill" }
+        return "checkmark.seal"
+    }
+
+    private func signingColour(_ report: CodeSigning.Report) -> Color {
+        if !report.signed { return .secondary }
+        if report.notarized, report.valid == true { return .green }
+        if report.valid == false || report.accepted == false { return .orange }
+        return .secondary
+    }
+
+    // MARK: - Open using
+
+    private var openUsing: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Open using").font(.headline)
+                Text("The apps macOS knows can open this file. Open it in one now, or make "
+                     + "one the default \u{2014} which changes every file of this kind, not just "
+                     + "this one.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if model.openWithApps.isEmpty {
+                    Text(model.hasLoadedOpenWith ? "No app is registered to open this file."
+                                                 : "\u{2026}")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.openWithApps) { app in
+                        HStack(spacing: 10) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: app.url.path))
+                                .resizable().frame(width: 28, height: 28)
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 6) {
+                                    Text(app.name).font(.system(size: 12, weight: .medium))
+                                    if app.isDefault {
+                                        Text("Default").font(.caption2)
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(Color.accentColor.opacity(0.18),
+                                                        in: Capsule())
+                                    }
+                                }
+                                Text(app.url.path).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer()
+                            Button("Open") { model.open(with: app) }
+                            Button("Set as Default") { model.makeDefault(app) }
+                                .disabled(app.isDefault)
+                        }
+                        Divider()
+                    }
+                }
+            }
+            .padding(4)
+        }
+        .onAppear { if !model.hasLoadedOpenWith { model.loadOpenWith() } }
+    }
+
+    // MARK: - Share
+
+    private var share: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Share").font(.headline)
+            HStack(spacing: 10) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: model.url.path))
+                    .resizable().frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.name).font(.system(size: 13, weight: .medium))
+                    Text(model.kind.isEmpty ? model.sizeText : "\(model.kind) \u{2014} \(model.sizeText)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Text("Send this file through Mail, Messages, AirDrop, Notes and anything else "
+                 + "that offers itself \u{2014} the same sheet as Finder\u{2019}s Share.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ShareButton(items: [model.url], title: "Share\u{2026}")
+                .frame(width: 110, height: 30)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(4)
     }
 
     // MARK: - Access control

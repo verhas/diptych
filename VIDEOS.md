@@ -400,3 +400,16 @@ A big file -- a disk image, a video -- that will not fit where it has to go.
   checksum shows it is the same bytes. The original that was still there was not
   touched -- the join made `name (2)` instead.
 - Undo removes what either step made.
+
+## 30. More in the Info window -- idea
+
+Three tabs added to Get Info (⌘I), each read when first shown.
+
+- Signature: on a notarized app, the green seal and "Signed and notarized by
+  Apple", the team, the certificate chain, Gatekeeper accepted, ticket stapled.
+  On a plain download, "not code-signed". Check Again re-runs the tools.
+- Open Using: the apps that can open the file, the default marked. Open in one
+  without changing anything; Set as Default, and the note that it changes every
+  file of the kind.
+- Share: the file's icon and kind, and the native Share button -- the same
+  sheet as Finder, Mail and AirDrop and the rest.

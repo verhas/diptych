@@ -3253,9 +3253,9 @@ by whatever command you paste it into. Put `--` before the list.
 ## The Info window
 
 `⌘I` opens a window describing one file, keyed by URL so a second file opens a
-second window. Five tabs, each applying on its own -- there is no global Save,
-because the operations behind them are separate syscalls that fail
-independently and a half-applied Save is worse than none.
+second window. Each tab applies on its own -- there is no global Save, because
+the operations behind them are separate syscalls that fail independently and a
+half-applied Save is worse than none.
 
 | Tab | Holds |
 | --- | --- |
@@ -3264,6 +3264,13 @@ independently and a half-applied Save is worse than none.
 | Tags | the seven colours Finder gives a dot, plus free-form tags |
 | Attributes | every extended attribute -- what `xattr` shows. Text values are editable, binary ones (plists, bookmarks) are shown as hex and can only be removed, since saving them as text would corrupt them |
 | Access | the access control list as text -- the same form `ls -le` prints and `acl_from_text` accepts. Empty it to remove the list |
+| Signature | the code signature and what Gatekeeper makes of it -- see below |
+| Open Using | the apps that can open the file -- open it in one, or set the default for its kind -- see below |
+| Share | the system share sheet (Mail, Messages, AirDrop, Notes, …) for the file |
+
+The Signature, Open Using, Share and [Details](#details--what-a-file-says-about-itself) /
+[Open By](#open-by--what-has-a-file-open) tabs are read when first shown, not
+when the window opens, because each is work the window is usually not about.
 
 An ACL entry overrides the permission bits, and entries match top to bottom with
 the first match winning -- so a `deny` above an `allow` wins even for the owner.
@@ -3433,10 +3440,32 @@ short. The structures come from `<sys/proc_info.h>`, which ships in the SDK but
 belongs to the kernel, so every call checks its own return value and anything
 unreadable is left out rather than reported as an error.
 
-Sixth tab, so the window's minimum width went from 520 to 780: at 620 macOS put
-the **whole tab bar** into a "more toolbar items" pop-up, the same trap the
-Settings window fell into when it gained a tab. Verified through accessibility:
-six tab buttons in the bar, not one pop-up.
+Each new tab widens the window's minimum, because at too narrow a width macOS
+puts the **whole tab bar** into a "more toolbar items" pop-up where no tab can
+be chosen at all -- the same trap the Settings window fell into when it gained a
+tab. Ten tabs need 1180, verified through accessibility: every tab button in the
+bar, not one pop-up.
+
+## Signature — code signature and notarization
+
+The **Signature** tab reads what `codesign`, `spctl` and `stapler` say about a
+file and gathers it into one answer: whether it is signed, whether the signature
+verifies, the identifier, team and certificate chain, and what Gatekeeper makes
+of it -- accepted or rejected, the `source` (`Notarized Developer ID`, `Apple
+System`, …), and whether a notarization ticket is stapled. A headline line sums
+it up (*"Signed and notarized by Apple"*, *"Ad-hoc signed"*, *"not
+code-signed"*), and the tools' own output is under a disclosure. It is read-only
+-- it inspects, it does not sign -- and runs the tools off the main thread when
+the tab is first shown, with **Check Again** to run them afresh. The gathering
+is in `CodeSigning`.
+
+## Open Using — the apps that can open a file
+
+The **Open Using** tab lists every app LaunchServices knows can open the file,
+the current default marked, each with its icon and path. **Open** opens the file
+in that app without changing anything; **Set as Default** makes it the default
+for files of this *kind* -- every file of the kind, not just this one, which the
+tab says plainly. It is `OpenWith`, over `NSWorkspace`.
 
 ## Changing owner and group
 
