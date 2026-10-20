@@ -184,7 +184,11 @@ enum ColumnArrangement {
             let shown = configuration.columns
             // Those shown first, in their order, then the rest as Settings
             // lists them.
-            let all = shown + configuration.columnOrder.filter { !shown.contains($0) }
+            // Original Location is never offered here: it is a Trash-listing
+            // column, switched by its own setting, not a general one.
+            let all = shown + configuration.columnOrder.filter {
+                !shown.contains($0) && $0 != .originalLocation
+            }
             for column in all {
                 let item = NSMenuItem(title: column.title, action: #selector(toggle(_:)),
                                       keyEquivalent: "")

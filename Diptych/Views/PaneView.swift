@@ -623,6 +623,10 @@ struct PaneView: View {
         .disabled(pane.isNavigating || pane.openingArchive != nil)
         .overlay { loadingNotice }
         .overlay { openingArchiveNotice }
+        // A fresh table identity when the Original Location column comes or goes
+        // -- entering or leaving a Trash listing. Changing a Table's column
+        // *count* in place is what AppKit crashes on; rebuilding sidesteps it.
+        .id(columns.contains(.originalLocation))
     }
 
     /// An archive being unpacked to be shown: how far, and Stop.

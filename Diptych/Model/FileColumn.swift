@@ -459,9 +459,13 @@ struct Configuration: Codable, Equatable {
     /// the front. 0: neither -- only Refresh lists it again.
     var serverRefreshSeconds = 5
 
-    /// The columns a pane actually draws.
+    /// The columns a pane actually draws. Original Location is never among them:
+    /// it belongs to a Trash listing alone, added there by the pane, so it is
+    /// filtered out here however it came to be enabled.
     var columns: [FileColumn] {
-        let ordered = columnOrder.filter { $0 != .name && enabledColumns.contains($0) }
+        let ordered = columnOrder.filter {
+            $0 != .name && $0 != .originalLocation && enabledColumns.contains($0)
+        }
         return [.name] + ordered
     }
 

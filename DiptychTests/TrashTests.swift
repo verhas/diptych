@@ -41,6 +41,20 @@ final class TrashTests: XCTestCase {
         XCTAssertFalse(Trash.isTrash(URL(fileURLWithPath: "/Users/someone/Documents")))
     }
 
+    // MARK: - The column is Trash-only
+
+    /// Original Location must never land in the general column set, however it
+    /// gets into the enabled columns -- the pane adds it to a Trash listing on
+    /// its own, and a duplicate or stray column is what crashed AppKit.
+    func testOriginalLocationIsNeverAGeneralColumn() {
+        var config = Configuration()
+        config.columnOrder = FileColumn.allCases          // includes originalLocation
+        config.enabledColumns.insert(.originalLocation)   // as a header-menu tick would
+        XCTAssertFalse(config.columns.contains(.originalLocation))
+        // The ordinary columns are still there.
+        XCTAssertTrue(config.columns.contains(.name))
+    }
+
     // MARK: - Diptych's record of originals
 
     @MainActor
