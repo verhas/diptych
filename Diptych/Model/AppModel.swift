@@ -54,6 +54,7 @@ final class AppModel {
         case password
         case checksumReadOnly
         case checksumOverwrite
+        case splitFile
 
         var id: String {
             switch self {
@@ -84,6 +85,7 @@ final class AppModel {
             case .password:           return "password"
             case .checksumReadOnly:   return "checksumReadOnly"
             case .checksumOverwrite:  return "checksumOverwrite"
+            case .splitFile:          return "splitFile"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -261,6 +263,10 @@ final class AppModel {
     /// A Create Checksum stopped at checksum files that already hold a
     /// different sum, waiting for the user to say whether to overwrite them.
     @ObservationIgnored var pendingChecksumOverwrite: PendingChecksumOverwrite?
+    /// The file Split File… is asking a part size for, and the unit the size
+    /// is given in.
+    @ObservationIgnored var splitTarget: URL?
+    var splitUnit: FileSplitting.SizeUnit = .megabytes
     /// Extract's question, while it is asked: what the archive records that
     /// unpacking it as the user did not give.
     var restoreQuestion: RestoreQuestion?

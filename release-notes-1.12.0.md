@@ -112,6 +112,15 @@ the zip:
   checksum files beside it and reports every one as matching or not. It is also
   on the right-click menu.
 
+## Splitting and joining a file
+
+- **File ▸ Split File…** (also on the right-click menu) cuts a file into
+  numbered parts -- `big.zip.001`, `big.zip.002`, … -- each no bigger than a
+  size you pick, with the usual sizes (Email, CD, DVD, FAT32) ready to click.
+- **Join Parts** reads a first part (`…​.001`) and the parts after it and writes
+  the file back, byte for byte, stepping past a name already taken rather than
+  overwriting it. Both are a single Undo step.
+
 ## Fixes
 
 - **Going up out of an opened archive** from a subfolder could overshoot into
@@ -127,4 +136,4 @@ Nothing to do.
 
 ---
 
-*1402 tests.*
+*1411 tests.*

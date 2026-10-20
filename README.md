@@ -2102,6 +2102,31 @@ under the list the settings of each kind there is:
 - To change the format -- PNG to JPEG, JPEG to HEIC -- use Image ▸
   Convert….
 
+## Splitting and joining a file
+
+**File ▸ Split File…**, or the right-click menu on a single file, cuts a file
+into numbered parts -- `big.zip.001`, `big.zip.002`, … -- each no bigger than a
+size you pick, so a file too large for a FAT volume, a disc or a mail attachment
+goes across in pieces. The dialog has the sizes people split for ready to click
+(Email, CD, DVD, FAT32); sizes are 1024-based, so a 4 GB part fits under a FAT
+volume's 4 GiB limit.
+
+**Join Parts** -- on the right-click menu and in File, offered when the selected
+file is a first part (`…​.001`) -- reads it and the parts that follow, in order
+until one is missing, and writes the file back out. It reproduces the original
+byte for byte; the parts are left in place. A name already taken is stepped past
+(`big (2).zip`) rather than overwritten, so a join never clobbers a file that is
+there. Both splitting and joining are a single [Undo](#undo-and-redo) step.
+
+The parts go beside the file; when that pane is read-only -- a disk image, a
+share mounted so -- they go in the other pane instead, and the Split dialog
+says so. (If neither pane can be written to, Split and Join say that rather than
+doing nothing.)
+
+The streaming is in `FileSplitting` (off the main thread, tested on its own);
+what is selected, where the output goes and the part-size dialog are in
+`SplitActions`.
+
 ## Archives
 
 The **Archive** menu, the same on a right-click, and a toolbar button switched

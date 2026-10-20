@@ -861,6 +861,16 @@ struct PaneView: View {
             }
             archiveMenu(for: ids)
             checksumMenu(for: ids)
+            // One file selected: split it, or -- if it is a `.001` -- join from it.
+            // Offered even on read-only media: the parts then go to the other pane.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
+                if FileSplitting.isFirstPart(item.url) {
+                    Button("Join Parts") { act(ids) { model.joinParts() } }
+                } else {
+                    Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
+                }
+            }
             // Photos, PNGs and PDFs among the rows: they can be made smaller.
             if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
                                            && Optimizing.kind(of: $0.url) != nil }) {

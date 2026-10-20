@@ -405,6 +405,10 @@ struct FileCommands: Commands {
                 .disabled(model?.canFindDuplicates != true)
             Button("Optimize File Size\u{2026}") { model?.requestOptimize() }
                 .disabled(model?.canOptimize != true)
+            Button("Split File\u{2026}") { model?.requestSplitFile() }
+                .disabled(model?.canSplitFile != true)
+            Button("Join Parts") { model?.joinParts() }
+                .disabled(model?.canJoinParts != true)
             Button("Rename...") { model?.requestRename() }
                 .disabled(model == nil || model?.active.volume.isReadOnly == true)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }

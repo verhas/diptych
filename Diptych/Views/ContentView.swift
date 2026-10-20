@@ -800,6 +800,65 @@ struct DialogSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var splitFile: some View {
+        Text("Split \u{201C}\(model.splitTarget?.lastPathComponent ?? "")\u{201D}")
+            .font(.headline)
+        Text("Each part is at most this big, named \u{2026}.001, \u{2026}.002 and so on. "
+             + "Select the first part later and Join Parts puts the file back together.")
+            .font(.subheadline).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        HStack {
+            TextField("Size", text: $model.textInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 100)
+                .focused($fieldFocused)
+                .onSubmit { model.confirmSplitFile(); model.dialog = nil }
+                .onAppear { fieldFocused = true }
+            Picker("", selection: $model.splitUnit) {
+                ForEach(FileSplitting.SizeUnit.allCases) { unit in
+                    Text(unit.rawValue).tag(unit)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            Spacer()
+        }
+
+        // The sizes people actually split for.
+        HStack(spacing: 8) {
+            splitPreset("Email", "25", .megabytes)
+            splitPreset("CD", "700", .megabytes)
+            splitPreset("DVD", "4700", .megabytes)
+            splitPreset("FAT32", "4", .gigabytes)
+        }
+
+        // This folder is read-only: the parts land in the other pane instead.
+        if let other = model.splitOtherPaneFolder {
+            Label("This folder is read-only, so the parts go in the other pane:\n\(other.path)",
+                  systemImage: "arrow.right.circle")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        HStack {
+            Spacer()
+            Button("Cancel") { model.splitTarget = nil; model.dialog = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Split") { model.confirmSplitFile(); model.dialog = nil }
+                .keyboardShortcut(.defaultAction)
+                .disabled((Double(model.textInput.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0)
+        }
+    }
+
+    private func splitPreset(_ title: String, _ size: String,
+                             _ unit: FileSplitting.SizeUnit) -> some View {
+        Button(title) { model.textInput = size; model.splitUnit = unit }
+            .buttonStyle(.bordered).controlSize(.small)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             switch dialog {
@@ -927,6 +986,9 @@ struct DialogSheet: View {
 
             case .checksumOverwrite:
                 checksumOverwrite
+
+            case .splitFile:
+                splitFile
 
             case .historyStep:
                 historyStep

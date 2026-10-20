@@ -387,3 +387,16 @@ Time Machine has been keeping hourly local snapshots of.
   the snapshots macOS already keeps, and says so when Full Disk Access is what
   it is missing.
 
+
+## 29. Splitting and joining a file -- idea
+
+A big file -- a disk image, a video -- that will not fit where it has to go.
+
+- Right-click ▸ Split File…: the dialog, the size field, the ready-made sizes
+  (Email, CD, DVD, FAT32). Pick one, Split. The parts appear beside it --
+  `.001`, `.002`, `.003` -- each the size asked for.
+- Move the parts somewhere and back, or just show them on their own.
+- Select the first part, Join Parts: the file is back, and a quick Compare or a
+  checksum shows it is the same bytes. The original that was still there was not
+  touched -- the join made `name (2)` instead.
+- Undo removes what either step made.
