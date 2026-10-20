@@ -2034,6 +2034,29 @@ early, and what was found stays. Closing the window stops the search too.
   with the whole list -- every link, and every file going to the Trash that
   they lead to.
 
+## Disk Usage
+
+**File ▸ Disk Usage…**, or the right-click menu on a folder, opens a window
+showing what is taking up the room under it. A segmented control at the top --
+a radio, one shown at a time -- rotates between three views of the same scan:
+
+- **Treemap**: the folder's immediate contents as rectangles sized by bytes,
+  largest first, folders and files told apart by colour. Click a folder to go
+  into it; the arrow at the top goes back up.
+- **Heat map**: the same rectangles, coloured on a scale from cool (small) to
+  hot (large), so the big things jump out at a glance.
+- **Files** (GrandPerspective-style): every file under the folder as its own
+  rectangle, sized by bytes and coloured by kind, so one enormous file buried
+  deep is as visible as a big folder.
+
+Hover any rectangle for its full path and size in the footer. The layout is a
+squarified treemap (the Bruls/Huizing/van Wijk algorithm), areas proportional to
+bytes and shapes kept near square. The scan runs off the main thread with a
+running file count and a Stop, and **Scan again** re-reads from disk. A symbolic
+link is a leaf, never followed, so nothing is counted twice or walked out of the
+folder. The geometry is in `Treemap` and the scan in `DiskUsage`, both tested on
+their own; the window is `DiskUsageView`.
+
 ## Paste Special
 
 **Edit ▸ Paste Special**, and the same on a right-click, makes one property of

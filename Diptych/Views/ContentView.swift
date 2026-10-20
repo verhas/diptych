@@ -162,6 +162,7 @@ struct ContentView: View {
             model.openOptimizeWindow = { openWindow(id: DiptychApp.optimizeWindowID, value: $0) }
             model.openRecoverWindow = { openWindow(id: DiptychApp.recoverWindowID, value: $0) }
             model.openVersionsWindow = { openWindow(id: DiptychApp.versionsWindowID, value: $0) }
+            model.openDiskUsageWindow = { openWindow(id: DiptychApp.diskUsageWindowID, value: $0) }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }

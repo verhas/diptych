@@ -112,6 +112,15 @@ the zip:
   checksum files beside it and reports every one as matching or not. It is also
   on the right-click menu.
 
+## Disk Usage
+
+- **File ▸ Disk Usage…** (also on a folder's right-click menu) opens a window
+  showing what fills a folder, drawn three ways from one scan and switched by a
+  radio control: a **treemap** sized by bytes, a **heat map** coloured from cool
+  to hot by size, and **Files** -- GrandPerspective-style rectangles, one per
+  file, coloured by kind. Hover any rectangle for its path and size; click a
+  folder in the treemap to go into it.
+
 ## The Trash
 
 - Each volume in the sidebar has a small **trash** button on the left -- the
@@ -160,4 +169,4 @@ Nothing to do.
 
 ---
 
-*1421 tests.*
+*1426 tests.*

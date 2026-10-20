@@ -859,6 +859,11 @@ struct PaneView: View {
             if ids.count == 1 {
                 Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
             }
+            // A single folder: what is taking up the room under it.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               item.isDirectory, !item.isParent {
+                Button("Disk Usage\u{2026}") { act(ids) { model.showDiskUsage() } }
+            }
             // A real file's earlier selves, from this Mac's APFS snapshots.
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {

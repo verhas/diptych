@@ -25,6 +25,7 @@ struct DiptychApp: App {
     static let optimizeWindowID = "diptych.optimize"
     static let recoverWindowID = "diptych.recover"
     static let versionsWindowID = "diptych.versions"
+    static let diskUsageWindowID = "diptych.diskUsage"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -122,6 +123,13 @@ struct DiptychApp: App {
             if let request { FileVersionsView(request: request) }
         }
         .defaultSize(width: 560, height: 480)
+        .restorationBehavior(.disabled)
+
+        // One Disk Usage per folder.
+        WindowGroup(id: DiptychApp.diskUsageWindowID, for: URL.self) { $url in
+            if let url { DiskUsageView(url: url) }
+        }
+        .defaultSize(width: 900, height: 640)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder -- and selection, or flat view.
@@ -403,6 +411,8 @@ struct FileCommands: Commands {
                 .disabled(model?.canShowPreviousVersions != true)
             Button("Find Duplicates\u{2026}") { model?.findDuplicates() }
                 .disabled(model?.canFindDuplicates != true)
+            Button("Disk Usage\u{2026}") { model?.showDiskUsage() }
+                .disabled(model?.canShowDiskUsage != true)
             Button("Optimize File Size\u{2026}") { model?.requestOptimize() }
                 .disabled(model?.canOptimize != true)
             Button("Split File\u{2026}") { model?.requestSplitFile() }

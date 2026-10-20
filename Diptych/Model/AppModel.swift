@@ -257,6 +257,7 @@ final class AppModel {
     @ObservationIgnored var openOptimizeWindow: ((OptimizeRequest) -> Void)?
     @ObservationIgnored var openRecoverWindow: ((PasswordRecoveryRequest) -> Void)?
     @ObservationIgnored var openVersionsWindow: ((FileVersions.Request) -> Void)?
+    @ObservationIgnored var openDiskUsageWindow: ((URL) -> Void)?
     /// A Create Checksum held back because the pane is read-only, waiting for
     /// the user to say whether the files may go in the other pane instead.
     @ObservationIgnored var pendingChecksum: PendingChecksum?
@@ -3740,6 +3741,27 @@ final class AppModel {
         guard canFindDuplicates, let item = active.selectedItems.first else { return }
         DuplicateOrigins.shared.register(item.url, from: self)
         openDuplicatesWindow?(item.url)
+    }
+
+    // MARK: - Disk usage
+
+    /// What Disk Usage measures: the single selected folder, else the folder
+    /// the active pane is showing. Nil in a flat view, which is not a folder.
+    var diskUsageTarget: URL? {
+        if active.selectedItems.count == 1, let item = active.selectedItems.first,
+           item.isDirectory, !item.isParent {
+            return item.url
+        }
+        return active.isFlat ? nil : active.directory
+    }
+
+    var canShowDiskUsage: Bool { diskUsageTarget != nil }
+
+    /// A window drawing what is under the folder, as a treemap, a heat map or
+    /// GrandPerspective-style rectangles.
+    func showDiskUsage() {
+        guard let url = diskUsageTarget else { return }
+        openDiskUsageWindow?(url)
     }
 
     // MARK: - Paste Special

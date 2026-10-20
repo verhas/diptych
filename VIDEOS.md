@@ -425,3 +425,15 @@ Trashing a few files, then looking in the Trash.
   Trash, nowhere else, and Settings ▸ Columns can turn it off.
 - The honest part: macOS does not hand out Finder's put-back, so the column is
   what Diptych itself remembers trashing; a file Finder trashed shows a dash.
+
+## 32. Disk Usage -- idea
+
+A folder that has grown and you want to see what is in it.
+
+- Right-click ▸ Disk Usage… The window scans, counting files, then draws a
+  treemap: big rectangles are big folders, sorted by size. Click one to go in,
+  the arrow to come back.
+- Switch the radio to Heat Map: the same rectangles, now cool to hot, and the
+  one huge thing is suddenly red.
+- Switch to Files: every file its own rectangle, coloured by kind, the way
+  GrandPerspective shows a disk. Hover the biggest and the footer names it.
