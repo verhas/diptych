@@ -41,6 +41,12 @@ enum Clipboard {
         return objects ?? []
     }
 
+    /// The plain-text flavour, if there is one -- what Check Checksum reads to
+    /// see whether a sum was copied.
+    static func plainText() -> String? {
+        NSPasteboard.general.string(forType: .string)
+    }
+
     static func copyText(_ text: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()

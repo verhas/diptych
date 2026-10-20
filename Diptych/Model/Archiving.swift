@@ -684,62 +684,129 @@ enum Archiving {
     /// password asks for another ten thousand times. Nil when it cannot be
     /// told: tar is then left to find out.
     nonisolated static func isZipPassword(_ password: String, rightFor url: URL) -> Bool? {
-        guard let zip = ZipFile(url) else { return nil }
-        defer { zip.close() }
-        // The first encrypted file with something in it.
-        guard let entry = zip.entries.first(where: { $0.flags & 1 != 0 && $0.size > 0 }),
-              entry.local != 0xFFFF_FFFF, let header = zip.read(entry.local, 30),
-              ZipFile.integer(header, 0, 4) == 0x0403_4B50 else { return nil }
-        let method = ZipFile.integer(header, 8, 2)
-        let time = ZipFile.integer(header, 10, 2)
-        let nameLength = ZipFile.integer(header, 26, 2)
-        let extraLength = Int(ZipFile.integer(header, 28, 2))
-        let start = entry.local + 30 + nameLength + UInt64(extraLength)
-        let secret = Array(password.utf8)
-        if method == 99 {
-            // AES: the strength in the 0x9901 extra field, then salt and
-            // verifier at the start of the data.
-            guard let extra = zip.read(entry.local + 30 + nameLength, extraLength) else { return nil }
-            var field = 0
-            var strength: UInt64?
-            while field + 4 <= extra.count {
-                let id = ZipFile.integer(extra, field, 2)
-                let length = Int(ZipFile.integer(extra, field + 2, 2))
-                if id == 0x9901, field + 8 < extra.count { strength = ZipFile.integer(extra, field + 8, 1) }
-                field += 4 + length
+        ZipPasswordVerifier(url)?.accepts(password)
+    }
+
+    /// The parameters an encrypted zip keeps for checking a password, read
+    /// from the file once so that a great many candidates can be tried without
+    /// opening and parsing it again. `isZipPassword` is this used once;
+    /// password recovery is it used a million times.
+    ///
+    /// Nothing here can decrypt the archive -- only say whether a password is
+    /// the right one, from the small verifier each scheme stores. The work per
+    /// guess is the scheme's own: AES's is a PBKDF2 of a thousand rounds and
+    /// dear by design, ZipCrypto's a few table lookups and all but free.
+    struct ZipPasswordVerifier: Sendable {
+        enum Scheme: Sendable {
+            /// WinZip AES: PBKDF2-HMAC-SHA1, 1000 rounds, two verifier bytes.
+            case aes(salt: [UInt8], verifier: [UInt8], keyLength: Int)
+            /// The original ZipCrypto: a 12-byte header whose last decrypted
+            /// byte is a known one.
+            case zipCrypto(header: [UInt8], expected: UInt8)
+        }
+
+        let scheme: Scheme
+
+        /// Nil when the zip is not one with an encrypted entry this can check:
+        /// `isZipPassword` then returns nil and tar is left to find out.
+        init?(_ url: URL) {
+            guard let zip = ZipFile(url) else { return nil }
+            defer { zip.close() }
+            // The first encrypted file with something in it.
+            guard let entry = zip.entries.first(where: { $0.flags & 1 != 0 && $0.size > 0 }),
+                  entry.local != 0xFFFF_FFFF, let header = zip.read(entry.local, 30),
+                  ZipFile.integer(header, 0, 4) == 0x0403_4B50 else { return nil }
+            let method = ZipFile.integer(header, 8, 2)
+            let time = ZipFile.integer(header, 10, 2)
+            let nameLength = ZipFile.integer(header, 26, 2)
+            let extraLength = Int(ZipFile.integer(header, 28, 2))
+            let start = entry.local + 30 + nameLength + UInt64(extraLength)
+            if method == 99 {
+                // AES: the strength in the 0x9901 extra field, then salt and
+                // verifier at the start of the data.
+                guard let extra = zip.read(entry.local + 30 + nameLength, extraLength) else { return nil }
+                var field = 0
+                var strength: UInt64?
+                while field + 4 <= extra.count {
+                    let id = ZipFile.integer(extra, field, 2)
+                    let length = Int(ZipFile.integer(extra, field + 2, 2))
+                    if id == 0x9901, field + 8 < extra.count { strength = ZipFile.integer(extra, field + 8, 1) }
+                    field += 4 + length
+                }
+                guard let strength, (1...3).contains(strength) else { return nil }
+                let keyLength = 8 * (Int(strength) + 1)
+                let saltLength = keyLength / 2
+                guard let data = zip.read(start, saltLength + 2) else { return nil }
+                scheme = .aes(salt: Array(data.prefix(saltLength)),
+                              verifier: Array(data.suffix(2)), keyLength: keyLength)
+                return
             }
-            guard let strength, (1...3).contains(strength) else { return nil }
-            let keyLength = 8 * (Int(strength) + 1)
-            let saltLength = keyLength / 2
-            guard let data = zip.read(start, saltLength + 2) else { return nil }
-            let salt = Array(data.prefix(saltLength))
-            var derived = [UInt8](repeating: 0, count: 2 * keyLength + 2)
-            let status = CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password, secret.count,
-                                              salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
-                                              1000, &derived, derived.count)
-            guard status == kCCSuccess else { return nil }
-            return Array(derived.suffix(2)) == Array(data.suffix(2))
+            // ZipCrypto: the header's last decrypted byte is the CRC's top --
+            // or, written streaming, the modification time's.
+            guard let encrypted = zip.read(start, 12) else { return nil }
+            scheme = .zipCrypto(header: encrypted,
+                                expected: entry.flags & 8 != 0 ? UInt8((time >> 8) & 0xFF)
+                                                               : UInt8((entry.crc >> 24) & 0xFF))
         }
-        // ZipCrypto: three keys stirred by the password decrypt the header,
-        // whose last byte is the CRC's top -- or, written streaming, the
-        // time's.
-        guard let encrypted = zip.read(start, 12) else { return nil }
-        var keys: (UInt32, UInt32, UInt32) = (0x1234_5678, 0x2345_6789, 0x3456_7890)
-        func update(_ byte: UInt8) {
-            keys.0 = crc32(keys.0, byte)
-            keys.1 = (keys.1 &+ (keys.0 & 0xFF)) &* 134_775_813 &+ 1
-            keys.2 = crc32(keys.2, UInt8(keys.1 >> 24))
+
+        /// Whether this is the password, from the scheme's verifier alone.
+        func accepts(_ password: String) -> Bool {
+            let secret = Array(password.utf8)
+            switch scheme {
+            case .aes(let salt, let verifier, let keyLength):
+                var derived = [UInt8](repeating: 0, count: 2 * keyLength + 2)
+                let status = CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2), password, secret.count,
+                    salt, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                    1000, &derived, derived.count)
+                return status == kCCSuccess && Array(derived.suffix(2)) == verifier
+            case .zipCrypto(let header, let expected):
+                // Three keys stirred by the password decrypt the header.
+                var keys: (UInt32, UInt32, UInt32) = (0x1234_5678, 0x2345_6789, 0x3456_7890)
+                func update(_ byte: UInt8) {
+                    keys.0 = Archiving.crc32(keys.0, byte)
+                    keys.1 = (keys.1 &+ (keys.0 & 0xFF)) &* 134_775_813 &+ 1
+                    keys.2 = Archiving.crc32(keys.2, UInt8(keys.1 >> 24))
+                }
+                for byte in secret { update(byte) }
+                var last: UInt8 = 0
+                for byte in header {
+                    let temp = UInt16(truncatingIfNeeded: keys.2 | 2)
+                    let plain = byte ^ UInt8(truncatingIfNeeded: (UInt32(temp) &* UInt32(temp ^ 1)) >> 8)
+                    update(plain)
+                    last = plain
+                }
+                return last == expected
+            }
         }
-        for byte in secret { update(byte) }
-        var last: UInt8 = 0
-        for byte in encrypted {
-            let temp = UInt16(truncatingIfNeeded: keys.2 | 2)
-            let plain = byte ^ UInt8(truncatingIfNeeded: (UInt32(temp) &* UInt32(temp ^ 1)) >> 8)
-            update(plain)
-            last = plain
-        }
-        let expected = entry.flags & 8 != 0 ? UInt8((time >> 8) & 0xFF) : UInt8((entry.crc >> 24) & 0xFF)
-        return last == expected
+
+        /// Each guess is dear (AES's PBKDF2) rather than all but free
+        /// (ZipCrypto): the difference between a recovery worth attempting over
+        /// a long password and one that is hopeless past a handful of characters.
+        var guessIsExpensive: Bool { if case .aes = scheme { true } else { false } }
+    }
+
+    /// Whether `password` truly opens the zip -- not the one-byte guess of
+    /// `isZipPassword`, but tar actually decrypting a file and checking its
+    /// CRC. Dear, because it runs tar; used only to confirm a candidate the
+    /// fast check already flagged, where ZipCrypto's one-in-256 false positive
+    /// would otherwise be reported as the answer. A wrong password fails on
+    /// the first file, so it costs little; the right one is confirmed once.
+    nonisolated static func zipPasswordOpens(_ password: String, _ url: URL) -> Bool {
+        guard let secret = try? PasswordFile(password, endsWithNewline: true),
+              let input = try? FileHandle(forReadingFrom: secret.url) else { return false }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: tar)
+        // Extract file data to stdout: that forces decryption and the CRC
+        // check, which merely listing the archive would not.
+        task.arguments = ["-xO", "-f", url.path]
+        task.standardInput = input
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        do { try task.run() } catch { return false }
+        task.waitUntilExit()
+        try? input.close()
+        return task.terminationStatus == 0
     }
 
     /// One byte into a CRC-32, as ZipCrypto's keys take it.

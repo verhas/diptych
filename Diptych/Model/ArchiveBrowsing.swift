@@ -74,6 +74,17 @@ nonisolated enum ArchiveBrowsing {
         return path == root || path.hasPrefix(root + "/")
     }
 
+    /// The opened archive whose top `url` is -- exactly its root, not a folder
+    /// within it. Used to leave an archive upward and land beside it. Compares
+    /// symlink-resolved paths, so it holds however the path is spelled (a
+    /// trailing slash from `deletingLastPathComponent()`, a `/private` prefix).
+    static func openedRoot(at url: URL) -> Opened? {
+        let path = resolved(url.path)
+        return registry.lock.withLock {
+            registry.opened.first { resolved($0.root.path) == path }
+        }
+    }
+
     /// The opened archive `url` is in.
     static func opened(containing url: URL) -> Opened? {
         let path = resolved(url.path)

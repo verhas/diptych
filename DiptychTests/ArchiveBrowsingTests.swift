@@ -143,6 +143,26 @@ final class ArchiveBrowsingTests: XCTestCase {
         XCTAssertEqual(pane.pendingSelection, [archive])
     }
 
+    func testUpFromDeepInsideStepsOutBesideTheArchiveNotIntoTheCache() async throws {
+        // Going up through a subfolder arrives at the archive's top with a
+        // trailing slash on the path. A URL-equality check missed that and let
+        // the next Up overshoot into the caches folder. It must leave instead.
+        let archive = try archive(.zip)
+        let folder = try open(archive)
+        let pane = PaneModel(directory: folder.appendingPathComponent("2024"))
+        await pane.reloadAndWait()
+        pane.goUp()
+        await pane.reloadAndWait()
+        XCTAssertEqual(pane.directory.standardizedFileURL.path, folder.standardizedFileURL.path,
+                       "up from the subfolder lands on the archive's top")
+        pane.goUp()
+        XCTAssertEqual(pane.directory.standardizedFileURL.path,
+                       archive.deletingLastPathComponent().standardizedFileURL.path,
+                       "up from the top leaves the archive, not into the caches folder")
+        XCTAssertFalse(ArchiveBrowsing.isInside(pane.directory))
+        XCTAssertEqual(pane.pendingSelection, [archive])
+    }
+
     func testThePaneIsSavedBesideTheArchive() async throws {
         let archive = try archive(.zip)
         let folder = try open(archive)

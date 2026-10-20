@@ -333,6 +333,24 @@ Archive ▸ Create Archive…, with a folder of photos and a script.
 - A Disk Image of the same folder, encrypted: Return mounts it after the
   password, the pane on its volume, ejected from the sidebar. An ISO for a
   virtual machine.
+- Drag the `.dmg` onto the sidebar: it becomes a favourite. Click it later --
+  it mounts and the pane goes to its volume.
+
+## 27. Recovering a ZIP password -- idea
+
+Archive ▸ Recover ZIP Password…, on a zip whose password was mistyped by one
+letter -- the legal note in orange at the top throughout.
+
+- Return on the zip, type the password a letter wrong: refused, with the line
+  that there is no limit and no lock-out. The Recover Password… button has
+  appeared -- press it, and the recovery window opens on the same zip.
+- "From a password I remember": type it a letter wrong, Search. It tries the
+  guess, then keys nearby, and lands on the real password in a moment; Copy.
+- Switch to "Try every combination": pick letters and digits, set the length,
+  and watch the estimate -- short is seconds, a step longer turns orange and
+  says "not in your lifetime".
+- A short brute force actually run, the bar and the rate climbing, Stop.
+- Scroll to the note pointing at hashcat and John the Ripper for the GPU.
 
 ## 26. Making files smaller -- idea
 
@@ -349,4 +367,23 @@ scanned PDF, all selected at once.
 - A file that would not get smaller, unticked in orange.
 - Optimize, Get Info on one: the same file, same date; Undo puts them all
   back.
+
+## 28. Previous versions of a file -- idea
+
+File ▸ Previous Versions…, on a document edited a few times over a day that
+Time Machine has been keeping hourly local snapshots of.
+
+- The window lists the earlier versions newest first -- the time of each, a
+  local snapshot or Time Machine, the size.
+- Pick one, Compare: the comparison window opens, the old version on the left
+  and the file as it is now on the right, the changed lines marked. Close it;
+  the versions list is still there.
+- Pick an older one, Compare again -- a different window. Decide this is the
+  one.
+- Restore: the alert naming the moment it goes back to; confirm. The file now
+  holds the old contents but is the same file -- Get Info shows its name and
+  permissions unchanged. Undo puts it back.
+- A word on the quiet part: no password, nothing mounted by hand -- it reads
+  the snapshots macOS already keeps, and says so when Full Disk Access is what
+  it is missing.
 

@@ -27,6 +27,11 @@ struct PasswordQuestion: Equatable, Sendable {
     let name: String
     /// The last one typed did not open it.
     let wasWrong: Bool
+    /// The zip itself, when this is an encrypted zip: what the **Recover
+    /// Password** button on the prompt would work on. Nil for an Apple
+    /// Archive or a disk image, whose checks are too slow to try passwords
+    /// against.
+    var recoverableZip: URL? = nil
 }
 
 /// An archive being unpacked to be shown in a pane, for the pane's notice.
@@ -63,13 +68,15 @@ extension AppModel {
     /// each one typed until it does not fail for the password. Not asked
     /// at all when none is needed.
     func withPassword<T: Sendable>(for name: String, needed: Bool, newline: Bool,
+                                   recoverableZip: URL? = nil,
                                    _ attempt: @escaping (Archiving.PasswordFile?) async
                                        -> Result<T, Archiving.Failure>)
         async -> Result<T, Archiving.Failure> {
         guard needed else { return await attempt(nil) }
         var wasWrong = false
         while true {
-            guard let typed = await askPassword(PasswordQuestion(name: name, wasWrong: wasWrong)) else {
+            guard let typed = await askPassword(PasswordQuestion(name: name, wasWrong: wasWrong,
+                                                                 recoverableZip: recoverableZip)) else {
                 return .failure(Archiving.Failure(message: "Cancelled."))
             }
             let secret: Archiving.PasswordFile
@@ -99,6 +106,16 @@ extension AppModel {
         let answer = passwordAnswer
         passwordAnswer = nil
         answer?.resume(returning: password)
+    }
+
+    /// The **Recover Password** button on the wrong-password prompt: cancel the
+    /// password flow and open the recovery window on the same zip, as the
+    /// Archive menu item does. Only an encrypted zip offers it, so the zip is
+    /// already known to be encrypted -- no need to look again.
+    func recoverFromPasswordPrompt() {
+        let zip = passwordQuestion?.recoverableZip
+        answerPassword(nil)
+        if let zip { openRecoverWindow?(PasswordRecoveryRequest(archive: zip)) }
     }
 
     /// The selected archives Extract understands.
@@ -182,7 +199,8 @@ extension AppModel {
         }
         let needed = await BlockingWork.run { Archiving.needsPassword(archive, kind: kind) }
         let prepared = await withPassword(for: archive.lastPathComponent, needed: needed,
-                                          newline: kind == .zip) { secret in
+                                          newline: kind == .zip,
+                                          recoverableZip: kind == .zip ? archive : nil) { secret in
             await BlockingWork.run { () -> Result<Unpacked, Archiving.Failure> in
                 Result { () throws(Archiving.Failure) -> Unpacked in
                     try Self.unpack(archive, for: destination, password: secret)
@@ -378,7 +396,8 @@ extension AppModel {
         Task {
             let needed = await BlockingWork.run { Archiving.needsPassword(url, kind: kind) }
             let result = await withPassword(for: url.lastPathComponent, needed: needed,
-                                            newline: kind == .zip) { secret in
+                                            newline: kind == .zip,
+                                            recoverableZip: kind == .zip ? url : nil) { secret in
                 pane.openingArchive = OpeningArchive(name: url.lastPathComponent, job: job)
                 return await BlockingWork.run { () -> Result<URL, Archiving.Failure> in
                     Result { () throws(Archiving.Failure) -> URL in
@@ -423,6 +442,54 @@ extension AppModel {
                                  text: failure.message)
             }
         }
+    }
+
+    // MARK: - Recovering a zip password
+
+    /// The single selected zip, if that is what is selected: what Recover
+    /// Password works on. Only zip, because only its check is quick enough to
+    /// try a great many passwords against. Whether it is actually encrypted is
+    /// not looked at here -- that reads the file, and this is asked on every
+    /// selection change; it is checked when the command fires instead.
+    var selectedZip: URL? {
+        guard active.selectedItems.count == 1, let item = active.selectedItems.first,
+              !item.isDirectory, item.url.pathExtension.lowercased() == "zip" else { return nil }
+        return item.url
+    }
+
+    var canRecoverPassword: Bool { selectedZip != nil }
+
+    func recoverPassword() {
+        guard let zip = selectedZip else { return }
+        Task {
+            let encrypted = await BlockingWork.run { Archiving.isEncryptedZip(zip) }
+            guard encrypted else {
+                flash("\u{201C}\(zip.lastPathComponent)\u{201D} is not password-protected")
+                return
+            }
+            openRecoverWindow?(PasswordRecoveryRequest(archive: zip))
+        }
+    }
+
+    // MARK: - Previous versions
+
+    /// The single selected ordinary file whose earlier versions can be shown.
+    /// A folder has none in the per-file sense, and a file already inside an
+    /// opened archive is a copy in Diptych's caches, not a real one with a
+    /// history. Nothing on disk is read here -- it is asked on every selection
+    /// change -- the snapshots are searched only when the command fires.
+    var selectedFileForVersions: URL? {
+        guard active.selectedItems.count == 1, let item = active.selectedItems.first,
+              !item.isDirectory, !item.isParent,
+              !ArchiveBrowsing.isInside(item.url) else { return nil }
+        return item.url
+    }
+
+    var canShowPreviousVersions: Bool { selectedFileForVersions != nil }
+
+    func showPreviousVersions() {
+        guard let file = selectedFileForVersions else { return }
+        openVersionsWindow?(FileVersions.Request(file: file))
     }
 
     // MARK: - Optimizing

@@ -160,6 +160,8 @@ struct ContentView: View {
             }
             model.openArchiveWindow = { openWindow(id: DiptychApp.archiveWindowID, value: $0) }
             model.openOptimizeWindow = { openWindow(id: DiptychApp.optimizeWindowID, value: $0) }
+            model.openRecoverWindow = { openWindow(id: DiptychApp.recoverWindowID, value: $0) }
+            model.openVersionsWindow = { openWindow(id: DiptychApp.versionsWindowID, value: $0) }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
@@ -769,6 +771,35 @@ struct DialogSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var checksumOverwrite: some View {
+        let stale = model.pendingChecksumOverwrite?.plan.mismatched ?? []
+        let kind = model.pendingChecksumOverwrite?.algorithm.label ?? ""
+        let one = stale.count == 1
+        Text(one ? "A \(kind) checksum file already exists"
+                 : "\(stale.count) \(kind) checksum files already exist")
+            .font(.headline)
+        ScrollView {
+            Text("The \(one ? "file" : "files") below already \(one ? "exists" : "exist") but "
+                 + "\(one ? "holds a sum that no longer matches" : "hold sums that no longer match") "
+                 + "the \(one ? "file" : "files"). Overwrite with the newly computed, correct "
+                 + "\(kind) checksum\(one ? "" : "s")?\n\n"
+                 + stale.map { $0.destination.lastPathComponent }.joined(separator: "\n"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 140)
+        HStack {
+            Spacer()
+            Button("Cancel") { model.cancelChecksumOverwrite() }
+                .keyboardShortcut(.cancelAction)
+            Button("Overwrite", role: .destructive) { model.confirmChecksumOverwrite() }
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             switch dialog {
@@ -883,6 +914,20 @@ struct DialogSheet: View {
                              destructive: false,
                              showsCancel: false) { }
 
+            case .checksumReadOnly:
+                confirmation(
+                    title: "This folder is read-only",
+                    detail: "The checksum file\(model.pendingChecksum.map { $0.targets.count == 1 ? "" : "s" } ?? "") "
+                        + "cannot be created here. Create "
+                        + "\((model.pendingChecksum?.targets.count ?? 0) == 1 ? "it" : "them") in the other "
+                        + "pane instead?\n\n"
+                        + (model.pendingChecksum?.into.path ?? ""),
+                    confirm: "Create in Other Pane",
+                    destructive: false) { model.confirmChecksumsInOtherPane() }
+
+            case .checksumOverwrite:
+                checksumOverwrite
+
             case .historyStep:
                 historyStep
 
@@ -914,7 +959,9 @@ struct DialogSheet: View {
 
             case .password:
                 if let question = model.passwordQuestion {
-                    PasswordPrompt(question: question) { model.answerPassword($0) }
+                    PasswordPrompt(question: question,
+                                   answer: { model.answerPassword($0) },
+                                   recover: { model.recoverFromPasswordPrompt() })
                 }
 
             case .updateAvailable(let version):
@@ -1428,22 +1475,37 @@ struct FunctionBar: View {
 private struct PasswordPrompt: View {
     let question: PasswordQuestion
     let answer: (String?) -> Void
+    /// The Recover Password button, shown only for an encrypted zip.
+    let recover: () -> Void
     @State private var password = ""
     @FocusState private var focused: Bool
 
     var body: some View {
         Text("\u{201C}\(question.name)\u{201D} Is Encrypted")
             .font(.headline)
-        Text(question.wasWrong ? "That password did not open it. Try again:"
-                               : "Type its password to open it.")
-            .font(.subheadline)
-            .foregroundStyle(question.wasWrong ? .red : .secondary)
+        if question.wasWrong {
+            Text("That password did not open it. Try again \u{2014} there is no limit on "
+                 + "how many you may try and nothing locks you out, unlike signing in to a "
+                 + "service.")
+                .font(.subheadline)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text("Type its password to open it.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
         SecureField("Password", text: $password)
             .textFieldStyle(.roundedBorder)
             .focused($focused)
             .onSubmit { if !password.isEmpty { answer(password) } }
             .onAppear { focused = true }
         HStack {
+            // After a wrong try, offer recovery for a zip -- the search that
+            // starts from a password half-remembered, or tries combinations.
+            if question.wasWrong, question.recoverableZip != nil {
+                Button("Recover Password\u{2026}") { recover() }
+            }
             Spacer()
             Button("Cancel") { answer(nil) }
                 .keyboardShortcut(.cancelAction)

@@ -32,6 +32,9 @@ under a password, and makes **disk images** and **ISO** images too.
   own percent.
 - **Create Archive ▸ ISO** makes an `.iso` -- ISO 9660, Joliet and UDF -- for
   a virtual machine, a disc, or a computer that is not a Mac.
+- **A disk image can be a sidebar favourite.** Drag a `.dmg`, `.iso`, `.cdr`
+  or `.sparseimage` onto the sidebar; clicking it later mounts it (asking an
+  encrypted one's password) and goes to its volume.
 - Settings ▸ Behaviour turns Return's way of opening them off; Open as Folder
   and Mount in Pane work either way.
 
@@ -50,8 +53,70 @@ under a password, and makes **disk images** and **ISO** images too.
   and again while it is wrong. A zip's password is checked by Diptych at
   once, rather than by tar's ten thousand tries.
 
+## Recovering a ZIP password
+
+For a zip that is **your own** -- one sent with a mistyped password, or an old
+one whose password you have lost. **Archive ▸ Recover ZIP Password…**, the
+right-click menu, and a **Recover Password…** button that appears on the
+password prompt once a typed password is refused. The prompt also reminds you,
+when a password is wrong, that there is no limit on tries and nothing locks you
+out -- it is not signing in to a service. It tries passwords until one opens
+the zip:
+
+- **From a password you remember.** Type it as you recall it, wrong letters
+  and all; candidates radiate outward by a *keyboard* edit distance -- the
+  guess first, then a neighbouring key, a wrong case, two keys swapped, one
+  doubled or dropped -- nearest first. A slip of a key or two is found fast.
+- **Brute force.** Every string up to a length you set over an alphabet you
+  pick. The search space and the time it would take on this Mac are shown
+  first, and turn orange when the honest answer is "not in your lifetime".
+- Found, the password is shown with **Copy**; the search runs on every core,
+  with **Stop**. A ZipCrypto hit is confirmed by truly decrypting, so a
+  one-in-256 false positive is never reported.
+- The window says plainly that this is lawful on your own archives and may be
+  a crime on someone else's, and points at the GPU tools -- hashcat, John the
+  Ripper -- that do it in earnest past a short password.
+
+## Previous versions of a file
+
+- **File ▸ Previous Versions…**, or the right-click menu on a single file,
+  shows that file's earlier selves from this Mac's **APFS snapshots** -- the
+  hourly local snapshots macOS keeps on its own, and, with the backup disk
+  attached, **Time Machine**'s longer history. Newest first, each with its
+  date, source and size; a run of snapshots in which the file never changed is
+  shown as the one moment it last did, so an unchanging file is not listed a
+  hundred times.
+- **Compare** -- or **⌘D** -- opens a version against the file as it is now, in
+  the ordinary comparison window; the version is read-only, so looking never
+  changes it. The list stays open behind it -- look, decide, try another, until
+  one is right.
+- **Restore** copies a version's contents back over the file in place. It is
+  not a whole-volume rollback: the file keeps its name, permissions and
+  attributes, only its contents change, and it is a single **Undo** step. It
+  asks first.
+- No password is ever asked and nothing is mounted by Diptych: it reads the
+  snapshots the system already exposes, with Full Disk Access. A version the
+  system has not exposed is shown as unavailable rather than forced open.
+
+## Checksums
+
+- A new **Checksum** menu. **Create ▸** MD5, SHA-1, SHA-256 or SHA-512 writes
+  the sum into a file beside each selected one -- `photo.jpg.sha256` -- in the
+  layout `md5` and `shasum` read. A checksum file that already holds the right
+  sum is left alone; one that holds a stale sum is named and asked about before
+  it is overwritten. On read-only media Diptych offers to make the files in the
+  other pane instead.
+- **Check** verifies the selection. With one file and a checksum on the
+  clipboard -- a bare hash or a whole `hash  name` line -- it says which kind
+  matched; with several files, or nothing copied, it checks each one against the
+  checksum files beside it and reports every one as matching or not. It is also
+  on the right-click menu.
+
 ## Fixes
 
+- **Going up out of an opened archive** from a subfolder could overshoot into
+  Diptych's caches folder instead of leaving the archive. Up now always lands
+  beside the archive, with it selected, however deep inside you were.
 - A zip made of **one file** held its folder too -- `Downloads/notes.txt`
   rather than `notes.txt`. It holds the file alone now, as Finder's Compress
   makes it; a folder is still kept whole.
@@ -62,4 +127,4 @@ Nothing to do.
 
 ---
 
-*1353 tests.*
+*1402 tests.*

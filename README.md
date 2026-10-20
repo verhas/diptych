@@ -211,8 +211,13 @@ value already there, which is not a change, so nothing happened. Deriving it
 means the row deselects as soon as you leave the folder, and clicking it is a
 change again.
 
-Drag any **folder** from a pane onto the sidebar to add a favourite -- files are
-refused, since a favourite is somewhere to go. Drag a favourite up or down to
+Drag any **folder** from a pane onto the sidebar to add a favourite -- plain
+files are refused, since a favourite is somewhere to go. A **disk image** --
+`.dmg`, `.iso`, `.cdr`, `.sparseimage` -- may be a favourite too: it is a file,
+but opening it mounts it and shows its volume, so clicking the favourite mounts
+the image (asking the password of an encrypted one) and goes to it, and ejecting
+it from the sidebar is the usual eject. A favourite whose image has since moved
+away says so rather than doing nothing. Drag a favourite up or down to
 reorder it. Remove one with **its context menu**, and only there: `⌘⌫` always
 trashes files in the pane. It used to remove the selected favourite whenever one
 was selected -- which, since selecting a favourite is how you navigate, was most
@@ -1084,6 +1089,89 @@ spacing*, and wrapping that applies to both sides or to neither.
   by "different". Two files whose text is the same but whose bytes are not
   -- line endings, a byte-order mark, another encoding -- are said to be so.
   A chmod, a new tag or an attribute set elsewhere shows up at once.
+
+## Previous versions
+
+**File ▸ Previous Versions…**, or the right-click menu on a single file, opens
+that file's earlier selves out of this Mac's APFS snapshots -- the hourly
+*local* snapshots macOS keeps whether or not a backup disk is attached, and,
+when the backup disk is there, Time Machine's longer history. Each version is
+listed newest first, with its date, where it came from (a local snapshot or
+Time Machine) and its size. A run of snapshots in which the file never changed
+is **collapsed to the one moment it last did** -- by size and modification
+date, without reading the bytes -- so a file saved once a week is not listed a
+hundred times over.
+
+- **Compare** (or **⌘D**) opens the chosen version against the file as it is
+  now, in the ordinary comparison window -- the version on the left, the file on
+  the right. The version lives in a read-only snapshot, so the comparison can
+  never change it. The Previous Versions window stays open behind it, so you
+  look, decide, and come back for another version until one is right or you
+  close it.
+- **Restore** copies the chosen version's bytes over the file, in place. It is
+  *not* a whole-volume rollback: the file keeps its name, its permissions and
+  its extended attributes -- only the contents change -- and it is a single
+  [Undo](#undo-and-redo) step, so a restore you did not mean is one press to
+  take back. It asks first, naming the moment it would go back to.
+- **How it reads them.** macOS mounts snapshots under `/Volumes/.timemachine`;
+  Diptych reads them there with Full Disk Access and never mounts anything
+  itself or asks for a password -- so a snapshot the system has not exposed is
+  shown as present but unavailable rather than forced open. Grant Diptych Full
+  Disk Access (the window says so when a read is refused), and attach the backup
+  disk to reach versions older than the local snapshots. Only a file on a real
+  local volume has versions: a file inside an [opened archive](#archive-opened-as-a-folder)
+  is a copy in the caches, not one with a history. See also [Unreadable
+  folders](#unreadable-folders) on why a Time Machine backup cannot itself be
+  opened as a folder.
+
+The reading and the restore are in `FileVersions`; the window is
+`FileVersionsView`. `FileVersions.list(for:)` finds the timestamp folders the
+system exposes (under `/Volumes/.timemachine` and the local-snapshots volume),
+newest first, and resolves the file within each by searching a couple of levels
+down -- a local snapshot keeps it under `Data`, a Time Machine backup under a
+volume-named folder, and this does not hard-code either. Identical consecutive
+versions are then collapsed by size and modification date. Restore is a `FileHistory` *content* change
+-- the same undoable step an EXIF edit uses -- so a copy of what the file held
+goes to `UndoSnapshots` first.
+
+## Checksums
+
+**Checksum ▸ Create ▸** a kind writes a file's sum into a little text file
+beside it, and **Checksum ▸ Check** tells you whether a file still matches a
+sum. Both are also on the right-click menu, and both act on whatever ordinary
+files are selected. The kinds are **MD5**, **SHA-1**, **SHA-256** and
+**SHA-512**.
+
+- **Create** makes `name.ext` next to each selected file -- `photo.jpg.sha256`
+  for a SHA-256 of `photo.jpg` -- holding the sum in the `hash  name` layout
+  that `md5` and `shasum` read and write. Several files selected make several
+  checksum files at once, each beside its own file. Creating is a single
+  [Undo](#undo-and-redo) step.
+- **When the checksum file is already there**, Diptych does not blindly rewrite
+  it. If it already holds the right sum there is nothing to do, and it is left
+  untouched. If it holds a *different* sum -- the file has changed since --
+  Diptych names it and asks before overwriting it with the new, correct sum.
+  With several files selected, the ones that need a fresh checksum are written
+  straight away and only the stale ones wait on that one question.
+- **On read-only media** -- a disk image, an opened archive, a share mounted
+  read-only -- the checksum file cannot go beside the original, so Diptych asks
+  whether to put it in the other pane instead, and makes it there if you say so.
+- **Check** looks first at the clipboard. With **one** file selected and a
+  checksum copied -- a bare hash, or a whole `hash  name` or `MD5 (name) = hash`
+  line -- Diptych computes all four of the file's sums (one pass over the file,
+  so it is cheap) and tells you which kind matched, or that none did. 
+- With **nothing** copied, or with **several** files selected -- where a single
+  copied sum could not be said to belong to any one of them -- Check instead
+  looks for the checksum files beside each selected file. Every one it finds is
+  weighed against its file and reported as matching or not, so a file with both
+  a `.md5` and a `.sha256` beside it is checked against both.
+- Either way the result is a popup naming the kind of sum and, on success, what
+  it matched: the clipboard, or which checksum file.
+
+The hashing and the file format are in `Checksums`, off the main thread and
+tested on their own; what is selected, what the clipboard holds and the
+read-only detour are in `ChecksumActions`. `Checksums.allDigests(of:)` feeds one
+read of the file to all four hashers at once.
 
 ## Compare Folders
 
@@ -2129,8 +2217,22 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
   Copy and drag out, the flat view, Find Duplicates.
 - **Read-only.** The folder counts as a read-only volume, named after the
   archive: Rename, Move, Trash, New Folder and drops are greyed or refused,
-  and the agent's batch operations skip anything inside it. Extract it to
+  and the agent's batch operations skip anything inside it. The unpacked files
+  are locked on disk too -- directories unwritable, files `r--` -- so not even
+  another app can save over the copy. Extract it, or copy a file out, to
   change it.
+- **The listing is the archive's, not the copy's.** Beside the files in each
+  folder sits a small manifest -- `__DIPTYCH.json`, or `__1DIPTYCH.json` and
+  on up where the archive itself has a file of that name -- holding what the
+  archive recorded: the permissions, owner and group the extracted copy could
+  not keep, such as a setuid bit or a group you are not in. The pane shows
+  those, read from the manifest, over the real names and sizes on disk. The
+  manifest is hidden -- it is not listed, and Quick Look of a folder inside
+  the archive does not show it.
+- **A copy out is an extract.** Copy or drag a file, or a whole folder, out of
+  the archive and it lands with the archive's own permissions -- the write
+  bits and any setuid, setgid or sticky bit restored, not the read-only lock
+  -- and the archive's quarantine, owned by you, exactly as Extract gives it.
 - **The path bar names it inside the archive** --
   `~/Downloads/photos.zip/2024` -- and typing or Option-clicking such a path
   goes there. Up from its top lands next to the archive, with the archive
@@ -2149,10 +2251,55 @@ other disks, and ejected from there.
 Off in **Settings ▸ Behaviour**, Return opens them as Finder would; **Open as
 Folder** -- **Mount in Pane** for an image -- does it either way.
 
+### Recovering a ZIP password
+
+**Archive ▸ Recover ZIP Password…**, the same on a right-click, and a
+**Recover Password…** button that appears on the password prompt once a typed
+password is refused -- for a single selected `.zip`. The two of us have each
+had a zip arrive whose password the sender read out wrong by a letter, and an
+old archive turn up whose password was long forgotten. (The prompt also says,
+when a password is wrong, that there is no limit on how many you may try and
+nothing locks you out -- it is not signing in to a service.) It tries passwords
+against the zip until one opens it, two ways:
+
+- **From a password you remember.** You type it as you recall it, even if a
+  letter or two is off, and candidates radiate outward from it by a *keyboard*
+  edit distance: the guess itself first, then a neighbouring key struck in its
+  place, a letter's case wrong, two keys swapped, one doubled or dropped -- the
+  nearest first, farther and farther after. A sender's slip or a shaky memory
+  is usually a key or two away, found long before a blind search would reach
+  it. Diptych does not know of another tool that starts from a guess this way.
+- **Brute force.** Every string up to a length you set, over an alphabet you
+  pick -- digits, letters, letters and digits, or everything typable. The
+  search space and the time it would take **on this Mac** are worked out and
+  shown *first*, because past a short password the honest answer is "not in
+  your lifetime", and the window says so in orange rather than letting you
+  start a search that cannot finish.
+
+The password is checked by the same two-byte (AES) or one-byte (ZipCrypto)
+verifier Extract uses, so millions of ZipCrypto guesses a second are possible
+without unpacking anything; a guess that passes the quick check is then
+confirmed by actually decrypting, so a one-in-256 ZipCrypto false positive is
+never reported as the answer. Found, the password is shown with **Copy**. The
+search runs on every core and **Stop** ends it.
+
+- **AES is slow by design.** A WinZip-AES zip runs a thousand-round key
+  derivation per guess, so brute force reaches only short passwords; the window
+  says as much and steers you to the guess instead.
+- **This is lawful on your own archives**, or ones you were given leave to
+  open, and may be a crime used on someone else's. The window says so plainly,
+  every time.
+- **For a long or truly unknown password**, the window points at the GPU tools
+  that do this in earnest -- hashcat (modes 13600, 17200/17210/17225) and John
+  the Ripper (`zip2john`) -- which run the search on the graphics card at
+  millions to billions of guesses a second, orders of magnitude past any CPU.
+  Diptych's search is the CPU, and meant for a password nearly right.
+
 ## The menu bar
 
-**File**, **Edit**, **View**, **Go**, **Archive**, **Window**, **Help** --
-Finder's arrangement, with Archive added, and for the same reason. There used to be a `Files` menu alongside `File`, which was a
+**File**, **Edit**, **View**, **Go**, **Archive**, **Checksum**, **Window**,
+**Help** -- Finder's arrangement, with Archive and Checksum added, and for the
+same reason. There used to be a `Files` menu alongside `File`, which was a
 coin toss every time: the two names say nothing about which holds what.
 
 The split is Finder's: what you do *to* an item is in **File** -- Open, Get Info,
@@ -3640,11 +3787,13 @@ over. None of it is promised.
 
 ### Archives and disk images
 
-- **An archive opened without unpacking it all.** Opened as a folder, it is
-  unpacked whole first; a very large one could be listed at once and each
-  file taken out only when it is looked at or copied.
-- **Disk images in the sidebar** before they are mounted: dropped on it to
-  mount, kept as favourites.
+- **An archive opened without unpacking it all.** Opened as a folder it is
+  still unpacked whole first, now into a locked name-mirror tree with a
+  manifest of the archive's metadata in each directory -- the groundwork for
+  a listing that does not touch the bytes. A very large archive could then be
+  listed at once from the manifest alone, each file taken out of the archive
+  only when it is looked at or copied: the opaque indexed backing store in
+  `object-browser-design.md`.
 
 ### Older versions
 

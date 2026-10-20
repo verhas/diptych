@@ -23,6 +23,8 @@ struct DiptychApp: App {
     static let videoWindowID = "diptych.video"
     static let archiveWindowID = "diptych.archive"
     static let optimizeWindowID = "diptych.optimize"
+    static let recoverWindowID = "diptych.recover"
+    static let versionsWindowID = "diptych.versions"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -106,6 +108,20 @@ struct DiptychApp: App {
             if let request { OptimizeView(request: request) }
         }
         .defaultSize(width: 1180, height: 760)
+        .restorationBehavior(.disabled)
+
+        // One Recover Password per zip.
+        WindowGroup(id: DiptychApp.recoverWindowID, for: PasswordRecoveryRequest.self) { $request in
+            if let request { PasswordRecoveryView(request: request) }
+        }
+        .defaultSize(width: 560, height: 580)
+        .restorationBehavior(.disabled)
+
+        // One Previous Versions per file.
+        WindowGroup(id: DiptychApp.versionsWindowID, for: FileVersions.Request.self) { $request in
+            if let request { FileVersionsView(request: request) }
+        }
+        .defaultSize(width: 560, height: 480)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder -- and selection, or flat view.
@@ -383,6 +399,8 @@ struct FileCommands: Commands {
             Button("Compare") { model?.showDiff() }
                 .keyboardShortcut(.compare)
                 .disabled(model == nil)
+            Button("Previous Versions\u{2026}") { model?.showPreviousVersions() }
+                .disabled(model?.canShowPreviousVersions != true)
             Button("Find Duplicates\u{2026}") { model?.findDuplicates() }
                 .disabled(model?.canFindDuplicates != true)
             Button("Optimize File Size\u{2026}") { model?.requestOptimize() }
@@ -624,6 +642,22 @@ struct FileCommands: Commands {
                 .disabled(model?.canExtract != true)
             Button("Extract to Other Pane") { model?.extractToOtherPane() }
                 .disabled(model?.canExtractToOtherPane != true)
+            Divider()
+            Button("Recover ZIP Password\u{2026}") { model?.recoverPassword() }
+                .disabled(model?.canRecoverPassword != true)
+        }
+
+        // Making a file's checksum and checking one, a menu of its own.
+        CommandMenu("Checksum") {
+            Menu("Create") {
+                Button("MD5") { model?.createChecksums(.md5) }
+                Button("SHA-1") { model?.createChecksums(.sha1) }
+                Button("SHA-256") { model?.createChecksums(.sha256) }
+                Button("SHA-512") { model?.createChecksums(.sha512) }
+            }
+            .disabled(model?.canChecksum != true)
+            Button("Check") { model?.checkChecksums() }
+                .disabled(model?.canChecksum != true)
         }
 
         // Placed *into* the system View menu rather than declared as a second

@@ -774,6 +774,28 @@ struct PaneView: View {
                 Button("Extract to Other Pane") { act(ids) { model.extractToOtherPane() } }
                     .disabled(model.otherPaneFolder == nil || model.inactive.volume.isReadOnly)
             }
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isDirectory, item.url.pathExtension.lowercased() == "zip" {
+                Divider()
+                Button("Recover ZIP Password\u{2026}") { act(ids) { model.recoverPassword() } }
+            }
+        }
+    }
+
+    /// Checksum ▸ Create ▸ a kind, and Check -- offered when any plain file is
+    /// selected.
+    @ViewBuilder
+    private func checksumMenu(for ids: Set<FileItem.ID>) -> some View {
+        if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory && !$0.isParent }) {
+            Menu("Checksum") {
+                Menu("Create") {
+                    Button("MD5") { act(ids) { model.createChecksums(.md5) } }
+                    Button("SHA-1") { act(ids) { model.createChecksums(.sha1) } }
+                    Button("SHA-256") { act(ids) { model.createChecksums(.sha256) } }
+                    Button("SHA-512") { act(ids) { model.createChecksums(.sha512) } }
+                }
+                Button("Check") { act(ids) { model.checkChecksums() } }
+            }
         }
     }
 
@@ -832,7 +854,13 @@ struct PaneView: View {
             if ids.count == 1 {
                 Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
             }
+            // A real file's earlier selves, from this Mac's APFS snapshots.
+            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
+                Button("Previous Versions\u{2026}") { act(ids) { model.showPreviousVersions() } }
+            }
             archiveMenu(for: ids)
+            checksumMenu(for: ids)
             // Photos, PNGs and PDFs among the rows: they can be made smaller.
             if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
                                            && Optimizing.kind(of: $0.url) != nil }) {

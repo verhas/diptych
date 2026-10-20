@@ -619,9 +619,11 @@ final class PaneModel {
         guard directory.pathComponents.count > 1 else { return }
         let leaving = directory
 
-        // Out of the top of an opened archive: beside it, on it.
-        if let opened = ArchiveBrowsing.opened(containing: directory),
-           opened.root.standardizedFileURL == directory.standardizedFileURL {
+        // Out of the top of an opened archive: beside it, on it. Matched by
+        // resolved path, not URL equality -- going up from a subfolder arrives
+        // here with a trailing slash, which an absolute-string compare misses,
+        // so Up would overshoot into the caches folder instead of leaving.
+        if let opened = ArchiveBrowsing.openedRoot(at: directory) {
             navigate(to: opened.archive.deletingLastPathComponent())
             pendingSelection = [opened.archive]
             return

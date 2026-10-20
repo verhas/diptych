@@ -52,6 +52,8 @@ final class AppModel {
         case restoreFromArchive
         case makePDF
         case password
+        case checksumReadOnly
+        case checksumOverwrite
 
         var id: String {
             switch self {
@@ -80,6 +82,8 @@ final class AppModel {
             case .restoreFromArchive: return "restoreFromArchive"
             case .makePDF:            return "makePDF"
             case .password:           return "password"
+            case .checksumReadOnly:   return "checksumReadOnly"
+            case .checksumOverwrite:  return "checksumOverwrite"
             case .sendWork:       return "sendWork"
             case .gitConflict:    return "gitConflict"
             case .gitNotSent:     return "gitNotSent"
@@ -249,6 +253,14 @@ final class AppModel {
     @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
     @ObservationIgnored var openArchiveWindow: ((ArchiveRequest) -> Void)?
     @ObservationIgnored var openOptimizeWindow: ((OptimizeRequest) -> Void)?
+    @ObservationIgnored var openRecoverWindow: ((PasswordRecoveryRequest) -> Void)?
+    @ObservationIgnored var openVersionsWindow: ((FileVersions.Request) -> Void)?
+    /// A Create Checksum held back because the pane is read-only, waiting for
+    /// the user to say whether the files may go in the other pane instead.
+    @ObservationIgnored var pendingChecksum: PendingChecksum?
+    /// A Create Checksum stopped at checksum files that already hold a
+    /// different sum, waiting for the user to say whether to overwrite them.
+    @ObservationIgnored var pendingChecksumOverwrite: PendingChecksumOverwrite?
     /// Extract's question, while it is asked: what the archive records that
     /// unpacking it as the user did not give.
     var restoreQuestion: RestoreQuestion?
@@ -2115,6 +2127,16 @@ final class AppModel {
     }
 
     func openSidebarEntry(_ entry: SidebarEntry) {
+        // A disk-image favourite is a file, not a folder: opening it mounts it
+        // and shows its volume, as dropping the image on a pane would.
+        if entry.kind == .favourite, DiskImaging.isDiskImage(entry.url) {
+            guard FileManager.default.fileExists(atPath: entry.url.path) else {
+                flash("\u{201C}\(entry.name)\u{201D} is no longer where it was")
+                return
+            }
+            openAsFolder(entry.url, in: active)
+            return
+        }
         active.navigate(to: entry.url)
     }
 
@@ -2159,18 +2181,20 @@ final class AppModel {
     }
 
     func addFavourites(_ urls: [URL]) {
-        // A favourite is somewhere to go, so only folders qualify.
-        let folders = urls.filter {
+        // A favourite is somewhere to go: a folder, or a disk image, which
+        // mounts to a folder when it is opened.
+        let eligible = urls.filter {
             (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                || DiskImaging.isDiskImage($0)
         }
-        guard !folders.isEmpty else {
-            flash("Only folders can be favourites")
+        guard !eligible.isEmpty else {
+            flash("Only folders and disk images can be favourites")
             return
         }
 
         var list = ConfigStore.shared.configuration.favourites
         let before = list.count
-        for url in folders where !list.contains(url.path) {
+        for url in eligible where !list.contains(url.path) {
             list.append(url.path)
         }
         guard list.count > before else { return }
