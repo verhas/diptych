@@ -72,6 +72,10 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// What the Name column sorts by: the name, after its folder in a flat
     /// view.
     var relativePath: String { folderPrefix + name }
+    /// Where this file was before it was trashed, when Diptych knows -- shown
+    /// only by the Trash listing's Original Location column, filled in by the
+    /// pane when it lists a Trash folder. Empty everywhere else.
+    var originalLocation = ""
     /// Filled in after the listing, once the repository has been asked.
     var gitState: GitState = .clean
     /// Everything found at or under this row, strongest first. One entry for a
@@ -136,6 +140,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .group:         return group
         case .tags:          return tags.joined(separator: ", ")
         case .git:           return gitStates.map(\.title).joined(separator: ", ")
+        case .originalLocation: return originalLocation
         default:             return media?.text(for: column) ?? ""
         }
     }

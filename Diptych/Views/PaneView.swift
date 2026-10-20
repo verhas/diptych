@@ -534,8 +534,13 @@ struct PaneView: View {
         // clicking a header sorts again.
         let sortOrder = Binding(get: { pane.manualOrder == nil ? pane.sortOrder : [] },
                                 set: { pane.sort(by: $0) })
+        // The configured columns, plus Original Location when this is a Trash
+        // listing and the setting is on -- it appears nowhere else.
+        let columns = ConfigStore.shared.configuration.columns
+            + (pane.isTrashListing && ConfigStore.shared.configuration.showOriginalLocationInTrash
+               ? [FileColumn.originalLocation] : [])
         return Table(of: FileItem.self, selection: $pane.selection, sortOrder: sortOrder) {
-            TableColumnForEach(ConfigStore.shared.configuration.columns) { column in
+            TableColumnForEach(columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
                     CellView(column: column, item: item, pane: pane, model: model,
                              activate: activate)

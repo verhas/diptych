@@ -940,6 +940,7 @@ final class AppModel {
         Task {
             let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
             FileHistory.shared.recordTrash(moved)
+            TrashOriginals.shared.record(moved)
             if !outcome.succeeded.isEmpty {
                 Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
             }
@@ -2144,6 +2145,17 @@ final class AppModel {
             return
         }
         active.navigate(to: entry.url)
+    }
+
+    /// Open the Trash of a volume in the active pane. Empty -- the volume has
+    /// its own `.Trashes/<uid>` only once something is trashed on it -- is said
+    /// rather than shown as a folder that is not there.
+    func openTrash(of entry: SidebarEntry) {
+        guard let trash = Trash.directory(forVolumeAt: entry.url) else {
+            flash("The Trash on \u{201C}\(entry.name)\u{201D} is empty")
+            return
+        }
+        active.navigate(to: trash)
     }
 
     /// Ejects the whole device, as Finder's eject does.

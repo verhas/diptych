@@ -84,6 +84,7 @@ struct CellView: View {
             case .name:        nameCell
             case .permissions: permissionsCell
             case .git:         gitCell
+            case .originalLocation: originalLocationCell
             default:
                 if pane.valueEdit == CellEdit.Spot(id: item.id, column: column) {
                     RenameField(text: $pane.valueEditText, selectsAll: true,
@@ -146,6 +147,20 @@ struct CellView: View {
             .monospacedDigit()
             .frame(maxWidth: .infinity,
                    alignment: column.isTrailingAligned ? .trailing : .leading)
+    }
+
+    /// Where a trashed file came from. It is often longer than the column, so
+    /// it truncates in the middle and shows the whole path on hover.
+    private var originalLocationCell: some View {
+        let text = item.text(for: .originalLocation)
+        return Text(text.isEmpty ? "\u{2014}" : text)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(text.isEmpty
+                  ? "Original location unknown \u{2014} Diptych did not move this to the Trash"
+                  : text)
     }
 
     /// The words, in their own colours, comma separated.

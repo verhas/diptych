@@ -685,6 +685,9 @@ final class PaneModel {
     @ObservationIgnored private var flatQuery: FlatQuery?
     var isFlat: Bool { flat != nil }
 
+    /// Showing a Trash folder -- where the Original Location column belongs.
+    var isTrashListing: Bool { !isFlat && Trash.isTrash(directory) }
+
     /// What is typed in the expression field, run or not.
     var flatDraft = ""
 
@@ -1293,7 +1296,17 @@ final class PaneModel {
         awaitingServer = nil
         listed = target
         listedEarlier = nil
-        items = loaded
+        // In a Trash listing, give each row where it came from, if Diptych
+        // trashed it, for the Original Location column.
+        if Trash.isTrash(target) {
+            items = loaded.map {
+                var item = $0
+                item.originalLocation = TrashOriginals.shared.original(of: item.url) ?? ""
+                return item
+            }
+        } else {
+            items = loaded
+        }
         decorateWithGit(for: target)
         isLoading = false
         loadingDirectory = nil

@@ -413,3 +413,15 @@ Three tabs added to Get Info (⌘I), each read when first shown.
   file of the kind.
 - Share: the file's icon and kind, and the native Share button -- the same
   sheet as Finder, Mail and AirDrop and the rest.
+
+## 31. The Trash -- idea
+
+Trashing a few files, then looking in the Trash.
+
+- Each volume in the sidebar has a trash button on its left, away from Eject.
+  Click it: the pane opens that volume's Trash.
+- The listing has an extra Original Location column -- where each file came
+  from. Hover a long one and the whole path shows. It is there only in the
+  Trash, nowhere else, and Settings ▸ Columns can turn it off.
+- The honest part: macOS does not hand out Finder's put-back, so the column is
+  what Diptych itself remembers trashing; a file Finder trashed shows a dash.

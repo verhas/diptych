@@ -233,6 +233,15 @@ report false for it while being perfectly ejectable, so the test is "neither the
 root file system nor internal". Ejecting takes the whole device, as Finder does,
 and any pane sitting on the volume is moved home first.
 
+Each volume also carries a small **trash** button on the *left* of its row --
+deliberately the opposite side from Eject, so a stray click opens the Trash
+rather than ejecting the disk. It opens that volume's Trash in the active pane:
+`~/.Trash` for the startup volume, `.Trashes/<uid>` for any other. A volume
+grows its own `.Trashes/<uid>` only once something is trashed on it, so the
+button says the Trash is empty rather than opening a folder that is not there.
+Open Trash is on the volume's context menu too. See [Trash
+listing](#trash-listing) for what the pane then shows.
+
 Volumes track mounts and unmounts through NSWorkspace notifications -- a disk
 appearing touches no directory a pane watches, so the list has to be told.
 
@@ -249,6 +258,25 @@ drag arrives with the button already up and clears that. An app is not a folder
 to drop into. A row stops flashing within a moment of the drag ending, however
 it ends: the flash is drawn from the clock rather than a repeating animation,
 and the target is let go once position updates stop.
+
+## Trash listing
+
+Open a volume's Trash from the sidebar (the trash button on the left of a
+volume, or Open Trash in its menu) and the pane lists it like any other folder,
+with one addition: an **Original Location** column, showing where each file was
+before it was trashed. It is on by default, appears *only* in a Trash listing --
+never in an ordinary folder -- and can be switched off in Settings ▸ Columns.
+The path is often longer than the column, so it truncates in the middle and
+shows the whole of it on hover.
+
+macOS keeps Finder's "Put Back" location in a private store with no public API
+to read it, so this column is filled from **Diptych's own record** of what it
+moved to the Trash (`TrashOriginals`, a small JSON file in `~/.diptych`): honest
+about what it knows, and a dash for anything trashed by Finder or another app.
+The record forgets an entry once its trashed file is gone -- the Trash emptied,
+or the file put back -- so it does not grow without bound. `Trash` says where a
+volume's Trash is and what counts as one; the column itself is the `FileColumn`
+case `originalLocation`, added to the table only for a Trash listing.
 
 ## File servers
 

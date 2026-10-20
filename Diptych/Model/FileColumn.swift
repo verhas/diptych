@@ -43,14 +43,21 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
     case state
     case country
     case rating
+    /// Trash only: where a trashed file came from. Never offered in the general
+    /// column settings -- it is added to a Trash listing on its own.
+    case originalLocation
 
     var id: String { rawValue }
+
+    /// Columns offered in the general column settings. Original Location is kept
+    /// out: it belongs only to a Trash listing, switched by its own setting.
+    static var general: [FileColumn] { allCases.filter { $0 != .originalLocation } }
 
     /// Read from the picture or video itself, not the file system.
     var isMedia: Bool {
         switch self {
         case .name, .size, .kind, .modified, .created, .added, .fileExtension, .permissions,
-             .owner, .group, .tags, .git: false
+             .owner, .group, .tags, .git, .originalLocation: false
         default: true
         }
     }
@@ -92,6 +99,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .state:         "State"
         case .country:       "Country"
         case .rating:        "Rating"
+        case .originalLocation: "Original Location"
         }
     }
 
@@ -116,6 +124,8 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         // Git state does not come from the file system at all -- it is filled
         // in after the listing, from one status call per repository.
         case .git:           []
+        // Filled in by the pane from Diptych's own record, not the file system.
+        case .originalLocation: []
         default:             [DirectoryLoader.mediaKey]
         }
     }
@@ -141,6 +151,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .location:      (120, 160, 240)
         case .camera, .lens, .software, .artist, .copyright, .imageDescription, .city,
              .state, .country: (80, 140, 400)
+        case .originalLocation: (160, 320, 10_000)
         }
     }
 
@@ -168,6 +179,10 @@ struct Configuration: Codable, Equatable {
     /// verified by experiment -- never restores them for a table whose columns
     /// come from `TableColumnForEach`.
     var columnWidths: [String: Double] = [:]
+
+    /// The Original Location column in a Trash listing -- on by default, and
+    /// shown only there, never in an ordinary folder.
+    var showOriginalLocationInTrash = true
 
     /// Sidebar favourites, as paths. Global: a favourite is a favourite in
     /// every window.
@@ -465,6 +480,7 @@ struct Configuration: Codable, Equatable {
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
         case textFormatExtensions, textLineNumbers, textStyle
         case serverRefreshSeconds, copying
+        case showOriginalLocationInTrash
     }
 
     init() {}
@@ -480,6 +496,8 @@ struct Configuration: Codable, Equatable {
             ?? [.name, .size, .modified]
         columnWidths = (try? container.decode([String: Double].self, forKey: .columnWidths))
             ?? [:]
+        showOriginalLocationInTrash =
+            (try? container.decode(Bool.self, forKey: .showOriginalLocationInTrash)) ?? true
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
         toolbar = (try? container.decode([ToolbarSlot].self, forKey: .toolbar))

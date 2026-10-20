@@ -12,9 +12,10 @@ struct SidebarView: View {
         List(selection: $model.selectedSidebarEntry) {
             Section("Volumes") {
                 ForEach(volumes.volumes) { entry in
-                    row(entry)
+                    row(entry, showsTrash: true)
                         .contextMenu {
                             Button("Open") { model.openSidebarEntry(entry) }
+                            Button("Open Trash") { model.openTrash(of: entry) }
                             if entry.isEjectable {
                                 Divider()
                                 Button("Eject") { model.eject(entry) }
@@ -110,8 +111,20 @@ struct SidebarView: View {
         Button("Remove from Servers") { servers.setSaved(server, false) }
     }
 
-    private func row(_ entry: SidebarEntry) -> some View {
+    private func row(_ entry: SidebarEntry, showsTrash: Bool = false) -> some View {
         HStack(spacing: 6) {
+            // On the left, deliberately away from Eject on the right, so a
+            // stray click opens the Trash rather than ejecting the disk.
+            if showsTrash {
+                Button {
+                    model.openTrash(of: entry)
+                } label: {
+                    Image(systemName: "trash").font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Open the Trash on \(entry.name)")
+            }
             Image(nsImage: SidebarIcons.shared.icon(for: entry.url, isNetwork: entry.isNetwork))
             VStack(alignment: .leading, spacing: 0) {
                 Text(entry.name)

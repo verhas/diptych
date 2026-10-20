@@ -112,6 +112,18 @@ the zip:
   checksum files beside it and reports every one as matching or not. It is also
   on the right-click menu.
 
+## The Trash
+
+- Each volume in the sidebar has a small **trash** button on the left -- the
+  opposite side from Eject, so a stray click never ejects the disk -- that opens
+  that volume's Trash in the active pane (`~/.Trash`, or `.Trashes/<uid>` on
+  another volume). Also on the volume's right-click menu.
+- A Trash listing gains an **Original Location** column showing where each file
+  was before it was trashed, on by default and shown only there (Settings ▸
+  Columns to switch it off). The long path shows in full on hover. macOS keeps
+  Finder's put-back privately, so this is filled from Diptych's own record of
+  what it trashed -- a dash for anything trashed by Finder or another app.
+
 ## More in the Info window
 
 - **Signature**: a file's code signature and what Gatekeeper makes of it --
@@ -148,4 +160,4 @@ Nothing to do.
 
 ---
 
-*1416 tests.*
+*1421 tests.*

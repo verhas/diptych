@@ -37,7 +37,7 @@ struct FileComparator: SortComparator, Hashable {
                                   rhs.media?.number(column) ?? -.infinity)
         case .kind, .fileExtension, .permissions, .owner, .group, .tags, .git, .format,
              .camera, .lens, .software, .artist, .copyright, .imageDescription, .location,
-             .city, .state, .country:
+             .city, .state, .country, .originalLocation:
             // localizedStandardCompare is the Finder-ish one: case-insensitive,
             // and "file10" sorts after "file9" rather than before it.
             result = lhs.text(for: column).localizedStandardCompare(rhs.text(for: column))

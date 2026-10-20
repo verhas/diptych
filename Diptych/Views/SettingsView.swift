@@ -368,7 +368,9 @@ struct ColumnSettingsView: View {
                 .foregroundStyle(.secondary)
 
             List {
-                ForEach(store.configuration.columnOrder) { column in
+                // Original Location is left out: it belongs only to a Trash
+                // listing and has its own switch below, not the general set.
+                ForEach(store.configuration.columnOrder.filter { $0 != .originalLocation }) { column in
                     row(for: column)
                 }
                 .onMove { source, destination in
@@ -377,6 +379,15 @@ struct ColumnSettingsView: View {
             }
             .listStyle(.bordered(alternatesRowBackgrounds: true))
             .frame(maxHeight: .infinity)
+
+            Toggle("Show the original location in Trash listings", isOn: Binding(
+                get: { store.configuration.showOriginalLocationInTrash },
+                set: { store.configuration.showOriginalLocationInTrash = $0 }))
+            Text("A column, shown only when a pane is a Trash folder, giving where each file "
+                 + "was before Diptych moved it to the Trash. It never appears in an ordinary "
+                 + "folder.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Text("Drag a row to change the column order. Columns for pictures and "

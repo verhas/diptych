@@ -672,6 +672,7 @@ final class DuplicateSearch {
         let urls = groups.flatMap(\.files).map(\.id).filter { chosen.contains($0) }
         let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
         FileHistory.shared.recordTrash(moved)
+        TrashOriginals.shared.record(moved)
         if !outcome.succeeded.isEmpty {
             Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
         }
