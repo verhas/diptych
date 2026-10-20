@@ -12,6 +12,8 @@ struct SettingsView: View {
         TabView {
             ColumnSettingsView()
                 .tabItem { Label("Columns", systemImage: "tablecells") }
+            MenuSettingsView()
+                .tabItem { Label("Menus", systemImage: "contextualmenu.and.cursorarrow") }
             ToolbarSettingsView()
                 .tabItem { Label("Toolbar", systemImage: "slider.horizontal.3") }
             AppearanceSettingsView()
@@ -31,8 +33,8 @@ struct SettingsView: View {
         // Wide enough for every tab in the toolbar. One too many for the width
         // and macOS moves the last ones into a ">>" overflow menu -- where a
         // Settings tab cannot be chosen at all: the items show, greyed out.
-        // Eight tabs need about 610 points.
-        .frame(width: 680, height: 470)
+        // Nine tabs need about 740 points.
+        .frame(width: 760, height: 470)
         .background(WindowAccessor { window in
             if let window {
                 AppWindows.shared.register(window)
@@ -430,6 +432,49 @@ struct ColumnSettingsView: View {
                 .foregroundStyle(.quaternary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// Which right-click menu entries are offered, with presets for a kind of work.
+struct MenuSettingsView: View {
+
+    @Bindable private var store = ConfigStore.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Switch off the right-click entries you do not use, so the menu stays short. "
+                 + "Everything is on by default; the core -- Open, Copy, Paste, New, Rename, "
+                 + "Move to Trash -- is always there.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Text("Preset:").foregroundStyle(.secondary)
+                ForEach(MenuPreset.all) { preset in
+                    Button(preset.name) { store.applyMenuPreset(preset) }
+                }
+            }
+
+            List {
+                ForEach(MenuItem.allCases) { item in
+                    HStack(spacing: 10) {
+                        Toggle("", isOn: Binding(
+                            get: { store.menuItemShown(item) },
+                            set: { store.setMenuItem(item, shown: $0) }))
+                            .labelsHidden()
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.title)
+                            Text(item.note).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
+            .frame(maxHeight: .infinity)
+        }
+        .padding(20)
     }
 }
 

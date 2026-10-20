@@ -2610,8 +2610,27 @@ resource keys the enabled columns need are prefetched, so leaving Permissions or
 Tags switched off costs nothing per row.
 
 Adding a column means adding a case to `FileColumn`: the settings list is built
-from `allCases`, the loader asks each enabled case which `URLResourceKey`s it
-needs, and the table and comparator switch on it.
+from `allCases` (less `originalLocation`, which belongs to the [Trash
+listing](#trash-listing) alone), the loader asks each enabled case which
+`URLResourceKey`s it needs, and the table and comparator switch on it.
+
+### Right-click menu entries
+
+The many file tools have grown the right-click menu, so the **Menus** tab in
+Settings switches individual entries off to keep it short: Get Info, Find
+Sibling Names, Find Duplicates, Previous Versions, Disk Usage, Archive,
+Checksum, Split/Join, Optimize, the Image and Video tools, Run, Text/Bin Edit
+and Scripts. Everything is on by default, and the core -- Open, Copy, Cut,
+Paste, New, Rename, Move to Trash -- is never in the list, so the menu can never
+lose what a file manager needs.
+
+**Presets** set a whole group at once: *Everything* (the default), *Developer*
+(the checksums, split/join, siblings, text and hex editors, scripts; the picture
+and video tools off), *Content Creator* (the image, video and optimize tools;
+the developer ones off) and *Minimal*. A preset shows its set and hides the
+rest; individual ticks then adjust it. The switches are `MenuItem` cases and the
+groups `MenuPreset`; what is off is kept in `hiddenMenuItems`, so a tool added to
+Diptych later is on until you turn it off.
 
 ### What a copy keeps
 

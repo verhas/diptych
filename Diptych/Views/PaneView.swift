@@ -812,7 +812,7 @@ struct PaneView: View {
             Button("New File") { activate(); model.requestNewFile() }
                 .keyboardShortcut(.newFile)
             newFromClipboard
-            scripts(for: [])
+            if ConfigStore.shared.menuItemShown(.scripts) { scripts(for: []) }
             Button("Paste") { activate(); model.pasteIntoActivePane() }
                 .keyboardShortcut(.paste)
             Button("Paste as Link") { activate(); model.pasteAsLink() }
@@ -846,34 +846,40 @@ struct PaneView: View {
                 }
                 .keyboardShortcut(.open)
             }
-            Button("Get Info") { act(ids) { model.showInfo() } }
-                .keyboardShortcut(.getInfo)
+            if ConfigStore.shared.menuItemShown(.getInfo) {
+                Button("Get Info") { act(ids) { model.showInfo() } }
+                    .keyboardShortcut(.getInfo)
+            }
             // Only for a file with more than one name: for any other, there
             // is nothing to find.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.findSiblings),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                item.hardLinkCount > 1 {
                 Button("Find Sibling Names (Hard Links to the Same File)\u{2026}") {
                     act(ids) { model.findSiblingNames(of: item) }
                 }
             }
-            if ids.count == 1 {
+            if ConfigStore.shared.menuItemShown(.findDuplicates), ids.count == 1 {
                 Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
             }
             // A single folder: what is taking up the room under it.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.diskUsage),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                item.isDirectory, !item.isParent {
                 Button("Disk Usage\u{2026}") { act(ids) { model.showDiskUsage() } }
             }
             // A real file's earlier selves, from this Mac's APFS snapshots.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.previousVersions),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
                 Button("Previous Versions\u{2026}") { act(ids) { model.showPreviousVersions() } }
             }
-            archiveMenu(for: ids)
-            checksumMenu(for: ids)
+            if ConfigStore.shared.menuItemShown(.archive) { archiveMenu(for: ids) }
+            if ConfigStore.shared.menuItemShown(.checksum) { checksumMenu(for: ids) }
             // One file selected: split it, or -- if it is a `.001` -- join from it.
             // Offered even on read-only media: the parts then go to the other pane.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.splitJoin),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
                 if FileSplitting.isFirstPart(item.url) {
                     Button("Join Parts") { act(ids) { model.joinParts() } }
@@ -882,7 +888,8 @@ struct PaneView: View {
                 }
             }
             // Photos, PNGs and PDFs among the rows: they can be made smaller.
-            if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
+            if ConfigStore.shared.menuItemShown(.optimize),
+               pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
                                            && Optimizing.kind(of: $0.url) != nil }) {
                 Button("Optimize File Size\u{2026}") { act(ids) { model.requestOptimize() } }
                     .disabled(pane.volume.isReadOnly)
@@ -895,7 +902,7 @@ struct PaneView: View {
             let pictures = AppModel.imageFiles(selectedRows)
             let images = AppModel.exifEditable(selectedRows)
             let videos = AppModel.videoEditable(selectedRows)
-            if !videos.isEmpty {
+            if !videos.isEmpty, ConfigStore.shared.menuItemShown(.video) {
                 Menu("Video") {
                     Button(videos.count == 1 ? "Edit Metadata\u{2026}"
                                              : "Edit Metadata of \(videos.count) Videos\u{2026}") {
@@ -903,7 +910,7 @@ struct PaneView: View {
                     }
                 }
             }
-            if !pictures.isEmpty {
+            if !pictures.isEmpty, ConfigStore.shared.menuItemShown(.image) {
                 Menu("Image") {
                     if !images.isEmpty {
                         Button(images.count == 1 ? "Edit EXIF\u{2026}"
@@ -962,11 +969,13 @@ struct PaneView: View {
             // opening it -- Return, double-click, "Open" above -- walks into
             // its bundle instead of launching it. This is the deliberate way
             // to launch one instead, offered only where it means something.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.run),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                item.isApplication {
                 Button("Run App") { act(ids) { NSWorkspaceOpener.open(item.url) } }
             }
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.run),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                model.isRunnable(item) {
                 runMenu(for: item)
             }
@@ -995,7 +1004,8 @@ struct PaneView: View {
 
             // Hidden rather than disabled for a folder: the entry would be
             // permanently greyed out on half the rows in every listing.
-            if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
+            if ConfigStore.shared.menuItemShown(.edit),
+               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !item.isBrokenLink {
                 // Named for the format Text Edit will open it as: JSON Edit.
                 let format = TextFormat.of(item.url, extensions: ConfigStore.shared.configuration.textFormats)
@@ -1004,7 +1014,9 @@ struct PaneView: View {
                 }
                 Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
-            scripts(for: targets(of: ids))
+            if ConfigStore.shared.menuItemShown(.scripts) {
+                scripts(for: targets(of: ids))
+            }
 
             Divider()
 

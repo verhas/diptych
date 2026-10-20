@@ -184,6 +184,11 @@ struct Configuration: Codable, Equatable {
     /// shown only there, never in an ordinary folder.
     var showOriginalLocationInTrash = true
 
+    /// Right-click menu entries switched off, by `MenuItem` raw value. Empty --
+    /// everything on -- is the default, so a tool added later is on until the
+    /// person turns it off.
+    var hiddenMenuItems: Set<String> = []
+
     /// Sidebar favourites, as paths. Global: a favourite is a favourite in
     /// every window.
     var favourites: [String] = []
@@ -481,6 +486,7 @@ struct Configuration: Codable, Equatable {
         case textFormatExtensions, textLineNumbers, textStyle
         case serverRefreshSeconds, copying
         case showOriginalLocationInTrash
+        case hiddenMenuItems
     }
 
     init() {}
@@ -498,6 +504,8 @@ struct Configuration: Codable, Equatable {
             ?? [:]
         showOriginalLocationInTrash =
             (try? container.decode(Bool.self, forKey: .showOriginalLocationInTrash)) ?? true
+        hiddenMenuItems =
+            (try? container.decode(Set<String>.self, forKey: .hiddenMenuItems)) ?? []
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
         toolbar = (try? container.decode([ToolbarSlot].self, forKey: .toolbar))

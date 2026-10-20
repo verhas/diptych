@@ -112,6 +112,16 @@ the zip:
   checksum files beside it and reports every one as matching or not. It is also
   on the right-click menu.
 
+## Choosing the right-click menu
+
+- With so many file tools now on the right-click menu, a new **Menus** tab in
+  Settings switches individual entries off to keep it short -- Checksum,
+  Split/Join, Disk Usage, Previous Versions, the Image and Video tools and the
+  rest. Everything is on by default, and the core (Open, Copy, Paste, New,
+  Rename, Move to Trash) is never in the list.
+- **Presets** set a group at once: Developer, Content Creator, Minimal, and
+  Everything.
+
 ## Disk Usage
 
 - **File ▸ Disk Usage…** (also on a folder's right-click menu) opens a window
@@ -169,4 +179,4 @@ Nothing to do.
 
 ---
 
-*1426 tests.*
+*1431 tests.*

@@ -437,3 +437,14 @@ A folder that has grown and you want to see what is in it.
   one huge thing is suddenly red.
 - Switch to Files: every file its own rectangle, coloured by kind, the way
   GrandPerspective shows a disk. Hover the biggest and the footer names it.
+
+## 33. Choosing the right-click menu -- idea
+
+The right-click menu has grown long; this trims it.
+
+- Settings ▸ Menus: a list of the optional entries, all ticked. Untick a few --
+  say the image and video tools -- and the pane's right-click menu is shorter at
+  once. Open, Copy, Paste and the rest are never in the list.
+- The presets: click Developer and the checksums, split/join and editors stay
+  while the media tools go; click Content Creator and it is the other way round.
+  Minimal strips it to almost nothing; Everything puts it all back.

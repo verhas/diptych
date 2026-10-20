@@ -78,6 +78,26 @@ final class ConfigStore {
         }
     }
 
+    // MARK: - Right-click menu entries
+
+    /// Whether a right-click menu entry is shown.
+    func menuItemShown(_ item: MenuItem) -> Bool {
+        !configuration.hiddenMenuItems.contains(item.id)
+    }
+
+    func setMenuItem(_ item: MenuItem, shown: Bool) {
+        if shown {
+            configuration.hiddenMenuItems.remove(item.id)
+        } else {
+            configuration.hiddenMenuItems.insert(item.id)
+        }
+    }
+
+    /// Show the preset's entries and hide the rest.
+    func applyMenuPreset(_ preset: MenuPreset) {
+        configuration.hiddenMenuItems = preset.hidden
+    }
+
     /// The columns on show, put in this order -- as dragged in a pane's
     /// header. The hidden ones keep their places among them; Name stays first.
     func arrange(_ shown: [FileColumn]) {
