@@ -31,6 +31,16 @@ enum TableFinder {
         return byShape.isEmpty ? all : byShape
     }
 
+    /// The pane whose table this is -- matched by position the same way click
+    /// routing does, so a trash pane can be told from an ordinary one.
+    static func pane(of table: NSTableView, in window: NSWindow) -> PaneModel? {
+        guard let model = KeyRouter.shared.allModels.first(where: { $0.window === window })
+        else { return nil }
+        let panes = tables(in: window)
+        guard let index = panes.firstIndex(of: table) else { return nil }
+        return panes.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+    }
+
     private static func walk(_ view: NSView) -> [NSTableView] {
         if let table = view as? NSTableView { return [table] }
         let children = (view.subviews as NSArray).copy() as? [NSView] ?? []

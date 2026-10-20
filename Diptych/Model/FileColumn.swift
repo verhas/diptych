@@ -459,15 +459,22 @@ struct Configuration: Codable, Equatable {
     /// the front. 0: neither -- only Refresh lists it again.
     var serverRefreshSeconds = 5
 
-    /// The columns a pane actually draws. Original Location is never among them:
-    /// it belongs to a Trash listing alone, added there by the pane, so it is
-    /// filtered out here however it came to be enabled.
-    var columns: [FileColumn] {
-        let ordered = columnOrder.filter {
-            $0 != .name && $0 != .originalLocation && enabledColumns.contains($0)
+    /// The columns a pane draws. `inTrash` governs Original Location: it is
+    /// shown only in a Trash listing, only when its setting is on, at whatever
+    /// position it has been dragged to in `columnOrder`. It is never a column
+    /// anywhere else, however it is ordered or enabled.
+    func columns(inTrash: Bool) -> [FileColumn] {
+        let ordered = columnOrder.filter { column in
+            guard column != .name else { return false }
+            if column == .originalLocation { return inTrash && showOriginalLocationInTrash }
+            return enabledColumns.contains(column)
         }
         return [.name] + ordered
     }
+
+    /// The ordinary (non-Trash) columns -- what most of the app means by "the
+    /// columns".
+    var columns: [FileColumn] { columns(inTrash: false) }
 
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites

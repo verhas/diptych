@@ -22,6 +22,9 @@ enum ColumnArrangement {
     /// The columns greyed are those with nothing in them in any of `rows`.
     static func showMenu(for event: NSEvent, in header: NSTableHeaderView, rows: [FileItem]) {
         menuHandler.empty = empty(in: rows)
+        menuHandler.inTrash = header.tableView.flatMap { table in
+            header.window.flatMap { TableFinder.pane(of: table, in: $0) }
+        }?.isTrashListing ?? false
         NSMenu.popUpContextMenu(menuHandler.menu, with: event, for: header)
     }
 
@@ -87,7 +90,8 @@ enum ColumnArrangement {
     /// resize -- is left to the header.
     static func drag(from event: NSEvent, in header: NSTableHeaderView) -> Bool {
         guard let window = header.window, let table = header.tableView else { return false }
-        let columns = ConfigStore.shared.configuration.columns
+        let trash = TableFinder.pane(of: table, in: window)?.isTrashListing ?? false
+        let columns = ConfigStore.shared.configuration.columns(inTrash: trash)
         guard table.tableColumns.count == columns.count else { return false }
         let start = header.convert(event.locationInWindow, from: nil)
         let column = header.column(at: start)
@@ -171,6 +175,9 @@ enum ColumnArrangement {
         let menu = NSMenu()
         /// Columns with nothing to show in the pane: grey, still choosable.
         var empty: Set<FileColumn> = []
+        /// The menu is for a Trash pane: Original Location is then offered, and
+        /// nowhere else.
+        var inTrash = false
 
         override init() {
             super.init()
@@ -181,13 +188,13 @@ enum ColumnArrangement {
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             let configuration = ConfigStore.shared.configuration
-            let shown = configuration.columns
+            let trash = inTrash
+            let shown = configuration.columns(inTrash: trash)
             // Those shown first, in their order, then the rest as Settings
-            // lists them.
-            // Original Location is never offered here: it is a Trash-listing
-            // column, switched by its own setting, not a general one.
+            // lists them. Original Location is offered only in a Trash pane --
+            // and has an effect only there.
             let all = shown + configuration.columnOrder.filter {
-                !shown.contains($0) && $0 != .originalLocation
+                !shown.contains($0) && ($0 != .originalLocation || trash)
             }
             for column in all {
                 let item = NSMenuItem(title: column.title, action: #selector(toggle(_:)),
@@ -213,7 +220,13 @@ enum ColumnArrangement {
                   let column = FileColumn(rawValue: raw) else { return }
             let show = item.state != .on
             MainActor.assumeIsolated {
-                ConfigStore.shared.setEnabled(column, show)
+                // Original Location has its own switch -- it is the Trash-only
+                // column, never part of the general enabled set.
+                if column == .originalLocation {
+                    ConfigStore.shared.configuration.showOriginalLocationInTrash = show
+                } else {
+                    ConfigStore.shared.setEnabled(column, show)
+                }
             }
         }
     }

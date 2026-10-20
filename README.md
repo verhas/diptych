@@ -265,9 +265,27 @@ Open a volume's Trash from the sidebar (the trash button on the left of a
 volume, or Open Trash in its menu) and the pane lists it like any other folder,
 with one addition: an **Original Location** column, showing where each file was
 before it was trashed. It is on by default, appears *only* in a Trash listing --
-never in an ordinary folder -- and can be switched off in Settings ▸ Columns.
-The path is often longer than the column, so it truncates in the middle and
-shows the whole of it on hover.
+never in an ordinary folder -- and the path, often longer than the column,
+truncates in the middle and shows in full on hover.
+
+Because it is a Trash-only column, it is offered in the pane's **header
+right-click menu only while that pane shows a Trash**, and switching it there --
+or dragging it to another position -- has an effect only on Trash listings. (It
+can also be switched in Settings ▸ Columns.) It is never offered or drawn in an
+ordinary folder, which is both what the feature means and what keeps AppKit from
+drawing a column that does not belong there.
+
+A trashed file's right-click menu, in a Trash listing, also offers two things
+for a file Diptych itself trashed (so its old place is known):
+
+- **Restore to Original Location** moves it back where it came from, recreating
+  the folder if it has gone and stepping past a name taken in the meantime
+  rather than overwriting it.
+- **Compare with the Original…** opens the ordinary comparison window with the
+  trashed version on the left and whatever is at its old location now on the
+  right -- offered only when something is there to compare with. A file in the
+  Trash is nothing special to read, so this is done in place, with no copying
+  back and forth.
 
 macOS keeps Finder's "Put Back" location in a private store with no public API
 to read it, so this column is filled from **Diptych's own record** of what it

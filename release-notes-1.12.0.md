@@ -138,10 +138,15 @@ the zip:
   that volume's Trash in the active pane (`~/.Trash`, or `.Trashes/<uid>` on
   another volume). Also on the volume's right-click menu.
 - A Trash listing gains an **Original Location** column showing where each file
-  was before it was trashed, on by default and shown only there (Settings ▸
-  Columns to switch it off). The long path shows in full on hover. macOS keeps
-  Finder's put-back privately, so this is filled from Diptych's own record of
-  what it trashed -- a dash for anything trashed by Finder or another app.
+  was before it was trashed, on by default and shown only there. The long path
+  shows in full on hover. It can be switched and repositioned from the pane's
+  header menu while that pane shows a Trash (or in Settings ▸ Columns), and has
+  an effect only on Trash listings. macOS keeps Finder's put-back privately, so
+  this is filled from Diptych's own record of what it trashed -- a dash for
+  anything trashed by Finder or another app.
+- A trashed file's right-click menu offers **Restore to Original Location** and
+  **Compare with the Original** (against whatever is at its old place now), for
+  files Diptych trashed.
 
 ## More in the Info window
 
@@ -179,4 +184,4 @@ Nothing to do.
 
 ---
 
-*1431 tests.*
+*1434 tests.*

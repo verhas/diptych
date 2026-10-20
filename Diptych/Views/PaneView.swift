@@ -534,11 +534,9 @@ struct PaneView: View {
         // clicking a header sorts again.
         let sortOrder = Binding(get: { pane.manualOrder == nil ? pane.sortOrder : [] },
                                 set: { pane.sort(by: $0) })
-        // The configured columns, plus Original Location when this is a Trash
-        // listing and the setting is on -- it appears nowhere else.
-        let columns = ConfigStore.shared.configuration.columns
-            + (pane.isTrashListing && ConfigStore.shared.configuration.showOriginalLocationInTrash
-               ? [FileColumn.originalLocation] : [])
+        // The columns for this pane -- the Original Location column among them
+        // only when this is a Trash listing (and its setting is on).
+        let columns = ConfigStore.shared.configuration.columns(inTrash: pane.isTrashListing)
         return Table(of: FileItem.self, selection: $pane.selection, sortOrder: sortOrder) {
             TableColumnForEach(columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
@@ -849,6 +847,20 @@ struct PaneView: View {
                     }
                 }
                 .keyboardShortcut(.open)
+            }
+            // A Trash listing: put a file back, or see what replaced it. Offered
+            // only for a file Diptych trashed, whose old place it knows.
+            if pane.isTrashListing, ids.count == 1,
+               let item = pane.rows.first(where: { ids.contains($0.id) }),
+               !item.isParent, !item.originalLocation.isEmpty {
+                Button("Restore to Original Location") { act(ids) { model.restoreFromTrash() } }
+                if !item.isDirectory,
+                   FileManager.default.fileExists(atPath: item.originalLocation) {
+                    Button("Compare with the Original\u{2026}") {
+                        act(ids) { model.compareTrashedWithOriginal() }
+                    }
+                }
+                Divider()
             }
             if ConfigStore.shared.menuItemShown(.getInfo) {
                 Button("Get Info") { act(ids) { model.showInfo() } }

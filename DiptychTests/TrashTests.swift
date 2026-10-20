@@ -55,6 +55,31 @@ final class TrashTests: XCTestCase {
         XCTAssertTrue(config.columns.contains(.name))
     }
 
+    /// It shows only in a Trash listing, and only when its setting is on.
+    func testOriginalLocationShowsOnlyInTrashAndFollowsItsSetting() {
+        var config = Configuration()
+        config.showOriginalLocationInTrash = true
+        XCTAssertFalse(config.columns(inTrash: false).contains(.originalLocation))
+        XCTAssertTrue(config.columns(inTrash: true).contains(.originalLocation))
+
+        config.showOriginalLocationInTrash = false
+        XCTAssertFalse(config.columns(inTrash: true).contains(.originalLocation))
+    }
+
+    /// Dragging it is a change to its place in `columnOrder`, which the Trash
+    /// columns then honour.
+    func testOriginalLocationKeepsItsDraggedPosition() {
+        var config = Configuration()
+        config.showOriginalLocationInTrash = true
+        // Move it to just after Name.
+        var order = config.columnOrder.filter { $0 != .originalLocation }
+        order.insert(.originalLocation, at: 1)
+        config.columnOrder = order
+        let trashColumns = config.columns(inTrash: true)
+        XCTAssertEqual(trashColumns.first, .name)
+        XCTAssertEqual(trashColumns.dropFirst().first, .originalLocation)
+    }
+
     // MARK: - Diptych's record of originals
 
     @MainActor

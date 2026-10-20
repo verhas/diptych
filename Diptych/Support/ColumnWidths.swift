@@ -16,10 +16,12 @@ enum ColumnWidths {
     /// the same ordered list.
     static func apply(in window: NSWindow) {
         let configuration = ConfigStore.shared.configuration
-        let columns = configuration.columns
         guard !configuration.columnWidths.isEmpty else { return }
 
-        for table in tables(in: window) where table.tableColumns.count == columns.count {
+        for table in tables(in: window) {
+            let trash = TableFinder.pane(of: table, in: window)?.isTrashListing ?? false
+            let columns = configuration.columns(inTrash: trash)
+            guard table.tableColumns.count == columns.count else { continue }
             for (index, column) in columns.enumerated() {
                 guard let width = configuration.columnWidths[column.rawValue], width > 0 else { continue }
                 table.tableColumns[index].width = CGFloat(width)
@@ -55,7 +57,8 @@ enum ColumnWidths {
     }
 
     private static func record(from table: NSTableView) {
-        let columns = ConfigStore.shared.configuration.columns
+        let trash = table.window.flatMap { TableFinder.pane(of: table, in: $0) }?.isTrashListing ?? false
+        let columns = ConfigStore.shared.configuration.columns(inTrash: trash)
         guard table.tableColumns.count == columns.count else { return }
 
         var widths = ConfigStore.shared.configuration.columnWidths

@@ -43,6 +43,11 @@ final class TrashOriginals {
         origins[trashed.standardizedFileURL.path]
     }
 
+    /// Forget a trashed file -- it has been restored or is otherwise gone.
+    func forget(_ trashed: URL) {
+        if origins.removeValue(forKey: trashed.standardizedFileURL.path) != nil { save() }
+    }
+
     // MARK: - Persistence
 
     private func load() {
