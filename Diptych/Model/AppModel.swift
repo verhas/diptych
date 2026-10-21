@@ -23,6 +23,8 @@ final class AppModel {
         case newFolder
         case newFile
         case trash
+        case deleteImmediately
+        case emptyBin
         case authorizeOwner
         case conflict
         case message(String)
@@ -60,6 +62,8 @@ final class AppModel {
             case .newFolder:      return "newFolder"
             case .newFile:        return "newFile"
             case .trash:          return "trash"
+            case .deleteImmediately: return "deleteImmediately"
+            case .emptyBin:       return "emptyBin"
             case .authorizeOwner: return "authorizeOwner"
             case .conflict:       return "conflict"
             case .message:   return "message"
@@ -906,12 +910,19 @@ final class AppModel {
 
     func requestTrash() {
         guard !active.selectedItems.isEmpty else { return }
+        // Already in the Trash: there is nowhere further to move to, so this is
+        // Finder's "Delete Immediately" instead -- which always asks, because it
+        // cannot be undone.
+        if active.isTrashListing { requestDeleteImmediately(); return }
         dialog = .trash
     }
 
     /// Trash with no confirmation. Bound to Command-Delete, which nobody
     /// presses by accident, and which Finder treats the same way.
     func trashNow() {
+        // In the Trash, Command-Delete deletes for good -- and that still asks,
+        // the one case where the shortcut does not go through without a word.
+        if active.isTrashListing { requestDeleteImmediately(); return }
         confirmTrash()
     }
 
@@ -921,17 +932,8 @@ final class AppModel {
         guard !urls.isEmpty else { return }
         guard !refusedAsReadOnly(pane, "moved to the Trash from here") else { return }
 
-        // Where the cursor should land afterwards: the row below the last one
-        // being deleted, or -- if the deletion runs to the end of the listing --
-        // the row above the first.
-        let rows = pane.rows
-        let selected = rows.indices.filter { pane.selection.contains(rows[$0].id) }
-        var successor: FileItem.ID?
-        if let last = selected.last, rows.indices.contains(last + 1) {
-            successor = rows[last + 1].id
-        } else if let first = selected.first, first > 0, !rows[first - 1].isParent {
-            successor = rows[first - 1].id
-        }
+        // Where the cursor should land afterwards.
+        let successor = successorAfterDeleting(in: pane)
 
         Task {
             let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
@@ -944,6 +946,70 @@ final class AppModel {
             pane.reload()
             inactive.reload()   // the other pane may be showing the same folder
             report(outcome, verb: "move to Trash")
+        }
+    }
+
+    // MARK: - Delete for good
+
+    /// The row to land on after the selected rows go, so the cursor does not
+    /// jump to the top: the row below the last deleted one, or the row above
+    /// the first when the deletion runs to the end.
+    private func successorAfterDeleting(in pane: PaneModel) -> FileItem.ID? {
+        let rows = pane.rows
+        let selected = rows.indices.filter { pane.selection.contains(rows[$0].id) }
+        if let last = selected.last, rows.indices.contains(last + 1) {
+            return rows[last + 1].id
+        } else if let first = selected.first, first > 0, !rows[first - 1].isParent {
+            return rows[first - 1].id
+        }
+        return nil
+    }
+
+    /// "Delete Immediately" in a Trash listing: get rid of the selected items
+    /// for good. Offered only in the Trash, where there is nowhere left to
+    /// trash them to.
+    func requestDeleteImmediately() {
+        guard active.isTrashListing,
+              active.selectedItems.contains(where: { !$0.isParent }) else { return }
+        dialog = .deleteImmediately
+    }
+
+    func confirmDeleteImmediately() {
+        let pane = active
+        guard pane.isTrashListing else { return }
+        let items = pane.selectedItems.filter { !$0.isParent }
+        let urls = items.map(\.url)
+        guard !urls.isEmpty else { return }
+        let successor = successorAfterDeleting(in: pane)
+        Task {
+            let outcome = await FileOperations.shared.deletePermanently(urls)
+            for url in outcome.succeeded { TrashOriginals.shared.forget(url) }
+            pane.pendingSelection = successor.map { [$0] } ?? []
+            pane.reload()
+            inactive.reload()
+            report(outcome, verb: "delete")
+        }
+    }
+
+    /// "Empty Bin": clear the whole Trash that this listing is showing. Like
+    /// Finder's Empty Trash, and just as final.
+    func requestEmptyBin() {
+        guard active.isTrashListing,
+              active.rows.contains(where: { !$0.isParent }) else { return }
+        dialog = .emptyBin
+    }
+
+    func confirmEmptyBin() {
+        let pane = active
+        let trash = pane.directory
+        guard Trash.isTrash(trash) else { return }
+        Task {
+            let (outcome, removed) = await FileOperations.shared.emptyTrash(at: trash)
+            for url in removed { TrashOriginals.shared.forget(url) }
+            pane.selection = []
+            pane.reload()
+            inactive.reload()
+            report(outcome, verb: "delete")
         }
     }
 
@@ -1543,9 +1609,17 @@ final class AppModel {
                 FileHistory.shared.recordRename(from: item.url, to: url)
                 // Renaming the last row leaves no successor; stay on the file.
                 pane.pendingSelection = [advance ? (successor ?? url) : url]
-                // A flat view shows the new name where the old one was, and
-                // keeps it even if the expression would not list it now.
-                pane.refreshRows([], renamed: [(item.url, url)])
+                // In the Trash, the origin is keyed by the file's name there, so
+                // carry it over and reload to recompute the Original Location
+                // column from its new name.
+                if pane.isTrashListing {
+                    TrashOriginals.shared.rename(item.url, to: url)
+                    pane.reload()
+                } else {
+                    // A flat view shows the new name where the old one was, and
+                    // keeps it even if the expression would not list it now.
+                    pane.refreshRows([], renamed: [(item.url, url)])
+                }
             } catch {
                 dialog = .message(error.localizedDescription)
             }

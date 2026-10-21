@@ -429,6 +429,45 @@ actor FileOperations {
         return (outcome, moved)
     }
 
+    /// Delete for good, with no trip through the Trash -- what "Delete
+    /// Immediately" and emptying the Bin do. There is no undo for this, which
+    /// is why every path to it asks first.
+    func deletePermanently(_ urls: [URL]) -> Outcome {
+        let fm = FileManager()
+        var outcome = Outcome()
+        for url in urls {
+            do {
+                try fm.removeItem(at: url)
+                outcome.succeeded.append(url)
+            } catch {
+                outcome.failures.append((url, error.localizedDescription))
+            }
+        }
+        return outcome
+    }
+
+    /// Empty a Trash folder: delete everything in it for good, including the
+    /// `.DS_Store` that held Finder's put-back records. Returns what actually
+    /// went, so their origins can be forgotten. The folder itself stays.
+    func emptyTrash(at trash: URL) -> (outcome: Outcome, removed: [URL]) {
+        let fm = FileManager()
+        var outcome = Outcome()
+        var removed: [URL] = []
+        let contents = (try? fm.contentsOfDirectory(at: trash,
+                                                    includingPropertiesForKeys: nil,
+                                                    options: [])) ?? []
+        for url in contents {
+            do {
+                try fm.removeItem(at: url)
+                outcome.succeeded.append(url)
+                removed.append(url)
+            } catch {
+                outcome.failures.append((url, error.localizedDescription))
+            }
+        }
+        return (outcome, removed)
+    }
+
     /// Whether `url` is still there after a trash said it went -- given up to
     /// two seconds to go, since a cloud folder's provider can finish later.
     nonisolated static func stillThere(_ url: URL, waiting: Duration = .seconds(2)) -> Bool {

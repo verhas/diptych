@@ -31,6 +31,9 @@ struct SidebarEntry: Identifiable, Hashable, Sendable {
     var isEjectable: Bool = false
     /// On a file server: disconnected rather than ejected.
     var isNetwork: Bool = false
+    /// A read-only volume cannot be written to, so its Trash is always empty --
+    /// shown with a hollow bin in the sidebar.
+    var isReadOnly: Bool = false
     /// A volume's size and the room left on it, in bytes, when it says.
     var capacity: Int64?
     var available: Int64?
@@ -129,6 +132,7 @@ final class VolumeList {
             .volumeLocalizedNameKey, .volumeIsBrowsableKey, .volumeIsEjectableKey,
             .volumeIsRemovableKey, .volumeIsRootFileSystemKey, .volumeIsInternalKey,
             .volumeIsLocalKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+            .volumeIsReadOnlyKey,
         ]
         // A private instance rather than `.default`, so this is unambiguously
         // ours to call from another thread.
@@ -154,6 +158,7 @@ final class VolumeList {
                                 name: values?.volumeLocalizedName ?? url.lastPathComponent,
                                 isEjectable: Self.isEjectable(values),
                                 isNetwork: values?.volumeIsLocal == false,
+                                isReadOnly: values?.volumeIsReadOnly == true,
                                 capacity: values?.volumeTotalCapacity.map(Int64.init),
                                 available: available)
         }

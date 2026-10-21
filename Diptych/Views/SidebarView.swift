@@ -114,16 +114,23 @@ struct SidebarView: View {
     private func row(_ entry: SidebarEntry, showsTrash: Bool = false) -> some View {
         HStack(spacing: 6) {
             // On the left, deliberately away from Eject on the right, so a
-            // stray click opens the Trash rather than ejecting the disk.
+            // stray click opens the Trash rather than ejecting the disk. A
+            // deleted-items bin, not a bare trash can, so it reads as "this
+            // disk's Bin" and not "throw this disk away" -- hollow on a
+            // read-only volume, whose Bin is always empty, and kept the same
+            // size either way so the names stay aligned.
             if showsTrash {
                 Button {
                     model.openTrash(of: entry)
                 } label: {
-                    Image(systemName: "trash").font(.system(size: 10))
+                    Image(systemName: entry.isReadOnly ? "xmark.bin" : "xmark.bin.fill")
+                        .font(.system(size: 10))
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
-                .help("Open the Trash on \(entry.name)")
+                .help(entry.isReadOnly
+                      ? "The Bin on \(entry.name) is empty -- it is a read-only volume"
+                      : "Open the Bin on \(entry.name)")
             }
             Image(nsImage: SidebarIcons.shared.icon(for: entry.url, isNetwork: entry.isNetwork))
             VStack(alignment: .leading, spacing: 0) {

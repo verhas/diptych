@@ -1296,12 +1296,17 @@ final class PaneModel {
         awaitingServer = nil
         listed = target
         listedEarlier = nil
-        // In a Trash listing, give each row where it came from, if Diptych
-        // trashed it, for the Original Location column.
+        // In a Trash listing, give each row where it came from, for the
+        // Original Location column: what Diptych recorded when it did the
+        // trashing, else Finder's own put-back record read from the Trash's
+        // `.DS_Store`, so files Finder or another app trashed show it too.
         if Trash.isTrash(target) {
+            let finderOrigins = TrashPutBack.origins(inTrashAt: target)
             items = loaded.map {
                 var item = $0
-                item.originalLocation = TrashOriginals.shared.original(of: item.url) ?? ""
+                item.originalLocation = TrashOriginals.shared.original(of: item.url)
+                    ?? finderOrigins[item.url.lastPathComponent]
+                    ?? ""
                 return item
             }
         } else {

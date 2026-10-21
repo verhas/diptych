@@ -275,30 +275,51 @@ can also be switched in Settings ▸ Columns.) It is never offered or drawn in a
 ordinary folder, which is both what the feature means and what keeps AppKit from
 drawing a column that does not belong there.
 
-A Trash listing's right-click menu is **trimmed**: making, pasting, renaming and
-transforming files have no place in the Trash, so none of them is offered. What
-is left is putting a file back and looking at it -- Restore, Compare, Open, Get
-Info, Reveal in Finder and Copy Name/Path -- and on the empty space only Select
-All and Refresh. The two Trash-only entries, for a file Diptych itself trashed
-(so its old place is known):
+A Trash listing's right-click menu is **trimmed** to what Finder's own Trash
+menu offers: making and pasting files have no place in the Trash, so those are
+not offered, but putting a file back, renaming it, looking at it and getting rid
+of it for good are -- Put Back, Compare, Open, Get Info, Reveal in Finder,
+Rename, Copy Name/Path, Delete Immediately and Empty Bin -- and on the empty
+space Refresh and Empty Bin. The first two, for a file whose old place is known:
 
-- **Restore to Original Location** moves it back where it came from, recreating
-  the folder if it has gone and stepping past a name taken in the meantime
-  rather than overwriting it.
+- **Put Back** moves it back where it came from, recreating the folder if it has
+  gone and stepping past a name taken in the meantime rather than overwriting
+  it.
 - **Compare with the Original…** opens the ordinary comparison window with the
   trashed version on the left and whatever is at its old location now on the
   right -- offered only when something is there to compare with. A file in the
   Trash is nothing special to read, so this is done in place, with no copying
   back and forth.
 
-macOS keeps Finder's "Put Back" location in a private store with no public API
-to read it, so this column is filled from **Diptych's own record** of what it
-moved to the Trash (`TrashOriginals`, a small JSON file in `~/.diptych`): honest
-about what it knows, and a dash for anything trashed by Finder or another app.
-The record forgets an entry once its trashed file is gone -- the Trash emptied,
-or the file put back -- so it does not grow without bound. `Trash` says where a
-volume's Trash is and what counts as one; the column itself is the `FileColumn`
-case `originalLocation`, added to the table only for a Trash listing.
+The last two leave the Trash for good, and both ask first because neither can be
+undone: **Delete Immediately** removes the selected items, and **Empty Bin**
+clears the whole Trash the listing is showing. In a Trash listing the ordinary
+trash keystrokes delete for good instead of trying to re-trash what is already
+there: `⌫`/`⌦` and `⌘⌫`/`⌘⌦` both run Delete Immediately, still with the
+confirmation that permanent deletion warrants.
+
+The **Original Location** column is filled from two places. First, **Diptych's
+own record** of what it moved to the Trash (`TrashOriginals`, a small JSON file
+in `~/.diptych`), which is exact and needs no permission. For anything Finder or
+another app trashed, Diptych falls back to **Finder's own "Put Back" record**,
+which macOS keeps in a private, undocumented store -- the `ptbL`/`ptbN` records
+inside the Trash folder's `.DS_Store` -- with no public API and only readable
+with Full Disk Access (which Diptych asks for the moment a Trash is opened).
+`TrashPutBack` reads it through the bounds-checked `DSStore` decoder,
+pulling the original path straight out of each put-back bookmark without
+resolving it against the disk, and never writes it back; the most that can go
+wrong is a dash, or rarely a wrong path, never a crash. The JSON record forgets
+an entry once its trashed file is gone -- the Trash emptied, the file put back,
+or deleted immediately -- so it does not grow without bound. `Trash` says where
+a volume's Trash is and what counts as one; the column itself is the
+`FileColumn` case `originalLocation`, added to the table only for a Trash
+listing.
+
+The sidebar's per-volume bin button is a **deleted-items bin** (`xmark.bin`),
+not a bare trash can, so it reads as "open this disk's Bin" rather than "throw
+this disk away". It is hollow on a read-only volume, whose Bin is always empty,
+and solid otherwise -- the same size either way, so the volume names stay
+aligned.
 
 ## File servers
 

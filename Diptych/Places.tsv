@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-10-19. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-10-21. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -17326,6 +17326,7 @@ P	1255704	27.8906	78.7462	IN	36	Soron
 P	1255705	21.2785	86.6883	IN	21	Soro
 P	1255712	19.7608	84.4300	IN	21	Sorada
 P	1255714	34.2867	74.4723	IN	12	Sopur
+P	1255716	19.4158	72.8008	IN	16	Sopāra
 P	1255743	22.9717	76.3467	IN	35	Sonkach
 P	1255744	28.9948	77.0194	IN	10	Sonīpat
 P	1255762	21.1697	73.5636	IN	09	Songadh

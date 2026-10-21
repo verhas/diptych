@@ -806,18 +806,23 @@ struct PaneView: View {
         }
     }
 
-    /// The right-click menu in a Trash listing: putting a trashed file back and
-    /// looking at it, not the file-making and transforming tools, which have no
+    /// The right-click menu in a Trash listing: what Finder's own Trash menu
+    /// offers -- put a file back, rename it, look at it, or get rid of it for
+    /// good -- but not the file-making and transforming tools, which have no
     /// place in the Trash.
     @ViewBuilder
     private func trashRowMenu(for ids: Set<FileItem.ID>) -> some View {
         if ids.isEmpty {
             Button("Refresh") { pane.reload() }
                 .keyboardShortcut(.refresh)
+            if pane.rows.contains(where: { !$0.isParent }) {
+                Divider()
+                Button("Empty Bin", role: .destructive) { activate(); model.requestEmptyBin() }
+            }
         } else {
             let single = ids.count == 1 ? pane.rows.first(where: { ids.contains($0.id) }) : nil
             if let item = single, !item.isParent, !item.originalLocation.isEmpty {
-                Button("Restore to Original Location") { act(ids) { model.restoreFromTrash() } }
+                Button("Put Back") { act(ids) { model.restoreFromTrash() } }
                 if !item.isDirectory,
                    FileManager.default.fileExists(atPath: item.originalLocation) {
                     Button("Compare with the Original\u{2026}") {
@@ -826,14 +831,17 @@ struct PaneView: View {
                 }
                 Divider()
             }
-            // Read-only ways to look at a trashed item and find it, nothing that
-            // writes.
+            // Ways to look at a trashed item and find it.
             Button("Open") { act(ids) { if let id = ids.first { model.open(id: id, in: pane) } } }
                 .keyboardShortcut(.open)
             Button("Get Info") { act(ids) { model.showInfo() } }
                 .keyboardShortcut(.getInfo)
             Button("Reveal in Finder") { act(ids) { model.revealSelection() } }
                 .keyboardShortcut(.revealInFinder)
+            if let item = single, !item.isParent {
+                Button("Rename\u{2026}") { act(ids) { model.requestRename() } }
+                    .keyboardShortcut(.rename)
+            }
             Divider()
             Menu("Copy") {
                 Button("File Name") { act(ids) { model.copySelectionNames(fullPath: false) } }
@@ -841,15 +849,23 @@ struct PaneView: View {
                 Button("Full Path") { act(ids) { model.copySelectionNames(fullPath: true) } }
                     .keyboardShortcut(.copyPaths)
             }
+            Divider()
+            // The two ways things leave the Trash for good. Delete Immediately
+            // acts on the selection; Empty Bin clears the lot.
+            Button("Delete Immediately\u{2026}", role: .destructive) {
+                act(ids) { model.requestDeleteImmediately() }
+            }
+            .keyboardShortcut(.trash)
+            Button("Empty Bin", role: .destructive) { activate(); model.requestEmptyBin() }
         }
     }
 
     @ViewBuilder
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
         if pane.isTrashListing {
-            // A Trash listing is not a place to make, paste, rename or transform
-            // files -- what you can do with a trashed one is put it back or look
-            // at it, so the menu is trimmed to that.
+            // A Trash listing is not a place to make, paste or transform files
+            // -- what you do with a trashed one is put it back, rename it, look
+            // at it or delete it for good, so the menu is trimmed to that.
             trashRowMenu(for: ids)
         } else if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }

@@ -3,12 +3,14 @@ import Foundation
 /// What a Trash listing offers on a trashed file: put it back where it came
 /// from, or compare it with whatever is at its old place now.
 ///
-/// Only files Diptych itself trashed carry an original location (macOS keeps
-/// Finder's put-back privately), so both are offered only when that is known.
+/// The original location comes either from Diptych's own record of what it
+/// trashed or, for anything else, from Finder's own put-back record (see
+/// `TrashPutBack`), so both are offered whenever that location is known --
+/// no longer only for files Diptych itself trashed.
 extension AppModel {
 
-    /// The single selected item in a Trash listing whose original location
-    /// Diptych knows.
+    /// The single selected item in a Trash listing whose original location is
+    /// known.
     var restorableTrashedItem: (item: FileItem, original: URL)? {
         guard active.isTrashListing, active.selectedItems.count == 1,
               let item = active.selectedItems.first, !item.isParent,

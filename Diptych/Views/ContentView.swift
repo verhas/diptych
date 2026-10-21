@@ -834,6 +834,28 @@ struct DialogSheet: View {
                     confirm: "Move to Trash",
                     destructive: true) { model.confirmTrash() }
 
+            case .deleteImmediately:
+                let items = model.active.selectedItems.filter { !$0.isParent }
+                confirmation(
+                    title: items.count == 1
+                        ? "Delete \u{201C}\(items.first?.name ?? "")\u{201D} immediately?"
+                        : "Delete \(items.count) items immediately?",
+                    detail: "\(items.count == 1 ? "This item" : "These items") will be deleted "
+                        + "for good. You can\u{2019}t undo this.\n\n"
+                        + items.prefix(5).map(\.name).joined(separator: "\n")
+                        + (items.count > 5 ? "\n and \(items.count - 5) more" : ""),
+                    confirm: "Delete",
+                    destructive: true) { model.confirmDeleteImmediately() }
+
+            case .emptyBin:
+                let count = model.active.rows.filter { !$0.isParent }.count
+                confirmation(
+                    title: "Empty the Bin?",
+                    detail: "All \(count) item\(count == 1 ? "" : "s") in the Bin will be deleted "
+                        + "for good. You can\u{2019}t undo this.",
+                    confirm: "Empty Bin",
+                    destructive: true) { model.confirmEmptyBin() }
+
             case .authorizeOwner:
                 confirmation(
                     title: "Change the owner as administrator?",
