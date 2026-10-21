@@ -163,6 +163,22 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Text("Split File").font(.headline)
+            HStack(spacing: 10) {
+                Text("Warn before creating more than")
+                Stepper(value: $store.configuration.splitPartWarningThreshold, in: 1...100_000) {
+                    Text("\(store.configuration.splitPartWarningThreshold)").monospacedDigit()
+                }
+                Text("parts")
+            }
+            Text("A mistyped part size can turn one file into thousands of tiny ones. Past this "
+                 + "many parts, Split File asks you to confirm before it writes them.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Picker("Check for updates", selection: $store.configuration.updateCheckPreference) {
                 Text("At startup, once a day at most").tag(Configuration.UpdateCheckPreference.enabled)
                 Text("Ask at startup").tag(Configuration.UpdateCheckPreference.ask)

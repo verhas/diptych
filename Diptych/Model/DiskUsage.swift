@@ -10,7 +10,7 @@ enum DiskUsage {
     /// One file or folder and everything under it. A value tree, so it crosses
     /// back to the main actor by copy.
     struct Node: Identifiable, Sendable {
-        let id = UUID()
+        var id = UUID()
         let name: String
         let url: URL
         let isDirectory: Bool
@@ -31,18 +31,23 @@ enum DiskUsage {
     }
 
     /// Measure `folder`. `onProgress` is called now and then with the running
-    /// file count. Nil when cancelled before anything was built.
+    /// file count; `onChild` is called with each top-level child the moment it
+    /// is fully measured, so the window can draw the picture as it fills in
+    /// rather than waiting behind a spinner. Nil when cancelled before anything
+    /// was built.
     nonisolated static func scan(_ folder: URL, cancelled: CancellationFlag,
-                                 onProgress: @Sendable (Int) -> Void = { _ in }) -> Node? {
+                                 onProgress: @Sendable (Int) -> Void = { _ in },
+                                 onChild: @Sendable (Node) -> Void = { _ in }) -> Node? {
         var counter = 0
         let node = measure(folder, isRoot: true, cancelled: cancelled,
-                           counter: &counter, onProgress: onProgress)
+                           counter: &counter, onProgress: onProgress, onChild: onChild)
         return cancelled.isCancelled ? nil : node
     }
 
     private nonisolated static func measure(_ url: URL, isRoot: Bool, cancelled: CancellationFlag,
                                             counter: inout Int,
-                                            onProgress: @Sendable (Int) -> Void) -> Node? {
+                                            onProgress: @Sendable (Int) -> Void,
+                                            onChild: @Sendable (Node) -> Void) -> Node? {
         if cancelled.isCancelled { return nil }
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey,
@@ -69,9 +74,12 @@ enum DiskUsage {
         for child in contents {
             if cancelled.isCancelled { break }
             if let node = measure(child, isRoot: false, cancelled: cancelled,
-                                  counter: &counter, onProgress: onProgress) {
+                                  counter: &counter, onProgress: onProgress, onChild: onChild) {
                 children.append(node)
                 total += node.size
+                // Each direct child of the root, handed over the moment it is
+                // done, so the window draws it without waiting for the rest.
+                if isRoot { onChild(node) }
             }
         }
         children.sort { $0.size > $1.size }

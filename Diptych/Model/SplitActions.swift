@@ -7,11 +7,13 @@ extension AppModel {
     // MARK: - What can be split or joined
 
     /// The single selected ordinary file that can be split -- not a folder, not
-    /// `..`, not a copy inside an opened archive.
+    /// `..`, not a copy inside an opened archive, and not itself a split part or
+    /// manifest.
     var splittableFile: URL? {
         guard active.selectedItems.count == 1, let item = active.selectedItems.first,
               !item.isDirectory, !item.isParent,
-              !ArchiveBrowsing.isInside(item.url) else { return nil }
+              !ArchiveBrowsing.isInside(item.url),
+              !FileSplitting.isPart(item.url), !FileSplitting.isManifest(item.url) else { return nil }
         return item.url
     }
 
@@ -19,16 +21,17 @@ extension AppModel {
     /// other pane when this one is read-only.
     var canSplitFile: Bool { splittableFile.flatMap { partsFolder(for: $0) } != nil }
 
-    /// The single selected file that is the first part of a split file --
-    /// `something.001`.
-    var joinableFirstPart: URL? {
-        guard active.selectedItems.count == 1, let item = active.selectedItems.first,
-              !item.isDirectory, !item.isParent,
-              FileSplitting.isFirstPart(item.url) else { return nil }
-        return item.url
+    /// What the current selection would join from: a single manifest, a single
+    /// part, or several parts of one file. Nil when the selection is not a join.
+    var joinSource: URL? {
+        let chosen = active.selectedItems.filter { !$0.isParent }
+        guard !chosen.isEmpty,
+              chosen.allSatisfy({ !$0.isDirectory && !ArchiveBrowsing.isInside($0.url) })
+        else { return nil }
+        return FileSplitting.joinSource(for: chosen.map(\.url))
     }
 
-    var canJoinParts: Bool { joinableFirstPart.flatMap { partsFolder(for: $0) } != nil }
+    var canJoinParts: Bool { joinSource.flatMap { partsFolder(for: $0) } != nil }
 
     /// Where split parts or a joined file go: beside the file when its pane can
     /// be written to, the other pane when it cannot, or nil when neither can --
@@ -39,71 +42,44 @@ extension AppModel {
         return nil
     }
 
-    /// The other pane's folder when split/join output would be sent there --
-    /// what the Split dialog names so the parts are not a surprise.
-    var splitOtherPaneFolder: URL? {
-        active.volume.isReadOnly ? otherPaneFolder : nil
-    }
-
     // MARK: - Splitting
 
-    /// Ask the part size, then split.
+    /// Open the (movable) Split window on the selected file.
     func requestSplitFile() {
         guard let file = splittableFile else { return }
-        guard partsFolder(for: file) != nil else {
+        guard let destination = partsFolder(for: file) else {
             flash("This folder is read-only and the other pane is not writable either")
             return
         }
-        splitTarget = file
-        textInput = "100"
-        splitUnit = .megabytes
-        dialog = .splitFile
+        let id = SplitStore.shared.register(.init(model: self, file: file,
+                                                  folder: destination.folder,
+                                                  otherPane: destination.otherPane))
+        openSplitWindow?(id)
     }
 
-    /// The Split button in the dialog.
-    func confirmSplitFile() {
-        guard let file = splitTarget, let destination = partsFolder(for: file) else { return }
-        splitTarget = nil
-        let size = (Double(textInput.replacingOccurrences(of: ",", with: ".")) ?? 0)
-        guard size > 0 else {
-            flash("A part size is needed to split a file")
-            return
-        }
-        let bytes = Int64((size * Double(splitUnit.multiplier)).rounded())
-        let folder = destination.folder
-        Task {
-            flash("Splitting \u{201C}\(file.lastPathComponent)\u{201D}\u{2026}", error: false)
-            let result = await BlockingWork.run { () -> Result<[URL], Error> in
-                Result { try FileSplitting.split(file, partSize: bytes, into: folder) }
-            }
-            switch result {
-            case .success(let parts):
-                FileHistory.shared.recordCreation(.made("Split File"), of: parts)
-                show(parts, in: folder)
-                flash("Split into \(parts.count) part\(parts.count == 1 ? "" : "s")"
-                      + (destination.otherPane ? " in the other pane" : "") + ", undoable",
-                      error: false)
-            case .failure(let error):
-                dialog = .notice(title: "\u{201C}\(file.lastPathComponent)\u{201D} could not be split",
-                                 text: error.localizedDescription)
-            }
-        }
+    /// Called back by the Split window once the parts are written: record it for
+    /// undo, reveal the parts, and say so.
+    func revealSplitResult(parts: [URL], manifest: URL, in folder: URL, otherPane: Bool) {
+        FileHistory.shared.recordCreation(.made("Split File"), of: parts + [manifest])
+        show(parts, in: folder)
+        flash("Split into \(parts.count) part\(parts.count == 1 ? "" : "s")"
+              + (otherPane ? " in the other pane" : "") + ", undoable",
+              error: false)
     }
 
     // MARK: - Joining
 
     func joinParts() {
-        guard let first = joinableFirstPart else { return }
-        guard let destination = partsFolder(for: first) else {
+        guard let source = joinSource else { return }
+        guard let destination = partsFolder(for: source) else {
             flash("This folder is read-only and the other pane is not writable either")
             return
         }
         let folder = destination.folder
         Task {
-            let pieces = await BlockingWork.run { FileSplitting.parts(firstPart: first) }
-            flash("Joining \(pieces.count) part\(pieces.count == 1 ? "" : "s")\u{2026}", error: false)
+            flash("Joining the parts\u{2026}", error: false)
             let result = await BlockingWork.run { () -> Result<URL, Error> in
-                Result { try FileSplitting.join(firstPart: first, into: folder) }
+                Result { try FileSplitting.join(from: source, into: folder) }
             }
             switch result {
             case .success(let joined):

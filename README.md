@@ -2059,25 +2059,23 @@ early, and what was found stays. Closing the window stops the search too.
 ## Disk Usage
 
 **File ▸ Disk Usage…**, or the right-click menu on a folder, opens a window
-showing what is taking up the room under it. A segmented control at the top --
-a radio, one shown at a time -- rotates between three views of the same scan:
+showing what is taking up the room under it as a **heat map**: the folder's
+immediate contents as rectangles sized by bytes, largest first, coloured on a
+scale from cool (small) to hot (large) so the big things jump out at a glance.
+Click a folder to go into it; the arrow at the top goes back up.
 
-- **Treemap**: the folder's immediate contents as rectangles sized by bytes,
-  largest first, folders and files told apart by colour. Click a folder to go
-  into it; the arrow at the top goes back up.
-- **Heat map**: the same rectangles, coloured on a scale from cool (small) to
-  hot (large), so the big things jump out at a glance.
-- **Files** (GrandPerspective-style): every file under the folder as its own
-  rectangle, sized by bytes and coloured by kind, so one enormous file buried
-  deep is as visible as a big folder.
+The picture fills in **as the scan runs** -- each top-level item is drawn the
+moment it is measured, fading in, rather than hiding behind a spinner until the
+whole folder is done. The scan itself runs off the main thread with a running
+file count and a Stop, so the window stays responsive and the scan can always be
+cancelled; **Scan again** re-reads from disk. Hover any rectangle for its full
+path and size in the footer.
 
-Hover any rectangle for its full path and size in the footer. The layout is a
-squarified treemap (the Bruls/Huizing/van Wijk algorithm), areas proportional to
-bytes and shapes kept near square. The scan runs off the main thread with a
-running file count and a Stop, and **Scan again** re-reads from disk. A symbolic
-link is a leaf, never followed, so nothing is counted twice or walked out of the
-folder. The geometry is in `Treemap` and the scan in `DiskUsage`, both tested on
-their own; the window is `DiskUsageView`.
+The layout is a squarified treemap (the Bruls/Huizing/van Wijk algorithm), areas
+proportional to bytes and shapes kept near square. A symbolic link is a leaf,
+never followed, so nothing is counted twice or walked out of the folder. The
+geometry is in `Treemap` and the scan in `DiskUsage`, both tested on their own;
+the window is `DiskUsageView`.
 
 ## Paste Special
 
@@ -2180,25 +2178,42 @@ under the list the settings of each kind there is:
 **File ▸ Split File…**, or the right-click menu on a single file, cuts a file
 into numbered parts -- `big.zip.001`, `big.zip.002`, … -- each no bigger than a
 size you pick, so a file too large for a FAT volume, a disc or a mail attachment
-goes across in pieces. The dialog has the sizes people split for ready to click
-(Email, CD, DVD, FAT32); sizes are 1024-based, so a 4 GB part fits under a FAT
-volume's 4 GiB limit.
+goes across in pieces. The Split window is a real, **movable** window (not a
+sheet), so it slides aside off the file list; it shows the file's size in
+whatever unit the picker is on, and a line that names the parts it will make --
+`…​.001` through `…​.NNN`, the count worked out live from the size you type. The
+sizes people split for are ready to click (Email, CD, DVD, FAT32); sizes are
+1024-based, so a 4 GB part fits under a FAT volume's 4 GiB limit.
 
-**Join Parts** -- on the right-click menu and in File, offered when the selected
-file is a first part (`…​.001`) -- reads it and the parts that follow, in order
-until one is missing, and writes the file back out. It reproduces the original
-byte for byte; the parts are left in place. A name already taken is stepped past
-(`big (2).zip`) rather than overwritten, so a join never clobbers a file that is
-there. Both splitting and joining are a single [Undo](#undo-and-redo) step.
+Splitting **never overwrites**: if any of the part files (or the manifest) are
+already there, it says which and does nothing. And because a mistyped size can
+turn one file into thousands of tiny ones, a split into more than a set number
+of parts (20 by default, in **Settings ▸ Behaviour**) asks you to confirm the
+exact count first.
+
+Beside the parts sits a small JSON **manifest** -- `big.zip.diptychsplit.json` --
+listing every part with its size and SHA-512. It is pure extra: the parts still
+join with `cat *` on Unix, `copy /B` on Windows, or an older Diptych. But with
+it in hand, **Join Parts** notices a part gone missing or corrupted and refuses,
+naming it, instead of quietly writing an unusable file.
+
+**Join Parts** -- on the right-click menu and in File -- is offered whenever the
+selection is a set of parts (select **any** of them, or all; they need only
+belong to one file) or the manifest. It reads the parts in order and writes the
+file back out, byte for byte; the parts are left in place. Without a manifest it
+still catches a gap in the numbering (part 11 missing from 1…15); only a missing
+*trailing* part cannot be noticed, since nothing then records how many there
+were. A name already taken is stepped past (`big (2).zip`) rather than
+overwritten. Both splitting and joining are a single [Undo](#undo-and-redo) step.
 
 The parts go beside the file; when that pane is read-only -- a disk image, a
-share mounted so -- they go in the other pane instead, and the Split dialog
+share mounted so -- they go in the other pane instead, and the Split window
 says so. (If neither pane can be written to, Split and Join say that rather than
 doing nothing.)
 
-The streaming is in `FileSplitting` (off the main thread, tested on its own);
-what is selected, where the output goes and the part-size dialog are in
-`SplitActions`.
+The streaming, the manifest and the verification are in `FileSplitting` (off the
+main thread, tested on its own); what is selected, where the output goes and the
+movable Split window are in `SplitActions` and `SplitView`.
 
 ## Archives
 

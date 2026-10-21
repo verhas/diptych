@@ -189,6 +189,10 @@ struct Configuration: Codable, Equatable {
     /// person turns it off.
     var hiddenMenuItems: Set<String> = []
 
+    /// Splitting a file into more than this many parts asks the person to
+    /// confirm first -- a mistyped size can mean thousands of little files.
+    var splitPartWarningThreshold = 20
+
     /// Sidebar favourites, as paths. Global: a favourite is a favourite in
     /// every window.
     var favourites: [String] = []
@@ -498,6 +502,7 @@ struct Configuration: Codable, Equatable {
         case serverRefreshSeconds, copying
         case showOriginalLocationInTrash
         case hiddenMenuItems
+        case splitPartWarningThreshold
     }
 
     init() {}
@@ -517,6 +522,8 @@ struct Configuration: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .showOriginalLocationInTrash)) ?? true
         hiddenMenuItems =
             (try? container.decode(Set<String>.self, forKey: .hiddenMenuItems)) ?? []
+        splitPartWarningThreshold =
+            (try? container.decode(Int.self, forKey: .splitPartWarningThreshold)) ?? 20
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
         toolbar = (try? container.decode([ToolbarSlot].self, forKey: .toolbar))

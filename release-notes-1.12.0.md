@@ -125,11 +125,12 @@ the zip:
 ## Disk Usage
 
 - **File ▸ Disk Usage…** (also on a folder's right-click menu) opens a window
-  showing what fills a folder, drawn three ways from one scan and switched by a
-  radio control: a **treemap** sized by bytes, a **heat map** coloured from cool
-  to hot by size, and **Files** -- GrandPerspective-style rectangles, one per
-  file, coloured by kind. Hover any rectangle for its path and size; click a
-  folder in the treemap to go into it.
+  showing what fills a folder as a **heat map** -- a rectangle per item, sized
+  by bytes and coloured from cool to hot by size, so the big things stand out.
+  The picture fills in as the scan runs, each item fading in the moment it is
+  measured, instead of waiting behind a spinner; the scan stays cancellable
+  throughout. Hover any rectangle for its path and size; click a folder to go
+  into it.
 
 ## The Trash
 
@@ -165,9 +166,17 @@ the zip:
 - **File ▸ Split File…** (also on the right-click menu) cuts a file into
   numbered parts -- `big.zip.001`, `big.zip.002`, … -- each no bigger than a
   size you pick, with the usual sizes (Email, CD, DVD, FAT32) ready to click.
-- **Join Parts** reads a first part (`…​.001`) and the parts after it and writes
-  the file back, byte for byte, stepping past a name already taken rather than
-  overwriting it. Both are a single Undo step.
+  The Split window is movable (not a sheet) and shows the file's size and the
+  exact parts it will make. It never overwrites existing files, and a split
+  into a lot of parts (20 by default) asks you to confirm the count first.
+- Beside the parts goes a small JSON **manifest** listing each part's size and
+  SHA-512. It is optional extra -- parts still join with `cat`, `copy /B` or an
+  older Diptych -- but with it, **Join Parts** catches a part gone missing or
+  corrupted instead of writing a broken file.
+- **Join Parts** now works from **any** of the parts you select (or the
+  manifest), not only the first. It writes the file back byte for byte, steps
+  past a name already taken, and even without a manifest still catches a gap in
+  the middle of the numbering. Both split and join are a single Undo step.
 
 ## Fixes
 
@@ -184,4 +193,4 @@ Nothing to do.
 
 ---
 
-*1434 tests.*
+*1443 tests.*

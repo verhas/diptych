@@ -1,44 +1,36 @@
 import SwiftUI
 import AppKit
 
-/// The Disk Usage window: what is taking up the room under a folder, drawn
-/// three ways -- a treemap sized by bytes, a heat map coloured by size, and
-/// GrandPerspective-style rectangles with one per file. A segmented control
-/// rotates between them, one shown at a time.
+/// The Disk Usage window: what is taking up the room under a folder, drawn as a
+/// heat map -- a rectangle per item in the folder, sized by bytes and coloured
+/// by size so the big ones are warm and easy to pick out. Click a folder to go
+/// into it; the arrow goes back.
+///
+/// The scan runs off the main thread and hands over each top-level item the
+/// moment it is measured, so the picture fills in as it goes instead of hiding
+/// behind a spinner on a large folder.
 @MainActor
 @Observable
 final class DiskUsageModel {
-
-    enum Mode: String, CaseIterable, Identifiable {
-        case treemap, heatMap, grandPerspective
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .treemap:          "Treemap"
-            case .heatMap:          "Heat Map"
-            case .grandPerspective: "Files"
-            }
-        }
-        var symbol: String {
-            switch self {
-            case .treemap:          "square.grid.2x2"
-            case .heatMap:          "thermometer.medium"
-            case .grandPerspective: "squareshape.split.3x3"
-            }
-        }
-    }
 
     let root: URL
     private(set) var tree: DiskUsage.Node?
     private(set) var loading = true
     private(set) var progress = 0
-    var mode: Mode = .treemap
+
+    /// The top-level items measured so far, during a scan -- what the heat map
+    /// draws before the whole folder is done.
+    private var partialChildren: [DiskUsage.Node] = []
+    /// A stable id for the root across the partial updates and the final tree,
+    /// so drawing and hit-testing do not flicker as children arrive.
+    @ObservationIgnored private var rootId = UUID()
 
     /// Where the view has drilled to, deepest last; the root when empty.
     private(set) var stack: [DiskUsage.Node] = []
     @ObservationIgnored private var cancelled = CancellationFlag()
 
     var current: DiskUsage.Node? { stack.last ?? tree }
+    var atRoot: Bool { stack.isEmpty }
 
     init(url: URL) { self.root = url }
 
@@ -46,26 +38,52 @@ final class DiskUsageModel {
         loading = true
         progress = 0
         stack = []
+        partialChildren = []
+        tree = nil
+        rootId = UUID()
         cancelled = CancellationFlag()
         let flag = cancelled
         let url = root
         let node = await BlockingWork.run {
-            DiskUsage.scan(url, cancelled: flag) { count in
-                Task { @MainActor in DiskUsageModel.report(count, to: url) }
-            }
+            DiskUsage.scan(url, cancelled: flag,
+                           onProgress: { count in
+                               Task { @MainActor in DiskUsageModel.report(.diskUsageProgress, count, to: url) }
+                           },
+                           onChild: { child in
+                               Task { @MainActor in DiskUsageModel.deliver(child, to: url) }
+                           })
         }
         guard !flag.isCancelled else { return }
-        tree = node
+        if let node {
+            // Keep the id stable so the final, authoritative tree does not read
+            // as a different root than the one that was filling in.
+            tree = DiskUsage.Node(id: rootId, name: node.name, url: node.url,
+                                  isDirectory: true, size: node.size, children: node.children)
+        }
         loading = false
     }
 
-    /// Progress hops back to whichever live model is scanning this url.
-    private static func report(_ count: Int, to url: URL) {
-        NotificationCenter.default.post(name: .diskUsageProgress, object: url,
-                                        userInfo: ["count": count])
+    /// Progress and each finished child hop back to whichever live model is
+    /// scanning this url.
+    private static func report(_ name: Notification.Name, _ count: Int, to url: URL) {
+        NotificationCenter.default.post(name: name, object: url, userInfo: ["count": count])
+    }
+
+    private static func deliver(_ child: DiskUsage.Node, to url: URL) {
+        NotificationCenter.default.post(name: .diskUsageChild, object: url,
+                                        userInfo: ["child": child])
     }
 
     func receive(progress count: Int) { if loading { progress = count } }
+
+    func receive(child: DiskUsage.Node) {
+        guard loading else { return }
+        partialChildren.append(child)
+        partialChildren.sort { $0.size > $1.size }
+        let total = partialChildren.reduce(Int64(0)) { $0 + $1.size }
+        tree = DiskUsage.Node(id: rootId, name: root.path, url: root, isDirectory: true,
+                              size: total, children: partialChildren)
+    }
 
     func drill(into node: DiskUsage.Node) {
         guard node.isDirectory, !node.children.isEmpty else { return }
@@ -73,22 +91,19 @@ final class DiskUsageModel {
     }
 
     func goUp() { if !stack.isEmpty { stack.removeLast() } }
-
     func goToRoot() { stack.removeAll() }
-
     func cancel() { cancelled.cancel() }
 }
 
 extension Notification.Name {
     static let diskUsageProgress = Notification.Name("dev.verhas.Diptych.diskUsageProgress")
+    static let diskUsageChild = Notification.Name("dev.verhas.Diptych.diskUsageChild")
 }
 
 struct DiskUsageView: View {
 
     @State private var model: DiskUsageModel
     @State private var hovered: DiskUsage.Node?
-    /// The rectangles last drawn, newest layout, for hit-testing taps and hover.
-    @State private var placements: [Treemap.Placed<DiskUsage.Node>] = []
     @Environment(\.openWindow) private var openWindow
 
     init(url: URL) {
@@ -111,6 +126,12 @@ struct DiskUsageView: View {
                 model.receive(progress: count)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .diskUsageChild)) { note in
+            if (note.object as? URL) == model.root,
+               let child = note.userInfo?["child"] as? DiskUsage.Node {
+                withAnimation(.easeOut(duration: 0.35)) { model.receive(child: child) }
+            }
+        }
         .background(WindowAccessor { window in
             if let window {
                 AppWindows.shared.register(window)
@@ -126,27 +147,23 @@ struct DiskUsageView: View {
             Button {
                 model.goUp()
             } label: { Image(systemName: "chevron.up") }
-                .disabled(model.current?.id == model.tree?.id)
+                .disabled(model.atRoot)
                 .help("Up one level")
 
             breadcrumb
 
             Spacer()
 
-            Picker("", selection: $model.mode) {
-                ForEach(DiskUsageModel.Mode.allCases) { mode in
-                    Image(systemName: mode.symbol).tag(mode).help(mode.label)
-                }
+            if model.loading {
+                ProgressView().controlSize(.small)
+                Button("Stop") { model.cancel() }
+                    .controlSize(.small)
+            } else {
+                Button {
+                    Task { await model.scan() }
+                } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Scan again")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-
-            Button {
-                Task { await model.scan() }
-            } label: { Image(systemName: "arrow.clockwise") }
-                .disabled(model.loading)
-                .help("Scan again")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
     }
@@ -160,25 +177,20 @@ struct DiskUsageView: View {
                 Text(ByteCountFormatter.string(fromByteCount: current.size, countStyle: .file))
                     .font(.subheadline).foregroundStyle(.secondary)
             }
+            if model.loading, model.progress > 0 {
+                Text("\u{2014} measuring\u{2026} \(model.progress) files")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
         }
     }
 
     // MARK: - The map
 
     @ViewBuilder private var map: some View {
-        if model.loading {
-            VStack(spacing: 10) {
-                ProgressView()
-                Text(model.progress > 0 ? "Measuring\u{2026} \(model.progress) files"
-                                        : "Measuring\u{2026}")
-                    .foregroundStyle(.secondary)
-                Button("Stop") { model.cancel() }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let current = model.current, !items(of: current).isEmpty {
+        if let current = model.current, !current.children.isEmpty {
             GeometryReader { geo in
-                let placed = Treemap.squarify(items(of: current), in: CGRect(origin: .zero,
-                                                                             size: geo.size))
+                let items = current.children.map { (item: $0, weight: Double($0.size)) }
+                let placed = Treemap.squarify(items, in: CGRect(origin: .zero, size: geo.size))
                 Canvas { context, _ in draw(placed, in: context) }
                     .onContinuousHover { phase in
                         if case .active(let point) = phase {
@@ -192,30 +204,23 @@ struct DiskUsageView: View {
                             tapped(hit)
                         }
                     })
-                    .onAppear { placements = placed }
-                    .onChange(of: geo.size) { placements = placed }
-                    .onChange(of: model.mode) { placements = placed }
             }
             .padding(6)
+        } else if model.loading {
+            VStack(spacing: 10) {
+                ProgressView()
+                Text(model.progress > 0 ? "Measuring\u{2026} \(model.progress) files"
+                                        : "Measuring\u{2026}")
+                    .foregroundStyle(.secondary)
+                Button("Stop") { model.cancel() }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "externaldrive").font(.largeTitle).foregroundStyle(.secondary)
                 Text("Nothing to show here.").foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// What a mode lays out for `node`: its children for the treemap and heat
-    /// map, every file under it for the GrandPerspective view.
-    private func items(of node: DiskUsage.Node) -> [(item: DiskUsage.Node, weight: Double)] {
-        switch model.mode {
-        case .treemap, .heatMap:
-            return node.children.map { ($0, Double($0.size)) }
-        case .grandPerspective:
-            var files: [DiskUsage.Node] = []
-            node.files(into: &files)
-            return files.map { ($0, Double($0.size)) }
         }
     }
 
@@ -241,27 +246,11 @@ struct DiskUsageView: View {
         }
     }
 
+    /// Big is hot: hue runs blue (cool, 0.62) to red (hot, 0.0) with the item's
+    /// share of the largest here.
     private func colour(of node: DiskUsage.Node, maxSize: Int64) -> Color {
-        switch model.mode {
-        case .treemap:
-            return node.isDirectory ? Color.accentColor.opacity(0.75)
-                                    : Color.teal.opacity(0.7)
-        case .heatMap:
-            // Big is hot: hue runs blue (cool, 0.62) to red (hot, 0.0).
-            let fraction = maxSize > 0 ? Double(node.size) / Double(maxSize) : 0
-            return Color(hue: 0.62 * (1 - fraction), saturation: 0.85, brightness: 0.9)
-        case .grandPerspective:
-            return Self.extensionColour(node.url.pathExtension)
-        }
-    }
-
-    /// A stable colour per file extension, as GrandPerspective colours by kind.
-    static func extensionColour(_ ext: String) -> Color {
-        guard !ext.isEmpty else { return Color(hue: 0, saturation: 0, brightness: 0.6) }
-        var hasher = Hasher()
-        hasher.combine(ext.lowercased())
-        let hue = Double(abs(hasher.finalize()) % 360) / 360
-        return Color(hue: hue, saturation: 0.6, brightness: 0.85)
+        let fraction = maxSize > 0 ? Double(node.size) / Double(maxSize) : 0
+        return Color(hue: 0.62 * (1 - fraction), saturation: 0.85, brightness: 0.9)
     }
 
     private func tapped(_ node: DiskUsage.Node) {
@@ -280,9 +269,8 @@ struct DiskUsageView: View {
                 Text(ByteCountFormatter.string(fromByteCount: hovered.size, countStyle: .file))
                     .foregroundStyle(.secondary)
             } else {
-                Text(model.mode == .grandPerspective
-                     ? "Each rectangle is a file, sized by bytes and coloured by kind. Hover for its path."
-                     : "Rectangles are sized by bytes. Click a folder to go into it; the arrow goes back.")
+                Text("Rectangles are sized by bytes and coloured by size \u{2014} warm is bigger. "
+                     + "Click a folder to go into it; the arrow goes back.")
                     .foregroundStyle(.secondary)
             }
             Spacer()

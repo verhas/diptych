@@ -921,14 +921,17 @@ struct PaneView: View {
             }
             if ConfigStore.shared.menuItemShown(.archive) { archiveMenu(for: ids) }
             if ConfigStore.shared.menuItemShown(.checksum) { checksumMenu(for: ids) }
-            // One file selected: split it, or -- if it is a `.001` -- join from it.
-            // Offered even on read-only media: the parts then go to the other pane.
-            if ConfigStore.shared.menuItemShown(.splitJoin),
-               ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
-               !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
-                if FileSplitting.isFirstPart(item.url) {
+            // Split a single ordinary file, or join when the selection is a set
+            // of parts (any of them) or a manifest. Offered even on read-only
+            // media: the output then goes to the other pane.
+            if ConfigStore.shared.menuItemShown(.splitJoin) {
+                let urls = pane.rows.filter { ids.contains($0.id) && !$0.isParent
+                                              && !$0.isDirectory
+                                              && !ArchiveBrowsing.isInside($0.url) }.map(\.url)
+                if FileSplitting.joinSource(for: urls) != nil {
                     Button("Join Parts") { act(ids) { model.joinParts() } }
-                } else {
+                } else if urls.count == 1, let url = urls.first,
+                          !FileSplitting.isPart(url), !FileSplitting.isManifest(url) {
                     Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
                 }
             }

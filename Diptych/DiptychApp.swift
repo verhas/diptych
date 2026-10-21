@@ -26,6 +26,7 @@ struct DiptychApp: App {
     static let recoverWindowID = "diptych.recover"
     static let versionsWindowID = "diptych.versions"
     static let diskUsageWindowID = "diptych.diskUsage"
+    static let splitWindowID = "diptych.split"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -130,6 +131,15 @@ struct DiptychApp: App {
             if let url { DiskUsageView(url: url) }
         }
         .defaultSize(width: 900, height: 640)
+        .restorationBehavior(.disabled)
+
+        // The Split File window -- movable, so it can be slid off the file
+        // list. Keyed by a job id, like the batch-operations window.
+        WindowGroup(id: DiptychApp.splitWindowID, for: UUID.self) { $jobId in
+            if let jobId { SplitView(jobId: jobId) }
+        }
+        .defaultSize(width: 460, height: 360)
+        .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
 
         // One Rename Many per folder -- and selection, or flat view.
