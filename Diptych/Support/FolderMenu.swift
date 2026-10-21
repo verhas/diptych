@@ -29,6 +29,17 @@ final class FolderMenu: NSObject {
         actions = []
         let menu = NSMenu()
 
+        // A Trash listing is not a place to make or paste files: the empty
+        // space offers only to select and to refresh.
+        if pane.isTrashListing {
+            add("Select All", .selectAll, to: menu) { model.selectAll() }
+            add("Refresh", .refresh, to: menu) { pane.reload() }
+            self.menu = menu
+            let at = NSEvent.mouseLocation
+            DispatchQueue.main.async { menu.popUp(positioning: nil, at: at, in: nil) }
+            return
+        }
+
         add("New Folder", .newFolder, to: menu) { model.requestNewFolder() }
         add("New File", .newFile, to: menu) { model.requestNewFile() }
         if model.clipboardCommandIsOffered {

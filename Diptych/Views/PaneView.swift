@@ -806,9 +806,52 @@ struct PaneView: View {
         }
     }
 
+    /// The right-click menu in a Trash listing: putting a trashed file back and
+    /// looking at it, not the file-making and transforming tools, which have no
+    /// place in the Trash.
+    @ViewBuilder
+    private func trashRowMenu(for ids: Set<FileItem.ID>) -> some View {
+        if ids.isEmpty {
+            Button("Refresh") { pane.reload() }
+                .keyboardShortcut(.refresh)
+        } else {
+            let single = ids.count == 1 ? pane.rows.first(where: { ids.contains($0.id) }) : nil
+            if let item = single, !item.isParent, !item.originalLocation.isEmpty {
+                Button("Restore to Original Location") { act(ids) { model.restoreFromTrash() } }
+                if !item.isDirectory,
+                   FileManager.default.fileExists(atPath: item.originalLocation) {
+                    Button("Compare with the Original\u{2026}") {
+                        act(ids) { model.compareTrashedWithOriginal() }
+                    }
+                }
+                Divider()
+            }
+            // Read-only ways to look at a trashed item and find it, nothing that
+            // writes.
+            Button("Open") { act(ids) { if let id = ids.first { model.open(id: id, in: pane) } } }
+                .keyboardShortcut(.open)
+            Button("Get Info") { act(ids) { model.showInfo() } }
+                .keyboardShortcut(.getInfo)
+            Button("Reveal in Finder") { act(ids) { model.revealSelection() } }
+                .keyboardShortcut(.revealInFinder)
+            Divider()
+            Menu("Copy") {
+                Button("File Name") { act(ids) { model.copySelectionNames(fullPath: false) } }
+                    .keyboardShortcut(.copyNames)
+                Button("Full Path") { act(ids) { model.copySelectionNames(fullPath: true) } }
+                    .keyboardShortcut(.copyPaths)
+            }
+        }
+    }
+
     @ViewBuilder
     private func rowMenu(for ids: Set<FileItem.ID>) -> some View {
-        if ids.isEmpty {
+        if pane.isTrashListing {
+            // A Trash listing is not a place to make, paste, rename or transform
+            // files -- what you can do with a trashed one is put it back or look
+            // at it, so the menu is trimmed to that.
+            trashRowMenu(for: ids)
+        } else if ids.isEmpty {
             Button("New Folder") { activate(); model.requestNewFolder() }
                 .keyboardShortcut(.newFolder)
             Button("New File") { activate(); model.requestNewFile() }
@@ -847,20 +890,6 @@ struct PaneView: View {
                     }
                 }
                 .keyboardShortcut(.open)
-            }
-            // A Trash listing: put a file back, or see what replaced it. Offered
-            // only for a file Diptych trashed, whose old place it knows.
-            if pane.isTrashListing, ids.count == 1,
-               let item = pane.rows.first(where: { ids.contains($0.id) }),
-               !item.isParent, !item.originalLocation.isEmpty {
-                Button("Restore to Original Location") { act(ids) { model.restoreFromTrash() } }
-                if !item.isDirectory,
-                   FileManager.default.fileExists(atPath: item.originalLocation) {
-                    Button("Compare with the Original\u{2026}") {
-                        act(ids) { model.compareTrashedWithOriginal() }
-                    }
-                }
-                Divider()
             }
             if ConfigStore.shared.menuItemShown(.getInfo) {
                 Button("Get Info") { act(ids) { model.showInfo() } }

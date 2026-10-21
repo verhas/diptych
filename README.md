@@ -275,8 +275,12 @@ can also be switched in Settings ▸ Columns.) It is never offered or drawn in a
 ordinary folder, which is both what the feature means and what keeps AppKit from
 drawing a column that does not belong there.
 
-A trashed file's right-click menu, in a Trash listing, also offers two things
-for a file Diptych itself trashed (so its old place is known):
+A Trash listing's right-click menu is **trimmed**: making, pasting, renaming and
+transforming files have no place in the Trash, so none of them is offered. What
+is left is putting a file back and looking at it -- Restore, Compare, Open, Get
+Info, Reveal in Finder and Copy Name/Path -- and on the empty space only Select
+All and Refresh. The two Trash-only entries, for a file Diptych itself trashed
+(so its old place is known):
 
 - **Restore to Original Location** moves it back where it came from, recreating
   the folder if it has gone and stepping past a name taken in the meantime
