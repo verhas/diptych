@@ -50,6 +50,10 @@ final class RenameManyModel {
         /// In a flat view, the folder relative to the view's, `src/`; empty
         /// for a folder's own names.
         var prefix = ""
+        /// Dates, owner, group and EXIF for the `$…` placeholders, read once
+        /// when the window loads. The serial number is not here: it depends on
+        /// the listed order and is set when the replacement is worked out.
+        var meta = RenamePlaceholders.Values()
         var id: String { prefix + name }
         var url: URL { folder.appendingPathComponent(name) }
     }
@@ -148,7 +152,8 @@ final class RenameManyModel {
             Entry(name: url.lastPathComponent,
                   isDirectory: (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
                       ?? false,
-                  folder: folder)
+                  folder: folder,
+                  meta: RenamePlaceholders.gather(for: url))
         }
         .sorted { ($0.isDirectory ? 0 : 1, $0.name.lowercased())
                       < ($1.isDirectory ? 0 : 1, $1.name.lowercased()) }
@@ -175,7 +180,8 @@ final class RenameManyModel {
                     ? String(folderPath.dropFirst(rootPath.count + 1)) + "/" : ""
             entries.append(Entry(name: url.lastPathComponent,
                                  isDirectory: (info.st_mode & S_IFMT) == S_IFDIR,
-                                 folder: folder, prefix: relative))
+                                 folder: folder, prefix: relative,
+                                 meta: RenamePlaceholders.gather(for: url)))
             if names[folder] == nil {
                 names[folder] = (try? manager.contentsOfDirectory(atPath: folder.path)) ?? []
             }
@@ -235,7 +241,14 @@ final class RenameManyModel {
             return
         }
 
+        // One pass over the files in listed order: match, give each match the
+        // next serial number, fill its `$…` placeholders from its own dates,
+        // owner and EXIF, and apply the regex to the name. The replacement is
+        // thus per file, which is what the placeholders are for.
         let candidates = candidates
+        var serial = 0
+        var pairsByFolder: [URL: [(from: String, to: String)]] = [:]
+        var prefixOf: [URL: String] = [:]
         for entry in candidates {
             let name = entry.name
             let range = NSRange(name.startIndex..., in: name)
@@ -243,23 +256,26 @@ final class RenameManyModel {
                   match.range == range else { continue }
             matching.insert(entry.id)
             guard !replacement.isEmpty else { continue }
+            serial += 1
+            var values = entry.meta
+            values.serial = serial
+            let filled = RenamePlaceholders.expand(replacement, with: values)
             let new = regex.stringByReplacingMatches(in: name, options: [], range: range,
-                                                     withTemplate: replacement)
+                                                     withTemplate: filled)
             if new != name { newNames[entry.id] = new }
+            pairsByFolder[entry.folder, default: []].append((from: name, to: new))
+            if prefixOf[entry.folder] == nil { prefixOf[entry.folder] = entry.prefix }
         }
 
         guard !replacement.isEmpty else { return }
-        let byFolder = Dictionary(grouping: candidates, by: \.folder)
-        let folders = byFolder.keys.sorted {
+        let folders = pairsByFolder.keys.sorted {
             ($0.pathComponents.count, $0.path) > ($1.pathComponents.count, $1.path)
         }
         for folder in folders {
-            let group = byFolder[folder] ?? []
-            let names = folderNames[folder] ?? group.map(\.name)
-            let only = selectionOnly || isFlat ? Set(group.map(\.name)) : nil
-            let part = RenamePlan.plan(names: names, search: regex, replacement: replacement,
-                                       only: only)
-            let prefix = group.first?.prefix ?? ""
+            let pairs = pairsByFolder[folder] ?? []
+            let names = folderNames[folder] ?? pairs.map(\.from)
+            let part = RenamePlan.plan(pairs: pairs, among: names)
+            let prefix = prefixOf[folder] ?? ""
             folderPlans.append((folder, prefix, part))
             plan.steps += part.steps
             plan.problems += part.problems.map { prefix.isEmpty ? $0 : "In \(prefix): \($0)" }

@@ -1123,17 +1123,29 @@ struct PaneView: View {
                 .keyboardShortcut(.copyToOtherPane)
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
                 .keyboardShortcut(.moveToOtherPane)
-            Button("Rename...") { act(ids) { model.requestRename() } }
-                .keyboardShortcut(.rename)
-            Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
-                .keyboardShortcut(.renameMany)
-            if ids.count == 1, model.namesCanBeSuggested, !reachesNothing {
-                Button("Rename with Suggested Name...") {
-                    act(ids) { model.renameWithSuggestion() }
+            // Rename as a submenu, like Copy: the label itself renames inline,
+            // the arrow opens the variants and the one-click transforms.
+            Menu("Rename") {
+                Button("Rename Many\u{2026}") { activate(); model.requestRenameMany() }
+                    .keyboardShortcut(.renameMany)
+                if ids.count == 1, model.namesCanBeSuggested, !reachesNothing {
+                    Button("Suggest Name\u{2026}") {
+                        act(ids) { model.renameWithSuggestion() }
+                    }
+                    .keyboardShortcut(.renameSuggested)
+                    .disabled(model.isSuggestingName)
                 }
-                .keyboardShortcut(.renameSuggested)
-                .disabled(model.isSuggestingName)
+                Divider()
+                Button("Lower Case") { act(ids) { model.renameLowercased() } }
+                Button("Upper Case") { act(ids) { model.renameUppercased() } }
+                Button("Spaces to Underscores") { act(ids) { model.renameSpacesToUnderscores() } }
+                Button("Spaces to Dashes") { act(ids) { model.renameSpacesToDashes() } }
+                Divider()
+                Button("Replace\u{2026}") { act(ids) { model.requestRenameReplace() } }
+            } primaryAction: {
+                act(ids) { model.requestRename() }
             }
+            .keyboardShortcut(.rename)
 
             Divider()
 

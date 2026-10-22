@@ -670,7 +670,7 @@ final class DuplicateSearch {
     func trashChosen() async {
         guard canTrash else { return }
         let urls = groups.flatMap(\.files).map(\.id).filter { chosen.contains($0) }
-        let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
+        let (outcome, moved, _) = await FileOperations.shared.trashRecording(urls)
         FileHistory.shared.recordTrash(moved)
         TrashOriginals.shared.record(moved)
         if !outcome.succeeded.isEmpty {

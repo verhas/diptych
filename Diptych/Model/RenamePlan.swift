@@ -88,6 +88,37 @@ struct RenamePlan: Equatable, Sendable {
         return plan
     }
 
+    /// Plan from explicit new names rather than a regular expression: `pairs`
+    /// is (old name, new name) for the files that may change, `names` is
+    /// everything in the folder. The collision rules and ordering are exactly
+    /// the regex planner's -- what a one-click transform (lower case, spaces to
+    /// underscores) or a find-and-replace across names runs through.
+    static func plan(pairs rawPairs: [(from: String, to: String)],
+                     among names: [String]) -> RenamePlan {
+        var plan = RenamePlan()
+        var pairs: [(from: String, to: String)] = []
+
+        for pair in rawPairs.sorted(by: { $0.from < $1.from }) {
+            plan.matched += 1
+            if pair.to == pair.from {
+                plan.unchanged += 1
+                continue
+            }
+            guard isUsable(pair.to) else {
+                plan.problems.append("\u{201C}\(pair.from)\u{201D} would become "
+                                     + "\u{201C}\(pair.to)\u{201D}, which cannot be a file name.")
+                continue
+            }
+            pairs.append(pair)
+        }
+
+        plan.problems += clashes(pairs, among: names)
+        guard plan.problems.isEmpty else { return plan }
+
+        plan.steps = order(pairs)
+        return plan
+    }
+
     /// A name the file system will take. Empty, a slash, a colon -- which
     /// Finder still shows as a slash -- and the two navigation names are out.
     static func isUsable(_ name: String) -> Bool {

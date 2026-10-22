@@ -11,6 +11,7 @@ struct DiptychApp: App {
     static let binaryWindowID = "diptych.binary"
     static let textWindowID = "diptych.text"
     static let renameWindowID = "diptych.rename"
+    static let renameReplaceWindowID = "diptych.renameReplace"
     static let diffWindowID = "diptych.diff"
     static let directoryDiffWindowID = "diptych.directoryDiff"
     static let releaseNotesWindowID = "diptych.releaseNotes"
@@ -147,6 +148,13 @@ struct DiptychApp: App {
             if let request { RenameManyView(request: request) }
         }
         .defaultSize(width: 720, height: 620)
+        .restorationBehavior(.disabled)
+
+        // One Replace-in-Names window per selection it was opened on.
+        WindowGroup(id: DiptychApp.renameReplaceWindowID, for: RenameReplaceRequest.self) { $request in
+            if let request { RenameReplaceView(request: request) }
+        }
+        .defaultSize(width: 640, height: 520)
         .restorationBehavior(.disabled)
 
         // One comparison per pair of files, so a second Cmd-D on two other

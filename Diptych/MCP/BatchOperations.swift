@@ -584,7 +584,7 @@ final class BatchOperationsModel {
 
             case .trash:
                 guard let source = row.source else { continue }
-                let (outcome, moved) = await FileOperations.shared.trashRecording([source])
+                let (outcome, moved, _) = await FileOperations.shared.trashRecording([source])
                 if let first = moved.first, outcome.isCompleteSuccess {
                     rowResults[row.id] = "Moved to Trash."
                     trashRecords.append(first)

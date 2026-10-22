@@ -12,6 +12,7 @@ struct RenameManyView: View {
     let request: RenameManyRequest
 
     @State private var model: RenameManyModel
+    @State private var showingPlaceholders = false
 
     init(request: RenameManyRequest) {
         self.request = request
@@ -79,10 +80,37 @@ struct RenameManyView: View {
                 }
                 GridRow {
                     Text("Replace")
-                    TextField("the new name, with $1 for the first group",
-                              text: $model.replacement)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
+                    HStack(spacing: 4) {
+                        TextField("the new name, with $1 for a group and $n, $cdate{\u{2026}} for more",
+                                  text: $model.replacement)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                            .onKeyPress { press in
+                                if press.key == .space, press.modifiers.contains(.control) {
+                                    showingPlaceholders = true
+                                    return .handled
+                                }
+                                return .ignored
+                            }
+                        Button { showingPlaceholders.toggle() } label: {
+                            Image(systemName: "curlybraces")
+                        }
+                        .help("Insert a placeholder (also Control-Space)")
+                        .popover(isPresented: $showingPlaceholders, arrowEdge: .bottom) {
+                            placeholderList
+                        }
+                    }
+                }
+                GridRow {
+                    Color.clear.frame(width: 0, height: 0)
+                    // The small list of what the replacement understands, so it
+                    // can be seen without opening the inserter.
+                    Text(RenamePlaceholders.legend.map(\.token).joined(separator: "  "))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.tail)
+                        .help("Placeholders filled per file. Control-Space, or the braces button, "
+                              + "inserts one.")
                 }
             }
 
@@ -102,6 +130,36 @@ struct RenameManyView: View {
             }
         }
         .padding(12)
+    }
+
+    /// The completion help: every placeholder with what it stands for. Picking
+    /// one adds it to the replacement -- at the end, which is where the caret is
+    /// as the name is being built up.
+    private var placeholderList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(RenamePlaceholders.legend, id: \.token) { item in
+                Button {
+                    model.replacement += item.token
+                    showingPlaceholders = false
+                } label: {
+                    HStack(spacing: 16) {
+                        Text(item.token)
+                            .font(.system(.body, design: .monospaced))
+                        Spacer(minLength: 0)
+                        Text(item.meaning)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 5).padding(.horizontal, 8)
+                }
+                .buttonStyle(.plain)
+                if item.token != RenamePlaceholders.legend.last?.token { Divider() }
+            }
+        }
+        .padding(4)
+        .frame(width: 360)
     }
 
     private var summary: String {

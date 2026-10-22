@@ -25,6 +25,7 @@ final class AppModel {
         case trash
         case deleteImmediately
         case emptyBin
+        case authorizeTrash
         case authorizeOwner
         case conflict
         case message(String)
@@ -64,6 +65,7 @@ final class AppModel {
             case .trash:          return "trash"
             case .deleteImmediately: return "deleteImmediately"
             case .emptyBin:       return "emptyBin"
+            case .authorizeTrash: return "authorizeTrash"
             case .authorizeOwner: return "authorizeOwner"
             case .conflict:       return "conflict"
             case .message:   return "message"
@@ -255,6 +257,7 @@ final class AppModel {
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
+    @ObservationIgnored var openRenameReplaceWindow: ((RenameReplaceRequest) -> Void)?
     @ObservationIgnored var openArchiveWindow: ((ArchiveRequest) -> Void)?
     @ObservationIgnored var openOptimizeWindow: ((OptimizeRequest) -> Void)?
     @ObservationIgnored var openRecoverWindow: ((PasswordRecoveryRequest) -> Void)?
@@ -789,6 +792,15 @@ final class AppModel {
         }
     }
 
+    /// Open the Replace-in-Names window on the selected files.
+    func requestRenameReplace() {
+        let pane = active
+        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        let urls = pane.selectedItems.filter { !$0.isParent }.map(\.url)
+        guard !urls.isEmpty else { return }
+        openRenameReplaceWindow?(RenameReplaceRequest(urls: urls))
+    }
+
     /// Text Edit: the file as plain text, in Diptych's own editor, whatever
     /// application the file would normally open in.
     func showTextEditor() {
@@ -936,7 +948,7 @@ final class AppModel {
         let successor = successorAfterDeleting(in: pane)
 
         Task {
-            let (outcome, moved) = await FileOperations.shared.trashRecording(urls)
+            let (outcome, moved, needsPrivilege) = await FileOperations.shared.trashRecording(urls)
             FileHistory.shared.recordTrash(moved)
             TrashOriginals.shared.record(moved)
             if !outcome.succeeded.isEmpty {
@@ -945,7 +957,82 @@ final class AppModel {
             pane.pendingSelection = successor.map { [$0] } ?? []
             pane.reload()
             inactive.reload()   // the other pane may be showing the same folder
+
+            // Refused for want of permission, as an app in /Applications is:
+            // offer to do it as administrator rather than only reporting it.
+            if !needsPrivilege.isEmpty {
+                pendingElevatedTrash = needsPrivilege
+                pendingTrashOtherFailures = outcome.failures.filter {
+                    !needsPrivilege.contains($0.url)
+                }
+                dialog = .authorizeTrash
+                return
+            }
             report(outcome, verb: "move to Trash")
+        }
+    }
+
+    // MARK: - Trashing as administrator
+
+    @ObservationIgnored private var pendingElevatedTrash: [URL]?
+    @ObservationIgnored private var pendingTrashOtherFailures: [(url: URL, message: String)] = []
+
+    var pendingElevatedTrashCount: Int { pendingElevatedTrash?.count ?? 0 }
+
+    /// Move to the Trash as root what the user was refused for want of
+    /// permission. The system shows its own password prompt (once, for the
+    /// whole set); cancelling it leaves everything where it is.
+    func confirmElevatedTrash() {
+        guard let urls = pendingElevatedTrash else { return }
+        pendingElevatedTrash = nil
+        let otherFailures = pendingTrashOtherFailures
+        pendingTrashOtherFailures = []
+
+        // Where each item goes, worked out here; the privileged shell only
+        // makes the folder and moves the file, so nothing clever runs as root.
+        var commands: [String] = []
+        var moved: [(original: URL, trashed: URL)] = []
+        for url in urls {
+            let mount = (try? url.resourceValues(forKeys: [.volumeURLKey]))?.volume
+                ?? URL(fileURLWithPath: "/")
+            let trashDir = Trash.url(forVolumeAt: mount)
+            let target = FileOperations.uniqueURL(
+                for: trashDir.appendingPathComponent(url.lastPathComponent))
+            commands.append("/bin/mkdir -p " + Shell.quoted(trashDir.path))
+            commands.append("/bin/mv -f " + Shell.quoted(url.path) + " " + Shell.quoted(target.path))
+            moved.append((url, target))
+        }
+
+        switch Privileged.run(commands.joined(separator: "; ")) {
+        case .succeeded:
+            // Only those that truly left their folder -- a mv can still fail
+            // for one item while the prompt was accepted for the set.
+            let done = moved.filter { !FileOperations.exists($0.original) }
+            FileHistory.shared.recordTrash(done)
+            TrashOriginals.shared.record(done)
+            if !done.isEmpty {
+                Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
+            }
+            active.reload()
+            inactive.reload()
+            let stuck = moved.count - done.count
+            if stuck == 0, otherFailures.isEmpty {
+                flash("\(done.count) item\(done.count == 1 ? "" : "s") moved to the Trash",
+                      error: false)
+            } else {
+                var text = "Moved \(done.count) to the Trash."
+                if stuck > 0 { text += " \(stuck) could not be moved even as administrator." }
+                if !otherFailures.isEmpty {
+                    text += "\n\n" + otherFailures.prefix(10)
+                        .map { "\($0.url.lastPathComponent): \($0.message)" }
+                        .joined(separator: "\n")
+                }
+                dialog = .message(text)
+            }
+        case .cancelled:
+            flash("Cancelled. Nothing was moved to the Trash with administrator rights.")
+        case .failed(let message):
+            dialog = .message("Could not move to the Trash as administrator.\n\n" + message)
         }
     }
 

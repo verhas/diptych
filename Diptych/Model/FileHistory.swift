@@ -250,6 +250,19 @@ final class FileHistory {
                }))
     }
 
+    /// Like `recordRenames`, but under a name of its own -- what the one-click
+    /// transforms and the find-and-replace window record, so Undo says "Lower
+    /// Case" or "Replace in Names" rather than "Rename Many".
+    func recordRenames(_ applied: [(from: URL, to: URL)], renames: Int, as label: String) {
+        guard !applied.isEmpty else { return }
+        record(label,
+               told: "\(renames) item\(renames == 1 ? "" : "s") in \(Self.folder(of: applied[0].to)) "
+                   + "\(renames == 1 ? "was" : "were") renamed.",
+               .relocate(applied.reversed().map {
+                   Relocation(from: $0.to, to: $0.from, identity: Self.identity(of: $0.to))
+               }))
+    }
+
     func recordRename(from old: URL, to new: URL) {
         record("Rename",
                told: "\(quoted(old.lastPathComponent)) was renamed to "

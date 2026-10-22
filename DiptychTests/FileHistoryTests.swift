@@ -251,7 +251,7 @@ final class FileHistoryTests: XCTestCase {
 
     func testUndoingATrashTakesItBackOutAndRedoPutsItThere() async throws {
         let url = try file("wanted.txt", "keep me")
-        let (_, moved) = await FileOperations.shared.trashRecording([url])
+        let (_, moved, _) = await FileOperations.shared.trashRecording([url])
         trashed += moved.map(\.trashed)
         history.recordTrash(moved)
 
@@ -269,7 +269,7 @@ final class FileHistoryTests: XCTestCase {
 
     func testATrashedItemEmptiedFromTheTrashCannotComeBack() async throws {
         let url = try file("gone.txt")
-        let (_, moved) = await FileOperations.shared.trashRecording([url])
+        let (_, moved, _) = await FileOperations.shared.trashRecording([url])
         history.recordTrash(moved)
         // As emptying the Trash would leave it.
         for item in moved { try manager.removeItem(at: item.trashed) }

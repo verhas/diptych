@@ -369,10 +369,14 @@ actor FileOperations {
     /// Also where each item ended up, which is what makes trashing undoable:
     /// the Trash may already hold something of that name, so macOS renames it
     /// on the way in and only it knows what to.
-    func trashRecording(_ urls: [URL]) -> (outcome: Outcome, moved: [(original: URL, trashed: URL)]) {
+    func trashRecording(_ urls: [URL])
+        -> (outcome: Outcome, moved: [(original: URL, trashed: URL)], needsPrivilege: [URL]) {
         let fm = FileManager()
         var outcome = Outcome()
         var moved: [(original: URL, trashed: URL)] = []
+        // Items trashing refused for want of permission, on a volume where root
+        // could still do it -- what the caller may offer to retry as admin.
+        var needsPrivilege: [URL] = []
         for url in urls {
             do {
                 var resulting: NSURL?
@@ -423,10 +427,43 @@ actor FileOperations {
                     moved.append((url, trashed))
                     continue
                 }
+                // Refused for permission -- reading a file it may not read, or
+                // writing a folder it may not write -- and not on a read-only
+                // volume: root could do it, so the caller can offer to retry as
+                // admin, which is what Finder does for an app in /Applications.
+                if Self.isPermissionError(error), Self.rootCouldHelp(url) {
+                    needsPrivilege.append(url)
+                }
                 outcome.failures.append((url, error.localizedDescription))
             }
         }
-        return (outcome, moved)
+        return (outcome, moved, needsPrivilege)
+    }
+
+    /// Whether elevating to root could succeed where the current user was
+    /// refused: true unless the item sits on a read-only volume -- the sealed
+    /// system volume, where not even root may write, so a password prompt there
+    /// would ask for nothing.
+    nonisolated static func rootCouldHelp(_ url: URL) -> Bool {
+        let readOnly = (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?
+            .volumeIsReadOnly ?? false
+        return !readOnly
+    }
+
+    /// A refusal for want of permission -- read or write, however the error is
+    /// dressed: a Cocoa no-permission code, or a POSIX `EACCES`/`EPERM`
+    /// underneath. Not a read-only volume or a missing file, which root cannot
+    /// fix.
+    nonisolated static func isPermissionError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == NSFileWriteNoPermissionError
+            || nsError.code == NSFileReadNoPermissionError { return true }
+        let posix: NSError? = nsError.domain == NSPOSIXErrorDomain ? nsError
+            : nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        if let posix, posix.domain == NSPOSIXErrorDomain,
+           posix.code == Int(EACCES) || posix.code == Int(EPERM) { return true }
+        return false
     }
 
     /// Delete for good, with no trip through the Trash -- what "Delete

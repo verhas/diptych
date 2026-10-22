@@ -781,6 +781,26 @@ tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
 
+## The Rename menu
+
+On the right-click menu **Rename** is a submenu, like Copy: clicking the word
+renames the one selected file in place, and the arrow opens the rest.
+
+- **Rename Many…** and **Suggest Name…** are the windows below and the Apple
+  Intelligence suggestion.
+- **Lower Case** and **Upper Case** change the whole name's letters.
+- **Spaces to Underscores** and **Spaces to Dashes** replace every space in the
+  selected names.
+- **Replace…** opens a window that finds text A in the selected names and puts B
+  in its place -- every occurrence, anywhere in the name, which is *not* the
+  whole-name match Rename Many does. A checkbox makes A a regular expression and
+  B its replacement, so `\s+` → `-` collapses each run of spaces to one dash
+  across the whole selection. The new names are previewed before anything runs.
+
+Each acts on the whole selection, runs through the same collision-safe planner
+as Rename Many -- nothing touched unless the lot is sound -- and is a single
+Undo step.
+
 ## Rename Many
 
 **⌃⌘R**, or File ▸ Rename Many…, or the right-click menu: one regular
@@ -792,6 +812,20 @@ folder full of damage — so there is no RegEx box to tick. The replacement uses
 `$1`, `$2` … for the capturing groups. Non-matching files are dimmed as the
 pane filter dims them, or hidden with a checkbox. ↑ and a double-click on a
 folder navigate.
+
+**Placeholders in the replacement**, filled from each file so the same
+replacement gives a different name per file, alongside the regex's own `$1`:
+
+- `$n` — a serial number, 1, 2, 3 … in the order the files are listed;
+- `$cdate{YYYY-MM-DD}` and `$mdate{YYYY-MM-DD}` — the created and modified dates,
+  in a format you give (the everyday `YYYY`/`DD` are understood);
+- `$owner` and `$group` — the owning user and group;
+- `$exif{DateTimeOriginal}` — an EXIF value of an image, by its name.
+
+The small grey line under Replace lists them, the braces button inserts one, and
+**Control-Space** opens the same list in the field. What a placeholder fills in
+is put in literally, so a value that happens to contain a `$` can never turn
+into a backreference by accident.
 
 **The selection.** When files are selected in the pane, **Selection only** is
 ticked: only they are matched and renamed, the rest are dimmed -- though their

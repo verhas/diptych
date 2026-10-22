@@ -169,6 +169,9 @@ struct ContentView: View {
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
+            model.openRenameReplaceWindow = {
+                openWindow(id: DiptychApp.renameReplaceWindowID, value: $0)
+            }
             model.openDiffWindow = { openWindow(id: DiptychApp.diffWindowID, value: $0) }
             model.openDirectoryDiffWindow = {
                 openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
@@ -855,6 +858,18 @@ struct DialogSheet: View {
                         + "for good. You can\u{2019}t undo this.",
                     confirm: "Empty Bin",
                     destructive: true) { model.confirmEmptyBin() }
+
+            case .authorizeTrash:
+                let count = model.pendingElevatedTrashCount
+                confirmation(
+                    title: count == 1
+                        ? "Move 1 item to the Trash as administrator?"
+                        : "Move \(count) items to the Trash as administrator?",
+                    detail: "\(count == 1 ? "This item is" : "These items are") in a place you do "
+                        + "not have permission to change, such as the Applications folder, so "
+                        + "macOS will ask for an administrator name and password.",
+                    confirm: "Authenticate\u{2026}",
+                    destructive: true) { model.confirmElevatedTrash() }
 
             case .authorizeOwner:
                 confirmation(

@@ -21,6 +21,37 @@ final class FileOperationsTests: XCTestCase {
         try? fm.removeItem(at: root)
     }
 
+    // MARK: - When elevation to administrator could help
+
+    func testPermissionErrorsAreRecognisedHoweverDressed() {
+        let write = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+        let read = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)
+        let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))
+        let wrapped = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+                              userInfo: [NSUnderlyingErrorKey:
+                                NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))])
+        XCTAssertTrue(FileOperations.isPermissionError(write))
+        XCTAssertTrue(FileOperations.isPermissionError(read))
+        XCTAssertTrue(FileOperations.isPermissionError(posix))
+        XCTAssertTrue(FileOperations.isPermissionError(wrapped))
+
+        // A missing file is not a permission problem -- root cannot conjure it.
+        let missing = NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError)
+        XCTAssertFalse(FileOperations.isPermissionError(missing))
+    }
+
+    func testRootCanHelpOnAWritableVolume() {
+        // The guard keeps a password from being asked for a read-only volume,
+        // where not even root may write. A writable one -- the scratch folder's
+        // -- is where elevation is worth offering.
+        //
+        // The sealed system volume is deliberately not checked here: the API
+        // reports the one merged "Macintosh HD", so it reads as writable, and a
+        // trash of something under /System takes the separate "copied but could
+        // not be removed" path rather than the refusal this guard sits on.
+        XCTAssertTrue(FileOperations.rootCouldHelp(root))
+    }
+
     // MARK: - Helpers
 
     @discardableResult

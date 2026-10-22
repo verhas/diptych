@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-10-21. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-10-22. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -5028,6 +5028,7 @@ P	1462674	22.5052	91.8134	BD	84	Hāthazāri
 P	1462681	22.8396	91.8413	BD	84	Manikchari
 P	1477498	22.4890	90.0627	BD	85	Bhāndāria
 P	6414184	22.6835	91.7906	BD	84	Bibir Hat
+P	6415294	21.7744	92.2191	BD	84	Lāma
 P	6545349	25.7777	88.8917	BD	87	Saidpur
 P	7475889	22.1400	89.9414	BD	82	Taluker Char Doani
 P	7476237	22.0513	90.0320	BD	85	Natona
@@ -10169,6 +10170,7 @@ P	1885400	19.7428	109.3449	CN	31	Zhonghe
 P	1885823	31.7667	104.7167	CN	32	Jiangyou
 P	1886760	31.3041	120.5954	CN	04	Suzhou
 P	1886762	29.9887	122.2049	CN	02	Zhoushan
+P	1893316	22.0370	112.2089	CN	30	Nalong
 P	1893595	19.5093	109.3928	CN	31	Dacheng
 P	1897997	34.5744	117.0953	CN	04	Wuduan
 P	1898013	33.7983	117.8664	CN	04	Guanshan
@@ -20434,6 +20436,8 @@ P	11680754	9.0032	77.3449	IN	25	Āyikudi
 P	11682149	11.6969	78.1794	IN	25	Kannānkurichchi
 P	11683679	11.2052	78.1512	IN	25	Periyapatti
 P	11685075	11.6038	78.5778	IN	25	Narasingapuram
+P	11725221	26.0792	86.6326	IN	34	Bina
+P	11725334	26.0785	86.6809	IN	34	Hardi
 P	12032137	26.7413	83.8869	IN	36	Kushinagar
 P	12165955	18.1910	79.9430	IN	40	Mulugu
 P	12165956	11.7338	78.9592	IN	25	Kallakurichi

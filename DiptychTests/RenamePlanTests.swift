@@ -151,6 +151,46 @@ final class RenamePlanTests: XCTestCase {
                        "one became two, two became three, and p and q swapped")
     }
 
+    // MARK: - Planning from explicit pairs (transforms, find-and-replace)
+
+    func testPairPlanCountsAndOrdersLikeTheRegexPlanner() {
+        // Spaces to underscores across a folder, one of them a no-op.
+        let made = RenamePlan.plan(
+            pairs: [("my notes.txt", "my_notes.txt"), ("ok.txt", "ok.txt")],
+            among: ["my notes.txt", "ok.txt"])
+
+        XCTAssertEqual(made.matched, 2)
+        XCTAssertEqual(made.unchanged, 1)
+        XCTAssertEqual(made.steps, [.init(from: "my notes.txt", to: "my_notes.txt")])
+        XCTAssertTrue(made.problems.isEmpty)
+    }
+
+    func testPairPlanRefusesTwoNamesLandingOnOne() {
+        // Lower-casing both "A.txt" and "a.txt" would collide.
+        let made = RenamePlan.plan(pairs: [("A.TXT", "a.txt"), ("B.txt", "a.txt")],
+                                   among: ["A.TXT", "B.txt"])
+
+        XCTAssertFalse(made.problems.isEmpty)
+        XCTAssertTrue(made.steps.isEmpty)
+    }
+
+    func testPairPlanAllowsAPureCaseChangeOfAName() {
+        // Lower-casing "NOTES.txt" to "notes.txt" is a rename onto itself on a
+        // case-insensitive disk, not a collision with a standing file.
+        let made = RenamePlan.plan(pairs: [("NOTES.txt", "notes.txt")],
+                                   among: ["NOTES.txt"])
+
+        XCTAssertTrue(made.problems.isEmpty, "\(made.problems)")
+        XCTAssertEqual(made.steps, [.init(from: "NOTES.txt", to: "notes.txt")])
+    }
+
+    func testPairPlanRefusesAnUnusableName() {
+        let made = RenamePlan.plan(pairs: [("a.txt", "a/b.txt")], among: ["a.txt"])
+
+        XCTAssertFalse(made.problems.isEmpty)
+        XCTAssertTrue(made.steps.isEmpty)
+    }
+
     /// A plan for exactly these renames. One regex cannot express an arbitrary
     /// table of names, and it is the ordering that is under test here, so the
     /// pairs go straight to the two pieces that do that work.
