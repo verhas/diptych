@@ -505,7 +505,8 @@ final class ScriptRunTests: XCTestCase {
         let (script, problems) = ScriptDefinition.read(url, contents: text)
         XCTAssertEqual(problems, [])
         let run = CommandRun(script: try XCTUnwrap(script), targets: targets,
-                             left: folder, right: folder, active: folder, other: folder)
+                             left: folder, right: folder, active: folder, other: folder,
+                             singlePane: false)
         for _ in 0..<200 where run.isRunning {
             try await Task.sleep(for: .milliseconds(25))
         }

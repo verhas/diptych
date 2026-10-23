@@ -187,6 +187,10 @@ struct TerminalStyle: Equatable {
         case .dark:   (NSColor(white: 0.9, alpha: 1), NSColor(white: 0.12, alpha: 1))
         case .custom: (NSColor(hex: foreground) ?? .textColor,
                        NSColor(hex: background) ?? .textBackgroundColor)
+        // The 1970s/80s video terminals: a single phosphor colour on black.
+        // P1 green and P3 amber, the two people remember.
+        case .vt100green: (NSColor(hex: "#33FF33") ?? .green, .black)
+        case .vt100amber: (NSColor(hex: "#FFB000") ?? .orange, .black)
         }
     }
 

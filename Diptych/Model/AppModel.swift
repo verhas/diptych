@@ -580,6 +580,21 @@ final class AppModel {
     /// file goes on the left, which is the only arrangement that would not
     /// surprise anybody.
     func showDiff() {
+        // In single-pane mode the hidden pane must not be consulted. Two items
+        // selected here are compared with each other as usual; one item is
+        // compared with its own committed version in Git, since there is no
+        // other pane to put beside it.
+        if isSinglePane {
+            let here = active.selectedItems.filter { !$0.isParent }
+            if here.count == 1 {
+                compareWithGitHead(here[0])
+                return
+            }
+            if here.count != 2 {
+                flash("Select one Git-tracked item, or two files to compare", error: true)
+                return
+            }
+        }
         guard let pair = pairToCompare() else { return }
         // A file and a folder have nothing in common to compare -- refused
         // rather than guessing which one was meant.
@@ -716,6 +731,88 @@ final class AppModel {
         let leftItem = active === left ? here[0] : other[0]
         let rightItem = active === left ? other[0] : here[0]
         return (leftItem.url, rightItem.url, leftItem.isDirectory, rightItem.isDirectory)
+    }
+
+    /// Compare one file with its own committed version in Git -- its
+    /// uncommitted changes -- touching no server. This is what Compare does in
+    /// single-pane mode, where there is no other pane to put beside it. A file
+    /// Git does not track, or a folder, has nothing to show and says so.
+    func compareWithGitHead(_ item: FileItem) {
+        guard !item.isDirectory else {
+            flash("\u{201C}\(item.name)\u{201D} is a folder; comparing a folder with its "
+                  + "committed version is not supported \u{2014} select a file", error: true)
+            return
+        }
+        guard ConfigStore.shared.configuration.gitEnabled, let git = GitService.shared.tool else {
+            flash("Git is off or not found, so \u{201C}\(item.name)\u{201D} has no committed "
+                  + "version to compare with", error: true)
+            return
+        }
+        let working = item.url
+        let folder = working.deletingLastPathComponent()
+        let name = working.lastPathComponent
+
+        Task {
+            guard await GitService.shared.root(for: folder) != nil else {
+                flash("\u{201C}\(name)\u{201D} is not in a Git repository, so there is nothing "
+                      + "to compare it with", error: true)
+                return
+            }
+            // `HEAD:./name`, run in the file's own folder, is the committed blob
+            // -- local only, no fetch and no server.
+            let outcome = await BlockingWork.run {
+                GitTool.run(["show", "HEAD:./\(name)"], executable: git.url, in: folder,
+                            timeout: GitService.timeout)
+            }
+            switch outcome {
+            case .ok(let committed):
+                guard let temp = Self.committedTemp(for: working, content: committed) else {
+                    flash("Could not prepare the committed version of \u{201C}\(name)\u{201D}",
+                          error: true)
+                    return
+                }
+                let asked = DiffPair(left: temp, right: working)
+                if let clash = DiffWindows.shared.alreadyOpen(asked) {
+                    flash("\(clash.lastPathComponent) is already open in a comparison or in "
+                          + "Text Edit", error: true)
+                    return
+                }
+                OpenDiffDocuments.shared.refreshIfOpen(asked)
+                openDiffWindow?(asked)
+            case .failed:
+                flash("\u{201C}\(name)\u{201D} is not tracked by Git, so there is no committed "
+                      + "version to compare it with", error: true)
+            case .timedOut, .couldNotRun:
+                flash("Git did not answer for \u{201C}\(name)\u{201D}", error: true)
+            }
+        }
+    }
+
+    /// The committed text written to a stable, read-only temporary file named
+    /// for the original -- so the comparison can read it, a second Compare of
+    /// the same file reuses the path (refreshing any open window), and the
+    /// committed side cannot be saved over (`DiffDocument` guards on writability).
+    nonisolated private static func committedTemp(for working: URL, content: String) -> URL? {
+        let stem = working.deletingPathExtension().lastPathComponent
+        let ext = working.pathExtension
+        let leaf = ext.isEmpty ? "\(stem) @HEAD" : "\(stem) @HEAD.\(ext)"
+        let key = String(UInt(bitPattern: working.path.hashValue), radix: 16)
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DiptychGitCompare", isDirectory: true)
+            .appendingPathComponent(key, isDirectory: true)
+        let target = dir.appendingPathComponent(leaf)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // An atomic write renames a fresh file into place, so it replaces a
+            // read-only one left from a previous compare without needing to
+            // unlock it first; then it is locked read-only itself.
+            try content.write(to: target, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o444],
+                                                   ofItemAtPath: target.path)
+            return target
+        } catch {
+            return nil
+        }
     }
 
     func showBinaryView() {
@@ -882,6 +979,14 @@ final class AppModel {
     private func transfer(_ kind: FileOperations.Transfer) {
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        // The other pane is hidden in single-pane mode: there is nowhere to
+        // copy or move "to the other pane", so it is refused rather than acting
+        // on a pane that is not on screen.
+        guard twoPanesVisible else {
+            flash("The other pane is hidden. Show both panes to \(kind == .copy ? "copy" : "move") "
+                  + "to it.", error: true)
+            return
+        }
         if kind == .move, refusedAsReadOnly(active, "moved from here") { return }
         guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into")
         else { return }
@@ -1337,7 +1442,8 @@ final class AppModel {
         // for minutes, and the panes stay usable meanwhile.
         let run = CommandRun(script: script, targets: targets,
                              left: left.directory, right: right.directory,
-                             active: active.directory, other: inactive.directory)
+                             active: active.directory, other: inactive.directory,
+                             singlePane: isSinglePane)
         RunLauncher.show(run) { [weak self] _ in
             // Scripts exist to change files.
             self?.left.reload()
@@ -4130,7 +4236,12 @@ final class AppModel {
     var convertingImages: [URL] = []
     var convertOptions = ImageMaking.Options()
     /// Where the inactive pane is, for "into the other pane".
-    var otherPaneFolder: URL? { inactive.isFlat ? nil : inactive.directory }
+    var otherPaneFolder: URL? { (isSinglePane || inactive.isFlat) ? nil : inactive.directory }
+
+    /// Both panes on screen: the condition for anything that acts on the other
+    /// pane -- copy or move to it, Extract to Other Pane, and Compare reaching
+    /// across. In single-pane mode the hidden pane is not to be touched.
+    var twoPanesVisible: Bool { !isSinglePane }
 
     /// Convert… and Resize…: one dialog, Resize starting with a size.
     func requestConvert(_ urls: [URL], resizing: Bool) {

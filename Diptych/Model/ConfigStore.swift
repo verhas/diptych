@@ -33,6 +33,12 @@ final class ConfigStore {
                 Task { await MCPServer.shared.applyConfiguration(
                     enabled: enabled, port: port, token: token) }
             }
+            // The light/dark theme is applied to the whole application, so
+            // every window follows it, not only the one that changed the
+            // setting.
+            if configuration.appearanceTheme != oldValue.appearanceTheme {
+                AppAppearance.apply(configuration.appearanceTheme)
+            }
             scheduleSave()
         }
     }
@@ -65,6 +71,9 @@ final class ConfigStore {
         }
         loaded.normalise()
         configuration = loaded
+        // `didSet` does not run for an assignment in init, so the saved theme
+        // is applied here, once, at launch.
+        AppAppearance.apply(loaded.appearanceTheme)
     }
 
     // MARK: - Editing

@@ -11,9 +11,34 @@ enum NSWorkspaceOpener {
     }
 
     /// Reveal in Finder, with the item selected.
+    ///
+    /// `activateFileViewerSelecting` opens whatever is registered as the file
+    /// viewer -- which, when Diptych has made itself the default (Settings ▸
+    /// Behaviour), is Diptych itself, so "Reveal in Finder" would just open
+    /// another Diptych. Finder is told directly instead, by name, so this
+    /// always reaches the real Finder whatever the system default is. If Finder
+    /// cannot be scripted (automation refused), it falls back to the system
+    /// file viewer rather than doing nothing.
     static func revealInFinder(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
+        let items = urls.map { "POSIX file \"\(appleScriptEscaped($0.path))\"" }
+            .joined(separator: ", ")
+        let script = """
+        tell application "Finder"
+            activate
+            reveal {\(items)}
+        end tell
+        """
+        var error: NSDictionary?
+        NSAppleScript(source: script)?.executeAndReturnError(&error)
+        if error != nil { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+    }
+
+    /// Escape a string to sit inside an AppleScript string literal: backslashes
+    /// first, then quotes, or the escaping escapes its own escapes.
+    private static func appleScriptEscaped(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\", with: "\\\\")
+             .replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     /// The Full Disk Access list in System Settings.

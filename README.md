@@ -1163,6 +1163,15 @@ deletion followed by an addition, and a run of changed lines counts as one
 difference, because that is what "next" means to a reader. The words that
 changed are marked within each line.
 
+**In single-pane mode the hidden pane is never consulted.** With both panes
+shown, one item selected in each compares across. With only one pane on screen,
+the other is out of sight and must not be guessed at: two items selected there
+compare with each other as before, and **one** item compares with its own
+**committed version in Git** -- its uncommitted changes, read with `git show
+HEAD:` locally, no fetch and no server. A file Git does not track (or a folder)
+has no committed version, and Compare says so rather than reaching into a pane
+that is not there.
+
 There is find, jumping between differences, *only what differs*, *ignore
 spacing*, and wrapping that applies to both sides or to neither.
 
@@ -1857,9 +1866,14 @@ those JPEGs out as they are, without decoding the TIFF, and the panel shows a
 page with every one of them, one under the other, numbered. Any other TIFF is
 left to Quick Look.
 
-## Font and zoom
+## Theme, font and zoom
 
-Settings ▸ **Appearance** chooses the font the panes are drawn with, and the
+Settings ▸ **Appearance** ▸ **Theme** sets whether Diptych's windows are light,
+dark, or follow the Mac. Light and dark override the system setting, so a dark
+Diptych can sit on a light desktop, or the other way round; *Follow the system*
+leaves the Mac in charge. It applies to the whole window at once.
+
+Settings ▸ **Appearance** also chooses the font the panes are drawn with, and the
 size. `⌘+` and `⌘−` step it, `⌘0` returns to 11 pt. The range is 8–28 pt,
 clamped on the way in as well, since `config.json` is meant to be hand-editable
 and a size of `0` would leave no way back.
@@ -2134,7 +2148,8 @@ the window is `DiskUsageView`.
 
 ## Paste Special
 
-**Edit ▸ Paste Special**, and the same on a right-click, makes one property of
+**Edit ▸ Paste Special**, and on a right-click **Paste ▸** (under the Paste
+submenu, which replaced the old top-level Paste Special), makes one property of
 the copied file the same on every selected item: copy one file (⌘C, here or in
 Finder), select the others, and choose what to take from it.
 
@@ -2487,11 +2502,14 @@ front, so `⌘↑` and `⌘↓` move to the start and end of the text there, and
 and `⇧⌘↑` reach Text Edit's own line commands.
 
 **Right-clicking the empty space below a pane's rows** gives what you can do
-*here* rather than to a file: New Folder, New File, New from Clipboard, the
-**Scripts** that take no items, Paste, Paste as Link, Rename Many…, Select All
-and Refresh. It is an `NSMenu` put up
+*here* rather than to a file: **New** (Folder, File, from Clipboard), the
+**Scripts** that take no items, **Paste** (Paste, as Link), Rename Many…, Select
+All and Refresh. It is an `NSMenu` put up
 by `FolderMenu`, because SwiftUI's `Table` consults its context menu only for
-rows -- right-clicking below the listing used to show nothing at all.
+rows -- right-clicking below the listing used to show nothing at all. AppKit
+will not let one item both paste on a click and open a submenu, so here the
+paste sits inside the Paste submenu rather than on it; ⌘V pastes directly
+either way.
 
 ## Version tracking
 
@@ -3006,6 +3024,13 @@ ordinary *open* -- in the frontmost window's active pane: a folder is opened,
 a file is shown selected in its folder. A request that launches Diptych waits
 for the first window.
 
+Diptych's **own** *Reveal in Finder* is the exception, and goes to the real
+Finder even while this setting is on -- otherwise it would open another
+Diptych. It tells Finder by name (an Apple event) rather than routing through
+the file-viewer default, so everything else opens Diptych while Diptych itself
+still reaches Finder. If Finder cannot be scripted, it falls back to the system
+file viewer.
+
 ## Local agent access (MCP)
 
 F1 is a one-shot formatter: it describes the selection once and puts that on
@@ -3070,7 +3095,7 @@ window go to "the" Diptych, which only means something if there is one.
 
 | Tool | Does |
 | --- | --- |
-| `list_windows` | Every open window: browser windows with each pane's directory and active side, plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
+| `list_windows` | Every open window: browser windows with each pane's directory, the active side, and whether it is in single-pane mode (only the active pane shown), plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
 | `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting |
 | `get_selection` | The files currently selected in a pane |
 | `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
@@ -3120,9 +3145,11 @@ are looking at, in plain language, without setting anything up.
   shell) and the folder. It is typed into your login shell, so your `PATH`
   and start-up files apply once, and when the agent exits the shell stays.
 - **Its look is its own** -- font, size, and colours that follow the system,
-  stay light or dark, or are chosen -- in Settings ▸ Appearance. Option types
-  what your keyboard layout puts on it (`#`, `@`, `\`…), as in Terminal.app;
-  *Use Option as Meta key* there makes it the shell's Meta instead.
+  stay light or dark, are one of the two **VT100** phosphor schemes (green or
+  amber on black, the 1970s video terminals), or are chosen -- in Settings ▸
+  Appearance. Option types what your keyboard layout puts on it (`#`, `@`,
+  `\`…), as in Terminal.app; *Use Option as Meta key* there makes it the
+  shell's Meta instead.
 - **A thin strip along the bottom of every window is its handle.** The
   terminal starts out closed, as just that strip; clicking it does what
   `` ⌃` `` does -- the first time it starts the agent, after that it folds the
@@ -3907,7 +3934,10 @@ is substituted, so each item is exactly one argument whatever its name holds --
 `my notes (draft).txt` needs no quoting. `$*` is refused, since it is the thing
 that breaks on a space. The script runs in your home folder, from a private copy
 of what you approved, with the panes in `DIPTYCH_LEFT`, `DIPTYCH_RIGHT`,
-`DIPTYCH_ACTIVE` and `DIPTYCH_OTHER` and its own real path in `DIPTYCH_SCRIPT`;
+`DIPTYCH_ACTIVE` and `DIPTYCH_OTHER`, whether both panes are on screen in
+`DIPTYCH_SINGLE_PANE` (`1` when only the active one is, so `DIPTYCH_OTHER` is a
+pane the person cannot see and should not be written to), and its own real path
+in `DIPTYCH_SCRIPT`;
 a script that wants a pane says so, with `cd "$DIPTYCH_ACTIVE"`. It runs in a
 tab of the **Runs** window, like Run ▸, with Stop, Copy Output, the exit status
 and the timing, and both panes are refreshed when it ends.

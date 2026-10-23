@@ -15,7 +15,8 @@ enum MCPToolSupport {
                 windowNumber: model.window?.windowNumber ?? 0,
                 activeSide: model.activeSide == .left ? "left" : "right",
                 leftDirectory: model.left.directory.path,
-                rightDirectory: model.right.directory.path)
+                rightDirectory: model.right.directory.path,
+                singlePane: model.isSinglePane)
         }
     }
 

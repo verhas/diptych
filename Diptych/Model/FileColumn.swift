@@ -247,7 +247,7 @@ struct Configuration: Codable, Equatable {
     var terminalFontSize = Configuration.defaultTerminalFontSize
 
     enum TerminalColours: String, Codable, Sendable, CaseIterable {
-        case system, light, dark, custom
+        case system, light, dark, custom, vt100green, vt100amber
     }
     var terminalColours = TerminalColours.system
     /// Used with `.custom`, as `#RRGGBB`.
@@ -405,6 +405,21 @@ struct Configuration: Codable, Equatable {
     /// size or date is more useful when the two kinds are not separated.
     var foldersFirst = true
 
+    /// The window's light or dark appearance. `.system` follows the Mac's
+    /// setting; the other two override it, so a dark Diptych can sit on a light
+    /// desktop and the other way round.
+    enum AppearanceTheme: String, Codable, Sendable, CaseIterable {
+        case system, light, dark
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .system: nil
+            case .light:  .light
+            case .dark:   .dark
+            }
+        }
+    }
+    var appearanceTheme = AppearanceTheme.system
+
     /// Defaults for a new Compare Folders window. Each has its own checkbox
     /// there too, so these only decide where that checkbox starts -- content
     /// has no setting here because it is never optional by default, only from
@@ -483,7 +498,7 @@ struct Configuration: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
-        case fontName, fontSize, foldersFirst, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
+        case fontName, fontSize, foldersFirst, appearanceTheme, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
         case openArchivesAsFolders
         case useAppleIntelligence, nameSeparatorEnabled, nameSeparator, nameUnicode
@@ -606,6 +621,8 @@ struct Configuration: Codable, Equatable {
         terminalFontSize = min(max((try? container.decode(Double.self, forKey: .terminalFontSize))
                                    ?? Self.defaultTerminalFontSize, Self.fontSizes.lowerBound),
                                Self.fontSizes.upperBound)
+        appearanceTheme = (try? container.decode(AppearanceTheme.self, forKey: .appearanceTheme))
+            ?? .system
         terminalColours = (try? container.decode(TerminalColours.self, forKey: .terminalColours))
             ?? .system
         terminalForeground = (try? container.decode(String.self, forKey: .terminalForeground))

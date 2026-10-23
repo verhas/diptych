@@ -40,11 +40,16 @@ final class FolderMenu: NSObject {
             return
         }
 
-        add("New Folder", .newFolder, to: menu) { model.requestNewFolder() }
-        add("New File", .newFile, to: menu) { model.requestNewFile() }
+        // New as a submenu, as the row menu has it: Folder, File, from Clipboard.
+        let newItem = NSMenuItem(title: "New", action: nil, keyEquivalent: "")
+        let newSub = NSMenu()
+        add("Folder", .newFolder, to: newSub) { model.requestNewFolder() }
+        add("File", .newFile, to: newSub) { model.requestNewFile() }
         if model.clipboardCommandIsOffered {
-            add("New from Clipboard", .newFromClipboard, to: menu) { model.newFromClipboard() }
+            add("from Clipboard", .newFromClipboard, to: newSub) { model.newFromClipboard() }
         }
+        newItem.submenu = newSub
+        menu.addItem(newItem)
 
         // The scripts that take no items: they are about the folder on
         // screen, and this is the menu for the folder on screen. The file
@@ -64,9 +69,16 @@ final class FolderMenu: NSObject {
             menu.addItem(entry)
         }
 
+        // Paste as a submenu too: Paste itself, then as Link. AppKit will not
+        // let one item both run on click and open a submenu, so the paste sits
+        // inside rather than on the parent -- ⌘V pastes directly regardless.
         menu.addItem(.separator())
-        add("Paste", .paste, to: menu) { model.pasteIntoActivePane() }
-        add("Paste as Link", .pasteAsLink, to: menu) { model.pasteAsLink() }
+        let pasteItem = NSMenuItem(title: "Paste", action: nil, keyEquivalent: "")
+        let pasteSub = NSMenu()
+        add("Paste", .paste, to: pasteSub) { model.pasteIntoActivePane() }
+        add("as Link", .pasteAsLink, to: pasteSub) { model.pasteAsLink() }
+        pasteItem.submenu = pasteSub
+        menu.addItem(pasteItem)
 
         menu.addItem(.separator())
         add("Rename Many\u{2026}", .renameMany, to: menu) { model.requestRenameMany() }

@@ -458,10 +458,12 @@ struct FileCommands: Commands {
 
             Button("Copy to Other Pane") { model?.copySelection() }
                 .keyboardShortcut(.copyToOtherPane)
-                .disabled(model == nil || model?.inactive.volume.isReadOnly == true)
+                .disabled(model == nil || model?.otherPaneFolder == nil
+                          || model?.inactive.volume.isReadOnly == true)
             Button("Move to Other Pane") { model?.moveSelection() }
                 .keyboardShortcut(.moveToOtherPane)
-                .disabled(model == nil || model?.active.volume.isReadOnly == true
+                .disabled(model == nil || model?.otherPaneFolder == nil
+                          || model?.active.volume.isReadOnly == true
                           || model?.inactive.volume.isReadOnly == true)
 
             Divider()

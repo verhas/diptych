@@ -132,6 +132,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 420, minHeight: 460)
 
+        // The light/dark theme is applied application-wide (AppAppearance, from
+        // ConfigStore), so every window Diptych opens follows it -- no
+        // per-window preferredColorScheme, which reached only this one.
+
         // Transient errors: visible, but gone on their own. A dialog for a
         // broken symlink would be worse than the problem.
         .overlay(alignment: .bottom) {

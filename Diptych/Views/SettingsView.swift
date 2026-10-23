@@ -514,6 +514,20 @@ struct AppearanceSettingsView: View {
         // the Settings window, which cannot be resized.
         ScrollView {
         VStack(alignment: .leading, spacing: 14) {
+            Picker("Theme", selection: $store.configuration.appearanceTheme) {
+                Text("Follow the system").tag(Configuration.AppearanceTheme.system)
+                Text("Light").tag(Configuration.AppearanceTheme.light)
+                Text("Dark").tag(Configuration.AppearanceTheme.dark)
+            }
+            .pickerStyle(.radioGroup)
+            .horizontalRadioGroupLayout()
+            Text("Light or dark for Diptych's windows, whatever the rest of the Mac is set to.")
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
             Text("The font the file listings are drawn with. Row heights and icons "
                  + "follow the size.")
                 .font(.subheadline)
@@ -625,10 +639,11 @@ struct AppearanceSettingsView: View {
             Text("Follow the system").tag(Configuration.TerminalColours.system)
             Text("Light").tag(Configuration.TerminalColours.light)
             Text("Dark").tag(Configuration.TerminalColours.dark)
+            Text("VT100 Green").tag(Configuration.TerminalColours.vt100green)
+            Text("VT100 Amber").tag(Configuration.TerminalColours.vt100amber)
             Text("Custom").tag(Configuration.TerminalColours.custom)
         }
         .pickerStyle(.radioGroup)
-        .horizontalRadioGroupLayout()
 
         if store.configuration.terminalColours == .custom {
             HStack(spacing: 20) {

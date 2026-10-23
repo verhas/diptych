@@ -73,7 +73,7 @@ final class CommandRun: NSObject, Identifiable {
     /// agreed: a script that wants a pane says so, with `cd "$DIPTYCH_ACTIVE"`,
     /// and one that does not is somewhere harmless.
     convenience init(script definition: ScriptDefinition, targets: [ScriptTarget],
-                     left: URL, right: URL, active: URL, other: URL) {
+                     left: URL, right: URL, active: URL, other: URL, singlePane: Bool) {
         // A copy in the per-user temporary folder, not /tmp: nothing else can
         // put a different file in its place between writing it and running
         // it. Written from the bytes that were approved, so what runs is what
@@ -89,6 +89,10 @@ final class CommandRun: NSObject, Identifiable {
             // that means running against the wrong files.
             variables: ["DIPTYCH_LEFT": left.path, "DIPTYCH_RIGHT": right.path,
                         "DIPTYCH_ACTIVE": active.path, "DIPTYCH_OTHER": other.path,
+                        // "1" when only the active pane is on screen -- the
+                        // other pane is hidden, and DIPTYCH_OTHER is where it
+                        // sits but should not be written to. "0" with both shown.
+                        "DIPTYCH_SINGLE_PANE": singlePane ? "1" : "0",
                         // The original, not the copy that is running: a script
                         // looking for something beside itself has to be told
                         // where it really lives.

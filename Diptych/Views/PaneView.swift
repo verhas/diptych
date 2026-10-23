@@ -868,16 +868,9 @@ struct PaneView: View {
             // at it or delete it for good, so the menu is trimmed to that.
             trashRowMenu(for: ids)
         } else if ids.isEmpty {
-            Button("New Folder") { activate(); model.requestNewFolder() }
-                .keyboardShortcut(.newFolder)
-            Button("New File") { activate(); model.requestNewFile() }
-                .keyboardShortcut(.newFile)
-            newFromClipboard
+            newMenu
             if ConfigStore.shared.menuItemShown(.scripts) { scripts(for: []) }
-            Button("Paste") { activate(); model.pasteIntoActivePane() }
-                .keyboardShortcut(.paste)
-            Button("Paste as Link") { activate(); model.pasteAsLink() }
-                .keyboardShortcut(.pasteAsLink)
+            pasteMenu(for: ids)
             Button("Refresh") { pane.reload() }
                 .keyboardShortcut(.refresh)
         } else {
@@ -1099,30 +1092,22 @@ struct PaneView: View {
             .keyboardShortcut(.copy)
             Button("Cut") { act(ids) { model.cutSelectionToClipboard() } }
                 .keyboardShortcut(.cut)
-            Button("Paste") { activate(); model.pasteIntoActivePane() }
-                .keyboardShortcut(.paste)
-            Button("Paste as Link") { activate(); model.pasteAsLink() }
-                .keyboardShortcut(.pasteAsLink)
-            PasteSpecialMenu(model: model,
-                             targets: pane.rows.filter { ids.contains($0.id) && !$0.isParent }
-                                 .map(\.url)) { part in
-                act(ids) { model.pasteSpecial(part) }
-            }
+            pasteMenu(for: ids)
 
             Divider()
 
-            Button("New File") { activate(); model.requestNewFile() }
-                .keyboardShortcut(.newFile)
-            Button("New Folder") { activate(); model.requestNewFolder() }
-                .keyboardShortcut(.newFolder)
-            newFromClipboard
+            newMenu
 
             Divider()
 
+            // Disabled when there is no other pane to reach -- single-pane mode,
+            // or a flat view on the other side.
             Button("Copy to Other Pane") { act(ids) { model.copySelection() } }
                 .keyboardShortcut(.copyToOtherPane)
+                .disabled(model.otherPaneFolder == nil)
             Button("Move to Other Pane") { act(ids) { model.moveSelection() } }
                 .keyboardShortcut(.moveToOtherPane)
+                .disabled(model.otherPaneFolder == nil)
             // Rename as a submenu, like Copy: the label itself renames inline,
             // the arrow opens the variants and the one-click transforms.
             Menu("Rename") {
@@ -1273,16 +1258,49 @@ struct PaneView: View {
         pane.rows.filter { ids.contains($0.id) && !$0.isParent }.map(ScriptTarget.init)
     }
 
-    /// The same command the File menu offers, where a right click expects to
-    /// find it. Absent when the setting switches it off, and greyed when there
-    /// is nothing on the clipboard to make a file from.
+    /// Making things, gathered under one "New" so the menu is not three entries
+    /// longer for it: Folder, File, from Clipboard.
     @ViewBuilder
-    private var newFromClipboard: some View {
-        if model.clipboardCommandIsOffered {
-            Button("New from Clipboard") { activate(); model.newFromClipboard() }
-                .keyboardShortcut(.newFromClipboard)
-                .disabled(ClipboardWatcher.shared.kind == .empty)
+    private var newMenu: some View {
+        Menu("New") {
+            Button("Folder") { activate(); model.requestNewFolder() }
+                .keyboardShortcut(.newFolder)
+            Button("File") { activate(); model.requestNewFile() }
+                .keyboardShortcut(.newFile)
+            if model.clipboardCommandIsOffered {
+                Button("from Clipboard") { activate(); model.newFromClipboard() }
+                    .keyboardShortcut(.newFromClipboard)
+                    .disabled(ClipboardWatcher.shared.kind == .empty)
+            }
         }
+    }
+
+    /// Paste as a submenu, like Copy and Rename: the label pastes, the arrow
+    /// opens the variants -- as Link, and the Paste Special properties, which no
+    /// longer have a top-level entry of their own. Paste Special applies to the
+    /// selected files, so it is offered only when there is a selection.
+    @ViewBuilder
+    private func pasteMenu(for ids: Set<FileItem.ID>) -> some View {
+        let targets = ids.isEmpty ? nil
+            : pane.rows.filter { ids.contains($0.id) && !$0.isParent }.map(\.url)
+        Menu("Paste") {
+            Button("as Link") { activate(); model.pasteAsLink() }
+                .keyboardShortcut(.pasteAsLink)
+            if !ids.isEmpty, model.canPasteSpecial(.permissions, targets: targets) {
+                Divider()
+                ForEach(Array(PasteSpecial.Part.menu.enumerated()), id: \.offset) { index, parts in
+                    if index > 0 { Divider() }
+                    ForEach(parts) { part in
+                        Button(part.title) { act(ids) { model.pasteSpecial(part) } }
+                            .disabled(!model.canPasteSpecial(part, targets: targets))
+                    }
+                }
+            }
+        } primaryAction: {
+            activate()
+            model.pasteIntoActivePane()
+        }
+        .keyboardShortcut(.paste)
     }
 
     @ViewBuilder

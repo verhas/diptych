@@ -87,6 +87,10 @@ enum MCPModels {
         var activeSide: String
         var leftDirectory: String
         var rightDirectory: String
+        /// Single-pane mode: only the active side is on screen, and the other
+        /// pane must not be acted on (no copy/move to it, Compare does not reach
+        /// across). Both panes are shown when false.
+        var singlePane: Bool
     }
 
     /// A window with no `AppModel` behind it -- Get Info, Compare, Bin Edit,
