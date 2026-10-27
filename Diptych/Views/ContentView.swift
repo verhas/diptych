@@ -269,7 +269,7 @@ struct ContentView: View {
 
         // Learn which NSWindow we live in, so the shared key handler can route
         // keystrokes to the focused window's model only.
-        .background(WindowAccessor { window in
+        .background(WindowAccessor(joinsPendingTab: true) { window in
             model.window = window
             if let window { AppWindows.shared.register(window) }
         })

@@ -317,6 +317,15 @@ final class AppModel {
             sidebarVisible = saved.sidebarVisible
             showHidden = saved.showHidden
         }
+        // A Cmd-T tab looks like the window it was opened from, not like
+        // whichever window last held this slot -- or, past the last saved
+        // slot, like a fresh window with no sidebar.
+        if let layout = Self.pendingTabLayout {
+            Self.pendingTabLayout = nil
+            isSinglePane = layout.singlePane
+            sidebarVisible = layout.sidebarVisible
+            showHidden = layout.showHidden
+        }
         restored = true
 
         left.reload()
@@ -472,6 +481,10 @@ final class AppModel {
 
     private func restoreFrame(on window: NSWindow) {
         guard !frameRestored else { return }
+        if Self.bornAsTab.remove(ObjectIdentifier(window)) != nil {
+            frameRestored = true
+            return
+        }
         guard let saved = launchState?.frame, !saved.isEmpty else { return }
 
         let frame = NSRectFromString(saved)
@@ -2503,28 +2516,52 @@ final class AppModel {
 
     // MARK: - Tabs
 
-    /// Opens a sibling window and joins it to this window's tab group.
+    /// The window a Cmd-T asked for a tab in, until the new window turns up.
+    @ObservationIgnored private static weak var pendingTabHost: NSWindow?
+    /// Windows that became tabs at birth. Their model must not restore a saved
+    /// frame: a tab shares its group's frame, so that would move and resize
+    /// the window the tab was opened from.
+    @ObservationIgnored private static var bornAsTab: Set<ObjectIdentifier> = []
+    /// The layout of the window Cmd-T was pressed in, for the new tab's
+    /// `start()` to take over.
+    @ObservationIgnored private static var pendingTabLayout:
+        (singlePane: Bool, sidebarVisible: Bool, showHidden: Bool)?
+    /// Counts Cmd-T presses, so one press's timeout leaves a later one alone.
+    @ObservationIgnored private static var tabRequests = 0
+
+    /// Opens a sibling window directly as a tab of this window.
     ///
     /// Setting `tabbingMode = .preferred` is not enough on its own: macOS
     /// decides tab membership when a window is ordered in, which is before our
     /// model ever sees it -- measured, two windows and `tabbedWindows == 0`.
-    /// Adding it to the group afterwards is explicit and always works, whatever
-    /// the "Prefer tabs when opening documents" setting says.
+    /// Joining it to the group after it appeared worked, but the window was
+    /// first shown on its own and then pulled in, and the host's frame was
+    /// rewritten along the way. So the new window is joined from
+    /// `joinPendingTab`, as soon as its content view is installed and before
+    /// SwiftUI orders it in.
     func newTab() {
         guard let window, let openNewWindow else { return }
-
-        let before = Set(NSApp.windows.map(ObjectIdentifier.init))
+        Self.pendingTabHost = window
+        Self.pendingTabLayout = (isSinglePane, sidebarVisible, showHidden)
+        Self.tabRequests += 1
+        let request = Self.tabRequests
         openNewWindow()
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard let created = NSApp.windows.first(where: {
-                !before.contains(ObjectIdentifier($0)) && $0.isVisible
-            }) else { return }
-
-            window.addTabbedWindow(created, ordered: .above)
-            created.makeKeyAndOrderFront(nil)
+        // Should the window never arrive, a later Cmd-N must not become a tab.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            guard Self.tabRequests == request else { return }
+            Self.pendingTabHost = nil
+            Self.pendingTabLayout = nil
         }
+    }
+
+    /// Called from `WindowAccessor` when a pane window gets its content.
+    static func joinPendingTab(_ created: NSWindow) {
+        guard let host = pendingTabHost, host !== created else { return }
+        pendingTabHost = nil
+        created.tabbingMode = .preferred
+        created.tabbingIdentifier = host.tabbingIdentifier
+        bornAsTab.insert(ObjectIdentifier(created))
+        host.addTabbedWindow(created, ordered: .above)
     }
 
     // MARK: - Clipboard

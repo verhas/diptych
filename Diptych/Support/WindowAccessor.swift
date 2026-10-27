@@ -9,10 +9,13 @@ import AppKit
 /// a SwiftUI view.
 struct WindowAccessor: NSViewRepresentable {
 
+    /// Set by pane windows only: a Cmd-T tab is always a pane window, and no
+    /// Info or Diff window should ever be pulled into a tab group.
+    var joinsPendingTab = false
     let onResolve: (NSWindow?) -> Void
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+        let view: NSView = joinsPendingTab ? ProbeView(frame: .zero) : NSView(frame: .zero)
         // The view has no window yet during makeNSView; it gets one when it is
         // added to the hierarchy, one runloop turn later.
         DispatchQueue.main.async { onResolve(view.window) }
@@ -21,6 +24,17 @@ struct WindowAccessor: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         DispatchQueue.main.async { onResolve(view.window) }
+    }
+
+    /// Reports the window the moment the view lands in it, which is before
+    /// SwiftUI orders a new window in. `onResolve` comes a turn later, when
+    /// the window is already on screen -- too late to make it a tab without
+    /// it first showing up on its own.
+    final class ProbeView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { AppModel.joinPendingTab(window) }
+        }
     }
 }
 
