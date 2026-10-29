@@ -14,8 +14,8 @@ enum MCPToolSupport {
                 windowId: model.id.uuidString,
                 windowNumber: model.window?.windowNumber ?? 0,
                 activeSide: model.activeSide == .left ? "left" : "right",
-                leftDirectory: model.left.directory.path,
-                rightDirectory: model.right.directory.path,
+                leftDirectory: RemoteBrowsing.reportedPath(model.left.directory),
+                rightDirectory: RemoteBrowsing.reportedPath(model.right.directory),
                 singlePane: model.isSinglePane)
         }
     }
@@ -120,7 +120,7 @@ enum MCPToolSupport {
         return MCPModels.PaneSnapshot(
             windowId: model.id.uuidString,
             side: resolvedSide,
-            directory: pane.directory.path,
+            directory: RemoteBrowsing.reportedPath(pane.directory),
             flatExpression: pane.flat?.expression,
             flatStale: pane.isFlat ? pane.flatStale : nil,
             flatProgress: pane.flatProgress.map {
@@ -152,6 +152,11 @@ enum MCPToolSupport {
             if pane.isFlat { pane.toggleFlat() }
             model.persist()
             return .left(side: resolvedSide)
+        }
+        // A flat view walks the folders on this Mac; a server's folders are not
+        // walked here, so one named by its address is refused as not a folder.
+        if let directory, directory.lowercased().hasPrefix("sftp://") {
+            return .notAFolder(directory)
         }
         let root = directory.map { URL(fileURLWithPath: $0) }
             ?? pane.flat?.root ?? pane.directory

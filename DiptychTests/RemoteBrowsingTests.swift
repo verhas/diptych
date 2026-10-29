@@ -210,4 +210,13 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertNotNil(unknown)
         XCTAssertNil(unknown?.size)
     }
+
+    /// What the MCP tools report: the address of a server's folder, which is
+    /// where it is, and not the cache it is read from.
+    func testAServerFolderIsReportedByItsAddressAndALocalOneByItsPath() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        XCTAssertEqual(RemoteBrowsing.reportedPath(home), "sftp://peter@nas/home/peter")
+        XCTAssertEqual(RemoteBrowsing.reportedPath(URL(fileURLWithPath: "/tmp/x")), "/tmp/x")
+    }
 }

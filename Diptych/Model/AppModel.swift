@@ -47,6 +47,8 @@ final class AppModel {
         case sftpTrust
         case sftpLogin
         case keepAlive
+        /// Deleting items on a server: final, with no Trash to take them back from.
+        case serverDelete
         case historyStep
         case historyMany
         case tips
@@ -83,6 +85,7 @@ final class AppModel {
             case .sftpTrust:      return "sftpTrust"
             case .sftpLogin:      return "sftpLogin"
             case .keepAlive:      return "keepAlive"
+            case .serverDelete:   return "serverDelete"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -1128,6 +1131,16 @@ final class AppModel {
         // Finder's "Delete Immediately" instead -- which always asks, because it
         // cannot be undone.
         if active.isTrashListing { requestDeleteImmediately(); return }
+        // A server has no Trash: what is deleted there is gone, and says so.
+        let urls = active.selectedItems.map(\.url)
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be deleted together")
+                return
+            }
+            dialog = .serverDelete
+            return
+        }
         dialog = .trash
     }
 
@@ -1137,6 +1150,11 @@ final class AppModel {
         // In the Trash, Command-Delete deletes for good -- and that still asks,
         // the one case where the shortcut does not go through without a word.
         if active.isTrashListing { requestDeleteImmediately(); return }
+        // A server's items are deleted for good, so the shortcut asks as well.
+        if active.selectedItems.contains(where: { RemoteBrowsing.isInside($0.url) }) {
+            requestTrash()
+            return
+        }
         confirmTrash()
     }
 

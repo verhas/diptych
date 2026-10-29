@@ -15,7 +15,11 @@ enum MCPModels {
         var isDirectory: Bool
         var isSymlink: Bool
         var isExecutable: Bool
-        var byteSize: Int64
+        /// Nil when the size is not known: a file on a server whose size the server
+        /// did not give. Never zero for an unknown size.
+        var byteSize: Int64?
+        /// Said where the size is unknown, so that nobody reads it as empty.
+        var sizeNote: String?
         var modified: Date
         var permissions: String
         var owner: String
@@ -23,11 +27,13 @@ enum MCPModels {
 
         init(_ item: FileItem) {
             name = item.name
-            path = item.url.path
+            path = RemoteBrowsing.reportedPath(item.url)
             isDirectory = item.isDirectory
             isSymlink = item.isSymlink
             isExecutable = item.isExecutable
-            byteSize = item.byteSize
+            byteSize = item.sizeIsUnknown ? nil : item.byteSize
+            sizeNote = item.sizeIsUnknown
+                ? "unknown: the server did not say how big it is; this is not zero" : nil
             modified = item.modified
             permissions = item.permissions
             owner = item.owner

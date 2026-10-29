@@ -845,6 +845,17 @@ struct DialogSheet: View {
                     confirm: "Move to Trash",
                     destructive: true) { model.confirmTrash() }
 
+            case .serverDelete:
+                let items = model.active.selectedItems
+                confirmation(
+                    title: "Delete \(items.count == 1 ? "\u{201C}\(items.first?.name ?? "")\u{201D}" : "\(items.count) items") permanently?",
+                    detail: "This is on a server, which has no Trash. It is deleted there at once, "
+                        + "and it cannot be undone: nothing can bring it back.\n\n"
+                        + items.prefix(5).map(\.name).joined(separator: "\n")
+                        + (items.count > 5 ? "\nand \(items.count - 5) more" : ""),
+                    confirm: "Delete Permanently",
+                    destructive: true) { model.confirmTrash() }
+
             case .deleteImmediately:
                 let items = model.active.selectedItems.filter { !$0.isParent }
                 confirmation(

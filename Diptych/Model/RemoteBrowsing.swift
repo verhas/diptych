@@ -218,6 +218,14 @@ nonisolated enum RemoteBrowsing {
         return Placeholder(size: node.attribute(BrowserManifest.Attribute.size)?.intValue)
     }
 
+    /// A path as the MCP tools report it: a folder on a server by its sftp://
+    /// address, which is where it is; anything else by its path, as before.
+    static func reportedPath(_ url: URL) -> String {
+        let display = ArchiveBrowsing.shown(url)
+        guard display.scheme == "sftp" else { return url.path }
+        return display.absoluteString.removingPercentEncoding ?? display.absoluteString
+    }
+
     /// The shadow folder for a path on a server.
     static func localURL(on server: Server, remote: String) -> URL {
         remote.split(separator: "/").reduce(server.root) { $0.appendingPathComponent(String($1)) }

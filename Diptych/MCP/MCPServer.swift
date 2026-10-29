@@ -1018,7 +1018,7 @@ extension MCPServer {
                     let result = await MainActor.run {
                         MCPModels.FlatViewResult(
                             windowId: window, side: resolvedSide,
-                            directory: pane.directory.path, expression: expression,
+                            directory: RemoteBrowsing.reportedPath(pane.directory), expression: expression,
                             warnings: warnings, collecting: pane.flatProgress != nil)
                     }
                     return try MCPModels.result(for: result)

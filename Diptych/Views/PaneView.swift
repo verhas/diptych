@@ -1191,7 +1191,9 @@ struct PaneView: View {
 
             Divider()
 
-            Button("Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
+            // A server has no Trash: its items are deleted, and the name says so.
+            Button(ids.contains(where: { RemoteBrowsing.isInside($0) }) ? "Delete Permanently\u{2026}"
+                   : "Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
                 .keyboardShortcut(.trash)
         }
     }

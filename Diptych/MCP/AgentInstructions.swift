@@ -123,7 +123,11 @@ enum AgentInstructions {
     - "this", "these", "the selected files" -- `get_selection` on the active
       pane of the frontmost window (`list_windows` says which pane is
       active);
-    - "here", "this folder" -- the active pane's directory (`get_pane`);
+    - "here", "this folder" -- the active pane's directory (`get_pane`). A folder
+      on a server is named by its `sftp://` address, and its files are listed
+      with their sizes from the server; a size shown as unknown is not zero, and
+      is not to be read as empty. Changes to a server are made in the panes, not
+      with the tools that change files here;
     - "the other side", "the other pane" -- the inactive pane: the usual
       destination of a copy or a move.
 

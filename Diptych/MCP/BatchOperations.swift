@@ -539,6 +539,15 @@ final class BatchOperationsModel {
             }
             // An archive opened as a folder is read-only: copied out of,
             // never changed.
+            // A server's folder is changed in Diptych's own panes, where every change
+            // reaches the server. Its cached copy here would only be changed on this Mac.
+            if row.targetPath.map(RemoteBrowsing.isInside) == true
+                || (row.kind != .copy && row.source.map(RemoteBrowsing.isInside) == true) {
+                rowResults[row.id] = "Skipped: it is on a server. Change it in a Diptych pane, "
+                    + "where the change reaches the server."
+                failed.insert(row.id)
+                continue
+            }
             if row.targetPath.map(ArchiveBrowsing.isInside) == true
                 || (row.kind != .copy && row.source.map(ArchiveBrowsing.isInside) == true) {
                 rowResults[row.id] = "Skipped: it is inside an archive opened as a folder, which "
