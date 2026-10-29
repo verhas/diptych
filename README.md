@@ -38,10 +38,11 @@ developer account.
 | --- | --- |
 | `Tab` | switch active pane |
 | `Return` | enter directory / open file |
-| `F2`, or click the name of an already-selected row | rename in place (base name pre-selected, as in Finder) |
+| `F2`, or click the name of an already-selected row | rename in place (base name pre-selected, as in Finder). The click is switched off in Settings ▸ Behaviour by **Rename on a click on the name**; F2 always works |
 | `F4`, `F9`, `⌥⌘P`, or click the permissions of an already-selected row | edit permissions in place, for the whole selection |
 | click a date, or a picture's or video's value, in an already-selected row | edit it in place, for the whole selection -- see [Values edited in place](#values-edited-in-place) |
 | `⇧↩` | while renaming: commit and move to the *next* row -- the one that followed this file before the rename, so you can name a run of files in sequence |
+| `F4`, `F5`, `F6` while renaming | commit the name, then edit permissions, copy or move the file under its new name -- no second click needed |
 | `F3` | view (opens in the default app) |
 | `F5` | copy selection to the *other* pane |
 | `F6` | move selection to the other pane (the moved files stay selected there) |
