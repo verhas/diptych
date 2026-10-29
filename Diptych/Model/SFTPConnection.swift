@@ -133,6 +133,20 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
     /// The permission bits, without the type. Nil when the server did not say.
     let mode: UInt32?
     let modified: Date?
+    /// The owner and group the server reports, as numbers.
+    let uid: UInt32?
+    let gid: UInt32?
+
+    init(name: String, kind: Kind, size: UInt64 = 0, mode: UInt32? = nil,
+         modified: Date? = nil, uid: UInt32? = nil, gid: UInt32? = nil) {
+        self.name = name
+        self.kind = kind
+        self.size = size
+        self.mode = mode
+        self.modified = modified
+        self.uid = uid
+        self.gid = gid
+    }
 
     init(_ component: SFTPPathComponent) {
         let attributes = component.attributes
@@ -140,6 +154,8 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
         size = attributes.size ?? 0
         mode = attributes.permissions.map { $0 & 0o7777 }
         modified = attributes.accessModificationTime?.modificationTime
+        uid = attributes.uidgid?.userId
+        gid = attributes.uidgid?.groupId
         kind = Self.kind(ofPermissions: attributes.permissions)
     }
 
@@ -244,5 +260,42 @@ final class SFTPSession: @unchecked Sendable {
     func close() async {
         try? await sftp.close()
         try? await ssh.close()
+    }
+}
+
+/// The server, as the mirror needs it: a folder's entries and a file's bytes.
+/// `SFTPSession` is the real one; tests put a fake in its place.
+nonisolated protocol RemoteListing: Sendable {
+    func entries(in path: String) async throws -> [SFTPEntry]
+    /// Writes the file's bytes to `destination`, which it creates.
+    func download(_ path: String, to destination: URL) async throws
+}
+
+extension SFTPSession: RemoteListing {
+
+    func entries(in path: String) async throws -> [SFTPEntry] {
+        try await list(path)
+    }
+
+    /// Streams the file to `destination` a piece at a time, so a large one is
+    /// never held in memory whole.
+    func download(_ path: String, to destination: URL) async throws {
+        let file = try await sftp.openFile(filePath: path, flags: .read)
+        FileManager.default.createFile(atPath: destination.path, contents: nil)
+        let output = try FileHandle(forWritingTo: destination)
+        defer { try? output.close() }
+        do {
+            var offset: UInt64 = 0
+            while true {
+                let chunk = try await file.read(from: offset, length: 256 * 1024)
+                guard chunk.readableBytes > 0 else { break }
+                try output.write(contentsOf: Data(chunk.readableBytesView))
+                offset += UInt64(chunk.readableBytes)
+            }
+        } catch {
+            try? await file.close()
+            throw error
+        }
+        try await file.close()
     }
 }
