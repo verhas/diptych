@@ -110,7 +110,7 @@ extension AppModel {
                 // be refused, or be encrypted, and the password is still to come.
                 switch await trySFTP(request, login) {
                 case .connected(let session):
-                    await finishSFTP(session, request)
+                    await finishSFTP(session, request, login: login)
                     return
                 case .hostKey(let problem):
                     askAboutHost(problem, request)
@@ -127,7 +127,7 @@ extension AppModel {
             }
             switch await trySFTP(request, .password(password)) {
             case .connected(let session):
-                await finishSFTP(session, request)
+                await finishSFTP(session, request, login: .password(password))
             case .hostKey(let problem):
                 askAboutHost(problem, request)
             case .refused(let error):
@@ -167,7 +167,10 @@ extension AppModel {
 
     /// Signed in: the server is registered, and the pane goes to the folder
     /// the address names, or to the home folder when it names none.
-    private func finishSFTP(_ session: SFTPSession, _ request: SFTPConnectRequest) async {
+    /// `login` is how the session signed in: the same way, it is signed in again
+    /// when the connection is lost.
+    private func finishSFTP(_ session: SFTPSession, _ request: SFTPConnectRequest,
+                            login: SFTPLogin) async {
         finishConnecting()
         sftpRequest = nil
         let pane = active
@@ -182,14 +185,21 @@ extension AppModel {
         }
 
         let root = RemoteBrowsing.shadowRoot(user: request.username, host: host, port: port)
-        let mirror = SFTPMirror(root: root, remote: session, host: host)
+        // The shadow reads through a connection that is kept alive, and signed in
+        // again when it is lost, as the same login.
+        let username = request.username
+        let remote = ReconnectingRemote(link: .over(session), open: {
+            .over(try await SFTPSession.connect(host: host, port: port, username: username, login: login))
+        })
+        await remote.startKeepingAlive()
+        let mirror = SFTPMirror(root: root, remote: remote, host: host)
         let server = RemoteBrowsing.Server(
             user: request.username, host: host, port: port, root: root, mirror: mirror,
-            close: { await session.close() })
+            close: { await remote.close() })
         do {
             try await mirror.populate(target)
         } catch {
-            await session.close()
+            await remote.close()
             dialog = .message("Could not list \(target) on \(host): \(error.localizedDescription)")
             return
         }

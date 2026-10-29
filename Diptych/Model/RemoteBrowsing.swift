@@ -183,6 +183,22 @@ nonisolated enum RemoteBrowsing {
         }.map { localURL(on: $0, remote: shown.path) }
     }
 
+    /// A file on a server whose bytes are not here: its size as the server
+    /// listed it, nil when it listed none.
+    struct Placeholder: Equatable, Sendable {
+        let size: Int64?
+    }
+
+    /// The size the server gave a file whose bytes are not here yet. Nil for
+    /// anything else, and for a file the server gave no size for.
+    static func placeholder(_ url: URL) -> Placeholder? {
+        guard isInside(url), !SFTPMirror.isDirectory(url),
+              let manifest = BrowserManifestStore.read(in: url.deletingLastPathComponent()),
+              let node = manifest.nodes.first(where: { $0.name == url.lastPathComponent }),
+              node.backing == .none else { return nil }
+        return Placeholder(size: node.attribute(BrowserManifest.Attribute.size)?.intValue)
+    }
+
     /// The shadow folder for a path on a server.
     static func localURL(on server: Server, remote: String) -> URL {
         remote.split(separator: "/").reduce(server.root) { $0.appendingPathComponent(String($1)) }

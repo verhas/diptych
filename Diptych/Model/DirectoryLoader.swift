@@ -107,6 +107,15 @@ enum DirectoryLoader {
         for var item in items {
             if item.name == located.fileName { continue }  // our own manifest
             if let node = byName[item.name] {
+                // A placeholder's own size is zero, and says nothing about the file.
+                // The size the server listed is the file's; without one, it is unknown.
+                if node.backing == .none, !item.isDirectory {
+                    if let size = node.attribute(BrowserManifest.Attribute.size)?.intValue {
+                        item.byteSize = size
+                    } else {
+                        item.sizeIsUnknown = true
+                    }
+                }
                 if let mode = node.attribute(BrowserManifest.Attribute.mode)?.intValue {
                     item.mode = mode_t(truncatingIfNeeded: mode)
                     item.permissions = (item.isDirectory ? "d" : "-")

@@ -178,4 +178,19 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertNil(server.folders["/home/peter"])
         XCTAssertNil(server.files["/home/peter/note.txt"])
     }
+
+    /// A placeholder's own size is zero, so the size is the server's listing: and
+    /// a listing without one leaves the size unknown, never zero.
+    func testAPlaceholderHasTheSizeTheServerListedOrNoneAtAll() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5),
+                                         SFTPEntry(name: "unknown.bin", kind: .file)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+
+        XCTAssertEqual(RemoteBrowsing.placeholder(folder.appendingPathComponent("note.txt"))?.size, 5)
+        let unknown = RemoteBrowsing.placeholder(folder.appendingPathComponent("unknown.bin"))
+        XCTAssertNotNil(unknown)
+        XCTAssertNil(unknown?.size)
+    }
 }

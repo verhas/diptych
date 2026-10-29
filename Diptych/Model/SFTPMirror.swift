@@ -175,12 +175,13 @@ actor SFTPMirror {
         let fileManager = FileManager.default
         if entry.kind == .directory {
             try fileManager.createDirectory(at: child, withIntermediateDirectories: true)
-            attributes[BrowserManifest.Attribute.size] = .size(Int64(entry.size))
             return BrowserManifest.Node(id: entry.name, kind: .directory, name: entry.name,
                                         attributes: attributes)
         }
 
-        attributes[BrowserManifest.Attribute.size] = .size(Int64(entry.size))
+        // Only a size the server gave is written: an unknown one is left out, and
+        // shown as unknown rather than as zero.
+        if let size = entry.size { attributes[BrowserManifest.Attribute.size] = .size(Int64(size)) }
         let kept = bytesStillCurrent(previously, for: entry)
         if !kept || !fileManager.fileExists(atPath: child.path) {
             try? fileManager.removeItem(at: child)
@@ -209,7 +210,7 @@ actor SFTPMirror {
     /// the same size and date, and fetched at all.
     private func bytesStillCurrent(_ node: BrowserManifest.Node?, for entry: SFTPEntry) -> Bool {
         guard let node, case .file = node.backing else { return false }
-        return node.attribute(BrowserManifest.Attribute.size)?.intValue == Int64(entry.size)
+        return node.attribute(BrowserManifest.Attribute.size)?.intValue == entry.size.map { Int64($0) }
             && node.attribute(BrowserManifest.Attribute.modified)?.dateValue == entry.modified
     }
 }

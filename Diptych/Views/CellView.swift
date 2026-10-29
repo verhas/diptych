@@ -135,6 +135,8 @@ struct CellView: View {
         case .waiting:  .secondary
         case .updating: .orange
         case .done:     .teal
+        // Not a total: a warning colour, so it is not read as a size.
+        case .unknown:  .red
         }
     }
 

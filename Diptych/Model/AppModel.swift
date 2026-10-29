@@ -4920,11 +4920,19 @@ final class AppModel {
 
     func calculateDirectorySizes() {
         guard canCalculateDirectorySizes else { return }
-        if active.volume.isNetwork {
+        let folders = DirectorySizes.folders(in: active.rows)
+        // A folder on a server is not totalled from this Mac: its files are
+        // placeholders, and a total of them would be zero. It is shown as unknown.
+        let onServer = folders.filter(RemoteBrowsing.isInside)
+        if !onServer.isEmpty {
+            DirectorySizes.shared.markUnknown(onServer)
+            flash("A folder on a server shows ??? : finding its size would mean downloading "
+                  + "everything in it", error: false)
+        } else if active.volume.isNetwork {
             flash("On a server: every folder below is read over the network, which can take "
                   + "long. Clear Directory Sizes stops it.", error: false)
         }
-        DirectorySizes.shared.calculate(DirectorySizes.folders(in: active.rows))
+        DirectorySizes.shared.calculate(folders.filter { !RemoteBrowsing.isInside($0) })
     }
 
     func swapPanes() {

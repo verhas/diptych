@@ -25,12 +25,14 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// Only meaningful for non-directories: every directory carries the execute
     /// bit, since that is what makes it traversable.
     let isExecutable: Bool
-    let byteSize: Int64
+    var byteSize: Int64
     let modified: Date
 
     // Populated only when the matching column is switched on; the loader does
     // not pay for metadata nobody is showing.
     var created: Date = .distantPast
+    /// A file on a server whose size the server did not give. Shown as `???`.
+    var sizeIsUnknown = false
     var added: Date = .distantPast
     var kind: String = ""
     var owner: String = ""
@@ -103,6 +105,8 @@ struct FileItem: Identifiable, Hashable, Sendable {
     var sizeText: String {
         if isParent { return "" }
         if isDirectory && !isPackage { return "--" }
+        // Not zero: the size is not known here, so it is not said to be nothing.
+        if sizeIsUnknown { return "???" }
         return ByteCountFormatter.string(fromByteCount: byteSize, countStyle: .file)
     }
 

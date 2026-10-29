@@ -129,8 +129,8 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
 
     let name: String
     let kind: Kind
-    /// Zero when the server did not say.
-    let size: UInt64
+    /// Nil when the server did not say: that is not the same as empty.
+    let size: UInt64?
     /// The permission bits, without the type. Nil when the server did not say.
     let mode: UInt32?
     let modified: Date?
@@ -138,7 +138,7 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
     let uid: UInt32?
     let gid: UInt32?
 
-    init(name: String, kind: Kind, size: UInt64 = 0, mode: UInt32? = nil,
+    init(name: String, kind: Kind, size: UInt64? = nil, mode: UInt32? = nil,
          modified: Date? = nil, uid: UInt32? = nil, gid: UInt32? = nil) {
         self.name = name
         self.kind = kind
@@ -152,7 +152,7 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
     init(_ component: SFTPPathComponent) {
         let attributes = component.attributes
         name = component.filename
-        size = attributes.size ?? 0
+        size = attributes.size
         mode = attributes.permissions.map { $0 & 0o7777 }
         modified = attributes.accessModificationTime?.modificationTime
         uid = attributes.uidgid?.userId

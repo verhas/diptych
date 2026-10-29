@@ -1414,6 +1414,8 @@ struct PaneView: View {
         var growing = false
         var uncounted = 0
         for item in selected {
+            // A size that is not known is not counted as zero: it is counted as not counted.
+            if item.sizeIsUnknown { uncounted += 1; continue }
             guard item.isEnterable else { bytes += item.byteSize; continue }
             // A link to a folder is not what is in it: not counted, as before.
             if item.isSymlink { continue }
@@ -1421,7 +1423,7 @@ struct PaneView: View {
             case .done(let size)?: bytes += size
             case .updating(let size)?: bytes += size; growing = true
             case .waiting?: growing = true
-            case nil: uncounted += 1
+            case .unknown?, nil: uncounted += 1
             }
         }
         var size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)

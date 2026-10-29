@@ -23,6 +23,9 @@ final class FileInfoModel {
     var name = ""
     private(set) var kind = ""
     private(set) var byteSize: Int64 = 0
+    /// A file on a server whose bytes are not here, and whose size the server
+    /// did not give: shown as `???`.
+    private(set) var sizeIsUnknown = false
     private(set) var isDirectory = false
     /// Permissions and ownership are the *target's* for a symlink, because that
     /// is what changing them affects.
@@ -125,6 +128,12 @@ final class FileInfoModel {
 
         kind = values?.localizedTypeDescription ?? ""
         byteSize = Int64(values?.fileSize ?? 0)
+        sizeIsUnknown = false
+        // A placeholder's own size is zero: the size is the server's, from its listing.
+        if let placeholder = RemoteBrowsing.placeholder(url) {
+            byteSize = placeholder.size ?? 0
+            sizeIsUnknown = placeholder.size == nil
+        }
         isDirectory = values?.isDirectory ?? false
         created = values?.creationDate ?? .now
         modified = values?.contentModificationDate ?? .now
@@ -194,7 +203,9 @@ final class FileInfoModel {
     // MARK: - General
 
     var sizeText: String {
-        isDirectory ? "--" : ByteCountFormatter.string(fromByteCount: byteSize, countStyle: .file)
+        if isDirectory { return "--" }
+        if sizeIsUnknown { return "???" }
+        return ByteCountFormatter.string(fromByteCount: byteSize, countStyle: .file)
     }
 
     func applyRename() {
