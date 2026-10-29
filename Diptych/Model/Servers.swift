@@ -11,7 +11,7 @@ import Observation
 nonisolated enum ServerAddress {
 
     enum Kind: String, Sendable {
-        case smb, nfs, webdav, ftp, afp
+        case smb, nfs, webdav, ftp, afp, sftp
 
         var label: String {
             switch self {
@@ -20,6 +20,7 @@ nonisolated enum ServerAddress {
             case .webdav: "WebDAV"
             case .ftp: "FTP"
             case .afp: "AFP"
+            case .sftp: "SFTP"
             }
         }
 
@@ -48,9 +49,10 @@ nonisolated enum ServerAddress {
         case "nfs", "afp", "ftp", "http", "https": mapped = scheme
         case "webdav", "dav": mapped = "http"
         case "webdavs", "davs": mapped = "https"
-        case "sftp", "ssh":
-            return .failure(ServerProblem("macOS cannot mount SFTP by itself. A mounter such as "
-                + "Mountain Duck, or sshfs on macFUSE, makes it a folder Diptych can open."))
+        // Not mounted: Diptych talks SFTP itself, so it is never handed to NetFS.
+        case "sftp": mapped = "sftp"
+        case "ssh":
+            return .failure(ServerProblem("SFTP addresses start with sftp://, not ssh://."))
         case "s3", "gs":
             return .failure(ServerProblem("An object store is not a file server macOS can mount. "
                 + "rclone mount, or an app such as Mountain Duck, makes it a folder."))
@@ -87,6 +89,7 @@ nonisolated enum ServerAddress {
         case "http", "https", "webdav", "webdavs": .webdav
         case "ftp": .ftp
         case "afp": .afp
+        case "sftp": .sftp
         default: nil
         }
     }

@@ -926,6 +926,20 @@ struct DialogSheet: View {
             case .connectServer:
                 ConnectServerView(model: model) { model.dialog = nil }
 
+            case .sftpTrust:
+                if let prompt = model.sftpTrust {
+                    SFTPTrustView(prompt: prompt,
+                                  trust: { model.trustSFTPHost() },
+                                  decline: { model.declineSFTPTrust() })
+                }
+
+            case .sftpLogin:
+                if let login = model.sftpLogin {
+                    SFTPLoginView(prompt: login,
+                                  connect: { model.answerSFTPLogin(username: $0, password: $1) },
+                                  cancel: { model.cancelSFTPLogin() })
+                }
+
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
                 Text("You can choose a format once and for all in Settings.")
@@ -1026,6 +1040,7 @@ struct DialogSheet: View {
         // Scripts shows a script's source, whose lines are long.
         .frame(width: dialog == .getScripts ? 640
                : dialog == .historyStep || dialog == .connectServer || dialog == .historyMany || dialog == .runArguments
+                 || dialog == .sftpTrust
                ? 600 : 470)
     }
 

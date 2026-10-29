@@ -25,6 +25,12 @@ extension AppModel {
             report("Still connecting to \(ServerAddress.title(of: connectingTo!)).")
             return
         }
+        // SFTP is not mounted, so NetFS has nothing to do with it: it has its
+        // own connection, which asks about an unknown host before it sends anything.
+        if ServerAddress.kind(of: url) == .sftp {
+            connectSFTP(url)
+            return
+        }
         connectProblem = nil
         connectingTo = url
         let request = ServerMounter.Request()
@@ -87,7 +93,7 @@ extension AppModel {
         finishConnecting()
     }
 
-    private func finishConnecting() {
+    func finishConnecting() {
         connectingTo = nil
         connectRequest = nil
     }
@@ -114,7 +120,7 @@ extension AppModel {
     }
 
     /// In the sheet while it is open; otherwise as a passing message.
-    private func report(_ message: String) {
+    func report(_ message: String) {
         if dialog == .connectServer {
             connectProblem = message
         } else {

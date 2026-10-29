@@ -44,6 +44,8 @@ final class AppModel {
         case scriptProblems
         case getScripts
         case connectServer
+        case sftpTrust
+        case sftpLogin
         case historyStep
         case historyMany
         case tips
@@ -77,6 +79,8 @@ final class AppModel {
             case .scriptProblems: return "scriptProblems"
             case .getScripts:     return "getScripts"
             case .connectServer:  return "connectServer"
+            case .sftpTrust:      return "sftpTrust"
+            case .sftpLogin:      return "sftpLogin"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -168,6 +172,11 @@ final class AppModel {
     var connectingTo: URL?
     var connectProblem: String?
     @ObservationIgnored var connectRequest: ServerMounter.Request?
+    /// An SFTP attempt a question is open about, and the question itself: the
+    /// trust dialog for an unknown host, or the login dialog.
+    @ObservationIgnored var sftpRequest: SFTPConnectRequest?
+    var sftpTrust: SFTPTrustPrompt?
+    var sftpLogin: SFTPLoginPrompt?
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
