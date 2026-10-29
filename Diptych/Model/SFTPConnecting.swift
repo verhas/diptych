@@ -97,10 +97,18 @@ extension AppModel {
         sftpRequest = request
 
         Task {
-            for file in SFTPLogin.keyFilesInSSHFolder {
+            // The agent's keys first: they are the ones the person keeps unlocked.
+            // Then the key files, then the password.
+            var keyLogins: [SFTPLogin] = []
+            if let agent = await BlockingWork.run({ SSHAgent.usable() }) {
+                keyLogins.append(.agent(agent))
+            }
+            keyLogins += SFTPLogin.keyFilesInSSHFolder.map { SFTPLogin.keyFile($0) }
+
+            for login in keyLogins {
                 // Any failure moves on to the next key: a key can fail to load,
                 // be refused, or be encrypted, and the password is still to come.
-                switch await trySFTP(request, .keyFile(file)) {
+                switch await trySFTP(request, login) {
                 case .connected(let session):
                     await finishSFTP(session, request)
                     return

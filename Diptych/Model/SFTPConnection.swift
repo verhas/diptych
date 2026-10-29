@@ -2,6 +2,7 @@ import Citadel
 import Crypto
 import Foundation
 import NIOCore
+import NIOPosix
 import NIOSSH
 
 // SFTP: a file server reached over SSH and browsed without mounting it.
@@ -178,6 +179,8 @@ nonisolated enum SFTPLogin: Sendable {
     /// An OpenSSH private key file. Encrypted keys are refused: there is no
     /// passphrase prompt yet, so they are skipped like a missing key.
     case keyFile(URL)
+    /// The keys an ssh-agent holds. The agent signs; no private key is read here.
+    case agent(SSHAgent)
 
     /// The keys in `~/.ssh` that can be tried, in the order OpenSSH tries them.
     static var keyFilesInSSHFolder: [URL] {
@@ -191,6 +194,10 @@ nonisolated enum SFTPLogin: Sendable {
         switch self {
         case .password(let password):
             return .passwordBased(username: username, password: password)
+        case .agent(let agent):
+            let login = SSHAgentLogin(username: username, identities: try agent.identities(), agent: agent)
+            guard login.count > 0 else { throw SFTPLoginError.noUsableAgentKeys }
+            return .custom(login)
         case .keyFile(let file):
             let text = try String(contentsOf: file, encoding: .utf8)
             switch try SSHKeyDetection.detectPrivateKeyType(from: text) {
@@ -209,6 +216,8 @@ nonisolated enum SFTPLogin: Sendable {
 
 nonisolated enum SFTPLoginError: Error, Equatable, Sendable {
     case unsupportedKey(String)
+    /// The agent holds no key Diptych can sign with.
+    case noUsableAgentKeys
 }
 
 /// A connected SFTP session, shared by whatever asks for a listing.
@@ -220,10 +229,14 @@ final class SFTPSession: @unchecked Sendable {
 
     private let ssh: SSHClient
     private let sftp: SFTPClient
+    /// The thread the connection runs on. Its own, so that a signature the
+    /// agent is slow to make stalls only this connection.
+    private let group: MultiThreadedEventLoopGroup
 
-    private init(ssh: SSHClient, sftp: SFTPClient) {
+    private init(ssh: SSHClient, sftp: SFTPClient, group: MultiThreadedEventLoopGroup) {
         self.ssh = ssh
         self.sftp = sftp
+        self.group = group
     }
 
     /// Connects and signs in as `username`, and checks the host key against
@@ -235,18 +248,27 @@ final class SFTPSession: @unchecked Sendable {
                         keys: SFTPHostKeys = .standard) async throws -> SFTPSession {
         let check = SFTPHostKeyCheck(
             filing: SFTPHostKeys.filing(host: host, port: port), keys: keys)
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let ssh: SSHClient
         do {
             ssh = try await SSHClient.connect(
                 host: host, port: port,
                 authenticationMethod: try login.method(username: username),
                 hostKeyValidator: .custom(check),
-                reconnect: .never)
+                reconnect: .never,
+                group: group)
         } catch {
+            try? await group.shutdownGracefully()
             if let problem = check.problem { throw problem }
             throw error
         }
-        return SFTPSession(ssh: ssh, sftp: try await ssh.openSFTP())
+        do {
+            return SFTPSession(ssh: ssh, sftp: try await ssh.openSFTP(), group: group)
+        } catch {
+            try? await ssh.close()
+            try? await group.shutdownGracefully()
+            throw error
+        }
     }
 
     /// The folder the server starts a session in, as an absolute path.
@@ -265,6 +287,7 @@ final class SFTPSession: @unchecked Sendable {
     func close() async {
         try? await sftp.close()
         try? await ssh.close()
+        try? await group.shutdownGracefully()
     }
 }
 

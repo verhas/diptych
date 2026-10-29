@@ -50,6 +50,41 @@ nonisolated struct SSHAgent: Sendable {
         return SSHAgent(socketPath: path)
     }
 
+    /// The agent the person is using: the one `SSH_AUTH_SOCK` names, or else
+    /// the one launchd runs for the login. An app started from Finder does not
+    /// inherit `SSH_AUTH_SOCK`, so launchd is asked for the socket it reports.
+    static func discovered() -> SSHAgent? {
+        if let agent = fromEnvironment { return agent }
+        return fromLaunchd()
+    }
+
+    /// The discovered agent, when it holds keys: the one worth offering.
+    static func usable() -> SSHAgent? {
+        guard let agent = discovered(), (try? agent.identities())?.isEmpty == false else { return nil }
+        return agent
+    }
+
+    /// The socket of the ssh-agent launchd runs for this user, as `launchctl
+    /// print` reports it under the job's environment.
+    private static func fromLaunchd() -> SSHAgent? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "gui/\(getuid())/com.openssh.ssh-agent"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return nil }
+        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        for line in text.split(separator: "\n") {
+            let parts = line.components(separatedBy: " => ")
+            if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "SSH_AUTH_SOCK" {
+                return SSHAgent(socketPath: parts[1].trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return nil
+    }
+
     /// The keys the agent holds, in the order it lists them.
     func identities() throws -> [Identity] {
         let answer = try exchange([Message.requestIdentities])
@@ -166,6 +201,11 @@ struct WireReader {
         guard position + count <= bytes.count else { throw SSHAgent.Problem.malformed }
         defer { position += count }
         return Data(bytes[position..<position + count])
+    }
+
+    /// What has not been read yet.
+    var remainder: Data {
+        Data(bytes[position...])
     }
 
     func uint32Unchecked() -> UInt32 {
