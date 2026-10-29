@@ -2512,6 +2512,19 @@ final class AppModel {
         let mountPoint = entry.url.path
         let verb = entry.isNetwork ? "disconnect" : "eject"
 
+        // An SFTP server is a pseudo volume: disconnecting it closes its
+        // connection and removes its shadow. Its panes go home first.
+        if RemoteBrowsing.isServerRoot(entry.url) {
+            for pane in [left, right]
+            where pane.directory.path == mountPoint || pane.directory.path.hasPrefix(mountPoint + "/") {
+                pane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+            }
+            RemoteBrowsing.disconnect(root: entry.url)
+            VolumeList.shared.reload()
+            flash("Disconnected \(name)", error: false)
+            return
+        }
+
         // A server's share is unmounted; there is no disk to eject.
         FileManager.default.unmountVolume(at: entry.url,
                                           options: entry.isNetwork ? []

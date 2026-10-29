@@ -106,7 +106,8 @@ final class VolumeList {
         enumerating = true
         Task { [weak self] in
             let (found, servers) = await BlockingWork.run {
-                (VolumeList.enumerate(), ServerVolumes.mounted())
+                // A connected SFTP server is a volume too, as far as the sidebar goes.
+                (VolumeList.enumerate() + RemoteBrowsing.sidebarEntries(), ServerVolumes.mounted())
             }
             guard let self else { return }
             self.volumes = found

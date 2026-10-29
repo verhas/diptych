@@ -70,6 +70,32 @@ nonisolated enum RemoteBrowsing {
         return cacheRoot.appendingPathComponent(UUID().uuidString)
     }
 
+    /// Each connected server as a sidebar volume: named after its host, and
+    /// ejectable, which disconnects it. In the order they connected.
+    static func sidebarEntries() -> [SidebarEntry] {
+        registry.lock.withLock { registry.servers }.map { server in
+            SidebarEntry(kind: .volume, url: server.root, name: server.host,
+                         isEjectable: true, isNetwork: true, isReadOnly: true)
+        }
+    }
+
+    /// Disconnects the server whose shadow is `root`: its connection closes,
+    /// and its shadow goes. Its panes must have been moved off it first.
+    /// False when no connected server has that root.
+    @discardableResult
+    static func disconnect(root: URL) -> Bool {
+        let path = resolved(root.path)
+        let server = registry.lock.withLock { () -> Server? in
+            guard let index = registry.servers.firstIndex(where: { resolved($0.root.path) == path })
+            else { return nil }
+            return registry.servers.remove(at: index)
+        }
+        guard let server else { return false }
+        Task.detached { await server.close() }
+        try? FileManager.default.removeItem(at: server.root)
+        return true
+    }
+
     /// Closes every connection and removes every shadow, at quit. Also run at
     /// launch, for what a crash left behind: nothing is connected then.
     static func removeAll() {

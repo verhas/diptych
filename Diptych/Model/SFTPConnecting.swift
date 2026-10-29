@@ -194,6 +194,15 @@ extension AppModel {
             return
         }
         RemoteBrowsing.add(server)
+        // Recorded as a recent server, with the user it signed in as.
+        var address = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
+        address?.user = request.username
+        address?.password = nil
+        if let address = address?.url {
+            ServerStore.shared.used(address, mountPoint: nil)
+        }
+        if dialog == .connectServer { dialog = nil }
+        VolumeList.shared.reload()
         pane.navigate(to: RemoteBrowsing.localURL(on: server, remote: target))
     }
 

@@ -86,4 +86,24 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertFalse(RemoteBrowsing.hasPending([URL(fileURLWithPath: "/tmp")]))
         XCTAssertNil(RemoteBrowsing.shown(URL(fileURLWithPath: "/tmp")))
     }
+
+    func testAConnectedServerIsAnEjectableNetworkVolumeNamedAfterItsHost() async throws {
+        let connected = try await connect()
+        let entries = RemoteBrowsing.sidebarEntries()
+        XCTAssertEqual(entries.map(\.name), ["nas"])
+        XCTAssertEqual(entries.first?.url.path, connected.root.path)
+        XCTAssertEqual(entries.first?.isEjectable, true)
+        XCTAssertEqual(entries.first?.isNetwork, true)
+    }
+
+    func testDisconnectingRemovesTheServerAndItsShadow() async throws {
+        let connected = try await connect()
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: connected.root.path))
+
+        XCTAssertTrue(RemoteBrowsing.disconnect(root: connected.root))
+        XCTAssertTrue(RemoteBrowsing.sidebarEntries().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: connected.root.path))
+        XCTAssertFalse(RemoteBrowsing.disconnect(root: connected.root))
+    }
 }
