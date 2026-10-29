@@ -291,6 +291,9 @@ struct KnownServer: Codable, Identifiable, Equatable, Sendable {
     var lastUsed = Date()
     /// Where it was last mounted, so a pane left there can bring it back.
     var mountPoint: String?
+    /// How often an SFTP connection to it is checked, in seconds, when Diptych's
+    /// own setting is wanted over the one in `~/.ssh/config`. Zero: never.
+    var keepAliveSeconds: Int?
 
     var id: String { address.lowercased() }
     var url: URL? { URL(string: address) }
@@ -384,6 +387,14 @@ final class ServerStore {
             $0.openAtLogin = on
             if on { $0.saved = true }
         }
+    }
+
+    /// Sets, or clears, Diptych's own keep-alive interval for a server.
+    func setKeepAlive(_ seconds: Int?, for url: URL) {
+        let id = ServerAddress.withoutPassword(url).absoluteString.lowercased()
+        guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
+        servers[index].keepAliveSeconds = seconds
+        commit()
     }
 
     func forget(_ server: KnownServer) {

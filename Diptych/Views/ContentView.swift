@@ -821,6 +821,10 @@ struct DialogSheet: View {
             case .gitNotSent:
                 gitNotSent
 
+            case .keepAlive:
+                prompt(title: "Keep Alive", detail: model.keepAliveHint,
+                       confirm: "Set") { model.applyKeepAlive() }
+
             case .newFolder:
                 prompt(title: "New Folder",
                        detail: "Create a folder in \(model.active.directory.lastPathComponent)",

@@ -35,8 +35,10 @@ nonisolated enum RemoteBrowsing {
         /// The shadow of the server's `/`.
         let root: URL
         let mirror: SFTPMirror
-        /// Closes the connection, when the server is forgotten.
+        /// Closes the connection, forgetting its sign-in.
         let close: @Sendable () async -> Void
+        /// Changes how often the connection is checked: nil stops checking it.
+        var setKeepAlive: @Sendable (Duration?) async -> Void = { _ in }
 
         var key: String { Self.key(user: user, host: host, port: port) }
 
@@ -94,6 +96,12 @@ nonisolated enum RemoteBrowsing {
             SidebarEntry(kind: .volume, url: server.root, name: server.host,
                          isEjectable: true, isNetwork: true, isReadOnly: true)
         }
+    }
+
+    /// The connected server whose shadow is `root`.
+    static func server(root: URL) -> Server? {
+        let path = resolved(root.path)
+        return registry.lock.withLock { registry.servers.first { resolved($0.root.path) == path } }
     }
 
     /// Disconnects the server whose shadow is `root`: its connection closes,
@@ -170,6 +178,17 @@ nonisolated enum RemoteBrowsing {
         parts.port = server.port == 22 ? nil : server.port
         parts.path = "/" + components.joined(separator: "/")
         return parts.url
+    }
+
+    /// The sftp:// address of a connected server, without its path.
+    static func address(of server: Server) -> URL {
+        var parts = URLComponents()
+        parts.scheme = "sftp"
+        parts.user = server.user
+        parts.host = server.host
+        parts.port = server.port == 22 ? nil : server.port
+        parts.path = "/"
+        return parts.url ?? URL(fileURLWithPath: "/")
     }
 
     /// The shadow folder an `sftp://` address stands for, when that server is

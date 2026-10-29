@@ -16,6 +16,9 @@ struct SidebarView: View {
                         .contextMenu {
                             Button("Open") { model.openSidebarEntry(entry) }
                             Button("Open Trash") { model.openTrash(of: entry) }
+                            if RemoteBrowsing.isServerRoot(entry.url) {
+                                Button("Keep Alive\u{2026}") { model.requestKeepAlive(entry) }
+                            }
                             if entry.isEjectable {
                                 Divider()
                                 Button("Eject") { model.eject(entry) }

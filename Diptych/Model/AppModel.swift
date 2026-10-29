@@ -46,6 +46,7 @@ final class AppModel {
         case connectServer
         case sftpTrust
         case sftpLogin
+        case keepAlive
         case historyStep
         case historyMany
         case tips
@@ -81,6 +82,7 @@ final class AppModel {
             case .connectServer:  return "connectServer"
             case .sftpTrust:      return "sftpTrust"
             case .sftpLogin:      return "sftpLogin"
+            case .keepAlive:      return "keepAlive"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -177,6 +179,8 @@ final class AppModel {
     @ObservationIgnored var sftpRequest: SFTPConnectRequest?
     var sftpTrust: SFTPTrustPrompt?
     var sftpLogin: SFTPLoginPrompt?
+    /// The server root whose keep-alive interval the dialog is about.
+    @ObservationIgnored var keepAliveServer: URL?
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.

@@ -1,5 +1,33 @@
 import Foundation
 
+/// The sign-in a connection made, kept only for as long as the connection is
+/// open: so that it can be made again when the connection is lost, and gone
+/// when the connection is closed. Nothing else keeps it, so once it is
+/// forgotten the password is no longer held by Diptych.
+final class SFTPCredential: @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var stored: SFTPLogin?
+
+    init(_ login: SFTPLogin) {
+        stored = login
+    }
+
+    /// The sign-in, until it is forgotten.
+    var login: SFTPLogin? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+
+    /// Forgets the sign-in: the connection can no longer be made again.
+    func forget() {
+        lock.lock()
+        stored = nil
+        lock.unlock()
+    }
+}
+
 /// The connection a server's shadow reads and writes through. It keeps the
 /// connection alive, and makes a new one when the old one has died.
 ///
@@ -32,27 +60,39 @@ actor ReconnectingRemote: RemoteListing {
     private var link: Link?
     private let open: @Sendable () async throws -> Link
     private var keepAlive: Task<Void, Never>?
+    /// How often the connection is asked whether it is there; nil for never.
+    private var interval: Duration?
 
-    /// How often the connection is asked whether it is there.
-    static let interval: Duration = .seconds(60)
+    /// The interval the ssh configuration uses when it says nothing.
+    static let defaultInterval: Duration = .seconds(60)
     /// How long an answer may take before the connection is given up on.
     static let patience: Duration = .seconds(15)
 
-    init(link: Link, open: @escaping @Sendable () async throws -> Link) {
+    init(link: Link, open: @escaping @Sendable () async throws -> Link,
+         interval: Duration? = ReconnectingRemote.defaultInterval) {
         self.link = link
         self.open = open
+        self.interval = interval
     }
 
-    /// Starts asking the connection, every `interval`, whether it is there.
+    /// Starts asking the connection, every interval, whether it is there.
     func startKeepingAlive() {
-        guard keepAlive == nil else { return }
+        keepAlive?.cancel()
+        keepAlive = nil
+        guard let interval else { return }
         keepAlive = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: Self.interval)
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self else { return }
                 await self.checkAlive()
             }
         }
+    }
+
+    /// Changes how often the connection is asked, from now on; nil stops it.
+    func setKeepAlive(_ interval: Duration?) {
+        self.interval = interval
+        startKeepingAlive()
     }
 
     /// Closes the connection, and stops keeping it alive.
@@ -147,6 +187,18 @@ actor ReconnectingRemote: RemoteListing {
 
     func upload(_ local: URL, to path: String) async throws {
         try await perform(idempotent: false) { try await $0.upload(local, to: path) }
+    }
+}
+
+/// How often a connection is checked: Diptych's own setting for the server,
+/// else `ServerAliveInterval` from `~/.ssh/config` for the host, else a minute.
+/// Zero, from either, turns the checks off.
+enum SFTPKeepAlive {
+
+    static func interval(host: String, override: Int?) -> Duration? {
+        let seconds = override ?? SSHConfig.serverAliveInterval(for: host)
+            ?? Int(ReconnectingRemote.defaultInterval.components.seconds)
+        return seconds > 0 ? .seconds(seconds) : nil
     }
 }
 

@@ -218,6 +218,9 @@ nonisolated enum SFTPLoginError: Error, Equatable, Sendable {
     case unsupportedKey(String)
     /// The agent holds no key Diptych can sign with.
     case noUsableAgentKeys
+    /// The sign-in was forgotten, when the connection was closed: it cannot be
+    /// made again.
+    case signInForgotten
 }
 
 /// A connected SFTP session, shared by whatever asks for a listing.

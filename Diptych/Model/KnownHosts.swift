@@ -73,35 +73,12 @@ nonisolated enum KnownHosts {
             for pattern in hosts {
                 if pattern.hasPrefix("!") {
                     // A negated pattern wins over any positive one, as in OpenSSH.
-                    if Self.matches(String(pattern.dropFirst()), name) { return false }
-                } else if Self.matches(pattern, name) {
+                    if HostPattern.matches(String(pattern.dropFirst()), name) { return false }
+                } else if HostPattern.matches(pattern, name) {
                     covered = true
                 }
             }
             return covered
-        }
-
-        /// OpenSSH's own rule: `*` is any run of characters and `?` any one.
-        /// Everything else stands for itself, brackets included -- `fnmatch`
-        /// would read `[nas]:2222` as a character class and never match it.
-        private static func matches(_ pattern: String, _ name: String) -> Bool {
-            matches(Array(pattern)[...], Array(name)[...])
-        }
-
-        private static func matches(_ pattern: ArraySlice<Character>,
-                                    _ name: ArraySlice<Character>) -> Bool {
-            guard let first = pattern.first else { return name.isEmpty }
-            if first == "*" {
-                var rest = name
-                while true {
-                    if matches(pattern.dropFirst(), rest) { return true }
-                    if rest.isEmpty { return false }
-                    rest = rest.dropFirst()
-                }
-            }
-            guard let character = name.first else { return false }
-            return (first == "?" || first == character)
-                && matches(pattern.dropFirst(), name.dropFirst())
         }
 
         /// `|1|salt|hash`: the hash is HMAC-SHA1 of the name, keyed by the salt.

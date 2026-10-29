@@ -57,6 +57,51 @@ extension AppModel {
         attemptSFTP(SFTPConnectRequest(url: request.url, username: username, password: password))
     }
 
+    /// Asks how often the server at a sidebar entry is checked.
+    func requestKeepAlive(_ entry: SidebarEntry) {
+        guard let server = RemoteBrowsing.server(root: entry.url) else { return }
+        keepAliveServer = entry.url
+        let saved = ServerStore.shared.server(for: RemoteBrowsing.address(of: server))?.keepAliveSeconds
+        textInput = saved.map(String.init) ?? "default"
+        dialog = .keepAlive
+    }
+
+    /// What the keep-alive dialog says: what the ssh configuration says, and
+    /// what Diptych is set to.
+    var keepAliveHint: String {
+        guard let root = keepAliveServer, let server = RemoteBrowsing.server(root: root) else { return "" }
+        let sshValue = SSHConfig.serverAliveInterval(for: server.host).map { "\($0) seconds" } ?? "nothing"
+        return "Checks the connection to \(server.host) this often, so that a network device does not end "
+            + "it while it is idle. Type a number of seconds, 0 for never, or default. "
+            + "~/.ssh/config says \(sshValue) for this host. A minute when neither says."
+    }
+
+    /// Sets the keep-alive interval the dialog asked for, for the server and for
+    /// the connection as it is now. Nothing changes when the text is not understood.
+    func applyKeepAlive() {
+        guard let root = keepAliveServer, let server = RemoteBrowsing.server(root: root) else {
+            dialog = nil
+            return
+        }
+        let text = textInput.trimmingCharacters(in: .whitespaces).lowercased()
+        let seconds: Int?
+        if text == "default" {
+            seconds = nil
+        } else if let number = Int(text), number >= 0 {
+            seconds = number
+        } else {
+            flash("Type a number of seconds, 0 for never, or default", error: true)
+            return
+        }
+        dialog = nil
+        keepAliveServer = nil
+        ServerStore.shared.setKeepAlive(seconds, for: RemoteBrowsing.address(of: server))
+        let interval = SFTPKeepAlive.interval(host: server.host, override: seconds)
+        Task { await server.setKeepAlive(interval) }
+        let state = interval.map { "every \($0.components.seconds) seconds" } ?? "never"
+        flash("\(server.host) is checked \(state)", error: false)
+    }
+
     func cancelSFTPLogin() {
         sftpRequest = nil
         sftpLogin = nil
@@ -187,15 +232,24 @@ extension AppModel {
         let root = RemoteBrowsing.shadowRoot(user: request.username, host: host, port: port)
         // The shadow reads through a connection that is kept alive, and signed in
         // again when it is lost, as the same login.
+        // The sign-in is kept only while the connection is: it is forgotten when the
+        // server is disconnected, and with it the password.
         let username = request.username
+        let credential = SFTPCredential(login)
         let remote = ReconnectingRemote(link: .over(session), open: {
-            .over(try await SFTPSession.connect(host: host, port: port, username: username, login: login))
-        })
+            guard let login = credential.login else { throw SFTPLoginError.signInForgotten }
+            return .over(try await SFTPSession.connect(host: host, port: port, username: username, login: login))
+        }, interval: SFTPKeepAlive.interval(
+            host: host, override: ServerStore.shared.server(for: request.url)?.keepAliveSeconds))
         await remote.startKeepingAlive()
         let mirror = SFTPMirror(root: root, remote: remote, host: host)
         let server = RemoteBrowsing.Server(
             user: request.username, host: host, port: port, root: root, mirror: mirror,
-            close: { await remote.close() })
+            close: {
+                credential.forget()
+                await remote.close()
+            },
+            setKeepAlive: { await remote.setKeepAlive($0) })
         do {
             try await mirror.populate(target)
         } catch {
