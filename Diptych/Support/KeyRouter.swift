@@ -109,6 +109,14 @@ final class KeyRouter {
                 // must mean "commit", not "enter directory".
                 if !previewing, let responder = window.firstResponder,
                    responder is NSText || responder.isKind(of: NSTextView.self) {
+                    // The one exception: a name being typed in a row. There
+                    // F4, F5 and F6 are commands, which end the rename first.
+                    if let key = Key(rawValue: code), [.f4, .f5, .f6, .f9].contains(key),
+                       let model = self.models.lazy.compactMap(\.model)
+                        .first(where: { $0.window === window }),
+                       model.active.renamingID != nil {
+                        return model.handle(key: key, modifiers: flags)
+                    }
                     return false
                 }
                 // The permissions editor is a plain NSView, so it does not match

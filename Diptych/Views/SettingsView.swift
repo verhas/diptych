@@ -93,6 +93,17 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Toggle("Rename on a click on the name", isOn: $store.configuration.renameOnClick)
+                .toggleStyle(.checkbox)
+            Text("On, a click on the name of a file already selected starts a rename, as in "
+                 + "Finder. Off, only F2 renames, so a click on a name just selects it. F2 "
+                 + "always renames.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Toggle("Show files in Diptych instead of Finder", isOn: Binding(
                 get: { store.configuration.showFilesInDiptych },
                 set: { on in

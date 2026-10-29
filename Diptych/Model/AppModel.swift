@@ -1786,9 +1786,10 @@ final class AppModel {
     /// `advance` (Shift-Return) leaves the cursor on the row that followed this
     /// one *before* the rename. Using the row after the renamed file would jump
     /// somewhere arbitrary, because the new name usually sorts elsewhere.
-    func commitInlineRename(advance: Bool = false) {
+    @discardableResult
+    func commitInlineRename(advance: Bool = false) -> Task<Bool, Never>? {
         guard let id = active.renamingID,
-              let item = active.rows.first(where: { $0.id == id }) else { return }
+              let item = active.rows.first(where: { $0.id == id }) else { return nil }
 
         let pane = active
         let rowsBefore = pane.rows
@@ -1805,10 +1806,10 @@ final class AppModel {
                 pane.selection = [successor]
                 scrollSelectionIntoView()
             }
-            return
+            return nil
         }
 
-        Task {
+        return Task { () -> Bool in
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
                 await GitService.shared.followMove(from: item.url, to: url)
@@ -1826,9 +1827,39 @@ final class AppModel {
                     // keeps it even if the expression would not list it now.
                     pane.refreshRows([], renamed: [(item.url, url)])
                 }
+                return true
             } catch {
                 dialog = .message(error.localizedDescription)
+                return false
             }
+        }
+    }
+
+    /// F4, F5 and F6 while a name is being typed. The field takes every key it
+    /// is given, so these did nothing, and the person had to click after the
+    /// name and press the key again. Here the rename is committed first, as a
+    /// click elsewhere commits it, and the command then acts on the file under
+    /// its new name. A rename that fails has said why, and nothing else runs.
+    private func commandCommittingRename(_ key: KeyRouter.Key) {
+        let pane = active
+        guard let rename = commitInlineRename() else {
+            // Nothing to rename, or the name was left unchanged: no wait.
+            runRenameCommand(key)
+            return
+        }
+        Task {
+            guard await rename.value else { return }
+            await pane.reloadAndWait()
+            runRenameCommand(key)
+        }
+    }
+
+    private func runRenameCommand(_ key: KeyRouter.Key) {
+        switch key {
+        case .f4, .f9: requestPermissionEdit()
+        case .f5:      copySelection()
+        case .f6:      moveSelection()
+        default:       break
         }
     }
 
@@ -1854,8 +1885,10 @@ final class AppModel {
 
         switch column {
         case .name:
-            // Renaming needs exactly one target.
-            guard selectionBeforeClick == [rowID] else { return }
+            // Renaming needs exactly one target, and a click only starts one
+            // when the setting asks for it. F2 renames either way.
+            guard ConfigStore.shared.configuration.renameOnClick,
+                  selectionBeforeClick == [rowID] else { return }
             scheduleClickEdit { [weak self] in
                 self?.activate(pane)
                 self?.requestRename()
@@ -4897,6 +4930,12 @@ final class AppModel {
         }
         // Never act while a sheet is up; the sheet owns the keyboard.
         if dialog != nil { return false }
+
+        // A name being typed: these keys end the rename, then do their job.
+        if active.renamingID != nil, [KeyRouter.Key.f4, .f5, .f6, .f9].contains(key) {
+            commandCommittingRename(key)
+            return true
+        }
 
         switch key {
         case .tab:            toggleActiveSide()

@@ -449,6 +449,12 @@ struct Configuration: Codable, Equatable {
     /// turn it off again; this is how it comes back on.
     var showTipsAtStartup = true
 
+    /// Clicking the name of an already-selected row starts a rename, as in
+    /// Finder. Off, only F2 (and the menus) rename: a slow second click on a
+    /// name then just selects, which is what it does on a row that is not yet
+    /// selected.
+    var renameOnClick = true
+
     /// Whether, and how often, Diptych looks at GitHub for a newer release.
     /// `.ask` until the person has answered the startup prompt at least
     /// once -- no network connection is made before then.
@@ -508,6 +514,7 @@ struct Configuration: Codable, Equatable {
         case directoryDiffCompareModificationDate, directoryDiffCompareCreationDate
         case directoryDiffCompareOwnership
         case showTipsAtStartup
+        case renameOnClick
         case updateCheckPreference, lastUpdateCheckAttempt
         case mcpServerEnabled, mcpServerPort, agentCommand, agentDirectory
         case terminalFontName, terminalFontSize, terminalColours, terminalForeground
@@ -595,6 +602,8 @@ struct Configuration: Codable, Equatable {
             Bool.self, forKey: .directoryDiffCompareOwnership)) ?? false
         showTipsAtStartup =
             (try? container.decode(Bool.self, forKey: .showTipsAtStartup)) ?? true
+        renameOnClick =
+            (try? container.decode(Bool.self, forKey: .renameOnClick)) ?? true
         updateCheckPreference = (try? container.decode(
             UpdateCheckPreference.self, forKey: .updateCheckPreference)) ?? .ask
         lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
