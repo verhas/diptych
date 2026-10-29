@@ -314,6 +314,20 @@ nonisolated enum RemoteBrowsing {
         return localURL(on: server, remote: target)
     }
 
+    /// Sets the permission bits of the items at `urls` on their servers, and
+    /// lists the folders they are in so that the new bits are shown.
+    static func setPermissions(_ mode: UInt32, for urls: [URL]) async throws {
+        var folders = Set<URL>()
+        for url in urls {
+            guard let (server, path) = remotePath(url) else { continue }
+            try await server.mirror.setPermissions(path, mode: mode)
+            folders.insert(url.deletingLastPathComponent())
+        }
+        for folder in folders {
+            try await refresh(folder)
+        }
+    }
+
     /// Removes the items at `urls` from their servers, folders with everything
     /// in them, and lists the folders they were in.
     static func remove(_ urls: [URL]) async throws {

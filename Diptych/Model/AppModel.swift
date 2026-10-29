@@ -4048,7 +4048,7 @@ final class AppModel {
     /// `anchor` is the row whose cell hosts the editor; the edit still applies
     /// to the whole selection.
     func requestPermissionEdit(anchor: FileItem.ID? = nil) {
-        guard !refusedAsReadOnly(active, "changed here") else { return }
+        guard !refusedAsReadOnly(active, "changed here", serverWritable: true) else { return }
         let selected = active.selectedItems
         guard !selected.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -4104,6 +4104,24 @@ final class AppModel {
         restoreTableFocus()
 
         guard !urls.isEmpty else { return }
+
+        // On a server the bits are set there, and the folder listed again.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be changed together")
+                return
+            }
+            Task {
+                do {
+                    try await RemoteBrowsing.setPermissions(UInt32(mode & 0o7777), for: urls)
+                    pane.reload()
+                    flash("Changed the permissions on the server", error: false)
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
 
         Task {
             // All twelve bits: the editor can now express setuid, setgid and

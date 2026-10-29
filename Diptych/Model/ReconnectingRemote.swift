@@ -188,6 +188,11 @@ actor ReconnectingRemote: RemoteListing {
     func upload(_ local: URL, to path: String) async throws {
         try await perform(idempotent: false) { try await $0.upload(local, to: path) }
     }
+
+    func setPermissions(_ path: String, mode: UInt32) async throws {
+        // Setting a mode twice leaves it as it was set: safe to make again.
+        try await perform(idempotent: true) { try await $0.setPermissions(path, mode: mode) }
+    }
 }
 
 /// How often a connection is checked: Diptych's own setting for the server,

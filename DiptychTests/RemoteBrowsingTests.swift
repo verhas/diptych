@@ -168,6 +168,23 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
     }
 
+    func testPermissionsAreSetOnTheServerAndTheListingShowsThem() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+
+        try await RemoteBrowsing.setPermissions(0o600, for: [note])
+        XCTAssertEqual(server.modes["/home/peter/note.txt"], 0o600)
+        let shown = try await node(connected, "/home/peter/note.txt")
+        XCTAssertEqual(shown?.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o600)
+    }
+
+    private func node(_ server: RemoteBrowsing.Server, _ path: String) async throws -> BrowserManifest.Node? {
+        let folder = RemoteBrowsing.localURL(on: server, remote: (path as NSString).deletingLastPathComponent)
+        return BrowserManifestStore.read(in: folder)?.nodes.first { $0.name == (path as NSString).lastPathComponent }
+    }
+
     func testDeletingAFolderDeletesWhatIsInIt() async throws {
         let connected = try await connect()
         let home = RemoteBrowsing.localURL(on: connected, remote: "/home")

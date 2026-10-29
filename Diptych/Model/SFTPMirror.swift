@@ -124,6 +124,10 @@ actor SFTPMirror {
         try await remote.rename(from, to: to)
     }
 
+    func setPermissions(_ path: String, mode: UInt32) async throws {
+        try await remote.setPermissions(path, mode: mode)
+    }
+
     /// Removes `path` from the server, and everything in it when it is a folder.
     func remove(_ path: String, isDirectory: Bool) async throws {
         guard isDirectory else {

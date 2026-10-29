@@ -308,6 +308,8 @@ nonisolated protocol RemoteListing: Sendable {
     func rename(_ from: String, to: String) async throws
     /// Writes a local file's bytes to `path` on the server, replacing what is there.
     func upload(_ local: URL, to path: String) async throws
+    /// Sets the permission bits of `path` on the server: setuid, setgid and sticky too.
+    func setPermissions(_ path: String, mode: UInt32) async throws
 }
 
 extension SFTPSession: RemoteListing {
@@ -332,6 +334,12 @@ extension SFTPSession: RemoteListing {
 
     func rename(_ from: String, to: String) async throws {
         try await sftp.rename(at: from, to: to)
+    }
+
+    func setPermissions(_ path: String, mode: UInt32) async throws {
+        var attributes = SFTPFileAttributes()
+        attributes.permissions = mode
+        try await sftp.setAttributes(at: path, to: attributes)
     }
 
     /// Streams a local file to the server a piece at a time.

@@ -17,7 +17,11 @@ final class SFTPMirrorTests: XCTestCase {
         }
 
         func entries(in path: String) async throws -> [SFTPEntry] {
-            folders[path] ?? []
+            (folders[path] ?? []).map { entry in
+                let child = path == "/" ? "/" + entry.name : path + "/" + entry.name
+                return SFTPEntry(name: entry.name, kind: entry.kind, size: entry.size,
+                                    mode: modes[child] ?? entry.mode)
+            }
         }
 
         func download(_ path: String, to destination: URL) async throws {
@@ -55,6 +59,12 @@ final class SFTPMirrorTests: XCTestCase {
         func upload(_ local: URL, to path: String) async throws {
             files[path] = try Data(contentsOf: local)
             link(path, .file)
+        }
+
+        private(set) var modes: [String: UInt32] = [:]
+
+        func setPermissions(_ path: String, mode: UInt32) async throws {
+            modes[path] = mode
         }
 
         /// Lists `path` in its folder, as the server would.
