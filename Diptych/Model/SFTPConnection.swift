@@ -249,6 +249,11 @@ final class SFTPSession: @unchecked Sendable {
         return SFTPSession(ssh: ssh, sftp: try await ssh.openSFTP())
     }
 
+    /// The folder the server starts a session in, as an absolute path.
+    func homeDirectory() async throws -> String {
+        try await sftp.getRealPath(atPath: ".")
+    }
+
     /// What is in `path`, without `.` and `..`.
     func list(_ path: String) async throws -> [SFTPEntry] {
         try await sftp.listDirectory(atPath: path)

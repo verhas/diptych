@@ -945,7 +945,23 @@ final class AppModel {
     /// Space, as in Finder.
     func toggleQuickLook() {
         // Rows rather than items: `..` is previewable, as the folder it is.
-        QuickLookController.shared.toggle(active.selectedRows.map(\.url), owner: self)
+        let rows = active.selectedRows.map(\.url)
+        // A file on a server is fetched before it is previewed. Folders are
+        // not: their files would be everything below them.
+        let files = active.selectedRows.filter { !$0.isDirectory }.map(\.url)
+        guard RemoteBrowsing.hasPending(files) else {
+            QuickLookController.shared.toggle(rows, owner: self)
+            return
+        }
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(files)
+                guard let self else { return }
+                QuickLookController.shared.toggle(rows, owner: self)
+            } catch {
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
     }
 
     /// Move the cursor one row, keeping any open preview in step. Used when the
@@ -998,9 +1014,23 @@ final class AppModel {
     func copySelection()  { transfer(.copy) }
     func moveSelection()  { transfer(.move) }
 
-    private func transfer(_ kind: FileOperations.Transfer) {
-        let urls = active.selectedItems.map(\.url)
+    private func transfer(_ kind: FileOperations.Transfer, urls chosen: [URL]? = nil) {
+        let urls = chosen ?? active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        // Files on a server are placeholders until fetched. Fetch them, then
+        // transfer the real files.
+        if RemoteBrowsing.hasPending(urls) {
+            flash("Fetching from the server\u{2026}", error: false)
+            Task { [weak self] in
+                do {
+                    try await RemoteBrowsing.fetch(urls)
+                    self?.transfer(kind, urls: urls)
+                } catch {
+                    self?.flash("Could not fetch from the server: " + error.localizedDescription)
+                }
+            }
+            return
+        }
         // The other pane is hidden in single-pane mode: there is nowhere to
         // copy or move "to the other pane", so it is refused rather than acting
         // on a pane that is not on screen.

@@ -456,11 +456,22 @@ struct PaneView: View {
     /// `/Users/verhasp/Documents` shown as `~/Documents`; a folder inside an
     /// opened archive as inside the archive.
     private var displayPath: String {
-        (ArchiveBrowsing.shown(pane.directory).path as NSString).abbreviatingWithTildeInPath
+        let shown = ArchiveBrowsing.shown(pane.directory)
+        // A server's folder reads as its address, which is what it is.
+        if shown.scheme == "sftp" {
+            return shown.absoluteString.removingPercentEncoding ?? shown.absoluteString
+        }
+        return (shown.path as NSString).abbreviatingWithTildeInPath
     }
 
     private func beginPathEdit(selectingAll: Bool = false) {
         activate()
+        // Typed paths resolve on this Mac's disk, and a server's folder is not
+        // on it. Its folders are reached by clicking them.
+        guard !RemoteBrowsing.isInside(pane.directory) else {
+            model.flash("A folder on a server cannot be typed into the path bar yet.")
+            return
+        }
         pathSelectsAll = selectingAll
         // With the separator already there, typing a child's name works
         // straight away and Tab completes inside this directory rather than

@@ -312,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !isRunningTests {
             // What a crash left of archives opened as folders.
             Task.detached(priority: .utility) { ArchiveBrowsing.removeAll() }
+            Task.detached(priority: .utility) { RemoteBrowsing.removeAll() }
             MainActor.assumeIsolated {
                 StartupWarnings.start()
                 ServerAutoConnect.start()
@@ -332,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Archives opened as folders were unpacked for this run only.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
             ArchiveBrowsing.removeAll()
+            RemoteBrowsing.removeAll()
         }
         // The agent terminals' shells, and the agents in them, end with the
         // app rather than being left to notice their terminal has gone.

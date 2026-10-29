@@ -30,19 +30,6 @@ struct SFTPLoginPrompt: Equatable {
     let wasWrong: Bool
 }
 
-/// The SFTP sessions open now, kept so that they stay open.
-@MainActor
-final class SFTPConnections {
-
-    static let shared = SFTPConnections()
-
-    private(set) var sessions: [String: SFTPSession] = [:]
-
-    func keep(_ session: SFTPSession, as key: String) {
-        sessions[key] = session
-    }
-}
-
 /// The outcome of one connection attempt.
 private enum SFTPAttempt {
     case connected(SFTPSession)
@@ -170,27 +157,36 @@ extension AppModel {
         return false
     }
 
+    /// Signed in: the server is registered, and the pane goes to the folder
+    /// the address names, or to the home folder when it names none.
     private func finishSFTP(_ session: SFTPSession, _ request: SFTPConnectRequest) async {
         finishConnecting()
         sftpRequest = nil
+        let pane = active
         let host = request.url.host(percentEncoded: false) ?? ""
         let port = request.url.port ?? 22
-        SFTPConnections.shared.keep(session, as: "\(request.username)@\(SFTPHostKeys.filing(host: host, port: port))")
-
-        let path = request.url.path(percentEncoded: false)
-        let folder = path.isEmpty ? "." : path
-        let listing: String
-        do {
-            let count = try await session.list(folder).count
-            listing = "\(folder) holds \(count) \(count == 1 ? "item" : "items")."
-        } catch {
-            listing = "\(folder) could not be listed: \(error.localizedDescription)"
+        let typed = request.url.path(percentEncoded: false)
+        let target: String
+        if typed.isEmpty {
+            target = (try? await session.homeDirectory()) ?? "/"
+        } else {
+            target = typed
         }
-        dialog = .notice(
-            title: "Connected to \(ServerAddress.title(of: request.url))",
-            text: "Signed in as \(request.username). \(listing)\n\n"
-                + "Browsing an SFTP server in a pane is not built yet, so for now the "
-                + "connection is only kept open.")
+
+        let root = RemoteBrowsing.shadowRoot(user: request.username, host: host, port: port)
+        let mirror = SFTPMirror(root: root, remote: session, host: host)
+        let server = RemoteBrowsing.Server(
+            user: request.username, host: host, port: port, root: root, mirror: mirror,
+            close: { await session.close() })
+        do {
+            try await mirror.populate(target)
+        } catch {
+            await session.close()
+            dialog = .message("Could not list \(target) on \(host): \(error.localizedDescription)")
+            return
+        }
+        RemoteBrowsing.add(server)
+        pane.navigate(to: RemoteBrowsing.localURL(on: server, remote: target))
     }
 
     private func askAboutHost(_ problem: SFTPHostKeyProblem, _ request: SFTPConnectRequest) {

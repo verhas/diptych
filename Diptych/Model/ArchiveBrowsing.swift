@@ -100,6 +100,8 @@ nonisolated enum ArchiveBrowsing {
     /// and inside the archive that one came out of, for a zip in a zip.
     /// Anything else as it is.
     static func shown(_ url: URL) -> URL {
+        // A server's folder is shown by its sftp:// address, not as a path.
+        if let remote = RemoteBrowsing.shown(url) { return remote }
         var url = url
         for _ in 0..<16 {
             guard let opened = opened(containing: url) else { break }
@@ -112,6 +114,7 @@ nonisolated enum ArchiveBrowsing {
     /// A path through an opened archive -- `…/photos.zip/2024` -- as the
     /// folder it was unpacked to; nil for one that is not.
     static func actual(_ shown: URL) -> URL? {
+        if shown.scheme == "sftp" { return RemoteBrowsing.actual(shown) }
         var path = shown.standardizedFileURL.path
         var mapped = false
         // The outer archive first, then any opened from inside it.

@@ -492,6 +492,7 @@ nonisolated struct VolumeFacts: Equatable, Sendable {
     /// Stats the volume: off the main actor. Inside an archive opened as a
     /// folder, the archive is the volume, and read-only.
     static func of(_ url: URL) -> VolumeFacts {
+        if let facts = RemoteBrowsing.volumeFacts(of: url) { return facts }
         if let facts = ArchiveBrowsing.volumeFacts(of: url) { return facts }
         guard let values = try? url.resourceValues(forKeys: [
             .volumeIsLocalKey, .volumeIsReadOnlyKey, .volumeTypeNameKey,

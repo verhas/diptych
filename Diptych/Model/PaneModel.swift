@@ -617,6 +617,9 @@ final class PaneModel {
 
     func goUp() {
         guard directory.pathComponents.count > 1 else { return }
+        // A server's top has nothing above it in the pane: its shadow's parent
+        // is the caches folder, which is not a place to go.
+        guard !RemoteBrowsing.isServerRoot(directory) else { return }
         let leaving = directory
 
         // Out of the top of an opened archive: beside it, on it. Matched by
@@ -642,6 +645,20 @@ final class PaneModel {
     func open(_ item: FileItem) {
         if item.isParent {
             goUp()
+            return
+        }
+
+        // A file on a server is a placeholder until its bytes are fetched.
+        if !item.isEnterable, RemoteBrowsing.isInside(item.url) {
+            Task { [weak self] in
+                do {
+                    try await RemoteBrowsing.materialize(item.url)
+                    NSWorkspaceOpener.open(item.url)
+                } catch {
+                    self?.owner?.flash("Could not fetch \u{201C}\(item.name)\u{201D} from the server: "
+                                       + error.localizedDescription)
+                }
+            }
             return
         }
 
@@ -1147,6 +1164,17 @@ final class PaneModel {
             do {
                 // Asked of the folder itself: the pane's facts are still
                 // those of where it came from, on arriving at a server.
+                // A folder on a server is listed again first, so that its rows are
+                // what the server has now. A failure leaves the rows already there.
+                if RemoteBrowsing.isInside(target) {
+                    do {
+                        try await RemoteBrowsing.refresh(target)
+                    } catch {
+                        self?.owner?.flash("Could not list the folder on the server: "
+                                           + error.localizedDescription)
+                    }
+                    guard !Task.isCancelled else { return }
+                }
                 let onServer = await BlockingWork.run { VolumeFacts.of(target).isNetwork }
                 guard !Task.isCancelled else { return }
                 var loaded = try await DirectoryLoader.load(
