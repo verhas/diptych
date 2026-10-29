@@ -111,6 +111,56 @@ actor SFTPMirror {
         return file
     }
 
+    /// What the server lists in `path`, now.
+    func listing(_ path: String) async throws -> [SFTPEntry] {
+        try await remote.entries(in: path)
+    }
+
+    func makeFolder(_ path: String) async throws {
+        try await remote.makeDirectory(path)
+    }
+
+    func rename(_ from: String, to: String) async throws {
+        try await remote.rename(from, to: to)
+    }
+
+    /// Removes `path` from the server, and everything in it when it is a folder.
+    func remove(_ path: String, isDirectory: Bool) async throws {
+        guard isDirectory else {
+            try await remote.removeFile(path)
+            return
+        }
+        for entry in try await remote.entries(in: path) {
+            let child = path == "/" ? "/" + entry.name : path + "/" + entry.name
+            try await remove(child, isDirectory: entry.kind == .directory)
+        }
+        try await remote.removeDirectory(path)
+    }
+
+    /// Copies a local file, or a local folder with everything in it, to `path`
+    /// on the server. The manifest a shadow folder carries is not copied.
+    func upload(_ local: URL, to path: String, isDirectory: Bool) async throws {
+        guard isDirectory else {
+            try await remote.upload(local, to: path)
+            return
+        }
+        try await remote.makeDirectory(path)
+        let names = try FileManager.default.contentsOfDirectory(atPath: local.path)
+            .filter { BrowserManifestStore.number(of: $0) == nil }
+        for name in names.sorted() {
+            let child = local.appendingPathComponent(name)
+            let target = path == "/" ? "/" + name : path + "/" + name
+            try await upload(child, to: target, isDirectory: Self.isDirectory(child))
+        }
+    }
+
+    /// Whether a local path is a folder, following nothing.
+    static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
     /// Creates the folder or placeholder for one entry, and its node. A file
     /// keeps its bytes only while the server still reports the size and date
     /// it had when they were fetched; otherwise the placeholder is emptied.

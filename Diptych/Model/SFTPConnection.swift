@@ -297,6 +297,14 @@ nonisolated protocol RemoteListing: Sendable {
     func entries(in path: String) async throws -> [SFTPEntry]
     /// Writes the file's bytes to `destination`, which it creates.
     func download(_ path: String, to destination: URL) async throws
+    func makeDirectory(_ path: String) async throws
+    /// Removes a file or a link.
+    func removeFile(_ path: String) async throws
+    /// Removes an empty folder.
+    func removeDirectory(_ path: String) async throws
+    func rename(_ from: String, to: String) async throws
+    /// Writes a local file's bytes to `path` on the server, replacing what is there.
+    func upload(_ local: URL, to path: String) async throws
 }
 
 extension SFTPSession: RemoteListing {
@@ -307,6 +315,40 @@ extension SFTPSession: RemoteListing {
 
     /// Streams the file to `destination` a piece at a time, so a large one is
     /// never held in memory whole.
+    func makeDirectory(_ path: String) async throws {
+        try await sftp.createDirectory(atPath: path)
+    }
+
+    func removeFile(_ path: String) async throws {
+        try await sftp.remove(at: path)
+    }
+
+    func removeDirectory(_ path: String) async throws {
+        try await sftp.rmdir(at: path)
+    }
+
+    func rename(_ from: String, to: String) async throws {
+        try await sftp.rename(at: from, to: to)
+    }
+
+    /// Streams a local file to the server a piece at a time.
+    func upload(_ local: URL, to path: String) async throws {
+        let file = try await sftp.openFile(filePath: path, flags: [.write, .create, .truncate])
+        let input = try FileHandle(forReadingFrom: local)
+        defer { try? input.close() }
+        do {
+            var offset: UInt64 = 0
+            while let chunk = try input.read(upToCount: 256 * 1024), !chunk.isEmpty {
+                try await file.write(ByteBuffer(bytes: chunk), at: offset)
+                offset += UInt64(chunk.count)
+            }
+        } catch {
+            try? await file.close()
+            throw error
+        }
+        try await file.close()
+    }
+
     func download(_ path: String, to destination: URL) async throws {
         let file = try await sftp.openFile(filePath: path, flags: .read)
         FileManager.default.createFile(atPath: destination.path, contents: nil)

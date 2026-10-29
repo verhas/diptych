@@ -1,5 +1,22 @@
 import Foundation
 
+/// Why a change to a server was not made.
+nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
+    /// Something of that name is already there, and is not written over.
+    case exists(String)
+    /// The item is not on a server.
+    case notOnServer
+
+    var errorDescription: String? {
+        switch self {
+        case .exists(let name):
+            "\u{201C}\(name)\u{201D} is already there on the server, and is not written over."
+        case .notOnServer:
+            "That is not a place on a server."
+        }
+    }
+}
+
 /// The SFTP servers the panes show. A folder on a server is shown by its
 /// `sftp://` address, and its files are kept in a shadow folder under the
 /// caches, as an opened archive's are. The pane itself browses the shadow, so
@@ -236,6 +253,72 @@ nonisolated enum RemoteBrowsing {
                 _ = try await server.mirror.materialize(path)
             }
         }
+    }
+
+    // MARK: - Changing the server
+
+    /// Makes a folder named `name` in `parent`, on the server, and lists it.
+    static func makeFolder(named name: String, in parent: URL) async throws -> URL {
+        guard let (server, folder) = remotePath(parent) else { throw RemoteWriteError.notOnServer }
+        try await requireAbsent(name, in: folder, server)
+        let path = join(folder, name)
+        try await server.mirror.makeFolder(path)
+        try await refresh(parent)
+        return localURL(on: server, remote: path)
+    }
+
+    /// Renames the item at `url` on the server, in the same folder.
+    static func rename(_ url: URL, to name: String) async throws -> URL {
+        guard let (server, path) = remotePath(url) else { throw RemoteWriteError.notOnServer }
+        let folder = parentOf(path)
+        try await requireAbsent(name, in: folder, server)
+        let target = join(folder, name)
+        try await server.mirror.rename(path, to: target)
+        try await refresh(url.deletingLastPathComponent())
+        return localURL(on: server, remote: target)
+    }
+
+    /// Removes the items at `urls` from their servers, folders with everything
+    /// in them, and lists the folders they were in.
+    static func remove(_ urls: [URL]) async throws {
+        var folders = Set<URL>()
+        for url in urls {
+            guard let (server, path) = remotePath(url) else { continue }
+            try await server.mirror.remove(path, isDirectory: SFTPMirror.isDirectory(url))
+            folders.insert(url.deletingLastPathComponent())
+        }
+        for folder in folders {
+            try await refresh(folder)
+        }
+    }
+
+    /// Copies local files and folders, or the local copies of a server's
+    /// items, into the server folder `destination`. A name already there is
+    /// not written over.
+    static func upload(_ sources: [URL], into destination: URL) async throws {
+        guard let (server, folder) = remotePath(destination) else { throw RemoteWriteError.notOnServer }
+        for source in sources {
+            let name = source.lastPathComponent
+            try await requireAbsent(name, in: folder, server)
+            try await server.mirror.upload(source, to: join(folder, name),
+                                           isDirectory: SFTPMirror.isDirectory(source))
+        }
+        try await refresh(destination)
+    }
+
+    private static func requireAbsent(_ name: String, in folder: String, _ server: Server) async throws {
+        let names = try await server.mirror.listing(folder).map(\.name)
+        guard !names.contains(name) else { throw RemoteWriteError.exists(name) }
+    }
+
+    /// `/home/peter` and `notes.txt` make `/home/peter/notes.txt`.
+    private static func join(_ folder: String, _ name: String) -> String {
+        folder == "/" ? "/" + name : folder + "/" + name
+    }
+
+    /// The folder a remote path is in: `/home` for `/home/peter`.
+    private static func parentOf(_ path: String) -> String {
+        "/" + path.split(separator: "/").dropLast().joined(separator: "/")
     }
 
     /// The file at a shadow path, with its bytes fetched.

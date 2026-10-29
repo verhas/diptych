@@ -1039,8 +1039,9 @@ final class AppModel {
                   + "to it.", error: true)
             return
         }
-        if kind == .move, refusedAsReadOnly(active, "moved from here") { return }
-        guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into")
+        if kind == .move, refusedAsReadOnly(active, "moved from here", serverWritable: true) { return }
+        guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into",
+                               serverWritable: true)
         else { return }
         performTransfer(urls, to: inactive.directory, kind: kind,
                         into: inactive, from: kind == .move ? active : nil)
@@ -1049,18 +1050,23 @@ final class AppModel {
     /// A flat view lists many folders and is none of them: nothing can be
     /// copied, moved or made into it. Nor into a folder on a read-only server.
     /// Says so, and is true, when `pane` is either.
-    func refusedAsTarget(_ pane: PaneModel, _ what: String) -> Bool {
+    func refusedAsTarget(_ pane: PaneModel, _ what: String, serverWritable: Bool = false) -> Bool {
         if pane.isFlat {
             flash("Nothing can be \(what) a flat view: it is many folders, not one", error: true)
             return true
         }
-        return refusedAsReadOnly(pane, what + " it")
+        return refusedAsReadOnly(pane, what + " it", serverWritable: serverWritable)
     }
 
     /// FTP, or a share mounted read-only: nothing in `pane` can be changed.
     /// Said, rather than left to fail halfway through.
-    func refusedAsReadOnly(_ pane: PaneModel, _ what: String) -> Bool {
+    /// `serverWritable` is for the operations that are made on a server itself
+    /// (rename, delete, a new folder, copy in or out). Everything else on a
+    /// server is refused, since a change made only to the cache would never
+    /// reach the server.
+    func refusedAsReadOnly(_ pane: PaneModel, _ what: String, serverWritable: Bool = false) -> Bool {
         guard pane.volume.isReadOnly else { return false }
+        if serverWritable, RemoteBrowsing.isInside(pane.directory) { return false }
         let name = pane.volume.name ?? pane.directory.lastPathComponent
         flash("Nothing can be \(what): \u{201C}\(name)\u{201D} is read-only", error: true)
         return true
@@ -1099,6 +1105,25 @@ final class AppModel {
         let pane = active
         let urls = pane.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        // A server has no Trash: its items are deleted there.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be deleted together")
+                return
+            }
+            let successor = successorAfterDeleting(in: pane)
+            Task {
+                do {
+                    try await RemoteBrowsing.remove(urls)
+                    pane.pendingSelection = successor.map { [$0] } ?? []
+                    pane.reload()
+                    inactive.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         guard !refusedAsReadOnly(pane, "moved to the Trash from here") else { return }
 
         // Where the cursor should land afterwards.
@@ -1587,7 +1612,7 @@ final class AppModel {
     @ObservationIgnored private var scriptProblemsWaiting = false
 
     func requestNewFolder() {
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         textInput = suggestedName("untitled folder")
         dialog = .newFolder
     }
@@ -1648,6 +1673,18 @@ final class AppModel {
         let name = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let parent = active.directory
+        if RemoteBrowsing.isInside(parent) {
+            Task {
+                do {
+                    let url = try await RemoteBrowsing.makeFolder(named: name, in: parent)
+                    active.pendingSelection = [url]
+                    active.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         Task {
             do {
                 let url = try await FileOperations.shared.createDirectory(named: name, in: parent)
@@ -1663,7 +1700,7 @@ final class AppModel {
     /// Rename happens in the row itself, as in Finder -- no dialog.
     func requestRename() {
         guard let item = singleSelection("rename") else { return }
-        guard !refusedAsReadOnly(active, "renamed here") else { return }
+        guard !refusedAsReadOnly(active, "renamed here", serverWritable: true) else { return }
 
         // With the Quick Look panel up it holds key focus, so a text field in
         // this window could never receive typing. Take key back; the panel stays
@@ -1848,6 +1885,19 @@ final class AppModel {
             return nil
         }
 
+        if RemoteBrowsing.isInside(item.url) {
+            return Task { () -> Bool in
+                do {
+                    let url = try await RemoteBrowsing.rename(item.url, to: newName)
+                    pane.pendingSelection = [advance ? (successor ?? url) : url]
+                    pane.reload()
+                    return true
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                    return false
+                }
+            }
+        }
         return Task { () -> Bool in
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
@@ -2080,6 +2130,11 @@ final class AppModel {
                                  into destinationPane: PaneModel,
                                  from sourcePane: PaneModel?) {
         guard !urls.isEmpty else { return }
+        if RemoteBrowsing.isInside(destination) {
+            transferToServer(urls, to: destination, kind: kind,
+                             into: destinationPane, from: sourcePane)
+            return
+        }
 
         // The same thing asked for again while it waits or runs -- a folder
         // grabbed three times, F6 pressed twice. A move cannot happen twice,
@@ -2289,6 +2344,33 @@ final class AppModel {
         flash("The transfer goes on in the background", error: false)
     }
 
+    /// A copy or move onto a server: the items are uploaded there. A move then
+    /// takes its originals away: one on this Mac goes to the Trash, one on a
+    /// server is removed there.
+    private func transferToServer(_ urls: [URL], to destination: URL,
+                                  kind: FileOperations.Transfer,
+                                  into destinationPane: PaneModel,
+                                  from sourcePane: PaneModel?) {
+        let onServer = urls.filter(RemoteBrowsing.isInside)
+        let onThisMac = urls.filter { !RemoteBrowsing.isInside($0) }
+        flash("\(kind == .move ? "Moving" : "Copying") to the server\u{2026}", error: false)
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.upload(urls, into: destination)
+                if kind == .move {
+                    if !onThisMac.isEmpty { _ = await FileOperations.shared.trash(onThisMac) }
+                    if !onServer.isEmpty { try await RemoteBrowsing.remove(onServer) }
+                }
+                destinationPane.reload()
+                sourcePane?.reload()
+                self?.flash("\(kind == .move ? "Moved" : "Copied") \(urls.count) item"
+                            + "\(urls.count == 1 ? "" : "s") to the server", error: false)
+            } catch {
+                self?.dialog = .message(error.localizedDescription)
+            }
+        }
+    }
+
     private func runTransfer(_ urls: [URL], to destination: URL,
                              kind: FileOperations.Transfer,
                              into destinationPane: PaneModel,
@@ -2438,6 +2520,21 @@ final class AppModel {
         // left a panel with nothing to cancel on screen for good.
         reveal.cancel()
         transferProgress = nil
+
+        // A move out of a server takes its items away there, once their copies
+        // are here.
+        if kind == .move {
+            let copied = Set(outcome.succeeded.map(\.lastPathComponent))
+            let gone = urls.filter { RemoteBrowsing.isInside($0) && copied.contains($0.lastPathComponent) }
+            if !gone.isEmpty {
+                do {
+                    try await RemoteBrowsing.remove(gone)
+                } catch {
+                    flash("Copied, but could not remove them from the server: "
+                          + error.localizedDescription)
+                }
+            }
+        }
 
         destinationPane.pendingSelection = Set(outcome.succeeded)
         await Self.awaitListing(sourcePane)

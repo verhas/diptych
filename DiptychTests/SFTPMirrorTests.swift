@@ -24,6 +24,56 @@ final class SFTPMirrorTests: XCTestCase {
             downloads.append(path)
             try (files[path] ?? Data()).write(to: destination)
         }
+
+        func makeDirectory(_ path: String) async throws {
+            folders[path] = folders[path] ?? []
+            link(path, .directory)
+        }
+
+        func removeFile(_ path: String) async throws {
+            files[path] = nil
+            unlink(path)
+        }
+
+        func removeDirectory(_ path: String) async throws {
+            folders[path] = nil
+            unlink(path)
+        }
+
+        func rename(_ from: String, to: String) async throws {
+            if let data = files.removeValue(forKey: from) {
+                files[to] = data
+                unlink(from)
+                link(to, .file)
+            } else if let entries = folders.removeValue(forKey: from) {
+                folders[to] = entries
+                unlink(from)
+                link(to, .directory)
+            }
+        }
+
+        func upload(_ local: URL, to path: String) async throws {
+            files[path] = try Data(contentsOf: local)
+            link(path, .file)
+        }
+
+        /// Lists `path` in its folder, as the server would.
+        private func link(_ path: String, _ kind: SFTPEntry.Kind) {
+            let (folder, name) = Self.split(path)
+            folders[folder, default: []].removeAll { $0.name == name }
+            folders[folder, default: []].append(SFTPEntry(name: name, kind: kind))
+        }
+
+        private func unlink(_ path: String) {
+            let (folder, name) = Self.split(path)
+            folders[folder]?.removeAll { $0.name == name }
+        }
+
+        private static func split(_ path: String) -> (String, String) {
+            let index = path.lastIndex(of: "/")!
+            let folder = String(path[..<index])
+            return (folder.isEmpty ? "/" : folder, String(path[path.index(after: index)...]))
+        }
     }
 
     private func mirror(_ server: RemoteListing) -> SFTPMirror {

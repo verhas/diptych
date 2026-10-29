@@ -106,4 +106,76 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: connected.root.path))
         XCTAssertFalse(RemoteBrowsing.disconnect(root: connected.root))
     }
+
+    // MARK: - Changes made on the server
+
+    func testANewFolderIsMadeOnTheServerAndListed() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let made = try await RemoteBrowsing.makeFolder(named: "photos", in: home)
+
+        XCTAssertEqual(server.folders["/home/peter/photos"], [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: made.path))
+        XCTAssertEqual(made.standardizedFileURL.path,
+                       RemoteBrowsing.localURL(on: connected, remote: "/home/peter/photos").standardizedFileURL.path)
+    }
+
+    func testAFileIsUploadedAndAnExistingNameIsNotWrittenOver() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let local = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload-\(UUID().uuidString).txt")
+        try Data("new".utf8).write(to: local)
+
+        try await RemoteBrowsing.upload([local], into: home)
+        XCTAssertEqual(server.files["/home/peter/" + local.lastPathComponent], Data("new".utf8))
+
+        do {
+            try await RemoteBrowsing.upload([local], into: home)
+            XCTFail("written over")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .exists(local.lastPathComponent))
+        }
+    }
+
+    func testAFolderIsUploadedWithEverythingInIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("sub"),
+                                                withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: folder.appendingPathComponent("sub/a.txt"))
+
+        try await RemoteBrowsing.upload([folder], into: home)
+        let name = folder.lastPathComponent
+        XCTAssertEqual(server.files["/home/peter/\(name)/sub/a.txt"], Data("a".utf8))
+    }
+
+    func testRenameAndDeleteAreMadeOnTheServer() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+
+        let renamed = try await RemoteBrowsing.rename(note, to: "memo.txt")
+        XCTAssertNil(server.files["/home/peter/note.txt"])
+        XCTAssertEqual(server.files["/home/peter/memo.txt"], Data("hello".utf8))
+        XCTAssertEqual(renamed.lastPathComponent, "memo.txt")
+
+        try await RemoteBrowsing.remove([renamed])
+        XCTAssertNil(server.files["/home/peter/memo.txt"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+    }
+
+    func testDeletingAFolderDeletesWhatIsInIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home")
+        try await RemoteBrowsing.refresh(home)
+        let peter = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+
+        try await RemoteBrowsing.remove([peter])
+        XCTAssertNil(server.folders["/home/peter"])
+        XCTAssertNil(server.files["/home/peter/note.txt"])
+    }
 }
