@@ -181,6 +181,8 @@ final class AppModel {
     var sftpLogin: SFTPLoginPrompt?
     /// The server root whose keep-alive interval the dialog is about.
     @ObservationIgnored var keepAliveServer: URL?
+    /// The fetch an open Quick Look panel is waiting for, cancelled by a later move.
+    @ObservationIgnored var quickLookFetch: Task<Void, Never>?
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
@@ -947,9 +949,42 @@ final class AppModel {
     }
 
     /// Space, as in Finder.
+    /// The open panel follows the cursor. A file on a server is fetched before the
+    /// panel shows it, and until then the panel keeps what it showed: an empty
+    /// placeholder is never shown as if it were the file. A move made meanwhile
+    /// abandons the fetch in progress.
+    func followQuickLook(_ rows: [FileItem]) {
+        quickLookFetch?.cancel()
+        quickLookFetch = nil
+        let urls = rows.map(\.url)
+        let files = rows.filter { !$0.isDirectory }.map(\.url)
+        guard RemoteBrowsing.hasPending(files) else {
+            QuickLookController.shared.update(urls)
+            return
+        }
+        flash("Fetching from the server\u{2026}", error: false)
+        quickLookFetch = Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(files)
+                guard !Task.isCancelled else { return }
+                // The same files, now with their bytes: drawn again, not kept.
+                QuickLookController.shared.update(urls, force: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
+    }
+
     func toggleQuickLook() {
         // Rows rather than items: `..` is previewable, as the folder it is.
         let rows = active.selectedRows.map(\.url)
+        // Closing is at once, whatever is being fetched.
+        if QuickLookController.shared.isVisible {
+            QuickLookController.shared.toggle(rows, owner: self)
+            return
+        }
         // A file on a server is fetched before it is previewed. Folders are
         // not: their files would be everything below them.
         let files = active.selectedRows.filter { !$0.isDirectory }.map(\.url)

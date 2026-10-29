@@ -18,6 +18,8 @@ final class QuickLookController: NSObject {
     /// The model whose pane the panel is previewing, so arrow keys that land on
     /// the panel can be pushed back into the file list.
     private(set) weak var owner: AppModel?
+    /// The files the panel was last given: a change to the same list is no change.
+    private var shownURLs: [URL] = []
 
     /// Space toggles: a second press closes the panel, as in Finder.
     /// `owner` is nil for a window with no pane behind it -- the EXIF
@@ -27,12 +29,14 @@ final class QuickLookController: NSObject {
 
         if panel.isVisible {
             panel.orderOut(nil)
+            shownURLs = []
             clearScratch()
             return
         }
         guard !urls.isEmpty else { return }
 
         items = urls.map(previewable)
+        shownURLs = urls
         self.owner = owner
         panel.dataSource = self
         panel.delegate = self
@@ -78,6 +82,7 @@ final class QuickLookController: NSObject {
     func close() {
         guard isVisible else { return }
         QLPreviewPanel.shared().orderOut(nil)
+        shownURLs = []
         clearScratch()
     }
 
@@ -90,8 +95,13 @@ final class QuickLookController: NSObject {
     /// to the next file: `reloadData` alone does not bring a panel back once
     /// the item it was showing has vanished. Asserting the data source again
     /// and refreshing the *item*, not only the list, does.
-    func update(_ urls: [URL]) {
+    func update(_ urls: [URL], force: Bool = false) {
         guard isVisible, let panel = QLPreviewPanel.shared() else { return }
+        // The same files as the panel shows: nothing to redraw. Redrawing on
+        // every cursor move made the preview blink, and a long one lose its place.
+        // `force` is for files changed in place, which must be read again.
+        if !force, urls == shownURLs { return }
+        shownURLs = urls
 
         // Nothing left to show -- the last file in the folder was just
         // deleted. Closing is honest; a panel reading "No items selected"

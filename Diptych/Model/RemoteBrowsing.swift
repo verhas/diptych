@@ -285,6 +285,7 @@ nonisolated enum RemoteBrowsing {
                     .filter { BrowserManifestStore.number(of: $0) == nil }
                     .map { url.appendingPathComponent($0) })
             } else {
+                try Task.checkCancellation()
                 _ = try await server.mirror.materialize(path)
             }
         }

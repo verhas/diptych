@@ -98,7 +98,11 @@ final class PaneModel {
             // Only the pane the panel follows: the other one, reloaded after
             // a change made here, took the panel to its own selection.
             if let owner, owner.active !== self { return }
-            QuickLookController.shared.update(selectedRows.map(\.url))
+            if let owner {
+                owner.followQuickLook(selectedRows)
+            } else {
+                QuickLookController.shared.update(selectedRows.map(\.url))
+            }
         }
     }
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
