@@ -421,6 +421,9 @@ struct PaneView: View {
     private var crumbTarget: (url: URL, lastIsLink: Bool) {
         let here = ArchiveBrowsing.shown(pane.directory).standardizedFileURL.path
         guard pane.isEditingPath else { return (ArchiveBrowsing.shown(pane.directory), pane.isFlat) }
+        // A server's folder is typed as its address, which is not a local path:
+        // nothing is previewed from it while it is being typed.
+        if RemoteBrowsing.isInside(pane.directory) { return (ArchiveBrowsing.shown(pane.directory), pane.isFlat) }
         if let inside = ArchiveBrowsing.actual(URL(fileURLWithPath: PathCompletion.resolve(
             pathText, base: ArchiveBrowsing.shown(pane.directory).path))) {
             let shown = ArchiveBrowsing.shown(inside)
@@ -466,18 +469,13 @@ struct PaneView: View {
 
     private func beginPathEdit(selectingAll: Bool = false) {
         activate()
-        // Typed paths resolve on this Mac's disk, and a server's folder is not
-        // on it. Its folders are reached by clicking them.
-        guard !RemoteBrowsing.isInside(pane.directory) else {
-            model.flash("A folder on a server cannot be typed into the path bar yet.")
-            return
-        }
         pathSelectsAll = selectingAll
         // With the separator already there, typing a child's name works
         // straight away and Tab completes inside this directory rather than
         // re-completing its own name. "/" is the one path that already ends in
-        // one.
-        let path = ArchiveBrowsing.shown(pane.directory).path
+        // one. A server's folder is edited as its whole address.
+        let path = RemoteBrowsing.isInside(pane.directory)
+            ? displayPath : ArchiveBrowsing.shown(pane.directory).path
         pathText = path.hasSuffix("/") ? path : path + "/"
         pane.isEditingPath = true
     }
@@ -503,7 +501,50 @@ struct PaneView: View {
         }
     }
 
+    /// The path bar's commit for a server folder. The text is an sftp:// address,
+    /// which opens that server, or a path on this server: absolute, or relative
+    /// to the folder being shown. A path the server does not have keeps the
+    /// editor open, as a local typo does.
+    private func commitServerPath() {
+        let typed = pathText.trimmingCharacters(in: .whitespaces)
+        if typed.lowercased().hasPrefix("sftp://") {
+            guard let address = URL(string: typed) else {
+                model.flash("\u{201C}\(typed)\u{201D} is not an address")
+                pathFieldFocused = true
+                return
+            }
+            endPathEdit()
+            model.connect(to: address, in: pane)
+            return
+        }
+
+        let current = ArchiveBrowsing.shown(pane.directory)
+        let remote = PathCompletion.resolve(typed, base: current.path)
+        var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
+        components?.path = remote
+        guard let target = components?.url, let local = ArchiveBrowsing.actual(target) else {
+            model.flash("\u{201C}\(typed)\u{201D} is not a place on the server")
+            pathFieldFocused = true
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await RemoteBrowsing.refresh(local)
+                endPathEdit()
+                pane.navigate(to: local)
+            } catch {
+                model.flash("\u{201C}\(remote)\u{201D} could not be listed on the server: "
+                            + error.localizedDescription)
+                pathFieldFocused = true
+            }
+        }
+    }
+
     private func commitPath() {
+        if RemoteBrowsing.isInside(pane.directory) {
+            commitServerPath()
+            return
+        }
         // Resolved against the pane, so a bare name or a "../" means what it
         // says in a shell: relative to where you are, not to wherever the
         // process happens to think it is standing.

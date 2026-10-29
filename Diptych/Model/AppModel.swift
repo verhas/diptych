@@ -3240,7 +3240,7 @@ final class AppModel {
         let items = active.selectedItems
         guard !items.isEmpty else { return }
 
-        let values = items.map { fullPath ? $0.url.path : $0.name }
+        let values = items.map { fullPath ? ArchiveBrowsing.shownText($0.url) : $0.name }
         let text = Shell.arguments(values)
         Clipboard.copyText(text)
         // What was copied, not only that something was: the text itself, as

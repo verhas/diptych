@@ -70,8 +70,22 @@ actor SFTPMirror {
         if let old = BrowserManifestStore.located(in: folder), old.fileName != fileName {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(old.fileName))
         }
-        try BrowserManifestStore.write(manifest, named: fileName, in: folder)
+        try Self.writeIfChanged(manifest, named: fileName, in: folder)
         return skipped
+    }
+
+    /// Writes the manifest only when its content differs. The pane watches its
+    /// folder and reloads on any change, and each reload lists the folder again:
+    /// a manifest rewritten with the same content would start that loop over,
+    /// and the pane would blink and jump back to the top all the time.
+    private static func writeIfChanged(_ manifest: BrowserManifest, named fileName: String,
+                                       in folder: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(manifest)
+        let url = folder.appendingPathComponent(fileName)
+        if (try? Data(contentsOf: url)) == data { return }
+        try data.write(to: url)
     }
 
     /// Makes sure the bytes of the file at `path` are local, fetching them if
@@ -89,7 +103,6 @@ actor SFTPMirror {
         // The placeholder is read-only, so it is unlocked for the replacement.
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         _ = try FileManager.default.replaceItemAt(file, withItemAt: staging)
-        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: file.path)
 
         node.backing = .file(file.lastPathComponent)
         var manifest = located.manifest
@@ -123,7 +136,12 @@ actor SFTPMirror {
             try? fileManager.removeItem(at: child)
             fileManager.createFile(atPath: child.path, contents: nil)
         }
-        try fileManager.setAttributes([.posixPermissions: 0o400], ofItemAtPath: child.path)
+        // Set only when it is wrong: a change to a file in the folder is a
+        // change to the folder, and the pane reloads on that.
+        let mode = (try? fileManager.attributesOfItem(atPath: child.path)[.posixPermissions]) as? Int
+        if mode != 0o400 {
+            try fileManager.setAttributes([.posixPermissions: 0o400], ofItemAtPath: child.path)
+        }
 
         let kind: BrowserManifest.Kind = {
             switch entry.kind {

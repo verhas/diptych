@@ -129,4 +129,23 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(BrowserManifestStore.located(in: folder)?.fileName, "__1DIPTYCH.json")
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.nodes.map(\.name), ["__DIPTYCH.json"])
     }
+
+    /// An unchanged folder must not be written again: the pane reloads on any
+    /// change in its folder, so a rewrite would start a reload loop.
+    func testAnUnchangedFolderIsNotWrittenAgain() async throws {
+        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 1)]])
+        let shadow = mirror(server)
+        try await shadow.populate("/d")
+        let folder = await shadow.localURL(for: "/d")
+        let manifest = BrowserManifestStore.located(in: folder)!.fileName
+        let before = try FileManager.default.attributesOfItem(
+            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
+
+        try await Task.sleep(for: .seconds(1.1))
+        try await shadow.populate("/d")
+
+        let after = try FileManager.default.attributesOfItem(
+            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
+        XCTAssertEqual(before, after)
+    }
 }

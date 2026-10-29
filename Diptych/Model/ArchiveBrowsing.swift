@@ -111,6 +111,15 @@ nonisolated enum ArchiveBrowsing {
         return url
     }
 
+    /// A path as text for the person to copy or read: a server's folder as its
+    /// sftp:// address, a folder inside an archive as inside the archive, and
+    /// anything else as its path.
+    static func shownText(_ url: URL) -> String {
+        let display = shown(url)
+        guard display.scheme == "sftp" else { return display.path }
+        return display.absoluteString.removingPercentEncoding ?? display.absoluteString
+    }
+
     /// A path through an opened archive -- `…/photos.zip/2024` -- as the
     /// folder it was unpacked to; nil for one that is not.
     static func actual(_ shown: URL) -> URL? {
