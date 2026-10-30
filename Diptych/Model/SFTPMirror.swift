@@ -39,6 +39,11 @@ actor SFTPMirror {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let previous = BrowserManifestStore.read(in: folder)?.nodes ?? []
+        // Files changed here and not yet sent: kept as they are, whatever the
+        // server lists, so that an edit is never lost to a listing.
+        let editedHere = previous.filter {
+            Self.locallyChanged($0, at: folder.appendingPathComponent($0.name))
+        }
         var seen = Set<String>()
         var skipped: [String] = []
         var nodes: [BrowserManifest.Node] = []
@@ -50,10 +55,17 @@ actor SFTPMirror {
             }
             let child = folder.appendingPathComponent(entry.name)
             let before = previous.first { $0.name == entry.name }
+            if let edited = editedHere.first(where: { $0.name == entry.name }) {
+                nodes.append(edited)
+                continue
+            }
             let node = try place(entry, at: child, previously: before)
             nodes.append(node)
         }
 
+        for edited in editedHere where !nodes.contains(where: { $0.name == edited.name }) {
+            nodes.append(edited)
+        }
         // Anything no longer listed by the server goes, bytes and all.
         let listed = Set(nodes.map(\.name))
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
@@ -100,15 +112,156 @@ actor SFTPMirror {
 
         let staging = root.appendingPathComponent(".downloading-\(UUID().uuidString)")
         try await remote.download(path, to: staging)
+        let checksum = try FileChecksum.sha256(of: staging)
         // The placeholder is read-only, so it is unlocked for the replacement.
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         _ = try FileManager.default.replaceItemAt(file, withItemAt: staging)
+        // Writable here when the server lets its owner write: a save is sent back.
+        let serverMode = node.attribute(BrowserManifest.Attribute.mode)?.intValue.map { UInt32($0) }
+        try FileManager.default.setAttributes([.posixPermissions: Self.localMode(for: serverMode)],
+                                              ofItemAtPath: file.path)
 
         node.backing = .file(file.lastPathComponent)
+        node.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+        if let made = Self.localModified(file) {
+            node.attributes[BrowserManifest.Attribute.localModified] = .date(made)
+        }
         var manifest = located.manifest
         manifest.nodes = manifest.nodes.map { $0.name == node.name ? node : $0 }
         try BrowserManifestStore.write(manifest, named: located.fileName, in: folder)
         return file
+    }
+
+    // MARK: - Writing back
+
+    /// The mode the copy here of a fetched file gets: writable when the server
+    /// lets its owner write, read-only otherwise.
+    static func localMode(for serverMode: UInt32?) -> Int {
+        (serverMode ?? 0) & 0o200 != 0 ? 0o600 : 0o400
+    }
+
+    static func localModified(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+    }
+
+    /// Whether a fetched file was changed here since it was fetched or last sent.
+    static func locallyChanged(_ node: BrowserManifest.Node?, at url: URL) -> Bool {
+        guard let node, case .file = node.backing,
+              let recorded = node.attribute(BrowserManifest.Attribute.localModified)?.dateValue,
+              let now = localModified(url) else { return false }
+        // Within a millisecond: the date goes through a number on its way to the
+        // manifest, which may round it.
+        return abs(now.timeIntervalSince(recorded)) > 0.001
+    }
+
+    /// Sends a file changed here to the server, when the server's copy is still the
+    /// one fetched. Otherwise says so, with what the server has now.
+    func writeBack(_ path: String) async throws -> WriteBack {
+        let file = localURL(for: path)
+        guard let node = node(at: file), Self.locallyChanged(node, at: file) else { return .unchanged }
+        let mine = try FileChecksum.sha256(of: file)
+        let recorded = node.attribute(BrowserManifest.Attribute.checksum)?.stringValue
+        if mine == recorded {
+            // Saved with nothing changed: only the time is new.
+            try updateNode(at: file) {
+                if let made = Self.localModified(file) {
+                    $0.attributes[BrowserManifest.Attribute.localModified] = .date(made)
+                }
+            }
+            return .unchanged
+        }
+        let current = root.appendingPathComponent(".downloading-\(UUID().uuidString)")
+        try await remote.download(path, to: current)
+        let theirs = try FileChecksum.sha256(of: current)
+        guard theirs == recorded else {
+            return .conflict(serverCopy: current, serverChecksum: theirs,
+                             isText: TextSniff.looksLikeText(file) && TextSniff.looksLikeText(current))
+        }
+        try? FileManager.default.removeItem(at: current)
+        try await remote.upload(file, to: path)
+        try await recordSent(path, checksum: mine)
+        return .sent
+    }
+
+    /// Takes the server's version as the one the file here is now compared with:
+    /// after a merge of the two is saved, it is sent.
+    func adoptBaseline(_ path: String, checksum: String) throws {
+        try updateNode(at: localURL(for: path)) {
+            $0.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+        }
+    }
+
+    /// Makes the file here the server's version again, from `copy` of it.
+    func keepServersVersion(_ path: String, from copy: URL, checksum: String) async throws {
+        let file = localURL(for: path)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        _ = try FileManager.default.replaceItemAt(file, withItemAt: copy)
+        try await recordSent(path, checksum: checksum)
+    }
+
+    /// Sends the file here as `path`'s neighbour under a free name -- `name-1.ext`,
+    /// `name-2.ext` -- and returns the name.
+    func sendAsNew(_ path: String) async throws -> String {
+        let file = localURL(for: path)
+        let folder = "/" + path.split(separator: "/").dropLast().joined(separator: "/")
+        let taken = Set(try await remote.entries(in: folder).map(\.name))
+        let name = Self.freeName(for: file.lastPathComponent, among: taken)
+        try await remote.upload(file, to: folder == "/" ? "/" + name : folder + "/" + name)
+        return name
+    }
+
+    /// `name-1.ext`, `name-2.ext`, ...: the first not in `taken`.
+    static func freeName(for name: String, among taken: Set<String>) -> String {
+        let ext = (name as NSString).pathExtension
+        let base = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+        var number = 1
+        while true {
+            let candidate = ext.isEmpty ? "\(base)-\(number)" : "\(base)-\(number).\(ext)"
+            if !taken.contains(candidate) { return candidate }
+            number += 1
+        }
+    }
+
+    /// After a file was sent, or made the server's again: the server's facts for
+    /// it, the checksum of what it now holds, and when the copy here was settled.
+    private func recordSent(_ path: String, checksum: String) async throws {
+        let file = localURL(for: path)
+        let folder = "/" + path.split(separator: "/").dropLast().joined(separator: "/")
+        let entry = try await remote.entries(in: folder).first { $0.name == file.lastPathComponent }
+        try FileManager.default.setAttributes([.posixPermissions: Self.localMode(for: entry?.mode)],
+                                              ofItemAtPath: file.path)
+        try updateNode(at: file) { node in
+            if let entry {
+                if let size = entry.size { node.attributes[BrowserManifest.Attribute.size] = .size(Int64(size)) }
+                if let mode = entry.mode { node.attributes[BrowserManifest.Attribute.mode] = .mode(UInt16(mode)) }
+                if let modified = entry.modified {
+                    node.attributes[BrowserManifest.Attribute.modified] = .date(modified)
+                }
+            }
+            node.backing = .file(file.lastPathComponent)
+            node.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+            if let made = Self.localModified(file) {
+                node.attributes[BrowserManifest.Attribute.localModified] = .date(made)
+            }
+        }
+    }
+
+    private func node(at file: URL) -> BrowserManifest.Node? {
+        BrowserManifestStore.read(in: file.deletingLastPathComponent())?.nodes
+            .first { $0.name == file.lastPathComponent }
+    }
+
+    private func updateNode(at file: URL, _ change: (inout BrowserManifest.Node) -> Void) throws {
+        let folder = file.deletingLastPathComponent()
+        guard let located = BrowserManifestStore.located(in: folder) else { return }
+        var manifest = located.manifest
+        manifest.nodes = manifest.nodes.map { node in
+            guard node.name == file.lastPathComponent else { return node }
+            var changed = node
+            change(&changed)
+            return changed
+        }
+        try Self.writeIfChanged(manifest, named: located.fileName, in: folder)
     }
 
     /// What the server lists in `path`, now.
@@ -206,10 +359,21 @@ actor SFTPMirror {
             fileManager.createFile(atPath: child.path, contents: nil)
         }
         // Set only when it is wrong: a change to a file in the folder is a
-        // change to the folder, and the pane reloads on that.
+        // change to the folder, and the pane reloads on that. A placeholder is
+        // locked; a fetched file is writable when the server lets its owner write.
+        let wanted = kept ? Self.localMode(for: entry.mode) : 0o400
         let mode = (try? fileManager.attributesOfItem(atPath: child.path)[.posixPermissions]) as? Int
-        if mode != 0o400 {
-            try fileManager.setAttributes([.posixPermissions: 0o400], ofItemAtPath: child.path)
+        if mode != wanted {
+            try fileManager.setAttributes([.posixPermissions: wanted], ofItemAtPath: child.path)
+        }
+        if kept, let previously {
+            for key in [BrowserManifest.Attribute.checksum, BrowserManifest.Attribute.localModified] {
+                if let value = previously.attribute(key) { attributes[key] = value }
+            }
+            // The mode just set changes nothing that counts as an edit.
+            if let made = Self.localModified(child) {
+                attributes[BrowserManifest.Attribute.localModified] = .date(made)
+            }
         }
 
         let kind: BrowserManifest.Kind = {

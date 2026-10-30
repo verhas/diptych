@@ -219,6 +219,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// back to AppKit as a return value, before the application starts tearing
     /// itself down.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A file changed here and not yet on its server is lost at quit, with the
+        // copies kept for the server: asked about, whatever Confirm Quit says.
+        let unsent = MainActor.assumeIsolated { RemoteBrowsing.unsentEdits() }
+        if !unsent.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Changes Are Not on Their Server Yet"
+            alert.informativeText = "\(unsent.count) file\(unsent.count == 1 ? " was" : "s were") "
+                + "changed here and not sent to the server. Quitting loses "
+                + (unsent.count == 1 ? "that change" : "those changes") + ":\n"
+                + unsent.prefix(8).map(\.lastPathComponent).joined(separator: "\n")
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Quit and Lose Them")
+            if alert.runSelectable() != .alertSecondButtonReturn { return .terminateCancel }
+            return .terminateNow
+        }
         guard MainActor.assumeIsolated({ ConfigStore.shared.configuration.confirmQuit })
         else { return .terminateNow }
 

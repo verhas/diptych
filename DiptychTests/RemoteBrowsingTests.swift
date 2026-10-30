@@ -346,4 +346,19 @@ final class RemoteBrowsingTests: XCTestCase {
             XCTAssertEqual(error as? RemoteWriteError, .sudoRefused("peter is not in the sudoers file."))
         }
     }
+
+    func testAnEditNotYetSentIsCountedAsUnsent() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let note = folder.appendingPathComponent("note.txt")
+        try await RemoteBrowsing.materialize(note)
+        XCTAssertTrue(RemoteBrowsing.unsentEdits(under: connected.root).isEmpty)
+
+        try Data("changed".utf8).write(to: note)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)],
+                                              ofItemAtPath: note.path)
+        XCTAssertEqual(RemoteBrowsing.unsentEdits(under: connected.root).map(\.lastPathComponent), ["note.txt"])
+    }
 }

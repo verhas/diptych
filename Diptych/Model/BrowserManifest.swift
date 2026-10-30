@@ -178,6 +178,11 @@ struct BrowserManifest: Codable, Equatable, Sendable {
         /// numbers may mean other users on this Mac."
         static let ownerName = "owner"
         static let groupName = "group"
+        /// A server file fetched here: the SHA-256 of what was fetched or last
+        /// sent, and when the copy here was made or last sent -- a change after
+        /// that is the person's, to write back.
+        static let checksum = "sha256"
+        static let localModified = "localMtime"
     }
 }
 

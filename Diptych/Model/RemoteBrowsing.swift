@@ -575,6 +575,57 @@ nonisolated enum RemoteBrowsing {
         "/" + path.split(separator: "/").dropLast().joined(separator: "/")
     }
 
+    // MARK: - Writing back
+
+    /// Sends a file saved here back to its server, unless the server's copy changed.
+    static func writeBack(_ url: URL) async throws -> WriteBack {
+        guard let (server, path) = remotePath(url) else { return .unchanged }
+        return try await server.mirror.writeBack(path)
+    }
+
+    /// The server's version, `checksum`, becomes what the file here is compared with.
+    static func adoptBaseline(_ url: URL, checksum: String) async throws {
+        guard let (server, path) = remotePath(url) else { return }
+        try await server.mirror.adoptBaseline(path, checksum: checksum)
+    }
+
+    /// The file here is made the server's version again, from `copy` of it.
+    static func keepServersVersion(_ url: URL, from copy: URL, checksum: String) async throws {
+        guard let (server, path) = remotePath(url) else { return }
+        try await server.mirror.keepServersVersion(path, from: copy, checksum: checksum)
+        try await refresh(url.deletingLastPathComponent())
+    }
+
+    /// The file here is sent under a free name beside it; returns the name.
+    static func sendAsNew(_ url: URL) async throws -> String {
+        guard let (server, path) = remotePath(url) else { throw RemoteWriteError.notOnServer }
+        let name = try await server.mirror.sendAsNew(path)
+        try await refresh(url.deletingLastPathComponent())
+        return name
+    }
+
+    /// Files changed here and not yet on their server: on one server's shadow, or
+    /// on all of them.
+    static func unsentEdits(under root: URL? = nil) -> [URL] {
+        let servers = registry.lock.withLock { registry.servers }
+            .filter { root == nil || resolved($0.root.path) == resolved(root!.path) }
+        var edits: [URL] = []
+        for server in servers {
+            var folders = [server.root]
+            let enumerator = FileManager.default.enumerator(at: server.root, includingPropertiesForKeys: nil)
+            while let next = enumerator?.nextObject() as? URL {
+                if SFTPMirror.isDirectory(next) { folders.append(next) }
+            }
+            for folder in folders {
+                for node in BrowserManifestStore.read(in: folder)?.nodes ?? [] {
+                    let file = folder.appendingPathComponent(node.name)
+                    if SFTPMirror.locallyChanged(node, at: file) { edits.append(file) }
+                }
+            }
+        }
+        return edits
+    }
+
     /// The file at a shadow path, with its bytes fetched.
     static func materialize(_ url: URL) async throws {
         guard let (server, path) = remotePath(url) else { return }

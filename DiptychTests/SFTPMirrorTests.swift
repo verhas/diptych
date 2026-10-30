@@ -234,4 +234,121 @@ final class SFTPMirrorTests: XCTestCase {
             atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
         XCTAssertEqual(before, after)
     }
+
+    // MARK: - Editing here, sending back
+
+    /// A fetched file, and the copy here edited: its time moved on, so that it
+    /// reads as changed whatever the clock's resolution.
+    private func edit(_ shadow: SFTPMirror, _ path: String, to text: String) async throws -> URL {
+        let file = await shadow.localURL(for: path)
+        try Data(text.utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)],
+                                              ofItemAtPath: file.path)
+        return file
+    }
+
+    private func editable() async throws -> (FakeServer, SFTPMirror) {
+        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 5, mode: 0o644)]],
+                                files: ["/d/a.txt": Data("hello".utf8)])
+        let shadow = mirror(server)
+        try await shadow.populate("/d")
+        _ = try await shadow.materialize("/d/a.txt")
+        return (server, shadow)
+    }
+
+    func testAFetchedFileIsWritableHereOnlyWhenTheServerLetsItsOwnerWrite() async throws {
+        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "w.txt", kind: .file, size: 1, mode: 0o644),
+                                                 SFTPEntry(name: "r.txt", kind: .file, size: 1, mode: 0o444)]],
+                                files: ["/d/w.txt": Data("w".utf8), "/d/r.txt": Data("r".utf8)])
+        let shadow = mirror(server)
+        try await shadow.populate("/d")
+        let writable = try await shadow.materialize("/d/w.txt")
+        let readable = try await shadow.materialize("/d/r.txt")
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: writable.path)[.posixPermissions] as? Int, 0o600)
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: readable.path)[.posixPermissions] as? Int, 0o400)
+    }
+
+    func testASavedEditIsSentWhenTheServersCopyIsUnchanged() async throws {
+        let (server, shadow) = try await editable()
+        let unchanged = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(unchanged, .unchanged)
+
+        _ = try await edit(shadow, "/d/a.txt", to: "edited here")
+        let sent = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(sent, .sent)
+        XCTAssertEqual(server.files["/d/a.txt"], Data("edited here".utf8))
+        let again = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(again, .unchanged)
+    }
+
+    func testAnEditOverAServerChangeIsAConflictNotSent() async throws {
+        let (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        _ = try await edit(shadow, "/d/a.txt", to: "edited here")
+
+        guard case .conflict(let copy, _, let isText) = try await shadow.writeBack("/d/a.txt") else {
+            return XCTFail("not seen as a conflict")
+        }
+        XCTAssertTrue(isText)
+        XCTAssertEqual(try Data(contentsOf: copy), Data("changed there".utf8))
+        XCTAssertEqual(server.files["/d/a.txt"], Data("changed there".utf8))
+    }
+
+    func testABinaryConflictIsSaidToBeBinary() async throws {
+        let (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data([0, 1, 2])
+        _ = try await edit(shadow, "/d/a.txt", to: "edited here")
+        guard case .conflict(_, _, let isText) = try await shadow.writeBack("/d/a.txt") else {
+            return XCTFail("not seen as a conflict")
+        }
+        XCTAssertFalse(isText)
+    }
+
+    func testEachWayOfSettlingAConflictDoesWhatItSays() async throws {
+        // Over the server's: its version becomes the baseline, and the edit is sent.
+        var (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        _ = try await edit(shadow, "/d/a.txt", to: "mine")
+        guard case .conflict(_, let theirs, _) = try await shadow.writeBack("/d/a.txt") else { return XCTFail() }
+        try await shadow.adoptBaseline("/d/a.txt", checksum: theirs)
+        let sent = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(sent, .sent)
+        XCTAssertEqual(server.files["/d/a.txt"], Data("mine".utf8))
+
+        // The server's kept: the copy here is the server's again, and unchanged.
+        (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        let file = try await edit(shadow, "/d/a.txt", to: "mine")
+        guard case .conflict(let copy, let checksum, _) = try await shadow.writeBack("/d/a.txt") else { return XCTFail() }
+        try await shadow.keepServersVersion("/d/a.txt", from: copy, checksum: checksum)
+        XCTAssertEqual(try Data(contentsOf: file), Data("changed there".utf8))
+        let settled = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(settled, .unchanged)
+
+        // Under a new name: the edit goes beside the server's file, which stays.
+        (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        _ = try await edit(shadow, "/d/a.txt", to: "mine")
+        let name = try await shadow.sendAsNew("/d/a.txt")
+        XCTAssertEqual(name, "a-1.txt")
+        XCTAssertEqual(server.files["/d/a-1.txt"], Data("mine".utf8))
+        XCTAssertEqual(server.files["/d/a.txt"], Data("changed there".utf8))
+    }
+
+    func testAListingNeverLosesAnEditNotYetSent() async throws {
+        let (server, shadow) = try await editable()
+        let file = try await edit(shadow, "/d/a.txt", to: "edited here")
+        // The server's file changed size, and then went altogether.
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 99, mode: 0o644)]
+        try await shadow.populate("/d")
+        XCTAssertEqual(try Data(contentsOf: file), Data("edited here".utf8))
+        server.folders["/d"] = []
+        try await shadow.populate("/d")
+        XCTAssertEqual(try Data(contentsOf: file), Data("edited here".utf8))
+    }
+
+    func testAFreeNameCountsUpBeforeTheExtension() {
+        XCTAssertEqual(SFTPMirror.freeName(for: "a.txt", among: ["a-1.txt"]), "a-2.txt")
+        XCTAssertEqual(SFTPMirror.freeName(for: "Makefile", among: []), "Makefile-1")
+    }
 }

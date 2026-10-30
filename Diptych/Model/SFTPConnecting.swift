@@ -258,6 +258,8 @@ extension AppModel {
             return
         }
         RemoteBrowsing.add(server)
+        // A file opened from it and saved here is sent back.
+        ServerEditing.shared.watch(root)
         // Recorded as a recent server, with the user it signed in as.
         var address = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
         address?.user = request.username

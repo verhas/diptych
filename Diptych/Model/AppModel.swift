@@ -51,6 +51,8 @@ final class AppModel {
         case serverDelete
         /// The sudo password, for a change on a server only root may make.
         case sudoPassword
+        /// A file changed both here and on its server, that is not text.
+        case serverEditConflict
         case historyStep
         case historyMany
         case tips
@@ -89,6 +91,7 @@ final class AppModel {
             case .keepAlive:      return "keepAlive"
             case .serverDelete:   return "serverDelete"
             case .sudoPassword:   return "sudoPassword"
+            case .serverEditConflict: return "serverEditConflict"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -192,6 +195,34 @@ final class AppModel {
     /// The sudo question while it is asked, and who waits for its answer.
     var sudoPrompt: SudoPrompt?
     @ObservationIgnored private var sudoAnswer: CheckedContinuation<SudoAnswer?, Never>?
+
+    /// A file changed on both sides, while the person chooses; and who waits.
+    var serverConflict: ServerConflictPrompt?
+    @ObservationIgnored private var serverConflictAnswer: CheckedContinuation<ConflictChoice?, Never>?
+
+    struct ServerConflictPrompt: Equatable {
+        let name: String
+        let host: String
+    }
+
+    func askServerConflict(name: String, host: String) async -> ConflictChoice? {
+        answerServerConflict(nil)
+        return await withCheckedContinuation { continuation in
+            serverConflictAnswer = continuation
+            serverConflict = ServerConflictPrompt(name: name, host: host)
+            dialog = .serverEditConflict
+        }
+    }
+
+    func answerServerConflict(_ choice: ConflictChoice?) {
+        let waiting = serverConflictAnswer
+        serverConflictAnswer = nil
+        if serverConflict != nil {
+            serverConflict = nil
+            if dialog == .serverEditConflict { dialog = nil }
+        }
+        waiting?.resume(returning: choice)
+    }
 
     struct SudoPrompt: Equatable {
         let host: String
@@ -2706,6 +2737,16 @@ final class AppModel {
         // An SFTP server is a pseudo volume: disconnecting it closes its
         // connection and removes its shadow. Its panes go home first.
         if RemoteBrowsing.isServerRoot(entry.url) {
+            let unsent = RemoteBrowsing.unsentEdits(under: entry.url)
+            guard unsent.isEmpty else {
+                dialog = .notice(
+                    title: "Not Disconnected: Changes Are Not on \(name) Yet",
+                    text: "These files were changed here and are not on the server yet. Wait for "
+                        + "them to be sent, or settle them, then disconnect:\n"
+                        + unsent.prefix(10).map(\.lastPathComponent).joined(separator: "\n"))
+                return
+            }
+            ServerEditing.shared.stop(entry.url)
             for pane in [left, right]
             where pane.directory.path == mountPoint || pane.directory.path.hasPrefix(mountPoint + "/") {
                 pane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
