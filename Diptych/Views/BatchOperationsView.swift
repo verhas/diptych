@@ -247,7 +247,7 @@ struct BatchOperationsView: View {
             }
         case .rename:
             HStack(spacing: 6) {
-                Text(row.source?.lastPathComponent ?? "?").font(.caption).lineLimit(1)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
                 EditableTextField("New name", initial: row.newName ?? "", disabled: disabled) {
                     row.newName = $0.isEmpty ? nil : $0
@@ -344,12 +344,28 @@ struct BatchOperationsView: View {
                 .onSubmit { model.revalidate() }
             }
         case .createDirectory, .createFile:
-            EditableTextField(row.kind == .createFile ? "New file path" : "New folder path",
-                              initial: shownPath(row.targetPath),
-                              disabled: disabled) {
-                row.targetPath = $0.isEmpty ? nil : BatchOperationRow.localURL($0)
+            VStack(alignment: .leading, spacing: 3) {
+                EditableTextField(row.kind == .createFile ? "New file path" : "New folder path",
+                                  initial: shownPath(row.targetPath),
+                                  disabled: disabled) {
+                    row.targetPath = $0.isEmpty ? nil : BatchOperationRow.localURL($0)
+                }
+                .onSubmit { model.revalidate() }
+                if row.kind == .createFile {
+                    // What the file will hold: text is shown and editable, hex or
+                    // base64 is shown by its size.
+                    if row.contentEncoding == .text {
+                        EditableTextField("Content (empty for an empty file)",
+                                          initial: row.contentText ?? "", disabled: disabled) {
+                            row.contentText = $0.isEmpty ? nil : $0
+                        }
+                        .onSubmit { model.revalidate() }
+                    } else {
+                        Text("\(row.contents?.count ?? 0) bytes, given as \(row.contentEncoding.rawValue)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
-            .onSubmit { model.revalidate() }
         case .setXattr, .removeXattr:
             attributeEditor(row, model: model, disabled: disabled)
         case .addTags, .removeTags, .setTags:

@@ -33,7 +33,7 @@ enum BatchOperationKind: String, CaseIterable, Sendable {
     var worksOnServers: Bool {
         switch self {
         case .deletePermanent, .rename, .setPermissions, .setOwner, .setTimes,
-             .createFile, .createDirectory:
+             .createFile, .createDirectory, .move, .copy:
             true
         default:
             false
@@ -205,6 +205,11 @@ final class BatchOperationRow: Identifiable {
     /// this Mac only: a server keeps no creation time).
     var time: Date?
     var timeIsCreation = false
+    /// create_file only: the new file's content, as written in `contentEncoding`;
+    /// nil for an empty file.
+    var contentText: String?
+    var contentEncoding = XattrEncoding.text
+    var contents: Data? { contentText.flatMap(contentEncoding.decode) }
 
     init(kind: BatchOperationKind) {
         self.kind = kind
@@ -364,6 +369,13 @@ final class BatchOperationRow: Identifiable {
             if source == nil { problems.append("source is required.") }
         case .createFile, .createDirectory:
             if targetPath == nil { problems.append("target (the new item's path) is required.") }
+            if kind == .createFile {
+                if let unknownEncoding {
+                    problems.append("encoding \"\(unknownEncoding)\" is not one of text, hex, base64.")
+                } else if contentText != nil, contents == nil {
+                    problems.append("value is not valid \(contentEncoding.rawValue).")
+                }
+            }
         case .setTimes:
             if source == nil { problems.append("source is required.") }
         case .setPermissions:
@@ -413,14 +425,18 @@ final class BatchOperationRow: Identifiable {
                 problems.append("A server has no Trash: deleting there is final. Propose "
                     + "delete_permanent for it, and say so in the reason.")
             } else {
-                problems.append("A server only takes deleting, renaming, permissions, owner, "
-                    + "times and new files or folders in a proposal. Copying, moving, links, "
-                    + "attributes and tags on a server are done in a Diptych pane.")
+                problems.append("Links, extended attributes and tags are not made on a server "
+                    + "by a proposal. Do it in a Diptych pane.")
             }
         }
         if let targetPath, RemoteBrowsing.isInside(targetPath), !kind.worksOnServers {
-            problems.append("Nothing is copied, moved or linked into a server by a proposal. "
-                + "Do it in a Diptych pane.")
+            problems.append("Links, extended attributes and tags are not made on a server "
+                + "by a proposal. Do it in a Diptych pane.")
+        }
+        if kind == .move || kind == .copy, let targetPath, RemoteBrowsing.isInside(targetPath),
+           FileManager.default.fileExists(atPath: targetPath.path) {
+            problems.append("\(targetPath.lastPathComponent) is already there on the server, and "
+                + "is not written over.")
         }
         if kind == .setTimes {
             if time == nil {
@@ -514,7 +530,11 @@ final class BatchOperationsModel {
                 row.willOverwrite = false
             }
             if row.kind == .setPermissions, let source = row.source {
-                row.currentMode = try? FileOperations.currentMode(of: source)
+                // A server's mode as the server listed it: the copy kept here is
+                // locked, and its bits are not the server's.
+                row.currentMode = RemoteBrowsing.isInside(source)
+                    ? RemoteBrowsing.listedMode(of: source)
+                    : try? FileOperations.currentMode(of: source)
             }
             if let source = row.source, row.kind == .setXattr || row.kind == .removeXattr,
                let name = row.xattrName {
@@ -663,6 +683,15 @@ final class BatchOperationsModel {
             switch row.kind {
             case .move:
                 guard let source = row.source, let target = row.targetPath else { continue }
+                if RemoteBrowsing.isInside(source) || RemoteBrowsing.isInside(target) {
+                    do {
+                        rowResults[row.id] = try await Self.transferWithServer(source, to: target, move: true)
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 if let error = await FileOperations.shared.transferOne(
                     source, to: target, kind: .move, overwrite: true) {
                     rowResults[row.id] = error
@@ -674,6 +703,15 @@ final class BatchOperationsModel {
 
             case .copy:
                 guard let source = row.source, let target = row.targetPath else { continue }
+                if RemoteBrowsing.isInside(source) || RemoteBrowsing.isInside(target) {
+                    do {
+                        rowResults[row.id] = try await Self.transferWithServer(source, to: target, move: false)
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 if let error = await FileOperations.shared.transferOne(
                     source, to: target, kind: .copy, overwrite: true,
                     copying: ConfigStore.shared.configuration.copying) {
@@ -814,12 +852,14 @@ final class BatchOperationsModel {
             case .createFile:
                 guard let target = row.targetPath else { continue }
                 do {
+                    let contents = row.contents ?? Data()
                     if RemoteBrowsing.isInside(target) {
                         _ = try await RemoteBrowsing.createFile(named: target.lastPathComponent,
-                                                                in: target.deletingLastPathComponent())
+                                                                in: target.deletingLastPathComponent(),
+                                                                contents: contents)
                         rowResults[row.id] = "File created on the server."
                     } else {
-                        guard FileManager.default.createFile(atPath: target.path, contents: nil) else {
+                        guard FileManager.default.createFile(atPath: target.path, contents: contents) else {
                             throw CocoaError(.fileWriteUnknown)
                         }
                         rowResults[row.id] = "File created."
@@ -989,6 +1029,41 @@ struct RefusedAttributeWrite {
 }
 
 extension BatchOperationsModel {
+
+    /// Why a copy or move with a server did not happen, in words.
+    struct TransferFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// A copy or move with a server at one end or both. A server's item is fetched
+    /// first, so that its bytes are copied rather than a placeholder. A copy onto a
+    /// server never writes over a name there. A move takes its original away once
+    /// the copy is made: from the server when it was there, to the Trash when it
+    /// was on this Mac.
+    static func transferWithServer(_ source: URL, to target: URL, move: Bool) async throws -> String {
+        if RemoteBrowsing.isInside(source) { try await RemoteBrowsing.fetch([source]) }
+        if RemoteBrowsing.isInside(target) {
+            try await RemoteBrowsing.upload(source, as: target)
+        } else {
+            if let error = await FileOperations.shared.transferOne(
+                source, to: target, kind: .copy, overwrite: false,
+                copying: ConfigStore.shared.configuration.copying) {
+                throw TransferFailure(message: error)
+            }
+            // The copy kept here is locked: the copy made from it gets the server's bits.
+            ArchiveBrowsing.applyListedModes(at: target, from: source)
+        }
+        let onto = RemoteBrowsing.isInside(target) ? "to the server" : "from the server"
+        guard move else { return "Copied \(onto)." }
+        if RemoteBrowsing.isInside(source) {
+            try await RemoteBrowsing.remove([source])
+            return "Moved \(onto): copied, then removed from the server."
+        }
+        _ = await FileOperations.shared.trash([source])
+        return "Moved \(onto): copied, and the original is in the Trash."
+    }
+
 
     /// One question for every attribute change a read-only item refused --
     /// not one per row, which for a few hundred locked files would be a few
@@ -1238,8 +1313,18 @@ extension BatchOperationRow {
                 row.owner = owner.isEmpty ? nil : owner
                 row.group = group.isEmpty ? nil : group
             }
-        case .createSymlink, .createDirectory, .createFile:
+        case .createSymlink, .createDirectory:
             row.targetPath = targetURL
+        case .createFile:
+            row.targetPath = targetURL
+            row.contentText = value
+            if let encoding {
+                if let known = XattrEncoding(rawValue: encoding.lowercased()) {
+                    row.contentEncoding = known
+                } else {
+                    row.unknownEncoding = encoding
+                }
+            }
         case .setTimes:
             row.source = sourceURL
             row.timeIsCreation = name == "created"

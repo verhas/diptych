@@ -2561,6 +2561,10 @@ final class AppModel {
                 if kind == .copy, ArchiveBrowsing.isInside(source) {
                     let (from, to) = (source, target)
                     await BlockingWork.run { ArchiveBrowsing.unlockCopy(at: to, from: from) }
+                } else if RemoteBrowsing.isInside(source) {
+                    // Off a server, copied or moved: the server's bits, not the lock.
+                    let (from, to) = (source, target)
+                    await BlockingWork.run { ArchiveBrowsing.applyListedModes(at: to, from: from) }
                 }
                 outcome.succeeded.append(target)
                 progress.finishedItem()

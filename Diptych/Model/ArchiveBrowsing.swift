@@ -202,6 +202,16 @@ nonisolated enum ArchiveBrowsing {
     /// user gives.
     nonisolated static func unlockCopy(at target: URL, from source: URL) {
         guard let opened = opened(containing: source) else { return }
+        applyListedModes(at: target, from: source)
+        if let mark = Archiving.quarantine(of: opened.archive) {
+            Archiving.markQuarantined(target, with: mark)
+        }
+    }
+
+    /// Gives a copy taken out of any manifest-backed source -- an opened archive,
+    /// a server's shadow -- the modes its manifests record, item by item, rather
+    /// than the read-only lock the copy it came from carries.
+    nonisolated static func applyListedModes(at target: URL, from source: URL) {
         let manager = FileManager()
         // Every item copied, paired with where it came from.
         var pairs = [(target: target, source: source)]
@@ -233,9 +243,6 @@ nonisolated enum ArchiveBrowsing {
                 var info = stat()
                 if lstat(target.path, &info) == 0 { chmod(target.path, (info.st_mode & 0o7777) | 0o600) }
             }
-        }
-        if let mark = Archiving.quarantine(of: opened.archive) {
-            Archiving.markQuarantined(target, with: mark)
         }
     }
 

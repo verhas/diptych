@@ -330,15 +330,16 @@ nonisolated enum RemoteBrowsing {
         return localURL(on: server, remote: path)
     }
 
-    /// Makes an empty file named `name` in `parent`, on the server, and lists it.
-    static func createFile(named name: String, in parent: URL) async throws -> URL {
+    /// Makes a file named `name` in `parent`, on the server, holding `contents`
+    /// (empty by default), and lists it.
+    static func createFile(named name: String, in parent: URL, contents: Data = Data()) async throws -> URL {
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("new-file-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
-        let empty = staging.appendingPathComponent(name)
-        FileManager.default.createFile(atPath: empty.path, contents: nil)
-        try await upload([empty], into: parent)
+        let file = staging.appendingPathComponent(name)
+        try contents.write(to: file)
+        try await upload([file], into: parent)
         guard let (server, folder) = remotePath(parent) else { throw RemoteWriteError.notOnServer }
         return localURL(on: server, remote: join(folder, name))
     }
@@ -478,6 +479,27 @@ nonisolated enum RemoteBrowsing {
                                            isDirectory: SFTPMirror.isDirectory(source))
         }
         try await refresh(destination)
+    }
+
+    /// Copies a local file or folder, or the local copy of a server's item, to the
+    /// server under the path `target`: its folder, and the name it is to have
+    /// there. A name already there is not written over.
+    static func upload(_ source: URL, as target: URL) async throws {
+        let parent = target.deletingLastPathComponent()
+        guard let (server, folder) = remotePath(parent) else { throw RemoteWriteError.notOnServer }
+        let name = target.lastPathComponent
+        try await requireAbsent(name, in: folder, server)
+        try await server.mirror.upload(source, to: join(folder, name),
+                                       isDirectory: SFTPMirror.isDirectory(source))
+        try await refresh(parent)
+    }
+
+    /// The permission bits a server item had when it was listed.
+    static func listedMode(of url: URL) -> mode_t? {
+        BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
+            .first { $0.name == url.lastPathComponent }?
+            .attribute(BrowserManifest.Attribute.mode)?.intValue
+            .map { mode_t(truncatingIfNeeded: $0) }
     }
 
     private static func requireAbsent(_ name: String, in folder: String, _ server: Server) async throws {

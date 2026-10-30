@@ -279,4 +279,30 @@ final class RemoteBrowsingTests: XCTestCase {
             XCTAssertEqual(error as? RemoteWriteError, .unknownAccount("nobody-here"))
         }
     }
+
+    func testAFileIsCreatedOnTheServerWithItsContent() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        _ = try await RemoteBrowsing.createFile(named: "hello.txt", in: home, contents: Data("hi".utf8))
+        XCTAssertEqual(server.files["/home/peter/hello.txt"], Data("hi".utf8))
+    }
+
+    func testAFileIsUploadedUnderTheNameItIsGiven() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let local = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: local)
+        try await RemoteBrowsing.upload(local, as: home.appendingPathComponent("renamed.txt"))
+        XCTAssertEqual(server.files["/home/peter/renamed.txt"], Data("x".utf8))
+    }
+
+    func testTheListedModeIsTheServersNotTheLockedCopys() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        XCTAssertEqual(RemoteBrowsing.listedMode(of: folder.appendingPathComponent("note.txt")), 0o644)
+    }
 }

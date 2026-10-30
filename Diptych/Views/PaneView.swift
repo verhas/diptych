@@ -340,12 +340,22 @@ struct PaneView: View {
                 if pane.isEditingPath {
                     // AppKit, for Tab completion and a coloured suggestion --
                     // neither of which a SwiftUI TextField can express.
-                    PathField(text: $pathText,
-                              selectsAll: pathSelectsAll,
-                              base: pane.directory.path,
-                              onCommit: { commitPath() },
-                              onCancel: { endPathEdit() })
-                        .frame(height: 21)
+                    HStack(spacing: 0) {
+                        // A server's address is where the path is, not part of it:
+                        // shown, and not edited.
+                        if let server = serverPrefix {
+                            Text(server)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                        }
+                        PathField(text: $pathText,
+                                  selectsAll: pathSelectsAll,
+                                  base: pane.directory.path,
+                                  onCommit: { commitPath() },
+                                  onCancel: { endPathEdit() })
+                            .frame(height: 21)
+                    }
                 } else {
                     Button {
                         beginPathEdit()
@@ -458,6 +468,15 @@ struct PaneView: View {
 
     /// `/Users/verhasp/Documents` shown as `~/Documents`; a folder inside an
     /// opened archive as inside the archive.
+    /// `sftp://peter@nas` for a folder on a server: the part of its address that
+    /// is not its path. Nil anywhere else.
+    private var serverPrefix: String? {
+        let shown = ArchiveBrowsing.shown(pane.directory)
+        guard shown.scheme == "sftp" else { return nil }
+        let text = shown.absoluteString.removingPercentEncoding ?? shown.absoluteString
+        return String(text.dropLast(shown.path.count))
+    }
+
     private var displayPath: String {
         let shown = ArchiveBrowsing.shown(pane.directory)
         // A server's folder reads as its address, which is what it is.
@@ -474,8 +493,7 @@ struct PaneView: View {
         // straight away and Tab completes inside this directory rather than
         // re-completing its own name. "/" is the one path that already ends in
         // one. A server's folder is edited as its whole address.
-        let path = RemoteBrowsing.isInside(pane.directory)
-            ? displayPath : ArchiveBrowsing.shown(pane.directory).path
+        let path = ArchiveBrowsing.shown(pane.directory).path
         pathText = path.hasSuffix("/") ? path : path + "/"
         pane.isEditingPath = true
     }
