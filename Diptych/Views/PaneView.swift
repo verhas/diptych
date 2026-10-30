@@ -349,9 +349,13 @@ struct PaneView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize()
                         }
+                        // On a server, the path typed is the server's, completed
+                        // from the listings kept for it here.
                         PathField(text: $pathText,
                                   selectsAll: pathSelectsAll,
-                                  base: pane.directory.path,
+                                  base: serverPrefix == nil ? pane.directory.path
+                                      : ArchiveBrowsing.shown(pane.directory).path,
+                                  root: RemoteBrowsing.server(of: pane.directory)?.root.path,
                                   onCommit: { commitPath() },
                                   onCancel: { endPathEdit() })
                             .frame(height: 21)

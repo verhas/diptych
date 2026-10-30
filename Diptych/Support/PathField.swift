@@ -18,6 +18,9 @@ struct PathField: NSViewRepresentable {
     /// Where the pane is standing. Anything typed that does not start with `/`
     /// or `~` is resolved against it, so a bare name is a child of here.
     let base: String
+    /// For a folder on a server, the folder here its listing is kept in: what is
+    /// typed is the server's path, looked up under it. Nil on this Mac.
+    var root: String? = nil
     let onCommit: () -> Void
     let onCancel: () -> Void
 
@@ -105,7 +108,7 @@ struct PathField: NSViewRepresentable {
         /// text had not changed and nothing recoloured it.
         func recolour(_ field: NSTextField) {
             let whole = field.stringValue
-            let valid = whole.isEmpty || PathCompletion.exists(whole, base: parent.base)
+            let valid = whole.isEmpty || PathCompletion.exists(whole, base: parent.base, root: parent.root)
             let colour: NSColor = valid ? .labelColor : .systemRed
             field.textColor = colour
             if let editor = field.currentEditor() as? NSTextView {
@@ -139,7 +142,7 @@ struct PathField: NSViewRepresentable {
         /// Tab completes, and completes again inside what it just completed.
         func complete(in field: NSTextField) {
             let typed = committedText(of: field)
-            guard let completed = PathCompletion.complete(typed, base: parent.base) else {
+            guard let completed = PathCompletion.complete(typed, base: parent.base, root: parent.root) else {
                 NSSound.beep()
                 return
             }
@@ -157,7 +160,7 @@ struct PathField: NSViewRepresentable {
         /// Shows what Tab would add, without committing to it.
         func suggest(in field: NSTextField) {
             let typed = committedText(of: field)
-            let suffix = PathCompletion.suffix(for: typed, base: parent.base)
+            let suffix = PathCompletion.suffix(for: typed, base: parent.base, root: parent.root)
             guard !suffix.isEmpty else {
                 styleEditor(of: field, asSuggestion: false)
                 if field.stringValue != typed {

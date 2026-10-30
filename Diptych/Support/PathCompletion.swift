@@ -33,9 +33,13 @@ enum PathCompletion {
     /// complete. Returned in the form it was typed: relative text stays
     /// relative, so completing does not rewrite `../Doc` into an absolute path
     /// under the cursor.
-    static func complete(_ text: String, base: String) -> String? {
+    ///
+    /// `root`, for a folder on a server, is the folder its listing is kept in
+    /// here: what is typed is the server's own path, and it is looked up under
+    /// `root`. Nil for this Mac's disk.
+    static func complete(_ text: String, base: String, root: String? = nil) -> String? {
         let (directory, partial) = split(text, base: base)
-        let names = candidates(in: directory, matching: partial)
+        let names = candidates(in: directory, matching: partial, root: root)
         guard !names.isEmpty else { return nil }
 
         // The longest prefix every candidate shares, which is exactly how far a
@@ -51,7 +55,7 @@ enum PathCompletion {
         // inside it rather than re-completing the name. A file is where the
         // path ends, so it gets none.
         let separator = names.count == 1
-            && isDirectory((directory as NSString).appendingPathComponent(names[0]), base: "/")
+            && isDirectory((directory as NSString).appendingPathComponent(names[0]), base: "/", root: root)
             ? "/" : ""
         let prefix = text.hasSuffix("/") ? text : String(text.dropLast(partial.count))
         let result = prefix + completed + separator
@@ -59,25 +63,26 @@ enum PathCompletion {
     }
 
     /// Just the part that would be added, for drawing ahead of the cursor.
-    static func suffix(for text: String, base: String) -> String {
-        guard let completed = complete(text, base: base),
+    static func suffix(for text: String, base: String, root: String? = nil) -> String {
+        guard let completed = complete(text, base: base, root: root),
               completed.hasPrefix(text) else { return "" }
         return String(completed.dropFirst(text.count))
     }
 
     /// Whether what is typed names something that is there -- a folder, or a
     /// file, which the bar now opens in its folder. Drives the red text.
-    static func exists(_ text: String, base: String) -> Bool {
+    static func exists(_ text: String, base: String, root: String? = nil) -> Bool {
         let resolved = resolve(text, base: base)
-        return !resolved.isEmpty && FileManager.default.fileExists(atPath: resolved)
+        return !resolved.isEmpty && FileManager.default.fileExists(atPath: onDisk(resolved, root: root))
     }
 
     /// Whether what is typed names a directory that exists.
-    static func isDirectory(_ text: String, base: String) -> Bool {
+    static func isDirectory(_ text: String, base: String, root: String? = nil) -> Bool {
         let resolved = resolve(text, base: base)
         guard !resolved.isEmpty else { return false }
         var directory: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &directory)
+        let exists = FileManager.default.fileExists(atPath: onDisk(resolved, root: root),
+                                                    isDirectory: &directory)
         return exists && directory.boolValue
     }
 
@@ -98,9 +103,26 @@ enum PathCompletion {
         return (resolve(parent.isEmpty ? "." : parent, base: base), partial)
     }
 
-    private static func candidates(in directory: String, matching partial: String) -> [String] {
+    /// Where a path is on this Mac: as it is, or for a server under `root`.
+    private static func onDisk(_ path: String, root: String?) -> String {
+        guard let root else { return path }
+        return (root as NSString).appendingPathComponent(path)
+    }
+
+    private static func candidates(in directory: String, matching partial: String,
+                                   root: String? = nil) -> [String] {
         let fm = FileManager()
-        guard let names = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+        let folder = onDisk(directory, root: root)
+        // A server folder not listed yet is listed now, behind the scenes: the
+        // next Tab finds what is in it.
+        if root != nil, BrowserManifestStore.read(in: URL(fileURLWithPath: folder)) == nil {
+            let url = URL(fileURLWithPath: folder)
+            Task.detached { try? await RemoteBrowsing.refresh(url) }
+            return []
+        }
+        guard var names = try? fm.contentsOfDirectory(atPath: folder) else { return [] }
+        // The listing kept for a server folder is Diptych's, not the server's.
+        if root != nil { names.removeAll { BrowserManifestStore.number(of: $0) != nil } }
 
         // Case-insensitively, because the file system usually is -- but the
         // completion carries the name's real spelling.
