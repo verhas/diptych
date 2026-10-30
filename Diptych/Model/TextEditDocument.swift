@@ -59,7 +59,42 @@ final class TextEditDocument {
     /// Edited, and not merely edited and then undone back to what was saved.
     var hasUnsavedChanges: Bool { isEdited && currentText() != saved }
 
+    /// The server a file is being fetched from while the window waits for it.
+    private(set) var waitingFor: String?
+    /// Whether this window holds the file against being fetched again: it has
+    /// changes not saved, which a newer version from the server would wipe out.
+    private var holdsFile = false
+
+    private func hold(_ held: Bool) {
+        guard held != holdsFile, RemoteBrowsing.isInside(url) else { return }
+        holdsFile = held
+        if held { EditedHere.hold(url) } else { EditedHere.release(url) }
+    }
+
+    /// The window is closing.
+    func close() {
+        hold(false)
+    }
+
     func load() {
+        // A file on a server whose bytes are not here, or are of an older
+        // version: the window opens at once and fills when they have arrived.
+        if RemoteBrowsing.hasPending([url]) {
+            waitingFor = RemoteBrowsing.server(of: url)?.host ?? "the server"
+            Task {
+                do {
+                    try await RemoteBrowsing.download(url)
+                    waitingFor = nil
+                    load()
+                } catch {
+                    waitingFor = nil
+                    failure = "\(url.lastPathComponent) could not be fetched from the server: "
+                        + error.localizedDescription
+                }
+            }
+            return
+        }
+        hold(false)
         readOnlyVolume = WriteTrouble.readOnlyVolume(of: url)
         let isPlist = TextFormat.of(url, extensions: ConfigStore.shared.configuration.textFormats) == .plist
         plistEncoding = isPlist ? .xml : nil
@@ -106,6 +141,7 @@ final class TextEditDocument {
 
     func noteEdit() {
         isEdited = true
+        hold(true)
     }
 
     enum SaveOutcome: Equatable {
@@ -168,6 +204,7 @@ final class TextEditDocument {
 
         saved = text
         isEdited = false
+        hold(false)
         if let wanted, plistEncoding != nil { plistEncoding = wanted }
         var refreshed = file
         refreshed.modified = (try? FileManager.default

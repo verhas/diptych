@@ -102,14 +102,23 @@ enum DirectoryLoader {
               let located = BrowserManifestStore.located(in: directory) else { return items }
         let byName = Dictionary(located.manifest.nodes.map { ($0.name, $0) },
                                 uniquingKeysWith: { first, _ in first })
+        let onServer = RemoteBrowsing.isInside(directory)
         var result: [FileItem] = []
         result.reserveCapacity(items.count)
         for var item in items {
             if item.name == located.fileName { continue }  // our own manifest
             if let node = byName[item.name] {
+                if onServer, !item.isDirectory {
+                    let changedThere = node.attribute(BrowserManifest.Attribute.serverChanged)?
+                        .boolValue == true
+                    item.serverCache = node.backing == .none ? .notFetched
+                        : changedThere ? .changedThere(bytes: item.byteSize) : .fetched(bytes: item.byteSize)
+                }
                 // A placeholder's own size is zero, and says nothing about the file.
                 // The size the server listed is the file's; without one, it is unknown.
-                if node.backing == .none, !item.isDirectory {
+                // On a server it is the server's size even when a copy is here: the
+                // copy may be of an older version, or edited and not sent yet.
+                if (node.backing == .none || onServer), !item.isDirectory {
                     if let size = node.attribute(BrowserManifest.Attribute.size)?.intValue {
                         item.byteSize = size
                     } else {
@@ -123,7 +132,6 @@ enum DirectoryLoader {
                 }
                 // A server's own names, when it gave them. Its numbers are not this
                 // Mac's users, so on a server they are never looked up here.
-                let onServer = RemoteBrowsing.isInside(directory)
                 if let name = node.attribute(BrowserManifest.Attribute.ownerName)?.stringValue {
                     item.owner = name
                 } else if onServer, let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue {
@@ -140,8 +148,9 @@ enum DirectoryLoader {
                           let gr = getgrgid(gid_t(truncatingIfNeeded: gid)) {
                     item.group = String(cString: gr.pointee.gr_name)
                 }
-                // The server's modification date, not the placeholder's.
-                if node.backing == .none, let date = node.attribute(BrowserManifest.Attribute.modified)?.dateValue {
+                // The server's modification date, not the placeholder's -- nor a
+                // fetched copy's, which is when it was fetched.
+                if node.backing == .none || onServer, let date = node.attribute(BrowserManifest.Attribute.modified)?.dateValue {
                     item.modified = date
                 }
             }

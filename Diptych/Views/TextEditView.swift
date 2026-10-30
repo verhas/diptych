@@ -30,7 +30,14 @@ struct TextEditView: View {
         VStack(spacing: 0) {
             bar
             Divider()
-            if let failure = document.failure {
+            if let host = document.waitingFor {
+                ContentUnavailableView {
+                    Label("Fetching from \(host)\u{2026}", systemImage: "arrow.down.circle")
+                } description: {
+                    ProgressView().controlSize(.small)
+                    Text("The file opens as soon as it has arrived.")
+                }
+            } else if let failure = document.failure {
                 ContentUnavailableView {
                     Label("Cannot Edit as Text", systemImage: "doc.text")
                 } description: {
@@ -75,7 +82,10 @@ struct TextEditView: View {
             if document.plistEncoding != nil { link.showsTree = true }
             DiffWindows.shared.claimForEditing(url)
             guard_.shouldClose = { closeIsAllowed() }
-            guard_.willClose = { DiffWindows.shared.releaseFromEditing(url) }
+            guard_.willClose = {
+                DiffWindows.shared.releaseFromEditing(url)
+                document.close()
+            }
             found.delegate = guard_
         })
         // A commit made elsewhere moves the base of the commit bar.

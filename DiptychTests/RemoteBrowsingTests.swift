@@ -395,4 +395,55 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertEqual(shown.group, "www-data")
         XCTAssertEqual(RemoteBrowsing.accountNames(for: folder).users, ["www-data"])
     }
+
+    /// The whole way of a save: an editor writes the copy here the way Diptych's
+    /// own Text Edit does, the watcher sees it, and the server gets it.
+    func testASaveInTheShadowIsSentByTheWatcher() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let file = folder.appendingPathComponent("note.txt")
+        try await RemoteBrowsing.materialize(file)
+        await MainActor.run { ServerEditing.shared.watch(connected.root) }
+        defer { Task { @MainActor in ServerEditing.shared.stop(connected.root) } }
+        try await Task.sleep(for: .seconds(1))
+
+        try await Task.sleep(for: .milliseconds(20))
+        try DiffDocument.write(Data("edited here".utf8), to: file)
+        for _ in 0..<40 where server.files["/home/peter/note.txt"] != Data("edited here".utf8) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        XCTAssertEqual(server.files["/home/peter/note.txt"], Data("edited here".utf8))
+    }
+
+    /// Asked for twice at once, a file is fetched once.
+    func testTwoAskingAtOnceShareOneDownload() async throws {
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let file = folder.appendingPathComponent("note.txt")
+        async let first: Void = RemoteBrowsing.download(file)
+        async let second: Void = RemoteBrowsing.download(file)
+        _ = try await (first, second)
+        XCTAssertEqual(server.downloads, ["/home/peter/note.txt"])
+        XCTAssertFalse(RemoteBrowsing.hasPending([file]))
+    }
+
+    /// A right-click fetches a file up to the size allowed, and nothing bigger.
+    func testARightClickFetchesOnlyWhatIsSmallEnough() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "small.txt", kind: .file, size: 5),
+                                         SFTPEntry(name: "big.bin", kind: .file, size: 5_000),
+                                         SFTPEntry(name: "unknown", kind: .file)]
+        server.files["/home/peter/small.txt"] = Data("small".utf8)
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let names = ["small.txt", "big.bin", "unknown"]
+        RemoteBrowsing.prefetch(names.map { folder.appendingPathComponent($0) }, upTo: 1_000)
+        for _ in 0..<40 where server.downloads.isEmpty || RemoteBrowsing.isDownloading(folder.appendingPathComponent("small.txt")) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(server.downloads, ["/home/peter/small.txt"])
+    }
 }

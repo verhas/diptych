@@ -23,6 +23,9 @@ struct FileComparator: SortComparator, Hashable {
             result = Self.compare(lhs.created, rhs.created)
         case .added:
             result = Self.compare(lhs.added, rhs.added)
+        case .cache:
+            // Nothing here first, then by how much is here.
+            result = Self.compare(lhs.serverCache?.bytesHere ?? -1, rhs.serverCache?.bytesHere ?? -1)
         case .name:
             // By folder and then name, in a flat view: a folder's files stay
             // together.

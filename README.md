@@ -348,9 +348,11 @@ is one keystroke.
   network** -- NAS boxes and Macs that announce themselves by Bonjour. A click
   fills in the address, a double-click connects. The network is looked at only
   while the sheet is open, and macOS asks once for permission to do so.
-- **SFTP, S3 and other object stores** cannot be mounted by macOS itself; the
-  sheet says so, and names the tools that can (Mountain Duck, rclone, sshfs on
-  macFUSE). Once mounted that way they are folders like any other.
+- **SFTP** is not mounted: Diptych talks SFTP itself -- see
+  [SFTP servers](#sftp-servers) below.
+- **S3 and other object stores** cannot be mounted by macOS itself; the sheet
+  says so, and names the tools that can (rclone, Mountain Duck). Once mounted
+  that way they are folders like any other.
 
 **Starred servers appear in the sidebar** under **Servers**, coloured when
 connected and grey when not. A click connects one, or opens it if it is. Its
@@ -408,6 +410,88 @@ so this works for them as well.
 **To try it out**, `test-servers/` has a script that sets up SMB (read-write
 and read-only), NFS, FTP and WebDAV test servers on a Debian machine on your
 network -- a Raspberry Pi will do -- all announced by Bonjour.
+
+## SFTP servers
+
+`sftp://user@host/path` in **Go ▸ Connect to Server…** connects to an SSH
+server with Diptych's own SFTP client. The server appears in the sidebar as a
+volume named after the host, and stays connected until it is ejected or
+Diptych quits.
+
+- **Signing in** tries the keys in the ssh-agent first, then the key files in
+  `~/.ssh`, then asks for a password. A password is kept only while the server
+  is connected, so a dropped connection is made again without asking; it is
+  forgotten at eject and at quit.
+- **Trusting the server.** The first time, Diptych shows the key's fingerprint
+  and says whether `~/.ssh/known_hosts` already knows the host. What you trust
+  is kept in `~/.diptych/sftp_known_hosts`; `~/.ssh/known_hosts` is never
+  changed. A key that differs from the one trusted is refused, with the file
+  and the lines to remove if the change is expected.
+- **Keep Alive…**, in the server's sidebar menu, sets how often an idle
+  connection is checked. The default is `ServerAliveInterval` from
+  `~/.ssh/config`, else 60 seconds.
+- **Paths are `sftp://` addresses** everywhere: the path bar, Copy Path, a
+  dragged file (as text), and the MCP tools. Tab completes server paths.
+- **Changes are made on the server:** rename, delete (permanent -- a server has
+  no Trash, and the dialog says so), new folder, new file, New from Clipboard,
+  copy and move both ways, drag and drop, permissions, modification time, owner
+  and group. A change of owner the server refuses can be made as root through
+  `sudo`, one command at a time; the session itself never runs as root. The
+  sudo password is asked for, and kept as long as you choose, in memory only.
+- **The Info window** shows the server's mode, owner, group and dates. Tags,
+  extended attributes, access control lists and Open By are this Mac's, and
+  are not offered for a server's file.
+
+### What is kept on this Mac
+
+A server's folders are listed into a cache under
+`~/Library/Caches/<bundle id>/Opened Servers`, removed at eject and at quit.
+A file is a placeholder there until its bytes are needed, and is fetched when
+it is opened, previewed, copied, checksummed, shown in Text Edit or Bin Edit, or
+looked at in the Info window -- whose listed facts show at once, while what is
+read from the bytes (the signature, the details) waits for them.
+
+- **A right-click fetches** the files it was made on that are no bigger than
+  Settings ▸ Behaviour ▸ *On SFTP servers, fetch files up to … MB* (10 by
+  default; 0 turns it off). A bigger one has **Download to Cache** in the menu.
+- **The Cached column**, in server listings only, shows how much of each file
+  is here, with a bar while it arrives. A mark after the name says the same: a
+  pulsing arrow while it arrives, a tick once it is here, an orange circle when
+  the server has changed the file since it was fetched. Size and date are
+  always the server's.
+- **A file the server changed** keeps the copy here, so whatever has it open is
+  not pulled from under it; the next open, preview or right-click fetches the
+  new version -- unless the copy here was changed, or a Diptych editor has
+  changes to it not saved yet.
+
+### Editing a server's files
+
+A file fetched from a server can be edited in place, with Diptych's Text Edit
+or Bin Edit or with any other app. When it is saved, Diptych sends it back --
+but first checks that the server still has the version that was fetched. If
+it does, the save is sent. If it does not, nothing is sent, and you choose:
+
+- **Compare the Two…** (text only): the server's version and yours side by
+  side; saving your side sends it.
+- **Save Mine as a New File**: yours goes beside it on the server as
+  `name-1.ext` (or `-2`, …), and the file itself becomes the server's again.
+- **Keep Mine**: yours replaces the server's, whose changes are lost.
+- **Keep the Server's**: the file here becomes the server's version, and your
+  changes are lost.
+- **Decide Later**: nothing is sent until the file is saved again. Ejecting the
+  server, or quitting, asks first while a change has not been sent.
+
+**What cannot be caught.** The check compares what is saved with the version
+Diptych fetched. Diptych's own editors tell it when they hold changes not yet
+saved, and while they do, the file is never fetched again under them. Another
+app cannot tell it that. So if an app such as TextEdit has changes not yet
+saved, and meanwhile Diptych fetches the server's newer version -- because the
+file was opened, previewed or right-clicked again -- the version Diptych
+compares with is the newer one. Most apps then warn that the file was changed by
+another application; saving anyway replaces the server's newer version, and is
+sent without a conflict being seen. To be safe with another app,
+save before opening the same file again in Diptych, or edit with Text Edit or
+Bin Edit.
 
 ## Sounds
 
@@ -3179,9 +3263,19 @@ understood appears in a window, and the one file it should not have included
 gets unticked *before* it is touched.
 
 The operations are move, copy, rename, move to Trash, permanent delete,
-permissions, owner/group, symbolic link, new folder, **extended attributes**
-(set one, in text, hex or base64, or remove one) and **Finder tags** (add,
-remove, or set the whole list). In the review window:
+permissions, owner/group, modification and creation time, symbolic link, new
+folder, new file (empty, or with the text given), **extended attributes** (set
+one, in text, hex or base64, or remove one) and **Finder tags** (add, remove, or
+set the whole list).
+
+**On an SFTP server** the tools report and take `sftp://user@host/path`
+addresses; a server's own absolute path is understood too, when one connected
+server has it listed. Rename, permanent delete, permissions, owner/group (by
+the server's names or numbers), modification time, new folder, new file, and
+copy or move to and from the server work there; the others are refused for
+server items, since SFTP has no Trash, tags, attributes or links to make.
+
+In the review window:
 
 - **Every row is ticked**, and can be unticked -- one at a time, a run of them
   with Shift-click, or all at once with Select All / Select None.

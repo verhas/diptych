@@ -700,6 +700,8 @@ final class PaneModel {
 
     /// Showing a Trash folder -- where the Original Location column belongs.
     var isTrashListing: Bool { !isFlat && Trash.isTrash(directory) }
+    /// A folder on an SFTP server: the Cached column belongs to it.
+    var isServerListing: Bool { RemoteBrowsing.isInside(directory) }
 
     /// What is typed in the expression field, run or not.
     var flatDraft = ""

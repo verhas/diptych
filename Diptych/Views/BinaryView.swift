@@ -24,7 +24,9 @@ struct BinaryView: View {
         VStack(spacing: 0) {
             controls
             Divider()
-            if model.isLoading {
+            if let host = model.waitingFor {
+                notice("Fetching from \(host)\u{2026} The file opens as soon as it has arrived.")
+            } else if model.isLoading {
                 notice("Reading\u{2026}")
             } else if let error = model.loadError {
                 notice(error)
@@ -47,7 +49,17 @@ struct BinaryView: View {
                 WindowSubjects.shared.register(window, kind: "binEdit", description: model.url.path)
             }
         })
-        .onDisappear { keys.stop() }
+        .onDisappear {
+            keys.stop()
+            model.holdFile(false)
+        }
+        // A server file with changes here is not fetched again under them.
+        .onChange(of: model.hasEdits) { _, edited in model.holdFile(edited) }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.replaced)) { note in
+            if (note.object as? URL)?.standardizedFileURL == model.url.standardizedFileURL {
+                model.readAgain()
+            }
+        }
         .background {
             // A zero-size button is the only way to give a plain shortcut to
             // something that is not a menu item.

@@ -19,8 +19,9 @@ enum ColumnWidths {
         guard !configuration.columnWidths.isEmpty else { return }
 
         for table in tables(in: window) {
-            let trash = TableFinder.pane(of: table, in: window)?.isTrashListing ?? false
-            let columns = configuration.columns(inTrash: trash)
+            let pane = TableFinder.pane(of: table, in: window)
+            let columns = configuration.columns(inTrash: pane?.isTrashListing ?? false,
+                                                onServer: pane?.isServerListing ?? false)
             guard table.tableColumns.count == columns.count else { continue }
             for (index, column) in columns.enumerated() {
                 guard let width = configuration.columnWidths[column.rawValue], width > 0 else { continue }
@@ -57,8 +58,9 @@ enum ColumnWidths {
     }
 
     private static func record(from table: NSTableView) {
-        let trash = table.window.flatMap { TableFinder.pane(of: table, in: $0) }?.isTrashListing ?? false
-        let columns = ConfigStore.shared.configuration.columns(inTrash: trash)
+        let pane = table.window.flatMap { TableFinder.pane(of: table, in: $0) }
+        let columns = ConfigStore.shared.configuration.columns(inTrash: pane?.isTrashListing ?? false,
+                                                               onServer: pane?.isServerListing ?? false)
         guard table.tableColumns.count == columns.count else { return }
 
         var widths = ConfigStore.shared.configuration.columnWidths

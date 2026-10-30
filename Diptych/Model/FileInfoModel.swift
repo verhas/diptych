@@ -107,6 +107,34 @@ final class FileInfoModel {
     init(url: URL) {
         self.url = url
         load()
+        fetchForContent()
+    }
+
+    // MARK: - A file on a server
+
+    /// The server a file is being fetched from. What the window shows from the
+    /// listing is there at once; what is read from the bytes waits for them.
+    private(set) var waitingForDownload: String?
+    private var signingWanted = false
+    private var detailsWanted = false
+
+    /// Starts fetching a server file that is not here, or is of an older version.
+    private func fetchForContent() {
+        guard isOnServer, !isDirectory, RemoteBrowsing.hasPending([url]) else { return }
+        waitingForDownload = RemoteBrowsing.server(of: url)?.host ?? "the server"
+        let url = url
+        Task {
+            do {
+                try await RemoteBrowsing.download(url)
+                waitingForDownload = nil
+                load()
+                if signingWanted { readSigning() }
+                if detailsWanted { readDetails() }
+            } catch {
+                waitingForDownload = nil
+                report("Could not fetch it from the server: " + error.localizedDescription, success: "")
+            }
+        }
     }
 
     // MARK: - Loading
@@ -132,10 +160,12 @@ final class FileInfoModel {
         kind = values?.localizedTypeDescription ?? ""
         byteSize = Int64(values?.fileSize ?? 0)
         sizeIsUnknown = false
-        // A placeholder's own size is zero: the size is the server's, from its listing.
-        if let placeholder = RemoteBrowsing.placeholder(url) {
-            byteSize = placeholder.size ?? 0
-            sizeIsUnknown = placeholder.size == nil
+        // On a server the size is the server's, from its listing: a placeholder's
+        // own is zero, and a fetched copy may be of an older version.
+        if RemoteBrowsing.isInside(url), !(values?.isDirectory ?? false) {
+            let listed = RemoteBrowsing.listedNode(of: url)?.attribute(BrowserManifest.Attribute.size)?.intValue
+            byteSize = listed ?? 0
+            sizeIsUnknown = listed == nil
         }
         isDirectory = values?.isDirectory ?? false
         created = values?.creationDate ?? .now
@@ -389,6 +419,10 @@ final class FileInfoModel {
     /// Asked when the tab is first shown. Cheap for a photograph, not always
     /// cheap for a film, so it is not part of opening the window.
     func readDetails() {
+        guard waitingForDownload == nil else {
+            detailsWanted = true
+            return
+        }
         guard !isReadingDetails, details == nil else { return }
         isReadingDetails = true
         let url = url
@@ -425,6 +459,10 @@ final class FileInfoModel {
     /// Asked when the Signature tab is first shown: it runs codesign, spctl and
     /// stapler, so it is not part of opening the window.
     func readSigning() {
+        guard waitingForDownload == nil else {
+            signingWanted = true
+            return
+        }
         guard !isReadingSigning, signing == nil else { return }
         isReadingSigning = true
         let url = url

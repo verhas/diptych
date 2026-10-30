@@ -66,10 +66,11 @@ actor SFTPMirror {
         for edited in editedHere where !nodes.contains(where: { $0.name == edited.name }) {
             nodes.append(edited)
         }
-        // Anything no longer listed by the server goes, bytes and all.
+        // What the server listed before and no longer does goes, bytes and all.
+        // Nothing else is touched: an editor saving here writes a file of its
+        // own beside the one it saves, and takes it away itself.
         let listed = Set(nodes.map(\.name))
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        where !listed.contains(name) && BrowserManifestStore.number(of: name) == nil {
+        for name in previous.map(\.name) where !listed.contains(name) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
         }
 
@@ -111,6 +112,8 @@ actor SFTPMirror {
         if !Self.needsFetch(node, at: file) { return file }
 
         let staging = root.appendingPathComponent(".downloading-\(UUID().uuidString)")
+        RemoteBrowsing.arriving(file, at: staging)
+        defer { RemoteBrowsing.arriving(file, at: nil) }
         try await remote.download(path, to: staging)
         let checksum = try FileChecksum.sha256(of: staging)
         // The placeholder is read-only, so it is unlocked for the replacement.
@@ -151,8 +154,14 @@ actor SFTPMirror {
     static func needsFetch(_ node: BrowserManifest.Node?, at url: URL) -> Bool {
         guard let node else { return true }
         if node.backing == .none { return true }
-        return node.attribute(BrowserManifest.Attribute.serverChanged)?.boolValue == true
-            && !locallyChanged(node, at: url)
+        guard node.attribute(BrowserManifest.Attribute.serverChanged)?.boolValue == true,
+              !locallyChanged(node, at: url) else { return false }
+        // The bytes as well as the time: an edit is never fetched over. Read
+        // only for a file the server changed, which is seldom.
+        let recorded = node.attribute(BrowserManifest.Attribute.checksum)?.stringValue
+        guard let recorded, (try? FileChecksum.sha256(of: url)) == recorded else { return false }
+        // Nor while a Diptych editor holds changes to it not saved yet.
+        return !EditedHere.holdsUnsaved(url)
     }
 
     /// Whether a fetched file was changed here since it was fetched or last sent.
@@ -169,7 +178,9 @@ actor SFTPMirror {
     /// one fetched. Otherwise says so, with what the server has now.
     func writeBack(_ path: String) async throws -> WriteBack {
         let file = localURL(for: path)
-        guard let node = node(at: file), Self.locallyChanged(node, at: file) else { return .unchanged }
+        // Decided by the bytes, not the time: a time can be taken for the
+        // fetched one by mistake, the checksum cannot.
+        guard let node = node(at: file), case .file = node.backing else { return .unchanged }
         let mine = try FileChecksum.sha256(of: file)
         let recorded = node.attribute(BrowserManifest.Attribute.checksum)?.stringValue
         if mine == recorded {
@@ -388,12 +399,13 @@ actor SFTPMirror {
             try fileManager.setAttributes([.posixPermissions: wanted], ofItemAtPath: child.path)
         }
         if kept, let previously {
+            // Carried over as they were. The time is never taken from the file
+            // now: an editor may have saved it while the server was listing, and
+            // taking that time would make the save look like no change at all --
+            // never sent, and lost to the next fetch. Setting the mode does not
+            // change the time anyway.
             for key in [BrowserManifest.Attribute.checksum, BrowserManifest.Attribute.localModified] {
                 if let value = previously.attribute(key) { attributes[key] = value }
-            }
-            // The mode just set changes nothing that counts as an edit.
-            if let made = Self.localModified(child) {
-                attributes[BrowserManifest.Attribute.localModified] = .date(made)
             }
             if changedThere { attributes[BrowserManifest.Attribute.serverChanged] = .bool(true) }
         }

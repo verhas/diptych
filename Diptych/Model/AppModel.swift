@@ -51,8 +51,6 @@ final class AppModel {
         case serverDelete
         /// The sudo password, for a change on a server only root may make.
         case sudoPassword
-        /// A file changed both here and on its server, that is not text.
-        case serverEditConflict
         /// A server's user or group, typed by name or number.
         case serverAccount
         case historyStep
@@ -93,7 +91,6 @@ final class AppModel {
             case .keepAlive:      return "keepAlive"
             case .serverDelete:   return "serverDelete"
             case .sudoPassword:   return "sudoPassword"
-            case .serverEditConflict: return "serverEditConflict"
             case .serverAccount:  return "serverAccount"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
@@ -201,34 +198,6 @@ final class AppModel {
 
     /// Whether the typed account is a group rather than a user.
     @ObservationIgnored var accountIsGroup = false
-
-    /// A file changed on both sides, while the person chooses; and who waits.
-    var serverConflict: ServerConflictPrompt?
-    @ObservationIgnored private var serverConflictAnswer: CheckedContinuation<ConflictChoice?, Never>?
-
-    struct ServerConflictPrompt: Equatable {
-        let name: String
-        let host: String
-    }
-
-    func askServerConflict(name: String, host: String) async -> ConflictChoice? {
-        answerServerConflict(nil)
-        return await withCheckedContinuation { continuation in
-            serverConflictAnswer = continuation
-            serverConflict = ServerConflictPrompt(name: name, host: host)
-            dialog = .serverEditConflict
-        }
-    }
-
-    func answerServerConflict(_ choice: ConflictChoice?) {
-        let waiting = serverConflictAnswer
-        serverConflictAnswer = nil
-        if serverConflict != nil {
-            serverConflict = nil
-            if dialog == .serverEditConflict { dialog = nil }
-        }
-        waiting?.resume(returning: choice)
-    }
 
     struct SudoPrompt: Equatable {
         let host: String
@@ -1017,9 +986,54 @@ final class AppModel {
         // Refreshes the document right now if it is already tracked --
         // whether its window is genuinely still open or one `openWindow` is
         // about to bring back with state SwiftUI never actually reset.
-        whenFetched([item.url]) { [weak self] in
-            OpenTextDocuments.shared.refreshIfOpen(item.url)
-            self?.openTextWindow?(item.url)
+        // A file on a server is fetched by the window itself, which opens at once
+        // and says it is waiting.
+        OpenTextDocuments.shared.refreshIfOpen(item.url)
+        openTextWindow?(item.url)
+    }
+
+    /// The size up to which a right-click on a server file fetches it.
+    private var prefetchLimit: Int64 {
+        Int64(ConfigStore.shared.configuration.serverPrefetchMegabytes) * 1_000_000
+    }
+
+    /// Server files among `ids` that are not here, or are of a version the server
+    /// has changed since.
+    private func serverFilesToFetch(_ ids: Set<FileItem.ID>, in pane: PaneModel) -> [FileItem] {
+        guard pane.isServerListing else { return [] }
+        return pane.rows.filter {
+            ids.contains($0.id) && !$0.isParent && !$0.isDirectory
+                && !ServerDownloads.shared.isDownloading($0.url) && RemoteBrowsing.hasPending([$0.url])
+        }
+    }
+
+    /// Starts fetching the small ones of the server files right-clicked. Returns
+    /// nothing: it is called while the menu is built.
+    func prefetchForMenu(_ ids: Set<FileItem.ID>, in pane: PaneModel) {
+        let limit = prefetchLimit
+        guard limit > 0 else { return }
+        RemoteBrowsing.prefetch(serverFilesToFetch(ids, in: pane).map(\.url), upTo: limit)
+    }
+
+    /// Whether the menu offers Download to Cache: for a server file the
+    /// right-click left alone, too big or of unknown size.
+    func offersDownloadToCache(_ ids: Set<FileItem.ID>, in pane: PaneModel) -> Bool {
+        let limit = prefetchLimit
+        return serverFilesToFetch(ids, in: pane).contains { $0.sizeIsUnknown || $0.byteSize > limit }
+    }
+
+    func downloadToCache(_ ids: Set<FileItem.ID>, in pane: PaneModel) {
+        let urls = serverFilesToFetch(ids, in: pane).map(\.url)
+        Task { [weak self] in
+            for url in urls {
+                do {
+                    try await RemoteBrowsing.download(url)
+                } catch {
+                    self?.flash("Could not fetch \u{201C}\(url.lastPathComponent)\u{201D}: "
+                                + error.localizedDescription)
+                    return
+                }
+            }
         }
     }
 
@@ -1264,6 +1278,7 @@ final class AppModel {
             Task {
                 do {
                     try await RemoteBrowsing.remove(urls)
+                    Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
                     pane.pendingSelection = successor.map { [$0] } ?? []
                     pane.reload()
                     inactive.reload()
@@ -2553,6 +2568,8 @@ final class AppModel {
                 }
                 destinationPane.reload()
                 sourcePane?.reload()
+                let configuration = ConfigStore.shared.configuration
+                Sounds.playIfEnabled(kind == .move ? configuration.moveSound : configuration.copySound)
                 self?.flash("\(kind == .move ? "Moved" : "Copied") \(urls.count) item"
                             + "\(urls.count == 1 ? "" : "s") to the server", error: false)
             } catch {
@@ -3470,8 +3487,12 @@ final class AppModel {
         guard !forwardToTextEditor(#selector(NSText.copy(_:))) else { return }
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
-        Clipboard.copy(urls)
-        flash("Copied \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+        // Files on a server are fetched first: pasted in Finder or another app,
+        // the copies here are what arrives, and a placeholder is an empty file.
+        whenFetched(urls) { [weak self] in
+            Clipboard.copy(urls)
+            self?.flash("Copied \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+        }
     }
 
     func cutSelectionToClipboard() {
@@ -3586,6 +3607,10 @@ final class AppModel {
         }
         let urls = files.map(\.url)
         let name = files.count == 1 ? files[0].name : "\(files.count) files"
+        whenFetched(urls) { [weak self] in self?.copyContents(of: urls, name: name) }
+    }
+
+    private func copyContents(of urls: [URL], name: String) {
         Task {
             let contents = await Task.detached { Clipboard.readContents(of: urls) }.value
             switch contents {

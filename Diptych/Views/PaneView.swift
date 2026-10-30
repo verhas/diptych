@@ -610,7 +610,8 @@ struct PaneView: View {
                                 set: { pane.sort(by: $0) })
         // The columns for this pane -- the Original Location column among them
         // only when this is a Trash listing (and its setting is on).
-        let columns = ConfigStore.shared.configuration.columns(inTrash: pane.isTrashListing)
+        let columns = ConfigStore.shared.configuration.columns(inTrash: pane.isTrashListing,
+                                                               onServer: pane.isServerListing)
         return Table(of: FileItem.self, selection: $pane.selection, sortOrder: sortOrder) {
             TableColumnForEach(columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
@@ -709,7 +710,7 @@ struct PaneView: View {
         // A fresh table identity when the Original Location column comes or goes
         // -- entering or leaving a Trash listing. Changing a Table's column
         // *count* in place is what AppKit crashes on; rebuilding sidesteps it.
-        .id(columns.contains(.originalLocation))
+        .id([columns.contains(.originalLocation), columns.contains(.cache)])
     }
 
     /// An archive being unpacked to be shown: how far, and Stop.
@@ -977,6 +978,9 @@ struct PaneView: View {
                 }
                 Divider()
             }
+            // A right-click on server files starts fetching the small ones, so
+            // they are here by the time a command in this menu wants them.
+            let _ = model.prefetchForMenu(ids, in: pane)
             if !reachesNothing {
                 Button("Open") {
                     act(ids) {
@@ -984,6 +988,11 @@ struct PaneView: View {
                     }
                 }
                 .keyboardShortcut(.open)
+            }
+            // Only for what the right-click did not fetch by itself: too big for
+            // the setting, or of no size the server gave.
+            if model.offersDownloadToCache(ids, in: pane) {
+                Button("Download to Cache") { act(ids) { model.downloadToCache(ids, in: pane) } }
             }
             if ConfigStore.shared.menuItemShown(.getInfo) {
                 Button("Get Info") { act(ids) { model.showInfo() } }

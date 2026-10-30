@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// Why a change to a server was not made.
 nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
@@ -338,9 +339,83 @@ nonisolated enum RemoteBrowsing {
                     .map { url.appendingPathComponent($0) })
             } else {
                 try Task.checkCancellation()
-                _ = try await server.mirror.materialize(path)
+                try await download(url)
             }
         }
+    }
+
+    // MARK: - Downloads
+
+    private final class Downloads: @unchecked Sendable {
+        let lock = NSLock()
+        /// One download per file, shared by everyone who asks for it meanwhile.
+        var tasks: [String: Task<Void, Error>] = [:]
+        /// Where a file's bytes are arriving, while they arrive.
+        var arriving: [String: URL] = [:]
+    }
+
+    private static let downloads = Downloads()
+
+    /// Posted on the main actor when a file's bytes have arrived; the object is
+    /// its shadow URL.
+    static let fetched = Notification.Name("RemoteBrowsing.fetched")
+
+    private static func downloadKey(_ url: URL) -> String { url.standardizedFileURL.path }
+
+    /// Fetches a file's bytes when they are not here or are of an older version,
+    /// once however many ask at the same time. Not cancelled when one who asked
+    /// stops waiting: someone else may still want it.
+    static func download(_ url: URL) async throws {
+        let key = downloadKey(url)
+        let task = downloads.lock.withLock { () -> Task<Void, Error> in
+            if let running = downloads.tasks[key] { return running }
+            let task = Task<Void, Error> {
+                await MainActor.run { ServerDownloads.shared.started(key) }
+                defer {
+                    _ = downloads.lock.withLock { downloads.tasks.removeValue(forKey: key) }
+                    Task { @MainActor in ServerDownloads.shared.finished(key) }
+                }
+                try await materialize(url)
+                await MainActor.run { NotificationCenter.default.post(name: fetched, object: url) }
+            }
+            downloads.tasks[key] = task
+            return task
+        }
+        try await task.value
+    }
+
+    /// Starts fetching, without waiting: what a right-click does for a file up to
+    /// the size the settings allow.
+    static func prefetch(_ urls: [URL], upTo limit: Int64) {
+        for url in urls where isInside(url) && !SFTPMirror.isDirectory(url) && !isDownloading(url) {
+            guard hasPending([url]) else { continue }
+            let size = listedNode(of: url)?.attribute(BrowserManifest.Attribute.size)?.intValue
+            // A file the server gave no size for is not fetched unasked: it may be
+            // anything.
+            guard let size, size <= limit else { continue }
+            Task.detached(priority: .utility) { try? await download(url) }
+        }
+    }
+
+    static func isDownloading(_ url: URL) -> Bool {
+        let key = downloadKey(url)
+        return downloads.lock.withLock { downloads.tasks[key] != nil || downloads.arriving[key] != nil }
+    }
+
+    /// How much of a file has arrived, while it is being fetched; nil otherwise.
+    static func received(_ url: URL) -> Int64? {
+        let key = downloadKey(url)
+        guard let staging = downloads.lock.withLock({ downloads.arriving[key] }) else {
+            return isDownloading(url) ? 0 : nil
+        }
+        let size = (try? FileManager.default.attributesOfItem(atPath: staging.path))?[.size]
+        return (size as? NSNumber)?.int64Value ?? 0
+    }
+
+    /// Told by the mirror where a file's bytes are arriving, and when they have.
+    static func arriving(_ file: URL, at staging: URL?) {
+        let key = downloadKey(file)
+        downloads.lock.withLock { downloads.arriving[key] = staging }
     }
 
     // MARK: - Changing the server
@@ -563,6 +638,20 @@ nonisolated enum RemoteBrowsing {
         try await refresh(parent)
     }
 
+    /// Sends files written here, in a server's folders, that the server does not
+    /// have yet; then lists their folders.
+    static func publish(_ urls: [URL]) async throws {
+        var folders = Set<URL>()
+        for url in urls {
+            guard let (server, path) = remotePath(url) else { continue }
+            try await server.mirror.upload(url, to: path, isDirectory: false)
+            folders.insert(url.deletingLastPathComponent())
+        }
+        for folder in folders {
+            try await refresh(folder)
+        }
+    }
+
     /// The permission bits a server item had when it was listed.
     static func listedMode(of url: URL) -> mode_t? {
         listedNode(of: url)?.attribute(BrowserManifest.Attribute.mode)?.intValue
@@ -659,4 +748,20 @@ nonisolated enum RemoteBrowsing {
     private static func resolved(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
+}
+
+/// The server files being fetched right now, for the views: a row shows its
+/// bar, an editor or the Info window its wait, and each follows when it ends.
+@MainActor
+@Observable
+final class ServerDownloads {
+
+    static let shared = ServerDownloads()
+
+    private(set) var active: Set<String> = []
+
+    func started(_ key: String) { active.insert(key) }
+    func finished(_ key: String) { active.remove(key) }
+
+    func isDownloading(_ url: URL) -> Bool { active.contains(url.standardizedFileURL.path) }
 }

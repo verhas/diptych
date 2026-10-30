@@ -28,6 +28,15 @@ extension AppModel {
 
     var canChecksum: Bool { !checksumTargets.isEmpty }
 
+    /// The checksum files a server's listing shows beside `targets`: read when
+    /// checking, and compared with when creating, so they are fetched too.
+    private func checksumCompanions(of targets: [URL]) -> [URL] {
+        targets.flatMap { target in
+            Checksums.Algorithm.allCases.map { target.appendingPathExtension($0.ext) }
+                .filter { RemoteBrowsing.listedNode(of: $0) != nil }
+        }
+    }
+
     // MARK: - Creating
 
     /// A checksum file of `algorithm` beside each selected file. On read-only
@@ -36,6 +45,14 @@ extension AppModel {
     func createChecksums(_ algorithm: Checksums.Algorithm) {
         let targets = checksumTargets
         guard !targets.isEmpty else { return }
+        // On a server: of the files' bytes, fetched first -- a placeholder's sum
+        // is the sum of nothing -- and the checksum files are sent there.
+        if active.isServerListing {
+            whenFetched(targets + checksumCompanions(of: targets)) { [weak self] in
+                self?.writeChecksums(algorithm, of: targets, into: nil)
+            }
+            return
+        }
         if active.volume.isReadOnly {
             guard let other = otherPaneFolder, !inactive.volume.isReadOnly else {
                 dialog = .notice(title: "This folder is read-only",
@@ -104,7 +121,18 @@ extension AppModel {
     private func finishChecksums(_ algorithm: Checksums.Algorithm, plan: Checksums.Plan,
                                  overwriting: Bool) async {
         let writes = plan.fresh + (overwriting ? plan.mismatched : [])
-        let result = await BlockingWork.run { Checksums.writeAll(writes) }
+        var result = await BlockingWork.run { Checksums.writeAll(writes) }
+        // Written in a server's folder: sent there. One already on the server
+        // was fetched first, and is sent as any saved file is.
+        let new = result.made.filter { RemoteBrowsing.isInside($0) && RemoteBrowsing.listedNode(of: $0) == nil }
+        if !new.isEmpty {
+            do {
+                try await RemoteBrowsing.publish(new)
+            } catch {
+                result.problems.append("The checksum files could not be sent to the server: "
+                                       + error.localizedDescription)
+            }
+        }
         if !result.made.isEmpty {
             FileHistory.shared.recordCreation(.made("Create Checksum"), of: result.made)
             show(result.made, in: result.made[0].deletingLastPathComponent())
@@ -147,6 +175,10 @@ extension AppModel {
     func checkChecksums() {
         let targets = checksumTargets
         guard !targets.isEmpty else { return }
+        if RemoteBrowsing.hasPending(targets + checksumCompanions(of: targets)) {
+            whenFetched(targets + checksumCompanions(of: targets)) { [weak self] in self?.checkChecksums() }
+            return
+        }
         if targets.count == 1, let clipboard = Clipboard.plainText(),
            Checksums.hasChecksum(clipboard) {
             checkAgainstClipboard(targets[0], clipboard: clipboard)

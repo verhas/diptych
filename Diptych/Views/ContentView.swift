@@ -855,32 +855,6 @@ struct DialogSheet: View {
                            + "sudo is offered.",
                        confirm: "Change") { model.applyTypedAccount() }
 
-            case .serverEditConflict:
-                if let conflict = model.serverConflict {
-                    Text("\u{201C}\(conflict.name)\u{201D} Changed on \(conflict.host) Too").font(.headline)
-                    Text("Someone changed it on the server since it was opened here, and it is not "
-                         + "text, so the two cannot be merged. Which is kept?")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button("Keep the server\u{2019}s version \u{2014} my changes are lost") {
-                            model.answerServerConflict(.keepServers)
-                        }
-                        Button("Send mine over it \u{2014} the server\u{2019}s changes are lost") {
-                            model.answerServerConflict(.overwriteServer)
-                        }
-                        Button("Send mine under a new name, such as \u{201C}"
-                               + SFTPMirror.freeName(for: conflict.name, among: []) + "\u{201D}") {
-                            model.answerServerConflict(.saveAsNew)
-                        }
-                    }
-                    HStack {
-                        Spacer()
-                        Button("Decide Later") { model.answerServerConflict(nil) }
-                            .keyboardShortcut(.cancelAction)
-                    }
-                }
-
             case .sudoPassword:
                 if let prompt = model.sudoPrompt {
                     SudoPasswordView(prompt: prompt,

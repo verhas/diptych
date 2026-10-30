@@ -1,3 +1,4 @@
+import AppKit
 import CoreServices
 import CryptoKit
 import Foundation
@@ -37,6 +38,34 @@ nonisolated enum TextSniff {
     }
 }
 
+/// The server files a Diptych editor has open with changes not saved yet. Such
+/// a file is never fetched again under the editor, whatever the server did:
+/// the save then shows the conflict instead of losing the changes.
+nonisolated enum EditedHere {
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var paths: [String: Int] = [:]
+
+    private static func key(_ url: URL) -> String { url.standardizedFileURL.path }
+
+    /// Counted, so two windows on one file each hold it.
+    static func hold(_ url: URL) {
+        lock.withLock { paths[key(url), default: 0] += 1 }
+    }
+
+    static func release(_ url: URL) {
+        lock.withLock {
+            let key = key(url)
+            guard let count = paths[key] else { return }
+            paths[key] = count > 1 ? count - 1 : nil
+        }
+    }
+
+    static func holdsUnsaved(_ url: URL) -> Bool {
+        lock.withLock { paths[key(url)] != nil }
+    }
+}
+
 /// What writing a file back came to.
 nonisolated enum WriteBack: Sendable, Equatable {
     /// Nothing to send: the file is as it was fetched, or as it was last sent.
@@ -47,7 +76,7 @@ nonisolated enum WriteBack: Sendable, Equatable {
     case conflict(serverCopy: URL, serverChecksum: String, isText: Bool)
 }
 
-/// How the person settles a file changed on both sides, when it is not text.
+/// How the person settles a file changed both here and on its server.
 nonisolated enum ConflictChoice: Sendable, Equatable {
     /// The server's version is kept: the changes made here are lost.
     case keepServers
@@ -56,6 +85,8 @@ nonisolated enum ConflictChoice: Sendable, Equatable {
     /// The changes made here are sent under a new name; the file itself is the
     /// server's again.
     case saveAsNew
+    /// Text only: the two side by side, to take from each what is wanted.
+    case compare
 }
 
 /// Watches a server's shadow for files saved in it, with FSEvents.
@@ -161,17 +192,77 @@ final class ServerEditing {
                 model?.flash("Saved \u{201C}\(name)\u{201D} on \(host)", error: false)
                 Self.reloadPanes(showing: url.deletingLastPathComponent())
             case .conflict(let copy, let checksum, let isText):
-                if isText {
-                    try await merge(url, with: copy, checksum: checksum, on: host, model: model)
-                } else {
-                    try await settle(url, with: copy, checksum: checksum, on: host, model: model)
-                }
+                try await settle(url, with: copy, checksum: checksum, isText: isText, on: host,
+                                 model: model)
             }
         } catch {
             model?.flash("Could not save \u{201C}\(name)\u{201D} on \(host): " + error.localizedDescription)
         }
         sending.remove(key)
         if savedAgain.remove(key) != nil { await send(url) }
+    }
+
+    /// Changed on both sides: the person chooses which is kept, or -- for text --
+    /// compares the two. Asked in front of every window, since the save may have
+    /// come from any editor, Diptych's or another app's.
+    private func settle(_ url: URL, with copy: URL, checksum: String, isText: Bool,
+                        on host: String, model: AppModel?) async throws {
+        let name = url.lastPathComponent
+        guard let choice = Self.ask(name: name, host: host, isText: isText) else {
+            try? FileManager.default.removeItem(at: copy)
+            model?.flash("\u{201C}\(name)\u{201D} was not sent: \(host) keeps its version until "
+                         + "it is saved again")
+            return
+        }
+        if choice == .compare {
+            try await merge(url, with: copy, checksum: checksum, on: host, model: model)
+            return
+        }
+        defer { try? FileManager.default.removeItem(at: copy) }
+        switch choice {
+        case .keepServers:
+            try await RemoteBrowsing.keepServersVersion(url, from: copy, checksum: checksum)
+            Self.replacedHere(url)
+            model?.flash("Kept the server\u{2019}s \u{201C}\(name)\u{201D}", error: false)
+        case .overwriteServer:
+            try await RemoteBrowsing.adoptBaseline(url, checksum: checksum)
+            if try await RemoteBrowsing.writeBack(url) == .sent {
+                model?.flash("Saved \u{201C}\(name)\u{201D} on \(host), over its version", error: false)
+            }
+        case .saveAsNew:
+            let newName = try await RemoteBrowsing.sendAsNew(url)
+            try await RemoteBrowsing.keepServersVersion(url, from: copy, checksum: checksum)
+            Self.replacedHere(url)
+            model?.flash("Saved your version on \(host) as \u{201C}\(newName)\u{201D}", error: false)
+        case .compare:
+            break
+        }
+        Self.reloadPanes(showing: url.deletingLastPathComponent())
+    }
+
+    /// The question, as an alert of its own: the first answer is the safe one.
+    private static func ask(name: String, host: String, isText: Bool) -> ConflictChoice? {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "\u{201C}\(name)\u{201D} Changed on \(host) Too"
+        alert.informativeText = "It was changed on the server after it was fetched, and you saved "
+            + "your changes to it here. Nothing has been sent yet. Which is kept?"
+        let newName = SFTPMirror.freeName(for: name, among: [])
+        var choices: [ConflictChoice] = []
+        if isText {
+            alert.addButton(withTitle: "Compare the Two\u{2026}")
+            choices.append(.compare)
+        }
+        alert.addButton(withTitle: "Save Mine as a New File (\(newName)\u{2026})")
+        choices.append(.saveAsNew)
+        alert.addButton(withTitle: "Keep Mine \u{2014} the Server\u{2019}s Changes Are Lost")
+        choices.append(.overwriteServer)
+        alert.addButton(withTitle: "Keep the Server\u{2019}s \u{2014} My Changes Are Lost")
+        choices.append(.keepServers)
+        alert.addButton(withTitle: "Decide Later")
+        NSApp.activate()
+        let index = alert.runSelectable().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return choices.indices.contains(index) ? choices[index] : nil
     }
 
     /// Text changed on both sides: a comparison of the two, the server's on the
@@ -190,36 +281,17 @@ final class ServerEditing {
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: theirs.path)
         try await RemoteBrowsing.adoptBaseline(url, checksum: checksum)
         model?.openDiffWindow?(DiffPair(left: theirs, right: url))
-        model?.dialog = .notice(
-            title: "\u{201C}\(url.lastPathComponent)\u{201D} Changed on \(host) Too",
-            text: "Someone changed it on the server since it was opened here, so your changes "
-                + "were not sent. The comparison shows the server\u{2019}s version on the left and "
-                + "yours on the right. Unlock yours, take what you need from the left, and save: "
-                + "it is then sent. Until then the server keeps its version.")
+        model?.flash("The server\u{2019}s version is on the left, yours on the right. Saving the "
+                     + "right side sends it.", error: false)
     }
 
-    /// Anything but text changed on both sides: the person chooses which is kept.
-    private func settle(_ url: URL, with copy: URL, checksum: String, on host: String,
-                        model: AppModel?) async throws {
-        defer { try? FileManager.default.removeItem(at: copy) }
-        guard let model, let choice = await model.askServerConflict(name: url.lastPathComponent, host: host)
-        else { return }
-        switch choice {
-        case .keepServers:
-            try await RemoteBrowsing.keepServersVersion(url, from: copy, checksum: checksum)
-            model.flash("Kept the server\u{2019}s \u{201C}\(url.lastPathComponent)\u{201D}", error: false)
-        case .overwriteServer:
-            try await RemoteBrowsing.adoptBaseline(url, checksum: checksum)
-            if try await RemoteBrowsing.writeBack(url) == .sent {
-                model.flash("Saved \u{201C}\(url.lastPathComponent)\u{201D} on \(host), over its version",
-                            error: false)
-            }
-        case .saveAsNew:
-            let name = try await RemoteBrowsing.sendAsNew(url)
-            try await RemoteBrowsing.keepServersVersion(url, from: copy, checksum: checksum)
-            model.flash("Saved your version on \(host) as \u{201C}\(name)\u{201D}", error: false)
-        }
-        Self.reloadPanes(showing: url.deletingLastPathComponent())
+    /// Posted when the copy here of a server file was put back to the server's
+    /// version: an editor that has it open reads it again.
+    static let replaced = Notification.Name("ServerEditing.replaced")
+
+    private static func replacedHere(_ url: URL) {
+        OpenTextDocuments.shared.refreshIfOpen(url, discardingChanges: true)
+        NotificationCenter.default.post(name: replaced, object: url)
     }
 
     /// The browser window in front, for what is said and asked.

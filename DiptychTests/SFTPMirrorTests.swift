@@ -16,8 +16,13 @@ final class SFTPMirrorTests: XCTestCase {
             self.files = files
         }
 
+        /// Run while a listing is on its way: what happens here meanwhile.
+        var duringListing: (() -> Void)?
+
         func entries(in path: String) async throws -> [SFTPEntry] {
-            (folders[path] ?? []).map { entry in
+            duringListing?()
+            duringListing = nil
+            return (folders[path] ?? []).map { entry in
                 let child = path == "/" ? "/" + entry.name : path + "/" + entry.name
                 return SFTPEntry(name: entry.name, kind: entry.kind, size: entry.size,
                                  mode: modes[child] ?? entry.mode, modified: times[child] ?? entry.modified,
@@ -376,6 +381,58 @@ final class SFTPMirrorTests: XCTestCase {
         server.folders["/d"] = []
         try await shadow.populate("/d")
         XCTAssertEqual(try Data(contentsOf: file), Data("edited here".utf8))
+    }
+
+    /// An editor saving while the server is listing the folder: the save must
+    /// still be seen as an edit, and sent.
+    func testASaveMadeWhileTheServerListsIsStillSent() async throws {
+        let (server, shadow) = try await editable()
+        let file = await shadow.localURL(for: "/d/a.txt")
+        server.duringListing = {
+            try? Data("saved meanwhile".utf8).write(to: file)
+            try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)],
+                                                   ofItemAtPath: file.path)
+        }
+        try await shadow.populate("/d")
+        let sent = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(sent, .sent)
+        XCTAssertEqual(server.files["/d/a.txt"], Data("saved meanwhile".utf8))
+    }
+
+    /// An editor's own file beside the one it saves is not the server's to take away.
+    func testAListingLeavesAFileOfAnEditorsOwnAlone() async throws {
+        let (_, shadow) = try await editable()
+        let folder = await shadow.localURL(for: "/d")
+        let temporary = folder.appendingPathComponent(".a.txt.sb-1234")
+        try Data("half a save".utf8).write(to: temporary)
+        try await shadow.populate("/d")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporary.path))
+    }
+
+    /// The bytes decide, not the time: an edit whose time looks like the fetch's
+    /// is still an edit.
+    func testAnEditIsSentEvenWhenItsTimeIsTheFetchedOnes() async throws {
+        let (server, shadow) = try await editable()
+        let file = await shadow.localURL(for: "/d/a.txt")
+        let fetchedAt = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        try Data("same time".utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: fetchedAt!], ofItemAtPath: file.path)
+        let sent = try await shadow.writeBack("/d/a.txt")
+        XCTAssertEqual(sent, .sent)
+        XCTAssertEqual(server.files["/d/a.txt"], Data("same time".utf8))
+    }
+
+    /// A file a Diptych editor holds unsaved changes to is never fetched again.
+    func testAFileHeldByAnEditorIsNotFetchedAgain() async throws {
+        let (server, shadow) = try await editable()
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 9, mode: 0o644)]
+        try await shadow.populate("/d")
+        let file = await shadow.localURL(for: "/d/a.txt")
+        let changedThere = try await node(shadow, "/d/a.txt")
+        XCTAssertTrue(SFTPMirror.needsFetch(changedThere, at: file))
+        EditedHere.hold(file)
+        defer { EditedHere.release(file) }
+        XCTAssertFalse(SFTPMirror.needsFetch(changedThere, at: file))
     }
 
     func testAFreeNameCountsUpBeforeTheExtension() {

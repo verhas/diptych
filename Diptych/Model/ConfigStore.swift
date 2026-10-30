@@ -81,7 +81,7 @@ final class ConfigStore {
     func setEnabled(_ column: FileColumn, _ enabled: Bool) {
         // Original Location is a Trash-listing column only; it is never a
         // general one, whatever asks to enable it.
-        guard column.isRemovable, column != .originalLocation else { return }
+        guard column.isRemovable, !column.isListingOnly else { return }
         if enabled {
             configuration.enabledColumns.insert(column)
         } else {

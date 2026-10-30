@@ -46,18 +46,24 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Trash only: where a trashed file came from. Never offered in the general
     /// column settings -- it is added to a Trash listing on its own.
     case originalLocation
+    /// SFTP servers only: how much of a file is kept here, and whether it is
+    /// arriving. Never offered in the general column settings either.
+    case cache
 
     var id: String { rawValue }
 
     /// Columns offered in the general column settings. Original Location is kept
     /// out: it belongs only to a Trash listing, switched by its own setting.
-    static var general: [FileColumn] { allCases.filter { $0 != .originalLocation } }
+    static var general: [FileColumn] { allCases.filter { !$0.isListingOnly } }
+
+    /// Shown only in one kind of listing, by a switch of its own.
+    var isListingOnly: Bool { self == .originalLocation || self == .cache }
 
     /// Read from the picture or video itself, not the file system.
     var isMedia: Bool {
         switch self {
         case .name, .size, .kind, .modified, .created, .added, .fileExtension, .permissions,
-             .owner, .group, .tags, .git, .originalLocation: false
+             .owner, .group, .tags, .git, .originalLocation, .cache: false
         default: true
         }
     }
@@ -100,6 +106,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .country:       "Country"
         case .rating:        "Rating"
         case .originalLocation: "Original Location"
+        case .cache:         "Cached"
         }
     }
 
@@ -126,6 +133,8 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .git:           []
         // Filled in by the pane from Diptych's own record, not the file system.
         case .originalLocation: []
+        // From the server's listing and the downloads, not the file system.
+        case .cache:         []
         default:             [DirectoryLoader.mediaKey]
         }
     }
@@ -152,6 +161,7 @@ enum FileColumn: String, Codable, CaseIterable, Identifiable, Sendable {
         case .camera, .lens, .software, .artist, .copyright, .imageDescription, .city,
              .state, .country: (80, 140, 400)
         case .originalLocation: (160, 320, 10_000)
+        case .cache:         (70, 90, 140)
         }
     }
 
@@ -182,6 +192,14 @@ struct Configuration: Codable, Equatable {
 
     /// The Original Location column in a Trash listing -- on by default, and
     /// shown only there, never in an ordinary folder.
+    /// The Cached column, in a listing of an SFTP server.
+    var showCacheColumnOnServers = true
+
+    /// Files on an SFTP server up to this size, in megabytes, are fetched as
+    /// soon as they are right-clicked, so they are here by the time a command
+    /// wants them. 0: nothing is fetched until it is used.
+    var serverPrefetchMegabytes = 10
+
     var showOriginalLocationInTrash = true
 
     /// Right-click menu entries switched off, by `MenuItem` raw value. Empty --
@@ -488,10 +506,11 @@ struct Configuration: Codable, Equatable {
     /// shown only in a Trash listing, only when its setting is on, at whatever
     /// position it has been dragged to in `columnOrder`. It is never a column
     /// anywhere else, however it is ordered or enabled.
-    func columns(inTrash: Bool) -> [FileColumn] {
+    func columns(inTrash: Bool, onServer: Bool = false) -> [FileColumn] {
         let ordered = columnOrder.filter { column in
             guard column != .name else { return false }
             if column == .originalLocation { return inTrash && showOriginalLocationInTrash }
+            if column == .cache { return onServer && showCacheColumnOnServers }
             return enabledColumns.contains(column)
         }
         return [.name] + ordered
@@ -523,6 +542,7 @@ struct Configuration: Codable, Equatable {
         case textFormatExtensions, textLineNumbers, textStyle
         case serverRefreshSeconds, copying
         case showOriginalLocationInTrash
+        case showCacheColumnOnServers, serverPrefetchMegabytes
         case hiddenMenuItems
         case splitPartWarningThreshold
     }
@@ -542,6 +562,10 @@ struct Configuration: Codable, Equatable {
             ?? [:]
         showOriginalLocationInTrash =
             (try? container.decode(Bool.self, forKey: .showOriginalLocationInTrash)) ?? true
+        showCacheColumnOnServers =
+            (try? container.decode(Bool.self, forKey: .showCacheColumnOnServers)) ?? true
+        serverPrefetchMegabytes = min(max(0, (try? container.decode(
+            Int.self, forKey: .serverPrefetchMegabytes)) ?? 10), 100_000)
         hiddenMenuItems =
             (try? container.decode(Set<String>.self, forKey: .hiddenMenuItems)) ?? []
         splitPartWarningThreshold =

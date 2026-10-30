@@ -192,9 +192,40 @@ final class BinaryViewModel {
     /// Off the main actor. Mapping is cheap, but `stat` and the first faults
     /// are not free on a cold or networked volume, and doing them inline is
     /// what makes a window hang on the way up.
+    /// The server a file is being fetched from while the window waits for it.
+    private(set) var waitingFor: String?
+    private var holdsFile = false
+
+    /// Holds a server file against being fetched again while it has changes here.
+    func holdFile(_ held: Bool) {
+        guard held != holdsFile, RemoteBrowsing.isInside(url) else { return }
+        holdsFile = held
+        if held { EditedHere.hold(url) } else { EditedHere.release(url) }
+    }
+
+    /// The copy here was put back to the server's version: shown as it now is.
+    func readAgain() {
+        reload()
+    }
+
     private func load() async {
         let url = self.url
         let limit = Self.maximumSize
+        // A file on a server whose bytes are not here, or are of an older
+        // version: the window opens at once and fills when they have arrived.
+        if RemoteBrowsing.hasPending([url]) {
+            waitingFor = RemoteBrowsing.server(of: url)?.host ?? "the server"
+            do {
+                try await RemoteBrowsing.download(url)
+                waitingFor = nil
+            } catch {
+                waitingFor = nil
+                loadError = "\(url.lastPathComponent) could not be fetched from the server: "
+                    + error.localizedDescription
+                isLoading = false
+                return
+            }
+        }
 
         let loaded: (data: Data?, message: String?) =
             await Task.detached(priority: .userInitiated) {

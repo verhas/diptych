@@ -304,6 +304,23 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            HStack {
+                Text("On SFTP servers, fetch files up to")
+                TextField("", value: $store.configuration.serverPrefetchMegabytes,
+                          format: .number)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                Text("MB when right-clicked")
+            }
+            Text("A file on an SFTP server is fetched when it is first opened, previewed or "
+                 + "copied. A right-click fetches it at once when it is no bigger than this, "
+                 + "so it is here by the time a command wants it -- and fetches it again when "
+                 + "the server has changed it since. A bigger one has Download to Cache in the "
+                 + "menu instead. 0 fetches nothing on a right-click.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Divider()
 
             Toggle("Return opens archives and disk images in the pane",
@@ -399,7 +416,7 @@ struct ColumnSettingsView: View {
             List {
                 // Original Location is left out: it belongs only to a Trash
                 // listing and has its own switch below, not the general set.
-                ForEach(store.configuration.columnOrder.filter { $0 != .originalLocation }) { column in
+                ForEach(store.configuration.columnOrder.filter { !$0.isListingOnly }) { column in
                     row(for: column)
                 }
                 .onMove { source, destination in
@@ -415,6 +432,15 @@ struct ColumnSettingsView: View {
             Text("A column, shown only when a pane is a Trash folder, giving where each file "
                  + "was before Diptych moved it to the Trash. It never appears in an ordinary "
                  + "folder.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Show what is kept here in SFTP server listings", isOn: Binding(
+                get: { store.configuration.showCacheColumnOnServers },
+                set: { store.configuration.showCacheColumnOnServers = $0 }))
+            Text("The Cached column, shown only in a folder on an SFTP server: how much of each "
+                 + "file has been fetched to this Mac, a bar while it arrives, and whether the "
+                 + "server has changed the file since.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 

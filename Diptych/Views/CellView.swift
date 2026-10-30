@@ -85,6 +85,7 @@ struct CellView: View {
             case .permissions: permissionsCell
             case .git:         gitCell
             case .originalLocation: originalLocationCell
+            case .cache:       cacheCell
             default:
                 if pane.valueEdit == CellEdit.Spot(id: item.id, column: column) {
                     RenameField(text: $pane.valueEditText, selectsAll: true,
@@ -165,6 +166,82 @@ struct CellView: View {
                   : text)
     }
 
+    /// How much of a server's file is here: nothing, a bar while it arrives, its
+    /// size once it has, in orange when the server has changed it since.
+    @ViewBuilder
+    private var cacheCell: some View {
+        if let cache = item.serverCache {
+            if ServerDownloads.shared.isDownloading(item.url) {
+                TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                    let received = RemoteBrowsing.received(item.url) ?? 0
+                    if item.byteSize > 0, !item.sizeIsUnknown {
+                        ProgressView(value: Double(min(received, item.byteSize)),
+                                     total: Double(item.byteSize))
+                            .progressViewStyle(.linear)
+                            .help("Fetching: \(FileItem.byteText(received)) of "
+                                  + FileItem.byteText(item.byteSize))
+                    } else {
+                        Text(FileItem.byteText(received)).foregroundStyle(.blue).monospacedDigit()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            } else {
+                Text(item.text(for: .cache).isEmpty ? "\u{2014}" : item.text(for: .cache))
+                    .foregroundStyle(cache == .notFetched ? AnyShapeStyle(.tertiary)
+                                     : Self.isChangedThere(cache) ? AnyShapeStyle(.orange)
+                                     : AnyShapeStyle(.secondary))
+                    .lineLimit(1)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .help(Self.cacheHelp(cache))
+            }
+        }
+    }
+
+    static func isChangedThere(_ cache: ServerCache) -> Bool {
+        if case .changedThere = cache { return true }
+        return false
+    }
+
+    static func cacheHelp(_ cache: ServerCache) -> String {
+        switch cache {
+        case .notFetched:
+            "Not fetched: only the server\u{2019}s listing is here. Opening, previewing or "
+                + "copying it fetches it."
+        case .fetched:
+            "Fetched: a copy of the server\u{2019}s version is kept on this Mac."
+        case .changedThere:
+            "The server has changed this file since it was fetched. Opening it fetches the "
+                + "new version, unless it was changed here too."
+        }
+    }
+
+    /// A small mark after a server file's name: arriving, here, or here but older
+    /// than the server's. Nothing for a file only listed.
+    @ViewBuilder
+    private var cacheMark: some View {
+        if let cache = item.serverCache {
+            let size = PaneFont.size * 0.8
+            if ServerDownloads.shared.isDownloading(item.url) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: size))
+                    .foregroundStyle(.blue)
+                    .symbolEffect(.pulse)
+                    .help("Being fetched from the server")
+            } else if Self.isChangedThere(cache) {
+                Image(systemName: "arrow.triangle.2.circlepath.circle")
+                    .font(.system(size: size))
+                    .foregroundStyle(.orange)
+                    .help(Self.cacheHelp(cache))
+            } else if cache != .notFetched {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: size))
+                    .foregroundStyle(.secondary)
+                    .help(Self.cacheHelp(cache))
+            }
+        }
+    }
+
     /// The words, in their own colours, comma separated.
     ///
     /// A folder lists everything inside it -- "clash, changed, new" -- because
@@ -243,6 +320,7 @@ struct CellView: View {
                         .foregroundStyle(.orange)
                         .help("Executable")
                 }
+                cacheMark
             }
         }
     }
