@@ -49,6 +49,8 @@ final class AppModel {
         case keepAlive
         /// Deleting items on a server: final, with no Trash to take them back from.
         case serverDelete
+        /// The sudo password, for a change on a server only root may make.
+        case sudoPassword
         case historyStep
         case historyMany
         case tips
@@ -86,6 +88,7 @@ final class AppModel {
             case .sftpLogin:      return "sftpLogin"
             case .keepAlive:      return "keepAlive"
             case .serverDelete:   return "serverDelete"
+            case .sudoPassword:   return "sudoPassword"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -186,6 +189,36 @@ final class AppModel {
     @ObservationIgnored var keepAliveServer: URL?
     /// The fetch an open Quick Look panel is waiting for, cancelled by a later move.
     @ObservationIgnored var quickLookFetch: Task<Void, Never>?
+    /// The sudo question while it is asked, and who waits for its answer.
+    var sudoPrompt: SudoPrompt?
+    @ObservationIgnored private var sudoAnswer: CheckedContinuation<SudoAnswer?, Never>?
+
+    struct SudoPrompt: Equatable {
+        let host: String
+        let user: String
+        let wasWrong: Bool
+    }
+
+    /// Asks for the sudo password, and waits for it: nil when the person declines.
+    func askSudoPassword(host: String, user: String, wasWrong: Bool) async -> SudoAnswer? {
+        // A question still open is answered as declined: one at a time.
+        answerSudo(nil)
+        return await withCheckedContinuation { continuation in
+            sudoAnswer = continuation
+            sudoPrompt = SudoPrompt(host: host, user: user, wasWrong: wasWrong)
+            dialog = .sudoPassword
+        }
+    }
+
+    func answerSudo(_ answer: SudoAnswer?) {
+        let waiting = sudoAnswer
+        sudoAnswer = nil
+        if sudoPrompt != nil {
+            sudoPrompt = nil
+            if dialog == .sudoPassword { dialog = nil }
+        }
+        waiting?.resume(returning: answer)
+    }
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
@@ -3962,7 +3995,10 @@ final class AppModel {
 
     func requestOwnerEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Owner") else { return }
-        picker.show(sections: [.init(title: "Users", items: AccountLookup.users())],
+        // On a server, the users its listings show: this Mac's are not the server's.
+        let users = RemoteBrowsing.server(of: active.directory)
+            .map { RemoteBrowsing.accounts(of: $0).users.keys.sorted() } ?? AccountLookup.users()
+        picker.show(sections: [.init(title: "Users", items: users)],
                     current: target.owner) { [weak self] name in
             self?.applyOwnership(owner: name, group: nil)
         }
@@ -3970,6 +4006,14 @@ final class AppModel {
 
     func requestGroupEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Group") else { return }
+        if let server = RemoteBrowsing.server(of: active.directory) {
+            let groups = RemoteBrowsing.accounts(of: server).groups.keys.sorted()
+            picker.show(sections: [.init(title: "Groups", items: groups)],
+                        current: target.group) { [weak self] name in
+                self?.applyOwnership(owner: nil, group: name)
+            }
+            return
+        }
 
         // Your own groups first: they are the only ones a chgrp will accept
         // without root.
@@ -3983,7 +4027,7 @@ final class AppModel {
     }
 
     private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {
-        guard !refusedAsReadOnly(active, "changed here") else { return nil }
+        guard !refusedAsReadOnly(active, "changed here", serverWritable: true) else { return nil }
         let items = active.selectedItems
         guard !items.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -4003,6 +4047,24 @@ final class AppModel {
         let pane = active
         let urls = pane.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+
+        // On a server the change is made there, through sudo when the user may not.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be changed together")
+                return
+            }
+            Task {
+                do {
+                    try await RemoteBrowsing.setOwnership(owner: owner, group: group, for: urls)
+                    pane.reload()
+                    flash("Changed the owner on the server", error: false)
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
 
         Task {
             let before = await BlockingWork.run {

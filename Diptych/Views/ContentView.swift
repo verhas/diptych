@@ -845,6 +845,12 @@ struct DialogSheet: View {
                     confirm: "Move to Trash",
                     destructive: true) { model.confirmTrash() }
 
+            case .sudoPassword:
+                if let prompt = model.sudoPrompt {
+                    SudoPasswordView(prompt: prompt,
+                                     answer: { model.answerSudo($0) })
+                }
+
             case .serverDelete:
                 let items = model.active.selectedItems
                 confirmation(

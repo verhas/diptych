@@ -201,6 +201,11 @@ actor ReconnectingRemote: RemoteListing {
     func setTimes(_ path: String, modified: Date) async throws {
         try await perform(idempotent: true) { try await $0.setTimes(path, modified: modified) }
     }
+
+    func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
+        // Only ever used for a change that is the same made twice (chown).
+        try await perform(idempotent: true) { try await $0.runAsRoot(arguments, password: password) }
+    }
 }
 
 /// How often a connection is checked: Diptych's own setting for the server,

@@ -130,3 +130,59 @@ struct SFTPLoginView: View {
         !username.isEmpty && !password.isEmpty
     }
 }
+
+/// The sudo password, for one change on a server that only root may make: the
+/// command is run as root, the session stays the user's. How long the password
+/// is kept is the person's choice; it is never written anywhere.
+struct SudoPasswordView: View {
+
+    let prompt: AppModel.SudoPrompt
+    let answer: (SudoAnswer?) -> Void
+
+    @State private var password = ""
+    @State private var keep: SudoKeep = .once
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Text("Change It as Root on \(prompt.host)?").font(.headline)
+
+        Text("\(prompt.host) does not let \(prompt.user) make this change. With sudo, the one "
+             + "command is run as root; everything else stays \(prompt.user)\u{2019}s. Type the "
+             + "sudo password for \(prompt.user) on \(prompt.host).")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if prompt.wasWrong {
+            Text("That password was not accepted. Try again.")
+                .font(.subheadline)
+                .foregroundStyle(.red)
+        }
+
+        SecureField("sudo password", text: $password)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { focused = true }
+            .onSubmit { if !password.isEmpty { answer(SudoAnswer(password: password, keep: keep)) } }
+
+        Picker("", selection: $keep) {
+            ForEach(SudoKeep.allCases) { Text($0.label).tag($0) }
+        }
+        .labelsHidden()
+
+        Text("Kept in memory only, never on disk, and forgotten when the server is disconnected "
+             + "or Diptych quits.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        HStack {
+            Spacer()
+            Button("Cancel") { answer(nil) }
+                .keyboardShortcut(.cancelAction)
+            Button("Run with sudo") { answer(SudoAnswer(password: password, keep: keep)) }
+                .keyboardShortcut(.defaultAction)
+                .disabled(password.isEmpty)
+        }
+    }
+}

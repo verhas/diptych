@@ -9,6 +9,12 @@ nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
     /// An owner or group name that the server's listings do not show, and that is
     /// not a number.
     case unknownAccount(String)
+    /// The person did not give the sudo password.
+    case sudoCancelled
+    /// sudo will not let the user do it, or the password was refused too often.
+    case sudoRefused(String)
+    /// sudo ran the change, and the change failed.
+    case sudoFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +22,12 @@ nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
             "\u{201C}\(name)\u{201D} is already there on the server, and is not written over."
         case .notOnServer:
             "That is not a place on a server."
+        case .sudoCancelled:
+            "The server needs the sudo password for this, and none was given."
+        case .sudoRefused(let said):
+            "The server would not let this be done with sudo: \(said)"
+        case .sudoFailed(let said):
+            "It was run with sudo, and failed: \(said)"
         case .unknownAccount(let name):
             "\u{201C}\(name)\u{201D} is not a user or group the server\u{2019}s listings show. "
                 + "Give its number, or show a folder with files it owns in a pane first."
@@ -127,6 +139,7 @@ nonisolated enum RemoteBrowsing {
             return registry.servers.remove(at: index)
         }
         guard let server else { return false }
+        SudoPasswords.shared.forget(server.key)
         Task.detached { await server.close() }
         try? FileManager.default.removeItem(at: server.root)
         return true
@@ -143,6 +156,7 @@ nonisolated enum RemoteBrowsing {
         for server in servers {
             Task.detached { await server.close() }
         }
+        SudoPasswords.shared.forgetAll()
         try? FileManager.default.removeItem(at: cacheRoot)
     }
 
@@ -365,12 +379,56 @@ nonisolated enum RemoteBrowsing {
             let uid = try owner.map { try identifier($0, among: known.users) } ?? current?.uid
             let gid = try group.map { try identifier($0, among: known.groups) } ?? current?.gid
             guard let uid, let gid else { throw RemoteWriteError.notOnServer }
-            try await server.mirror.setOwnership(path, uid: uid, gid: gid)
+            do {
+                try await server.mirror.setOwnership(path, uid: uid, gid: gid)
+            } catch {
+                // Refused to the user who signed in, as giving a file away usually
+                // is: the one command is run as root, through sudo.
+                try await chownAsRoot(path, uid: uid, gid: gid, on: server)
+            }
             folders.insert(url.deletingLastPathComponent())
         }
         for folder in folders {
             try await refresh(folder)
         }
+    }
+
+    /// Who asks the person for a sudo password. The tests put their own here.
+    nonisolated(unsafe) static var askForSudo: @Sendable (_ host: String, _ user: String,
+                                                         _ wasWrong: Bool) async -> SudoAnswer? = {
+        host, user, wasWrong in await SudoPrompter.ask(host: host, user: user, wasWrong: wasWrong)
+    }
+
+    /// `chown` as root, through sudo: with no password when sudo needs none, with
+    /// a kept one when there is one, and otherwise with one the person gives.
+    private static func chownAsRoot(_ path: String, uid: UInt32, gid: UInt32,
+                                    on server: Server) async throws {
+        let command = ["chown", "\(uid):\(gid)", "--", path]
+        var password = SudoPasswords.shared.password(for: server.key)
+        var wasWrong = false
+        for _ in 0..<4 {
+            let outcome = try await server.mirror.runAsRoot(command, password: password)
+            switch outcome {
+            case .done:
+                return
+            case .needsPassword, .wrongPassword:
+                if outcome == .wrongPassword {
+                    SudoPasswords.shared.forget(server.key)
+                    wasWrong = true
+                }
+                guard let answer = await askForSudo(server.host, server.user, wasWrong) else {
+                    throw RemoteWriteError.sudoCancelled
+                }
+                password = answer.password
+                SudoPasswords.shared.keep(answer.password, for: server.key, answer.keep)
+            case .notAllowed(let said):
+                throw RemoteWriteError.sudoRefused(said)
+            case .failed(let said):
+                throw RemoteWriteError.sudoFailed(said)
+            }
+        }
+        SudoPasswords.shared.forget(server.key)
+        throw RemoteWriteError.sudoRefused("the password was not accepted.")
     }
 
     /// Sets the modification time of the items at `urls` on their servers.

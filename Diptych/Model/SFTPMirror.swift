@@ -136,6 +136,10 @@ actor SFTPMirror {
         try await remote.setTimes(path, modified: modified)
     }
 
+    func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
+        try await remote.runAsRoot(arguments, password: password)
+    }
+
     /// Removes `path` from the server, and everything in it when it is a folder.
     func remove(_ path: String, isDirectory: Bool) async throws {
         guard isDirectory else {

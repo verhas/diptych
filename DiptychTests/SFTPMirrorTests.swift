@@ -72,6 +72,7 @@ final class SFTPMirrorTests: XCTestCase {
         private(set) var owners: [String: (UInt32, UInt32)] = [:]
 
         func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
+            if refusesOwnership { throw CocoaError(.fileWriteNoPermission) }
             owners[path] = (uid, gid)
         }
 
@@ -79,6 +80,17 @@ final class SFTPMirrorTests: XCTestCase {
 
         func setTimes(_ path: String, modified: Date) async throws {
             times[path] = modified
+        }
+
+        /// Whether a change of owner is refused to the user, as a real server does.
+        var refusesOwnership = false
+        /// What sudo answers, in turn; and the commands and passwords it was given.
+        var sudoAnswers: [SudoOutcome] = []
+        private(set) var sudoCalls: [(arguments: [String], password: String?)] = []
+
+        func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
+            sudoCalls.append((arguments, password))
+            return sudoAnswers.isEmpty ? .done : sudoAnswers.removeFirst()
         }
 
         /// Lists `path` in its folder, as the server would.

@@ -305,4 +305,45 @@ final class RemoteBrowsingTests: XCTestCase {
         try await RemoteBrowsing.refresh(folder)
         XCTAssertEqual(RemoteBrowsing.listedMode(of: folder.appendingPathComponent("note.txt")), 0o644)
     }
+
+    // MARK: - Through sudo
+
+    /// A server that refuses the change to the user gets it through sudo: first
+    /// with no password, then with the one the person gives, kept as chosen.
+    func testARefusedOwnerChangeIsMadeThroughSudoWithThePasswordGiven() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5,
+                                                   uid: 1000, gid: 1000, ownerName: "peter")]
+        server.refusesOwnership = true
+        server.sudoAnswers = [.needsPassword, .done]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        RemoteBrowsing.askForSudo = { _, _, _ in SudoAnswer(password: "secret", keep: .fiveMinutes) }
+        defer { RemoteBrowsing.askForSudo = { host, user, wrong in
+            await SudoPrompter.ask(host: host, user: user, wasWrong: wrong) } }
+
+        try await RemoteBrowsing.setOwnership(owner: "0", group: nil, for: [folder.appendingPathComponent("note.txt")])
+
+        XCTAssertEqual(server.sudoCalls.map(\.password), [nil, "secret"])
+        XCTAssertEqual(server.sudoCalls.last?.arguments, ["chown", "0:1000", "--", "/home/peter/note.txt"])
+        XCTAssertEqual(SudoPasswords.shared.password(for: connected.key), "secret")
+
+        RemoteBrowsing.disconnect(root: connected.root)
+        XCTAssertNil(SudoPasswords.shared.password(for: connected.key))
+    }
+
+    func testAUserNotAllowedToUseSudoIsToldSo() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, uid: 1000, gid: 1000)]
+        server.refusesOwnership = true
+        server.sudoAnswers = [.notAllowed("peter is not in the sudoers file.")]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        do {
+            try await RemoteBrowsing.setOwnership(owner: "0", group: nil, for: [folder.appendingPathComponent("note.txt")])
+            XCTFail("done without sudo rights")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .sudoRefused("peter is not in the sudoers file."))
+        }
+    }
 }

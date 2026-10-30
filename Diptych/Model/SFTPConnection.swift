@@ -329,6 +329,9 @@ nonisolated protocol RemoteListing: Sendable {
     func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws
     /// Sets the modification time of `path` on the server.
     func setTimes(_ path: String, modified: Date) async throws
+    /// Runs one command as root through sudo, over the same connection: with no
+    /// password (`sudo -n`), or with the one given, sent on its input.
+    func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome
 }
 
 extension SFTPSession: RemoteListing {
@@ -365,6 +368,39 @@ extension SFTPSession: RemoteListing {
         var attributes = SFTPFileAttributes()
         attributes.uidgid = SFTPFileAttributes.UserGroupId(userId: uid, groupId: gid)
         try await sftp.setAttributes(at: path, to: attributes)
+    }
+
+    func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
+        let words = arguments.map(shellQuoted).joined(separator: " ")
+        // With a password, a shell on the server reads one line -- the password,
+        // sent on the input -- and hands sudo only that line. It never appears on
+        // a command line, and a wrong one fails at once rather than waiting for
+        // sudo's next try.
+        let command = password == nil
+            ? "sudo -n -- " + words
+            : "sh -c " + shellQuoted("IFS= read -r p; printf '%s\\n' \"$p\" | sudo -S -p '' -- \"$@\"")
+                + " sh " + words
+        var errors = ""
+        var failed = false
+        do {
+            try await ssh.withExec(command) { inbound, outbound in
+                if let password {
+                    try await outbound.write(ByteBuffer(string: password + "\n"))
+                }
+                // The outcome is read here: closing the channel afterwards can fail
+                // in its own right and hide whether the command did.
+                do {
+                    for try await output in inbound {
+                        if case .stderr(let buffer) = output { errors += String(buffer: buffer) }
+                    }
+                } catch is SSHClient.CommandFailed {
+                    failed = true
+                }
+            }
+        } catch let error as ChannelError where error == .alreadyClosed {
+            // The command ended and the server closed the channel first: nothing lost.
+        }
+        return failed ? SudoOutcome.reading(errors) : .done
     }
 
     func setTimes(_ path: String, modified: Date) async throws {
