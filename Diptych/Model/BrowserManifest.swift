@@ -174,6 +174,10 @@ struct BrowserManifest: Codable, Equatable, Sendable {
         static let gid = "gid"
         static let modified = "mtime"
         static let created = "btime"
+        /// The owner and group as the server names them: a file on a server, whose
+        /// numbers may mean other users on this Mac."
+        static let ownerName = "owner"
+        static let groupName = "group"
     }
 }
 

@@ -26,7 +26,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// bit, since that is what makes it traversable.
     let isExecutable: Bool
     var byteSize: Int64
-    let modified: Date
+    var modified: Date
 
     // Populated only when the matching column is switched on; the loader does
     // not pay for metadata nobody is showing.

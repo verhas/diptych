@@ -32,6 +32,8 @@ final class ReconnectingRemoteTests: XCTestCase {
         func rename(_ from: String, to: String) async throws { try attempt() }
         func upload(_ local: URL, to path: String) async throws { try attempt() }
         func setPermissions(_ path: String, mode: UInt32) async throws { try attempt() }
+        func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws { try attempt() }
+        func setTimes(_ path: String, modified: Date) async throws { try attempt() }
     }
 
     /// Counts how many new connections were made.

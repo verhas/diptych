@@ -20,7 +20,9 @@ final class SFTPMirrorTests: XCTestCase {
             (folders[path] ?? []).map { entry in
                 let child = path == "/" ? "/" + entry.name : path + "/" + entry.name
                 return SFTPEntry(name: entry.name, kind: entry.kind, size: entry.size,
-                                    mode: modes[child] ?? entry.mode)
+                                 mode: modes[child] ?? entry.mode, modified: times[child] ?? entry.modified,
+                                 uid: owners[child]?.0 ?? entry.uid, gid: owners[child]?.1 ?? entry.gid,
+                                 ownerName: entry.ownerName, groupName: entry.groupName)
             }
         }
 
@@ -65,6 +67,18 @@ final class SFTPMirrorTests: XCTestCase {
 
         func setPermissions(_ path: String, mode: UInt32) async throws {
             modes[path] = mode
+        }
+
+        private(set) var owners: [String: (UInt32, UInt32)] = [:]
+
+        func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
+            owners[path] = (uid, gid)
+        }
+
+        private(set) var times: [String: Date] = [:]
+
+        func setTimes(_ path: String, modified: Date) async throws {
+            times[path] = modified
         }
 
         /// Lists `path` in its folder, as the server would.

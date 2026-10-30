@@ -137,9 +137,13 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
     /// The owner and group the server reports, as numbers.
     let uid: UInt32?
     let gid: UInt32?
+    /// The owner and group as the server's own listing names them, when it names them.
+    let ownerName: String?
+    let groupName: String?
 
     init(name: String, kind: Kind, size: UInt64? = nil, mode: UInt32? = nil,
-         modified: Date? = nil, uid: UInt32? = nil, gid: UInt32? = nil) {
+         modified: Date? = nil, uid: UInt32? = nil, gid: UInt32? = nil,
+         ownerName: String? = nil, groupName: String? = nil) {
         self.name = name
         self.kind = kind
         self.size = size
@@ -147,6 +151,8 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
         self.modified = modified
         self.uid = uid
         self.gid = gid
+        self.ownerName = ownerName
+        self.groupName = groupName
     }
 
     init(_ component: SFTPPathComponent) {
@@ -158,6 +164,15 @@ nonisolated struct SFTPEntry: Equatable, Sendable {
         uid = attributes.uidgid?.userId
         gid = attributes.uidgid?.groupId
         kind = Self.kind(ofPermissions: attributes.permissions)
+        // `ls -l` puts the owner and the group after the link count.
+        let fields = component.longname.split(separator: " ", omittingEmptySubsequences: true)
+        if fields.count >= 9, fields[0].count == 10 {
+            ownerName = String(fields[2])
+            groupName = String(fields[3])
+        } else {
+            ownerName = nil
+            groupName = nil
+        }
     }
 
     /// The file-type bits of a Unix mode (`S_IFMT`).
@@ -310,6 +325,10 @@ nonisolated protocol RemoteListing: Sendable {
     func upload(_ local: URL, to path: String) async throws
     /// Sets the permission bits of `path` on the server: setuid, setgid and sticky too.
     func setPermissions(_ path: String, mode: UInt32) async throws
+    /// Sets the owner and group of `path` on the server, by number.
+    func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws
+    /// Sets the modification time of `path` on the server.
+    func setTimes(_ path: String, modified: Date) async throws
 }
 
 extension SFTPSession: RemoteListing {
@@ -339,6 +358,19 @@ extension SFTPSession: RemoteListing {
     func setPermissions(_ path: String, mode: UInt32) async throws {
         var attributes = SFTPFileAttributes()
         attributes.permissions = mode
+        try await sftp.setAttributes(at: path, to: attributes)
+    }
+
+    func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
+        var attributes = SFTPFileAttributes()
+        attributes.uidgid = SFTPFileAttributes.UserGroupId(userId: uid, groupId: gid)
+        try await sftp.setAttributes(at: path, to: attributes)
+    }
+
+    func setTimes(_ path: String, modified: Date) async throws {
+        var attributes = SFTPFileAttributes()
+        attributes.accessModificationTime = SFTPFileAttributes.AccessModificationTime(
+            accessTime: modified, modificationTime: modified)
         try await sftp.setAttributes(at: path, to: attributes)
     }
 

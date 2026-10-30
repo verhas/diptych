@@ -6,6 +6,9 @@ nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
     case exists(String)
     /// The item is not on a server.
     case notOnServer
+    /// An owner or group name that the server's listings do not show, and that is
+    /// not a number.
+    case unknownAccount(String)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +16,9 @@ nonisolated enum RemoteWriteError: LocalizedError, Equatable, Sendable {
             "\u{201C}\(name)\u{201D} is already there on the server, and is not written over."
         case .notOnServer:
             "That is not a place on a server."
+        case .unknownAccount(let name):
+            "\u{201C}\(name)\u{201D} is not a user or group the server\u{2019}s listings show. "
+                + "Give its number, or show a folder with files it owns in a pane first."
         }
     }
 }
@@ -96,6 +102,11 @@ nonisolated enum RemoteBrowsing {
             SidebarEntry(kind: .volume, url: server.root, name: server.host,
                          isEjectable: true, isNetwork: true, isReadOnly: true)
         }
+    }
+
+    /// The connected server a shadow path belongs to.
+    static func server(of url: URL) -> Server? {
+        owning(url)?.server
     }
 
     /// The connected server whose shadow is `root`.
@@ -317,6 +328,103 @@ nonisolated enum RemoteBrowsing {
         try await server.mirror.makeFolder(path)
         try await refresh(parent)
         return localURL(on: server, remote: path)
+    }
+
+    /// Makes an empty file named `name` in `parent`, on the server, and lists it.
+    static func createFile(named name: String, in parent: URL) async throws -> URL {
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("new-file-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let empty = staging.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: empty.path, contents: nil)
+        try await upload([empty], into: parent)
+        guard let (server, folder) = remotePath(parent) else { throw RemoteWriteError.notOnServer }
+        return localURL(on: server, remote: join(folder, name))
+    }
+
+    /// Whether a user or group, by name or number, is one the server's listings
+    /// show: a number always is, as the server takes it.
+    static func knowsAccount(_ text: String, group: Bool, for url: URL) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if UInt32(trimmed) != nil { return true }
+        guard let (server, _) = remotePath(url) else { return false }
+        let known = accounts(of: server)
+        return (group ? known.groups : known.users)[trimmed] != nil
+    }
+
+    /// Sets the owner and group of the items at `urls`, each given by the name the
+    /// server's listings show or by its number; nil leaves that half as it is.
+    static func setOwnership(owner: String?, group: String?, for urls: [URL]) async throws {
+        var folders = Set<URL>()
+        for url in urls {
+            guard let (server, path) = remotePath(url) else { continue }
+            let known = accounts(of: server)
+            let current = ownership(of: url)
+            let uid = try owner.map { try identifier($0, among: known.users) } ?? current?.uid
+            let gid = try group.map { try identifier($0, among: known.groups) } ?? current?.gid
+            guard let uid, let gid else { throw RemoteWriteError.notOnServer }
+            try await server.mirror.setOwnership(path, uid: uid, gid: gid)
+            folders.insert(url.deletingLastPathComponent())
+        }
+        for folder in folders {
+            try await refresh(folder)
+        }
+    }
+
+    /// Sets the modification time of the items at `urls` on their servers.
+    static func setTimes(modified: Date, for urls: [URL]) async throws {
+        var folders = Set<URL>()
+        for url in urls {
+            guard let (server, path) = remotePath(url) else { continue }
+            try await server.mirror.setTimes(path, modified: modified)
+            folders.insert(url.deletingLastPathComponent())
+        }
+        for folder in folders {
+            try await refresh(folder)
+        }
+    }
+
+    /// The users and groups the server's listings name, with their numbers.
+    static func accounts(of server: Server) -> (users: [String: UInt32], groups: [String: UInt32]) {
+        var users: [String: UInt32] = [:]
+        var groups: [String: UInt32] = [:]
+        var folders = [server.root]
+        let enumerator = FileManager.default.enumerator(at: server.root, includingPropertiesForKeys: nil)
+        while let next = enumerator?.nextObject() as? URL {
+            if SFTPMirror.isDirectory(next) { folders.append(next) }
+        }
+        for folder in folders {
+            for node in BrowserManifestStore.read(in: folder)?.nodes ?? [] {
+                if let name = node.attribute(BrowserManifest.Attribute.ownerName)?.stringValue,
+                   let id = node.attribute(BrowserManifest.Attribute.uid)?.intValue {
+                    users[name] = UInt32(truncatingIfNeeded: id)
+                }
+                if let name = node.attribute(BrowserManifest.Attribute.groupName)?.stringValue,
+                   let id = node.attribute(BrowserManifest.Attribute.gid)?.intValue {
+                    groups[name] = UInt32(truncatingIfNeeded: id)
+                }
+            }
+        }
+        return (users, groups)
+    }
+
+    /// A user or group as a number: a number as it is, a name the listings show as
+    /// the number they show it with.
+    private static func identifier(_ text: String, among known: [String: UInt32]) throws -> UInt32 {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if let number = UInt32(trimmed) { return number }
+        guard let number = known[trimmed] else { throw RemoteWriteError.unknownAccount(trimmed) }
+        return number
+    }
+
+    /// The owner and group numbers an item has, as its listing recorded them.
+    private static func ownership(of url: URL) -> (uid: UInt32, gid: UInt32)? {
+        guard let node = BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
+                .first(where: { $0.name == url.lastPathComponent }),
+              let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue,
+              let gid = node.attribute(BrowserManifest.Attribute.gid)?.intValue else { return nil }
+        return (UInt32(truncatingIfNeeded: uid), UInt32(truncatingIfNeeded: gid))
     }
 
     /// Renames the item at `url` on the server, in the same folder.

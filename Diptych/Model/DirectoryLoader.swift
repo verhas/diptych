@@ -121,13 +121,28 @@ enum DirectoryLoader {
                     item.permissions = (item.isDirectory ? "d" : "-")
                         + FileOperations.rwxString(item.mode)
                 }
-                if let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue,
-                   let pw = getpwuid(uid_t(truncatingIfNeeded: uid)) {
+                // A server's own names, when it gave them. Its numbers are not this
+                // Mac's users, so on a server they are never looked up here.
+                let onServer = RemoteBrowsing.isInside(directory)
+                if let name = node.attribute(BrowserManifest.Attribute.ownerName)?.stringValue {
+                    item.owner = name
+                } else if onServer, let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue {
+                    item.owner = String(uid)
+                } else if let uid = node.attribute(BrowserManifest.Attribute.uid)?.intValue,
+                          let pw = getpwuid(uid_t(truncatingIfNeeded: uid)) {
                     item.owner = String(cString: pw.pointee.pw_name)
                 }
-                if let gid = node.attribute(BrowserManifest.Attribute.gid)?.intValue,
-                   let gr = getgrgid(gid_t(truncatingIfNeeded: gid)) {
+                if let name = node.attribute(BrowserManifest.Attribute.groupName)?.stringValue {
+                    item.group = name
+                } else if onServer, let gid = node.attribute(BrowserManifest.Attribute.gid)?.intValue {
+                    item.group = String(gid)
+                } else if let gid = node.attribute(BrowserManifest.Attribute.gid)?.intValue,
+                          let gr = getgrgid(gid_t(truncatingIfNeeded: gid)) {
                     item.group = String(cString: gr.pointee.gr_name)
+                }
+                // The server's modification date, not the placeholder's.
+                if node.backing == .none, let date = node.attribute(BrowserManifest.Attribute.modified)?.dateValue {
+                    item.modified = date
                 }
             }
             result.append(item)

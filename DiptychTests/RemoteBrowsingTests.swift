@@ -229,4 +229,54 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertEqual(found.map { $0.standardizedFileURL.path },
                        [RemoteBrowsing.localURL(on: connected, remote: "/home/peter").standardizedFileURL.path])
     }
+
+    // MARK: - Files, times and owners
+
+    func testAnEmptyFileIsCreatedOnTheServer() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        _ = try await RemoteBrowsing.createFile(named: "new.txt", in: home)
+        XCTAssertEqual(server.files["/home/peter/new.txt"], Data())
+    }
+
+    func testTheModificationTimeIsSetOnTheServer() async throws {
+        let connected = try await connect()
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home/peter"))
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        try await RemoteBrowsing.setTimes(modified: when, for: [note])
+        XCTAssertEqual(server.times["/home/peter/note.txt"], when)
+    }
+
+    /// The server's names, from its own listing: a name only the server has is
+    /// set by its number there, and a name it does not show is refused.
+    func testTheOwnerIsSetByTheServersOwnNameOrByNumber() async throws {
+        server.folders["/home/peter"] = [
+            SFTPEntry(name: "note.txt", kind: .file, size: 5, uid: 1000, gid: 1000,
+                      ownerName: "verhas", groupName: "verhas"),
+            SFTPEntry(name: "web.txt", kind: .file, size: 1, uid: 33, gid: 33,
+                      ownerName: "www-data", groupName: "www-data"),
+        ]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let note = folder.appendingPathComponent("note.txt")
+
+        XCTAssertEqual(RemoteBrowsing.accounts(of: connected).users["www-data"], 33)
+        XCTAssertTrue(RemoteBrowsing.knowsAccount("www-data", group: false, for: note))
+        XCTAssertTrue(RemoteBrowsing.knowsAccount("4242", group: true, for: note))
+        XCTAssertFalse(RemoteBrowsing.knowsAccount("nobody-here", group: false, for: note))
+
+        try await RemoteBrowsing.setOwnership(owner: "www-data", group: nil, for: [note])
+        XCTAssertEqual(server.owners["/home/peter/note.txt"]?.0, 33)
+        XCTAssertEqual(server.owners["/home/peter/note.txt"]?.1, 1000)
+
+        do {
+            try await RemoteBrowsing.setOwnership(owner: "nobody-here", group: nil, for: [note])
+            XCTFail("an unknown name was taken")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .unknownAccount("nobody-here"))
+        }
+    }
 }

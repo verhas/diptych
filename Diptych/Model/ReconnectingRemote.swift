@@ -193,6 +193,14 @@ actor ReconnectingRemote: RemoteListing {
         // Setting a mode twice leaves it as it was set: safe to make again.
         try await perform(idempotent: true) { try await $0.setPermissions(path, mode: mode) }
     }
+
+    func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
+        try await perform(idempotent: true) { try await $0.setOwnership(path, uid: uid, gid: gid) }
+    }
+
+    func setTimes(_ path: String, modified: Date) async throws {
+        try await perform(idempotent: true) { try await $0.setTimes(path, modified: modified) }
+    }
 }
 
 /// How often a connection is checked: Diptych's own setting for the server,

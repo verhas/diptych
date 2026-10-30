@@ -128,6 +128,14 @@ actor SFTPMirror {
         try await remote.setPermissions(path, mode: mode)
     }
 
+    func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
+        try await remote.setOwnership(path, uid: uid, gid: gid)
+    }
+
+    func setTimes(_ path: String, modified: Date) async throws {
+        try await remote.setTimes(path, modified: modified)
+    }
+
     /// Removes `path` from the server, and everything in it when it is a folder.
     func remove(_ path: String, isDirectory: Bool) async throws {
         guard isDirectory else {
@@ -174,6 +182,8 @@ actor SFTPMirror {
         if let mode = entry.mode { attributes[BrowserManifest.Attribute.mode] = .mode(UInt16(mode)) }
         if let uid = entry.uid { attributes[BrowserManifest.Attribute.uid] = .user(uid) }
         if let gid = entry.gid { attributes[BrowserManifest.Attribute.gid] = .user(gid) }
+        if let owner = entry.ownerName { attributes[BrowserManifest.Attribute.ownerName] = .string(owner) }
+        if let group = entry.groupName { attributes[BrowserManifest.Attribute.groupName] = .string(group) }
         if let modified = entry.modified { attributes[BrowserManifest.Attribute.modified] = .date(modified) }
 
         let fileManager = FileManager.default
