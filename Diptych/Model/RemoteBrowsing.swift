@@ -227,6 +227,18 @@ nonisolated enum RemoteBrowsing {
         }.map { localURL(on: $0, remote: shown.path) }
     }
 
+    /// The shadow an `sftp://` address written as text stands for: escaped, or
+    /// as `reportedPath` and a drag give it, with spaces and all as they are.
+    static func actual(text: String) -> URL? {
+        guard text.lowercased().hasPrefix("sftp://") else { return nil }
+        if let url = URL(string: text), let local = actual(url) { return local }
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.insert(charactersIn: ":@")
+        guard let escaped = text.addingPercentEncoding(withAllowedCharacters: allowed),
+              let url = URL(string: escaped) else { return nil }
+        return actual(url)
+    }
+
     /// A file on a server whose bytes are not here: its size as the server
     /// listed it, nil when it listed none.
     struct Placeholder: Equatable, Sendable {
@@ -299,16 +311,15 @@ nonisolated enum RemoteBrowsing {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return true }
         guard isDirectory.boolValue else {
-            guard let manifest = BrowserManifestStore.read(in: url.deletingLastPathComponent()),
-                  let node = manifest.nodes.first(where: { $0.name == url.lastPathComponent })
-            else { return true }
-            return node.backing == .none
+            let node = BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
+                .first { $0.name == url.lastPathComponent }
+            return SFTPMirror.needsFetch(node, at: url)
         }
         guard let manifest = BrowserManifestStore.read(in: url) else { return true }
         return manifest.nodes.contains { node in
             node.kind == .directory
                 ? pending(url.appendingPathComponent(node.name))
-                : node.backing == .none
+                : SFTPMirror.needsFetch(node, at: url.appendingPathComponent(node.name))
         }
     }
 

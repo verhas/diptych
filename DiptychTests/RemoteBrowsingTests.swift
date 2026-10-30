@@ -46,6 +46,19 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertNil(RemoteBrowsing.actual(URL(string: "sftp://someone@nas/home/peter")!))
     }
 
+    /// An address as text -- dragged, or given by an agent -- with its spaces as
+    /// they are, finds the copy as the escaped address does.
+    func testAnAddressWrittenAsTextIsFoundEscapedOrNot() async throws {
+        let connected = try await connect()
+        let local = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/My Notes.txt")
+        XCTAssertEqual(RemoteBrowsing.actual(text: "sftp://peter@nas/home/peter/My Notes.txt")?.path,
+                       local.path)
+        XCTAssertEqual(RemoteBrowsing.actual(text: "sftp://peter@nas/home/peter/My%20Notes.txt")?.path,
+                       local.path)
+        XCTAssertNil(RemoteBrowsing.actual(text: "/home/peter/note.txt"))
+        XCTAssertNil(RemoteBrowsing.actual(text: "sftp://someone@nas/home"))
+    }
+
     func testTheTopOfAServerIsItsRootAndNothingLiesAboveIt() async throws {
         let connected = try await connect()
         XCTAssertTrue(RemoteBrowsing.isServerRoot(connected.root))

@@ -654,15 +654,7 @@ final class PaneModel {
 
         // A file on a server is a placeholder until its bytes are fetched.
         if !item.isEnterable, RemoteBrowsing.isInside(item.url) {
-            Task { [weak self] in
-                do {
-                    try await RemoteBrowsing.materialize(item.url)
-                    NSWorkspaceOpener.open(item.url)
-                } catch {
-                    self?.owner?.flash("Could not fetch \u{201C}\(item.name)\u{201D} from the server: "
-                                       + error.localizedDescription)
-                }
-            }
+            owner?.whenFetched([item.url]) { NSWorkspaceOpener.open(item.url) }
             return
         }
 

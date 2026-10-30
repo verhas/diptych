@@ -168,21 +168,52 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(recorded?.backing, .file("a.txt"))
     }
 
-    func testAFileThatChangedOnTheServerLosesItsBytes() async throws {
+    /// An editor may have the file open: emptied and locked under it, it could
+    /// not save. The bytes stay, and the next open fetches the server's again.
+    func testAFileThatChangedOnTheServerKeepsItsBytesUntilOpenedAgain() async throws {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
-        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 5, modified: date)]],
+        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 5,
+                                                           mode: 0o644, modified: date)]],
                                 files: ["/d/a.txt": Data("hello".utf8)])
         let shadow = mirror(server)
         try await shadow.populate("/d")
-        _ = try await shadow.materialize("/d/a.txt")
+        let file = try await shadow.materialize("/d/a.txt")
 
-        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 9, modified: date)]
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 9, mode: 0o644, modified: date)]
+        server.files["/d/a.txt"] = Data("new there".utf8)
         try await shadow.populate("/d")
-        let after = try await node(shadow, "/d/a.txt")
-        XCTAssertEqual(after?.backing, BrowserManifest.Backing.none)
-        let placeholder = await shadow.localURL(for: "/d/a.txt").path
-        let size = try FileManager.default.attributesOfItem(atPath: placeholder)[.size] as? Int
-        XCTAssertEqual(size, 0)
+        XCTAssertEqual(try Data(contentsOf: file), Data("hello".utf8))
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+        let marked = try await node(shadow, "/d/a.txt")
+        XCTAssertTrue(SFTPMirror.needsFetch(marked, at: file))
+        // Still marked after a second listing, which reports what the first did.
+        try await shadow.populate("/d")
+        let stillMarked = try await node(shadow, "/d/a.txt")
+        XCTAssertTrue(SFTPMirror.needsFetch(stillMarked, at: file))
+
+        _ = try await shadow.materialize("/d/a.txt")
+        XCTAssertEqual(try Data(contentsOf: file), Data("new there".utf8))
+        let fetched = try await node(shadow, "/d/a.txt")
+        XCTAssertFalse(SFTPMirror.needsFetch(fetched, at: file))
+    }
+
+    /// The case of an editor that had the file open while the server changed it,
+    /// and a listing came in between: the save is a conflict, not sent.
+    func testASaveAfterAListingOfAServerChangeIsStillAConflict() async throws {
+        let (server, shadow) = try await editable()
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 13, mode: 0o644)]
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        try await shadow.populate("/d")
+        _ = try await edit(shadow, "/d/a.txt", to: "edited here")
+
+        guard case .conflict = try await shadow.writeBack("/d/a.txt") else {
+            return XCTFail("not seen as a conflict")
+        }
+        XCTAssertEqual(server.files["/d/a.txt"], Data("changed there".utf8))
+        // Edited here: opening it again keeps the edit rather than fetching over it.
+        let file = await shadow.localURL(for: "/d/a.txt")
+        let edited = try await node(shadow, "/d/a.txt")
+        XCTAssertFalse(SFTPMirror.needsFetch(edited, at: file))
     }
 
     func testAnEntryTheServerNoLongerListsIsRemoved() async throws {

@@ -453,9 +453,28 @@ final class FileInfoModel {
 
     /// Open the file in `app` now, leaving the default as it was.
     func open(with app: OpenWith.App) {
-        OpenWith.open(url, with: app.url)
+        // A file on a server is fetched first: the app would get the empty
+        // placeholder otherwise.
+        guard RemoteBrowsing.hasPending([url]) else {
+            OpenWith.open(url, with: app.url)
+            statusIsError = false
+            status = "Opened in \u{201C}\(app.name)\u{201D}."
+            return
+        }
         statusIsError = false
-        status = "Opened in \u{201C}\(app.name)\u{201D}."
+        status = "Fetching from the server\u{2026}"
+        let url = url
+        Task {
+            do {
+                try await RemoteBrowsing.fetch([url])
+                OpenWith.open(url, with: app.url)
+                statusIsError = false
+                status = "Opened in \u{201C}\(app.name)\u{201D}."
+            } catch {
+                statusIsError = true
+                status = "Could not fetch from the server: " + error.localizedDescription
+            }
+        }
     }
 
     /// Make `app` the default for this kind of file -- every file of the kind,

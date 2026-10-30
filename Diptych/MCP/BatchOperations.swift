@@ -1262,10 +1262,7 @@ extension BatchOperationRow {
     /// address, and its files are read from the copy kept here. Anything else
     /// is a path on this Mac.
     static func localURL(_ path: String) -> URL {
-        if path.lowercased().hasPrefix("sftp://"), let address = URL(string: path),
-           let local = RemoteBrowsing.actual(address) {
-            return local
-        }
+        if let local = RemoteBrowsing.actual(text: path) { return local }
         let local = URL(fileURLWithPath: path)
         // An absolute path that is not on this Mac may be the server's own path:
         // used only when exactly one connected server has it listed.

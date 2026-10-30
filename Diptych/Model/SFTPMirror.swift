@@ -108,7 +108,7 @@ actor SFTPMirror {
         guard let located = BrowserManifestStore.located(in: folder),
               var node = located.manifest.nodes.first(where: { $0.name == file.lastPathComponent })
         else { throw SFTPMirrorError.notListed(path) }
-        if node.backing != .none { return file }
+        if !Self.needsFetch(node, at: file) { return file }
 
         let staging = root.appendingPathComponent(".downloading-\(UUID().uuidString)")
         try await remote.download(path, to: staging)
@@ -123,6 +123,7 @@ actor SFTPMirror {
 
         node.backing = .file(file.lastPathComponent)
         node.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+        node.attributes[BrowserManifest.Attribute.serverChanged] = nil
         if let made = Self.localModified(file) {
             node.attributes[BrowserManifest.Attribute.localModified] = .date(made)
         }
@@ -142,6 +143,16 @@ actor SFTPMirror {
 
     static func localModified(_ url: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+    }
+
+    /// Whether a file's bytes have to be fetched before it is opened: never
+    /// fetched, or changed on the server since, with no change here. A file
+    /// changed in both places keeps the change here: sending it shows the conflict.
+    static func needsFetch(_ node: BrowserManifest.Node?, at url: URL) -> Bool {
+        guard let node else { return true }
+        if node.backing == .none { return true }
+        return node.attribute(BrowserManifest.Attribute.serverChanged)?.boolValue == true
+            && !locallyChanged(node, at: url)
     }
 
     /// Whether a fetched file was changed here since it was fetched or last sent.
@@ -188,6 +199,7 @@ actor SFTPMirror {
     func adoptBaseline(_ path: String, checksum: String) throws {
         try updateNode(at: localURL(for: path)) {
             $0.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+            $0.attributes[BrowserManifest.Attribute.serverChanged] = nil
         }
     }
 
@@ -240,6 +252,7 @@ actor SFTPMirror {
             }
             node.backing = .file(file.lastPathComponent)
             node.attributes[BrowserManifest.Attribute.checksum] = .string(checksum)
+            node.attributes[BrowserManifest.Attribute.serverChanged] = nil
             if let made = Self.localModified(file) {
                 node.attributes[BrowserManifest.Attribute.localModified] = .date(made)
             }
@@ -330,9 +343,9 @@ actor SFTPMirror {
             && isDirectory.boolValue
     }
 
-    /// Creates the folder or placeholder for one entry, and its node. A file
-    /// keeps its bytes only while the server still reports the size and date
-    /// it had when they were fetched; otherwise the placeholder is emptied.
+    /// Creates the folder or placeholder for one entry, and its node. A fetched
+    /// file keeps its bytes; when the server no longer reports the size and date
+    /// it had when they were fetched, it is marked as changed there.
     private func place(_ entry: SFTPEntry, at child: URL,
                        previously: BrowserManifest.Node?) throws -> BrowserManifest.Node {
         var attributes: [String: AttributeValue] = [:]
@@ -353,8 +366,16 @@ actor SFTPMirror {
         // Only a size the server gave is written: an unknown one is left out, and
         // shown as unknown rather than as zero.
         if let size = entry.size { attributes[BrowserManifest.Attribute.size] = .size(Int64(size)) }
-        let kept = bytesStillCurrent(previously, for: entry)
-        if !kept || !fileManager.fileExists(atPath: child.path) {
+        // Fetched bytes are never emptied by a listing, even when the server has
+        // changed the file since: an editor may have the file open, and emptied
+        // under it, it would refuse to save -- or save over what the server now
+        // has without the conflict ever being seen. The file is marked instead,
+        // and fetched again the next time it is opened.
+        var kept = false
+        if case .file? = previously?.backing { kept = fileManager.fileExists(atPath: child.path) }
+        let changedThere = kept && (!bytesStillCurrent(previously, for: entry)
+            || previously?.attribute(BrowserManifest.Attribute.serverChanged)?.boolValue == true)
+        if !kept {
             try? fileManager.removeItem(at: child)
             fileManager.createFile(atPath: child.path, contents: nil)
         }
@@ -374,6 +395,7 @@ actor SFTPMirror {
             if let made = Self.localModified(child) {
                 attributes[BrowserManifest.Attribute.localModified] = .date(made)
             }
+            if changedThere { attributes[BrowserManifest.Attribute.serverChanged] = .bool(true) }
         }
 
         let kind: BrowserManifest.Kind = {

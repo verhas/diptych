@@ -91,7 +91,7 @@ struct ContentView: View {
         //
         // A DropDelegate rather than .dropDestination, because only a delegate
         // can advertise *move* -- .dropDestination always shows the copy badge.
-        .onDrop(of: [.fileURL],
+        .onDrop(of: [.fileURL, .utf8PlainText],
                 delegate: PaneDropDelegate(model: model, isTargeted: $isDropTarget))
         .overlay {
             if isDropTarget {
@@ -536,7 +536,11 @@ struct PaneDropDelegate: DropDelegate {
     @Binding var isTargeted: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.fileURL])
+        if info.hasItemsConforming(to: [.fileURL]) { return true }
+        // Text is taken only when it is the address of a file on a connected
+        // server: a server's file is dragged that way.
+        return info.hasItemsConforming(to: [.utf8PlainText])
+            && MainActor.assumeIsolated { !model.dragPasteboardURLs().isEmpty }
     }
 
     func dropEntered(info: DropInfo) { isTargeted = true }

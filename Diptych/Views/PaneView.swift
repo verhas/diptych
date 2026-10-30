@@ -647,6 +647,17 @@ struct PaneView: View {
                         // where every promise-based attempt before it landed
                         // as the file's own file:// URL, stringified as-is.
                         let provider = NSItemProvider()
+                        // A file on a server is dragged as its sftp:// address,
+                        // text only: its copy here is no file to hand anyone --
+                        // most likely an empty placeholder, which a drop into
+                        // Finder would turn into an empty file. A drop in a
+                        // pane reads the address back.
+                        if RemoteBrowsing.isInside(item.url) {
+                            provider.registerObject(
+                                RemoteBrowsing.reportedPath(item.url) as NSString, visibility: .all)
+                            provider.suggestedName = item.name
+                            return provider
+                        }
                         provider.registerObject(item.url.path as NSString, visibility: .all)
                         // Not `registerObject(item.url as NSURL)`: `NSURL`'s
                         // own conformance bundles "public.file-url" together

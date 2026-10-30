@@ -1017,8 +1017,29 @@ final class AppModel {
         // Refreshes the document right now if it is already tracked --
         // whether its window is genuinely still open or one `openWindow` is
         // about to bring back with state SwiftUI never actually reset.
-        OpenTextDocuments.shared.refreshIfOpen(item.url)
-        openTextWindow?(item.url)
+        whenFetched([item.url]) { [weak self] in
+            OpenTextDocuments.shared.refreshIfOpen(item.url)
+            self?.openTextWindow?(item.url)
+        }
+    }
+
+    /// Runs `then` once the files on a server among `urls` are here: at once
+    /// when nothing is to be fetched. An app given a file before that would get
+    /// the empty placeholder, locked, and show it as the file.
+    func whenFetched(_ urls: [URL], then: @escaping @MainActor () -> Void) {
+        guard RemoteBrowsing.hasPending(urls) else {
+            then()
+            return
+        }
+        flash("Fetching from the server\u{2026}", error: false)
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(urls)
+                then()
+            } catch {
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
     }
 
     /// Space, as in Finder.
@@ -1120,7 +1141,8 @@ final class AppModel {
     }
 
     func viewSelection() {
-        active.selectedItems.filter { !$0.isEnterable }.map(\.url).forEach(NSWorkspaceOpener.open)
+        let urls = active.selectedItems.filter { !$0.isEnterable }.map(\.url)
+        whenFetched(urls) { urls.forEach(NSWorkspaceOpener.open) }
     }
 
     func copySelection()  { transfer(.copy) }
@@ -1422,7 +1444,7 @@ final class AppModel {
 
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
@@ -1529,12 +1551,11 @@ final class AppModel {
             let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
             let url = pane.directory.appendingPathComponent(name)
             do {
-                try data.write(to: url, options: .withoutOverwriting)
+                try await writeNewFile(data, to: url)
             } catch {
                 dialog = .message(error.localizedDescription)
                 return
             }
-            FileHistory.shared.recordCreation(.clipboard, of: [url])
             await offerRename(of: url, in: pane)
             // The file is made either way; this says why it kept the plain name.
             if !stopped, let why = answer.explanation { flash(why) }
@@ -1553,16 +1574,31 @@ final class AppModel {
     }
 
     private func write(_ data: Data, as name: String) {
-        let url = active.directory.appendingPathComponent(name)
-        do {
-            try data.write(to: url, options: .withoutOverwriting)
-            FileHistory.shared.recordCreation(.clipboard, of: [url])
-            active.pendingSelection = [url]
-            active.reload()
-            flash("Created \(name)", error: false)
-        } catch {
-            dialog = .message(error.localizedDescription)
+        let pane = active
+        let url = pane.directory.appendingPathComponent(name)
+        Task {
+            do {
+                try await writeNewFile(data, to: url)
+                pane.pendingSelection = [url]
+                pane.reload()
+                flash("Created \(name)", error: false)
+            } catch {
+                dialog = .message(error.localizedDescription)
+            }
         }
+    }
+
+    /// Writes a new file from the clipboard, never over one already there. In a
+    /// folder on a server it is made on the server, which has no undo history here.
+    private func writeNewFile(_ data: Data, to url: URL) async throws {
+        let folder = url.deletingLastPathComponent()
+        if RemoteBrowsing.isInside(folder) {
+            _ = try await RemoteBrowsing.createFile(named: url.lastPathComponent, in: folder,
+                                                    contents: data)
+            return
+        }
+        try data.write(to: url, options: .withoutOverwriting)
+        FileHistory.shared.recordCreation(.clipboard, of: [url])
     }
 
     // MARK: - Scripts
@@ -1745,7 +1781,7 @@ final class AppModel {
     }
 
     func requestNewFile() {
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         textInput = suggestedName("untitled.txt")
         dialog = .newFile
     }
@@ -1784,6 +1820,18 @@ final class AppModel {
         let name = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let parent = active.directory
+        if RemoteBrowsing.isInside(parent) {
+            Task {
+                do {
+                    let url = try await RemoteBrowsing.createFile(named: name, in: parent)
+                    active.pendingSelection = [url]
+                    active.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         Task {
             do {
                 let url = try await FileOperations.shared.createFile(named: name, in: parent)
@@ -2257,6 +2305,21 @@ final class AppModel {
                                  into destinationPane: PaneModel,
                                  from sourcePane: PaneModel?) {
         guard !urls.isEmpty else { return }
+        // Files on a server are placeholders until fetched: a drop or a paste
+        // of them fetches them first, as F5 does.
+        if RemoteBrowsing.hasPending(urls) {
+            flash("Fetching from the server\u{2026}", error: false)
+            Task { [weak self] in
+                do {
+                    try await RemoteBrowsing.fetch(urls)
+                    self?.performTransfer(urls, to: destination, kind: kind,
+                                          into: destinationPane, from: sourcePane)
+                } catch {
+                    self?.flash("Could not fetch from the server: " + error.localizedDescription)
+                }
+            }
+            return
+        }
         if RemoteBrowsing.isInside(destination) {
             transferToServer(urls, to: destination, kind: kind,
                              into: destinationPane, from: sourcePane)
@@ -3449,7 +3512,7 @@ final class AppModel {
 
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
-        guard !refusedAsTarget(active, "pasted into") else { return }
+        guard !refusedAsTarget(active, "pasted into", serverWritable: true) else { return }
 
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else { return }
@@ -3738,9 +3801,13 @@ final class AppModel {
     /// SwiftUI's URL importer hands over only the first item of a multi-item
     /// drag -- measured, not assumed. The drag pasteboard has them all.
     func dragPasteboardURLs() -> [URL] {
-        NSPasteboard(name: .drag)
-            .readObjects(forClasses: [NSURL.self],
-                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let pasteboard = NSPasteboard(name: .drag)
+        let files = pasteboard.readObjects(forClasses: [NSURL.self],
+                                           options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        // A file on a server is dragged as its sftp:// address; read back here
+        // as its copy, while the server is connected.
+        let texts = pasteboard.readObjects(forClasses: [NSString.self]) as? [String] ?? []
+        return files + texts.compactMap { RemoteBrowsing.actual(text: $0) }
     }
 
     /// Whether a drop happening right now would move rather than copy. The drag
@@ -3823,6 +3890,11 @@ final class AppModel {
         if modifiers.contains(.option) { return false }   // Option forces a copy
         if modifiers.contains(.command) { return true }   // Command forces a move
         // Finder's rule: within a volume a drag moves, across volumes it copies.
+        // A server is a volume of its own, though its copies here are on this
+        // Mac's disk; within one server a drag moves.
+        let servers = Set(urls.map { RemoteBrowsing.server(of: $0)?.key })
+        let target = RemoteBrowsing.server(of: destination)?.key
+        if servers != [nil] || target != nil { return servers == [target] }
         return onSameVolume(urls, as: destination)
     }
 
@@ -3990,7 +4062,7 @@ final class AppModel {
         // A click that slipped: nothing was meant to go anywhere, and the
         // image sliding home is all there is to say.
         if isWobble(urls, in: pane) { return false }
-        if refusedAsReadOnly(pane, "dropped into it") { return false }
+        if refusedAsReadOnly(pane, "dropped into it", serverWritable: true) { return false }
         // Dropping something back into the folder it already lives in -- or a
         // folder onto itself or into a folder of its own. A folder nudged a
         // few points lands on its own row, which is a folder to drop into.
