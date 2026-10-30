@@ -423,8 +423,14 @@ final class BatchOperationsModel {
         revalidate()
     }
 
+    /// Select All and Select None. A permanent deletion asks for its own
+    /// confirmation, and the one batch confirmation is not enough for it: selecting
+    /// all confirms those deletions too, and selecting none withdraws them.
     func toggleAll(_ included: Bool) {
-        for row in rows { row.included = included }
+        for row in rows {
+            row.included = included
+            if row.kind == .deletePermanent { row.destructiveConfirmed = included }
+        }
         revalidate()
     }
 
@@ -571,8 +577,10 @@ final class BatchOperationsModel {
             // never changed.
             // A server's folder is changed in Diptych's own panes, where every change
             // reaches the server. Its cached copy here would only be changed on this Mac.
+            // A permanent deletion on a server is carried out there: that is its whole point.
             if row.targetPath.map(RemoteBrowsing.isInside) == true
-                || (row.kind != .copy && row.source.map(RemoteBrowsing.isInside) == true) {
+                || (row.kind != .copy && row.kind != .deletePermanent
+                    && row.source.map(RemoteBrowsing.isInside) == true) {
                 rowResults[row.id] = "Skipped: it is on a server. Change it in a Diptych pane, "
                     + "where the change reaches the server."
                 failed.insert(row.id)
