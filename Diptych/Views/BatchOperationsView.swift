@@ -189,7 +189,7 @@ struct BatchOperationsView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(row.kind.displayName).font(.system(size: 12, weight: .semibold))
+                    Text(row.label).font(.system(size: 12, weight: .semibold))
                     if let reason = row.reason, !reason.isEmpty {
                         Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }

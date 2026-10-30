@@ -288,6 +288,15 @@ final class BatchOperationRow: Identifiable {
         }
     }
 
+    /// What the row does, as the review window says it: a deletion on a server
+    /// says it is permanent.
+    var label: String {
+        if kind == .deletePermanent, let source, RemoteBrowsing.isInside(source) {
+            return "Delete permanently (on the server)"
+        }
+        return kind.displayName
+    }
+
     var shortDescription: String {
         let name = (source ?? targetPath)?.lastPathComponent ?? "(unnamed)"
         return "\(kind.displayName) \(name)"
@@ -353,8 +362,29 @@ final class BatchOperationRow: Identifiable {
                 problems.append("A tag name cannot be empty or span lines.")
             }
         }
+        // On a server only deletion is proposed: there is no Trash there, and what
+        // is deleted is gone. Anything else changes a server only from its pane.
+        if let source, RemoteBrowsing.isInside(source) {
+            switch kind {
+            case .deletePermanent:
+                break
+            case .trash:
+                problems.append("A server has no Trash: deleting there is final. Propose "
+                    + "delete_permanent for it, and say so in the reason.")
+            default:
+                problems.append("On a server only deleting is proposed for now. Change it in a "
+                    + "Diptych pane, where the change reaches the server.")
+            }
+        }
+        if let targetPath, RemoteBrowsing.isInside(targetPath) {
+            problems.append("Nothing is copied or moved into a server by a proposal yet. Do it "
+                + "in a Diptych pane.")
+        }
         if let source, !FileOperations.exists(source) {
-            problems.append("\(source.path) does not exist.")
+            problems.append(RemoteBrowsing.isInside(source)
+                ? "\(source.lastPathComponent) is not in the listing of its server folder yet. "
+                    + "Show that folder in a pane, then propose again."
+                : "\(source.path) does not exist.")
         }
         return problems
     }
@@ -593,6 +623,12 @@ final class BatchOperationsModel {
 
             case .trash:
                 guard let source = row.source else { continue }
+                // Not reached for a server: its items are deleted, never trashed.
+                if RemoteBrowsing.isInside(source) {
+                    rowResults[row.id] = "Refused: a server has no Trash."
+                    failed.insert(row.id)
+                    continue
+                }
                 let (outcome, moved, _) = await FileOperations.shared.trashRecording([source])
                 if let first = moved.first, outcome.isCompleteSuccess {
                     rowResults[row.id] = "Moved to Trash."
@@ -604,6 +640,16 @@ final class BatchOperationsModel {
 
             case .deletePermanent:
                 guard let source = row.source else { continue }
+                if RemoteBrowsing.isInside(source) {
+                    do {
+                        try await RemoteBrowsing.remove([source])
+                        rowResults[row.id] = "Deleted on the server. It cannot be undone."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 let outcome = await FileOperations.shared.deleteOutright([source])
                 if outcome.isCompleteSuccess {
                     rowResults[row.id] = "Deleted."
@@ -988,6 +1034,17 @@ extension BatchOperationRow {
 
     enum BuildResult { case unknownOp(String), row(BatchOperationRow) }
 
+    /// A path as the agent gave it. A folder on a server is named by its sftp://
+    /// address, and its files are read from the copy kept here. Anything else
+    /// is a path on this Mac.
+    static func localURL(_ path: String) -> URL {
+        if path.lowercased().hasPrefix("sftp://"), let address = URL(string: path),
+           let local = RemoteBrowsing.actual(address) {
+            return local
+        }
+        return URL(fileURLWithPath: path)
+    }
+
     /// One row from `propose_file_operations`' arguments. An unrecognized
     /// `op` fails the whole call (handled by the caller); anything else
     /// becomes a row, flagged in `problems` when a field is missing or
@@ -1000,8 +1057,8 @@ extension BatchOperationRow {
         guard let kind = BatchOperationKind(mcpName: op) else { return .unknownOp(op) }
         let row = BatchOperationRow(kind: kind)
         row.reason = reason
-        let sourceURL = source.map { URL(fileURLWithPath: $0) }
-        let targetURL = target.map { URL(fileURLWithPath: $0) }
+        let sourceURL = source.map(localURL)
+        let targetURL = target.map(localURL)
         row.linkTarget = linkTarget.map { URL(fileURLWithPath: $0) }
 
         switch kind {
