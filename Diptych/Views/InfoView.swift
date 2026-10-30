@@ -140,6 +140,8 @@ struct InfoView: View {
 
                 panel("Dates") {
                     DatePicker("Created", selection: $model.created)
+                        // A server keeps no creation date.
+                        .disabled(model.isOnServer)
                     DatePicker("Modified", selection: $model.modified)
                     // Neither of these is settable: "added" belongs to the
                     // folder's index, "accessed" to the kernel.
@@ -162,6 +164,22 @@ struct InfoView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 panel("Owner and group") {
+                if model.isOnServer {
+                    // The server's own users: typed, by name or number, since this
+                    // Mac's are not the server's.
+                    let known = RemoteBrowsing.accountNames(for: model.url)
+                    TextField("Owner (name or number)", text: $model.owner)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Group (name or number)", text: $model.group)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Apply Owner and Group") { model.applyOwnership() }
+                    Text("Known on the server: users \(known.users.joined(separator: ", ")); groups "
+                         + "\(known.groups.joined(separator: ", ")). Any other name, or a number, "
+                         + "can be typed. When the server refuses, sudo is offered.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                 Picker("Owner", selection: $model.owner) {
                     ForEach(AccountLookup.users(), id: \.self) { Text($0).tag($0) }
                 }
@@ -181,6 +199,7 @@ struct InfoView: View {
                          + "password; macOS will ask.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
                 }
 
                 panel("Permissions (\(model.modeText))") {

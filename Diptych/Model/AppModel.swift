@@ -53,6 +53,8 @@ final class AppModel {
         case sudoPassword
         /// A file changed both here and on its server, that is not text.
         case serverEditConflict
+        /// A server's user or group, typed by name or number.
+        case serverAccount
         case historyStep
         case historyMany
         case tips
@@ -92,6 +94,7 @@ final class AppModel {
             case .serverDelete:   return "serverDelete"
             case .sudoPassword:   return "sudoPassword"
             case .serverEditConflict: return "serverEditConflict"
+            case .serverAccount:  return "serverAccount"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -195,6 +198,9 @@ final class AppModel {
     /// The sudo question while it is asked, and who waits for its answer.
     var sudoPrompt: SudoPrompt?
     @ObservationIgnored private var sudoAnswer: CheckedContinuation<SudoAnswer?, Never>?
+
+    /// Whether the typed account is a group rather than a user.
+    @ObservationIgnored var accountIsGroup = false
 
     /// A file changed on both sides, while the person chooses; and who waits.
     var serverConflict: ServerConflictPrompt?
@@ -4036,10 +4042,22 @@ final class AppModel {
 
     func requestOwnerEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Owner") else { return }
-        // On a server, the users its listings show: this Mac's are not the server's.
-        let users = RemoteBrowsing.server(of: active.directory)
-            .map { RemoteBrowsing.accounts(of: $0).users.keys.sorted() } ?? AccountLookup.users()
-        picker.show(sections: [.init(title: "Users", items: users)],
+        // On a server, the users its listings show, and Other for any name or
+        // number: this Mac's users are not the server's.
+        if RemoteBrowsing.server(of: active.directory) != nil {
+            let users = RemoteBrowsing.accountNames(for: active.directory).users
+            picker.show(sections: [.init(title: "Users", items: users),
+                                   .init(title: "", items: [Self.otherAccount])],
+                        current: target.owner) { [weak self] name in
+                if name == Self.otherAccount {
+                    self?.askAccount(group: false, current: target.owner)
+                } else {
+                    self?.applyOwnership(owner: name, group: nil)
+                }
+            }
+            return
+        }
+        picker.show(sections: [.init(title: "Users", items: AccountLookup.users())],
                     current: target.owner) { [weak self] name in
             self?.applyOwnership(owner: name, group: nil)
         }
@@ -4047,11 +4065,16 @@ final class AppModel {
 
     func requestGroupEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Group") else { return }
-        if let server = RemoteBrowsing.server(of: active.directory) {
-            let groups = RemoteBrowsing.accounts(of: server).groups.keys.sorted()
-            picker.show(sections: [.init(title: "Groups", items: groups)],
+        if RemoteBrowsing.server(of: active.directory) != nil {
+            let groups = RemoteBrowsing.accountNames(for: active.directory).groups
+            picker.show(sections: [.init(title: "Groups", items: groups),
+                                   .init(title: "", items: [Self.otherAccount])],
                         current: target.group) { [weak self] name in
-                self?.applyOwnership(owner: nil, group: name)
+                if name == Self.otherAccount {
+                    self?.askAccount(group: true, current: target.group)
+                } else {
+                    self?.applyOwnership(owner: nil, group: name)
+                }
             }
             return
         }
@@ -4065,6 +4088,22 @@ final class AppModel {
                     current: target.group) { [weak self] name in
             self?.applyOwnership(owner: nil, group: name)
         }
+    }
+
+    /// The picker's entry for a user or group the server's listings do not show.
+    static let otherAccount = "Other\u{2026}"
+
+    /// A server's user or group by any name or number, typed.
+    private func askAccount(group: Bool, current: String) {
+        accountIsGroup = group
+        textInput = current
+        dialog = .serverAccount
+    }
+
+    func applyTypedAccount() {
+        let text = textInput.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        applyOwnership(owner: accountIsGroup ? nil : text, group: accountIsGroup ? text : nil)
     }
 
     private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {

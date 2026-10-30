@@ -361,4 +361,25 @@ final class RemoteBrowsingTests: XCTestCase {
                                               ofItemAtPath: note.path)
         XCTAssertEqual(RemoteBrowsing.unsentEdits(under: connected.root).map(\.lastPathComponent), ["note.txt"])
     }
+
+    /// The Info window shows a server file as the server has it: its mode and its
+    /// owner, never the copy kept here or a user of this Mac.
+    func testTheInfoWindowShowsTheServersFactsNotTheCopys() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o640,
+                                                   uid: 33, gid: 33, ownerName: "www-data", groupName: "www-data")]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+
+        let file = folder.appendingPathComponent("note.txt")
+        let shown = await MainActor.run { () -> (onServer: Bool, mode: mode_t, owner: String, group: String) in
+            let info = FileInfoModel(url: file)
+            return (info.isOnServer, info.mode, info.owner, info.group)
+        }
+        XCTAssertTrue(shown.onServer)
+        XCTAssertEqual(shown.mode & 0o7777, 0o640)
+        XCTAssertEqual(shown.owner, "www-data")
+        XCTAssertEqual(shown.group, "www-data")
+        XCTAssertEqual(RemoteBrowsing.accountNames(for: folder).users, ["www-data"])
+    }
 }

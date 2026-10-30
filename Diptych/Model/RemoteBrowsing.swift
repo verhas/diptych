@@ -554,10 +554,23 @@ nonisolated enum RemoteBrowsing {
 
     /// The permission bits a server item had when it was listed.
     static func listedMode(of url: URL) -> mode_t? {
-        BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
-            .first { $0.name == url.lastPathComponent }?
-            .attribute(BrowserManifest.Attribute.mode)?.intValue
+        listedNode(of: url)?.attribute(BrowserManifest.Attribute.mode)?.intValue
             .map { mode_t(truncatingIfNeeded: $0) }
+    }
+
+    /// A server item as its listing recorded it: the server's facts about it.
+    static func listedNode(of url: URL) -> BrowserManifest.Node? {
+        guard isInside(url) else { return nil }
+        return BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
+            .first { $0.name == url.lastPathComponent }
+    }
+
+    /// The names the server's listings show for its users and groups, for the
+    /// server a shadow path is on; empty elsewhere.
+    static func accountNames(for url: URL) -> (users: [String], groups: [String]) {
+        guard let server = server(of: url) else { return ([], []) }
+        let known = accounts(of: server)
+        return (known.users.keys.sorted(), known.groups.keys.sorted())
     }
 
     private static func requireAbsent(_ name: String, in folder: String, _ server: Server) async throws {

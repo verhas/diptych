@@ -27,6 +27,9 @@ final class FileInfoModel {
     /// did not give: shown as `???`.
     private(set) var sizeIsUnknown = false
     private(set) var isDirectory = false
+    /// A file or folder on a server: its facts are the server's, from its listing,
+    /// and the changes that can be made to it are made there.
+    private(set) var isOnServer = false
     /// Permissions and ownership are the *target's* for a symlink, because that
     /// is what changing them affects.
     private(set) var isSymlink = false
@@ -159,6 +162,35 @@ final class FileInfoModel {
         self.attributes = ExtendedAttributes.all(of: path)
         aclOnDisk = AccessControl.text(of: path) ?? ""
         aclText = aclOnDisk
+
+        // On a server, what the server says: the copy kept here has its own mode,
+        // owner and dates, none of them the server's.
+        isOnServer = RemoteBrowsing.isInside(url)
+        if isOnServer, let node = RemoteBrowsing.listedNode(of: url) {
+            if let value = node.attribute(BrowserManifest.Attribute.mode)?.intValue {
+                mode = mode_t(truncatingIfNeeded: value)
+            }
+            owner = node.attribute(BrowserManifest.Attribute.ownerName)?.stringValue
+                ?? node.attribute(BrowserManifest.Attribute.uid)?.intValue.map { String($0) } ?? ""
+            group = node.attribute(BrowserManifest.Attribute.groupName)?.stringValue
+                ?? node.attribute(BrowserManifest.Attribute.gid)?.intValue.map { String($0) } ?? ""
+            if let date = node.attribute(BrowserManifest.Attribute.modified)?.dateValue {
+                modified = date
+                created = date
+            }
+            tags = []
+            self.attributes = []
+            aclOnDisk = ""
+            aclText = ""
+        }
+    }
+
+    /// Refuses a change a server does not take, and says so: made to the copy
+    /// kept here, it would never reach the server.
+    private func refusedOnServer(_ what: String) -> Bool {
+        guard isOnServer else { return false }
+        report("\(what) cannot be changed on a server.", success: "")
+        return true
     }
 
     /// Runs a metadata change through the permission ladder and reports what
@@ -212,6 +244,17 @@ final class FileInfoModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != url.lastPathComponent else { return }
 
+        if isOnServer {
+            Task {
+                do {
+                    url = try await RemoteBrowsing.rename(url, to: trimmed)
+                    report(nil, success: "Renamed on the server.")
+                } catch {
+                    report(error.localizedDescription, success: "")
+                }
+            }
+            return
+        }
         Task {
             do {
                 let renamed = try await FileOperations.shared.rename(url, to: trimmed)
@@ -241,6 +284,7 @@ final class FileInfoModel {
     func applyLinkTarget() {
         let wanted = linkTarget.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isSymlink, !wanted.isEmpty, wanted != linkTargetOnDisk else { return }
+        if refusedOnServer("A link") { return }
 
         let fm = FileManager.default
         let previous = linkTargetOnDisk
@@ -264,6 +308,18 @@ final class FileInfoModel {
     }
 
     func applyDates() {
+        // A server keeps a modification date, and no creation date.
+        if isOnServer {
+            Task {
+                do {
+                    try await RemoteBrowsing.setTimes(modified: modified, for: [url])
+                    report(nil, success: "Modification date updated on the server.")
+                } catch {
+                    report(error.localizedDescription, success: "")
+                }
+            }
+            return
+        }
         do {
             try FileManager.default.setAttributes(
                 [.creationDate: created, .modificationDate: modified],
@@ -277,6 +333,21 @@ final class FileInfoModel {
     // MARK: - Ownership
 
     func applyOwnership() {
+        // On a server, by the server's names or numbers, through sudo when needed.
+        if isOnServer {
+            let owner = owner.trimmingCharacters(in: .whitespaces)
+            let group = group.trimmingCharacters(in: .whitespaces)
+            Task {
+                do {
+                    try await RemoteBrowsing.setOwnership(owner: owner.isEmpty ? nil : owner,
+                                                          group: group.isEmpty ? nil : group, for: [url])
+                    report(nil, success: "Owner and group updated on the server.")
+                } catch {
+                    report(error.localizedDescription, success: "")
+                }
+            }
+            return
+        }
         Task {
             let before = await BlockingWork.run { [url] in
                 let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
@@ -407,6 +478,18 @@ final class FileInfoModel {
 
     func toggle(_ bit: mode_t) {
         let updated = mode ^ bit
+        if isOnServer {
+            Task {
+                do {
+                    try await RemoteBrowsing.setPermissions(UInt32(updated & 0o7777), for: [url])
+                    mode = updated
+                    report(nil, success: "Permissions updated on the server.")
+                } catch {
+                    report(error.localizedDescription, success: "")
+                }
+            }
+            return
+        }
         let target = isSymlink ? url.resolvingSymlinksInPath().path : url.path
         do {
             try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: updated)],
@@ -429,6 +512,7 @@ final class FileInfoModel {
     // MARK: - Tags
 
     func toggleTag(_ tag: String) {
+        if refusedOnServer("Tags") { return }
         var updated = tags
         if let index = updated.firstIndex(of: tag) {
             updated.remove(at: index)
@@ -439,6 +523,7 @@ final class FileInfoModel {
     }
 
     func addTag() {
+        if refusedOnServer("Tags") { return }
         let trimmed = newTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !tags.contains(trimmed) else { return }
         newTag = ""
@@ -461,6 +546,7 @@ final class FileInfoModel {
     /// The colour comes from the tag; this only decides whether macOS composes
     /// a tinted icon out of it, and what symbol goes on top.
     func applyFolderIcon(customised: Bool, symbol: String) {
+        if refusedOnServer("A folder icon") { return }
         perform(.xattrs(FolderIcon.writes(customised: customised, symbol: symbol, on: url.path),
                         on: url,
                         action: customised ? "change the folder icon"
@@ -471,6 +557,7 @@ final class FileInfoModel {
     // MARK: - Extended attributes
 
     func saveAttribute(named attributeName: String, text: String) {
+        if refusedOnServer("Extended attributes") { return }
         guard let data = text.data(using: .utf8) else { return }
         write(XattrWrite(name: attributeName, data: data),
               action: "save the attribute \u{201C}\(attributeName)\u{201D}",
@@ -478,12 +565,14 @@ final class FileInfoModel {
     }
 
     func removeAttribute(named attributeName: String) {
+        if refusedOnServer("Extended attributes") { return }
         write(XattrWrite(name: attributeName, data: nil),
               action: "remove the attribute \u{201C}\(attributeName)\u{201D}",
               success: "\(attributeName) removed.")
     }
 
     func addAttribute() {
+        if refusedOnServer("Extended attributes") { return }
         let trimmed = newAttributeName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let data = newAttributeValue.data(using: .utf8) else { return }
 
@@ -506,6 +595,7 @@ final class FileInfoModel {
     var aclHasChanges: Bool { aclText != aclOnDisk }
 
     func applyACL() {
+        if refusedOnServer("An access control list") { return }
         let wanted = aclText
         let removing = wanted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         perform(.acl(wanted, on: url,

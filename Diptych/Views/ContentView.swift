@@ -845,6 +845,12 @@ struct DialogSheet: View {
                     confirm: "Move to Trash",
                     destructive: true) { model.confirmTrash() }
 
+            case .serverAccount:
+                prompt(title: model.accountIsGroup ? "Group on the Server" : "Owner on the Server",
+                       detail: "A name the server knows, or a number. When the server refuses, "
+                           + "sudo is offered.",
+                       confirm: "Change") { model.applyTypedAccount() }
+
             case .serverEditConflict:
                 if let conflict = model.serverConflict {
                     Text("\u{201C}\(conflict.name)\u{201D} Changed on \(conflict.host) Too").font(.headline)
