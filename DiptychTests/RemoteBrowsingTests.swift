@@ -219,4 +219,14 @@ final class RemoteBrowsingTests: XCTestCase {
         XCTAssertEqual(RemoteBrowsing.reportedPath(home), "sftp://peter@nas/home/peter")
         XCTAssertEqual(RemoteBrowsing.reportedPath(URL(fileURLWithPath: "/tmp/x")), "/tmp/x")
     }
+
+    /// A server's own absolute path finds the copy kept for it, once it is listed.
+    func testAServerPathFindsItsListedCopy() async throws {
+        let connected = try await connect()
+        XCTAssertTrue(RemoteBrowsing.shadows(ofRemotePath: "/home/peter").isEmpty)
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home/peter"))
+        let found = RemoteBrowsing.shadows(ofRemotePath: "/home/peter")
+        XCTAssertEqual(found.map { $0.standardizedFileURL.path },
+                       [RemoteBrowsing.localURL(on: connected, remote: "/home/peter").standardizedFileURL.path])
+    }
 }

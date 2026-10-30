@@ -384,7 +384,8 @@ final class BatchOperationRow: Identifiable {
             problems.append(RemoteBrowsing.isInside(source)
                 ? "\(source.lastPathComponent) is not in the listing of its server folder yet. "
                     + "Show that folder in a pane, then propose again."
-                : "\(source.path) does not exist.")
+                : "\(source.path) does not exist on this Mac or in a listed folder of a "
+                    + "connected server. Give the folder's sftp:// address, as get_pane reports it.")
         }
         return problems
     }
@@ -1050,7 +1051,14 @@ extension BatchOperationRow {
            let local = RemoteBrowsing.actual(address) {
             return local
         }
-        return URL(fileURLWithPath: path)
+        let local = URL(fileURLWithPath: path)
+        // An absolute path that is not on this Mac may be the server's own path:
+        // used only when exactly one connected server has it listed.
+        if path.hasPrefix("/"), !FileManager.default.fileExists(atPath: path) {
+            let matches = RemoteBrowsing.shadows(ofRemotePath: path)
+            if matches.count == 1 { return matches[0] }
+        }
+        return local
     }
 
     /// One row from `propose_file_operations`' arguments. An unrecognized

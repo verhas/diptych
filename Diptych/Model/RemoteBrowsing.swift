@@ -226,6 +226,14 @@ nonisolated enum RemoteBrowsing {
         return display.absoluteString.removingPercentEncoding ?? display.absoluteString
     }
 
+    /// The copies, on the shadows of the connected servers, of a path that is
+    /// absolute on the server: a folder listed in a pane. Empty when there are none.
+    static func shadows(ofRemotePath path: String) -> [URL] {
+        let servers = registry.lock.withLock { registry.servers }
+        return servers.map { localURL(on: $0, remote: path) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// The shadow folder for a path on a server.
     static func localURL(on server: Server, remote: String) -> URL {
         remote.split(separator: "/").reduce(server.root) { $0.appendingPathComponent(String($1)) }
