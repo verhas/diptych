@@ -71,6 +71,22 @@ final class TextEditDocument {
         if held { EditedHere.hold(url) } else { EditedHere.release(url) }
     }
 
+    /// A server file saved here and not sent: the question about it was put off.
+    /// Save asks it again, with nothing new typed.
+    private(set) var isUnsent = false
+
+    func markUnsent() { isUnsent = true }
+
+    /// The file was written by another window. Read again when nothing here is
+    /// unsaved and the file holds something else than what is shown.
+    func readAgainIfChanged() {
+        guard waitingFor == nil, !hasUnsavedChanges else { return }
+        let onDisk = (try? TextDiff.load(url)).map {
+            $0.lines.joined(separator: "\n") + ($0.hasFinalNewline && !$0.lines.isEmpty ? "\n" : "")
+        }
+        if onDisk != saved || plistEncoding == .binary { load() } else { isUnsent = false }
+    }
+
     /// The window is closing.
     func close() {
         hold(false)
@@ -95,6 +111,7 @@ final class TextEditDocument {
             return
         }
         hold(false)
+        isUnsent = RemoteBrowsing.hasUnsentEdit(url)
         readOnlyVolume = WriteTrouble.readOnlyVolume(of: url)
         let isPlist = TextFormat.of(url, extensions: ConfigStore.shared.configuration.textFormats) == .plist
         plistEncoding = isPlist ? .xml : nil
@@ -162,6 +179,10 @@ final class TextEditDocument {
         let converting = wanted != nil && wanted != plistEncoding
         guard text != saved || converting else {
             isEdited = false
+            if isUnsent {
+                isUnsent = false
+                ServerEditing.shared.sendAgain(url)
+            }
             return .nothingToDo
         }
 
@@ -193,7 +214,7 @@ final class TextEditDocument {
                                + "(\(String.localizedName(of: file.encoding))). Take out the "
                                + "characters that were typed in, or save a copy elsewhere.")
             }
-            data = encoded
+            data = file.bom + encoded
         }
 
         do {
@@ -204,6 +225,7 @@ final class TextEditDocument {
 
         saved = text
         isEdited = false
+        isUnsent = false
         hold(false)
         if let wanted, plistEncoding != nil { plistEncoding = wanted }
         var refreshed = file

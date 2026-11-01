@@ -33,6 +33,20 @@ struct BinaryComparison: Sendable, Equatable {
         firstDifference == nil && leftBytes != rightBytes
     }
 
+    /// The answer in one of three words, for the mark beside the verdict.
+    enum Outcome: Equatable, Sendable {
+        /// Byte for byte the same.
+        case same
+        /// The shorter is exactly the start of the longer.
+        case prefix
+        /// They contradict each other somewhere.
+        case different
+    }
+
+    var outcome: Outcome {
+        isIdentical ? .same : oneIsTheStartOfTheOther ? .prefix : .different
+    }
+
     // MARK: - Comparing
 
     static func compare(_ left: URL, _ right: URL) throws -> BinaryComparison {

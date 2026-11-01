@@ -229,6 +229,19 @@ nonisolated enum SFTPLogin: Sendable {
     }
 }
 
+/// A file that did not arrive whole, either way.
+nonisolated enum SFTPTransferError: LocalizedError, Equatable, Sendable {
+    case incomplete(path: String, expected: UInt64, got: UInt64)
+
+    var errorDescription: String? {
+        switch self {
+        case let .incomplete(path, expected, got):
+            let name = (path as NSString).lastPathComponent
+            return "\u{201C}\(name)\u{201D} did not arrive whole: \(got) of \(expected) bytes."
+        }
+    }
+}
+
 nonisolated enum SFTPLoginError: Error, Equatable, Sendable {
     case unsupportedKey(String)
     /// The agent holds no key Diptych can sign with.
@@ -236,6 +249,71 @@ nonisolated enum SFTPLoginError: Error, Equatable, Sendable {
     /// The sign-in was forgotten, when the connection was closed: it cannot be
     /// made again.
     case signInForgotten
+}
+
+/// What a session's requests share: whether it is closed, how many are under
+/// way, and when bytes last moved.
+///
+/// A request begun on a closed connection, or a connection's thread shut down
+/// under a request still running, leaves that request waiting for ever -- and a
+/// debug build stops on the abandoned promise. So nothing starts once the
+/// session is closed, and its thread is shut down only when the last request
+/// under way has ended.
+final class SFTPSessionGate: @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var closed = false
+    private var closingDone = false
+    private var underWay = 0
+    private var shutDown = false
+    private var lastMoved: ContinuousClock.Instant?
+
+    /// Whether a request may start; counted as under way when it may.
+    func enter() -> Bool {
+        lock.withLock {
+            guard !closed else { return false }
+            underWay += 1
+            return true
+        }
+    }
+
+    /// A request ended. True when the thread is to be shut down now.
+    func leave() -> Bool {
+        lock.withLock {
+            underWay -= 1
+            return takeShutDown()
+        }
+    }
+
+    /// No more requests start.
+    func close() {
+        lock.withLock { closed = true }
+    }
+
+    /// The connection is closed. True when the thread is to be shut down now.
+    func closingFinished() -> Bool {
+        lock.withLock {
+            closingDone = true
+            return takeShutDown()
+        }
+    }
+
+    private func takeShutDown() -> Bool {
+        guard closingDone, underWay == 0, !shutDown else { return false }
+        shutDown = true
+        return true
+    }
+
+    /// Bytes went one way or the other just now.
+    func moved() {
+        lock.withLock { lastMoved = .now }
+    }
+
+    /// Whether bytes moved within `span`: a transfer under way, which is proof the
+    /// connection is there however slow the server is to answer anything else.
+    func moved(within span: Duration) -> Bool {
+        lock.withLock { lastMoved.map { ContinuousClock.now - $0 < span } ?? false }
+    }
 }
 
 /// A connected SFTP session, shared by whatever asks for a listing.
@@ -250,6 +328,7 @@ final class SFTPSession: @unchecked Sendable {
     /// The thread the connection runs on. Its own, so that a signature the
     /// agent is slow to make stalls only this connection.
     private let group: MultiThreadedEventLoopGroup
+    let gate = SFTPSessionGate()
 
     private init(ssh: SSHClient, sftp: SFTPClient, group: MultiThreadedEventLoopGroup) {
         self.ssh = ssh
@@ -291,21 +370,201 @@ final class SFTPSession: @unchecked Sendable {
 
     /// The folder the server starts a session in, as an absolute path.
     func homeDirectory() async throws -> String {
-        try await sftp.getRealPath(atPath: ".")
+        try await using { try await sftp.getRealPath(atPath: ".") }
     }
 
     /// What is in `path`, without `.` and `..`.
     func list(_ path: String) async throws -> [SFTPEntry] {
-        try await sftp.listDirectory(atPath: path)
+        try await using { try await sftp.listDirectory(atPath: path) }
             .flatMap(\.components)
             .filter { $0.filename != "." && $0.filename != ".." }
             .map(SFTPEntry.init)
     }
 
+    /// Runs one request, unless the session is closed: see `SFTPSessionGate`.
+    func using<T>(_ request: () async throws -> T) async throws -> T {
+        guard gate.enter() else { throw SFTPError.connectionClosed }
+        defer {
+            if gate.leave() {
+                let group = group
+                Task.detached { try? await group.shutdownGracefully() }
+            }
+        }
+        return try await request()
+    }
+
+    /// Closing fails the requests under way; the thread goes once they have ended.
     func close() async {
+        gate.close()
         try? await sftp.close()
         try? await ssh.close()
-        try? await group.shutdownGracefully()
+        if gate.closingFinished() { try? await group.shutdownGracefully() }
+    }
+}
+
+/// An open file on the server, handed to the requests that run at once on it.
+/// Citadel's handle is a class that does not say it is `Sendable`; it is only
+/// read by those requests -- a request carries its own offset -- and closed
+/// once they have all ended.
+nonisolated struct SharedFile: @unchecked Sendable {
+    let handle: SFTPFile
+    init(_ handle: SFTPFile) { self.handle = handle }
+}
+
+/// Many requests on their way at once, as OpenSSH's `sftp` sends them.
+///
+/// SFTP numbers every request and its answer, so a client need not wait for one
+/// answer before sending the next. Sent one at a time, every 32 KB cost a round
+/// trip to the server and back, and a large file crawled over Wi-Fi however fast
+/// the network was. The pieces stay small -- every server must take 32 KB, and
+/// a bigger write leaves some waiting for good -- but up to `window` of them are
+/// under way together.
+nonisolated enum SFTPPipeline {
+
+    /// Bytes in one write: one request each, as Citadel cuts them anyway.
+    static let writePiece = 32_000
+    /// Bytes asked for in one read: what every server must answer in full.
+    static let readPiece: UInt32 = 32_768
+    /// Requests under way at once: OpenSSH's own default.
+    static let window = 64
+
+    /// Sends what `next` gives, piece by piece, until it gives nothing, with up
+    /// to `window` writes under way. Returns how many bytes were sent. The first
+    /// failure ends it; the writes still under way are left to end.
+    static func send(next: () throws -> Data?,
+                     write: @escaping @Sendable (Data, UInt64) async throws -> Void,
+                     window: Int = window) async throws -> UInt64 {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var offset: UInt64 = 0
+            var underWay = 0
+            while let piece = try next(), !piece.isEmpty {
+                if underWay >= window {
+                    try await group.next()
+                    underWay -= 1
+                }
+                let at = offset
+                group.addTask { try await write(piece, at) }
+                underWay += 1
+                offset += UInt64(piece.count)
+            }
+            try await group.waitForAll()
+            return offset
+        }
+    }
+
+    /// Reads a file of `expected` bytes with up to `window` reads under way, and
+    /// hands each piece to `write` with its offset, in whatever order they come.
+    /// A read answered short is asked again for the rest; an empty one is the
+    /// end. Past `expected` -- or with no size known -- the rest is read one piece
+    /// at a time to the end. Returns where the file ended.
+    static func receive(expected: UInt64?,
+                        read: @escaping @Sendable (UInt64, UInt32) async throws -> Data,
+                        write: (Data, UInt64) throws -> Void,
+                        piece: UInt32 = readPiece, window: Int = window) async throws -> UInt64 {
+        var end: UInt64?
+        if let expected, expected > 0 {
+            end = try await withThrowingTaskGroup(of: (UInt64, UInt32, Data).self) { group in
+                var next: UInt64 = 0
+                var gaps: [(UInt64, UInt32)] = []
+                var underWay = 0
+                var end: UInt64?
+                func ask() {
+                    while underWay < window {
+                        let request: (UInt64, UInt32)
+                        if let gap = gaps.popLast() {
+                            request = gap
+                        } else if next < expected {
+                            request = (next, UInt32(min(UInt64(piece), expected - next)))
+                            next += UInt64(request.1)
+                        } else {
+                            return
+                        }
+                        if let end, request.0 >= end { continue }
+                        group.addTask { (request.0, request.1, try await read(request.0, request.1)) }
+                        underWay += 1
+                    }
+                }
+                ask()
+                while let (offset, asked, data) = try await group.next() {
+                    underWay -= 1
+                    if data.isEmpty {
+                        end = min(end ?? offset, offset)
+                    } else {
+                        try write(data, offset)
+                        if data.count < Int(asked) {
+                            gaps.append((offset + UInt64(data.count), asked - UInt32(data.count)))
+                        }
+                    }
+                    ask()
+                }
+                return end
+            }
+        }
+        // To the end, one piece at a time: a file with no size given, or one that
+        // grew after it was opened.
+        guard end == nil else { return end! }
+        var offset = expected ?? 0
+        while true {
+            let data = try await read(offset, piece)
+            guard !data.isEmpty else { return offset }
+            try write(data, offset)
+            offset += UInt64(data.count)
+        }
+    }
+}
+
+/// A command a server may have that prints a file's SHA-256: GNU coreutils'
+/// `sha256sum` on Linux, Perl's `shasum` on macOS and the BSDs.
+nonisolated enum SFTPHashCommand: String, CaseIterable, Sendable {
+    case sha256sum, shasum
+
+    /// The command line for `path`, quoted for the shell.
+    func line(for path: String) -> String {
+        switch self {
+        case .sha256sum: "sha256sum -- " + shellQuoted(path)
+        case .shasum: "shasum -a 256 -- " + shellQuoted(path)
+        }
+    }
+
+    /// The checksum both print first, as 64 hexadecimal digits.
+    static func digest(in output: String) -> String? {
+        guard let word = output.split(whereSeparator: \.isWhitespace).first else { return nil }
+        let digest = word.lowercased()
+        guard digest.count == 64, digest.allSatisfy(\.isHexDigit) else { return nil }
+        return digest
+    }
+}
+
+/// What asking a server for a checksum came to.
+nonisolated enum SFTPHashOutcome: Equatable, Sendable {
+    case digest(String)
+    /// The server has no such command, or it printed no checksum.
+    case commandMissing
+    /// The command is there, but failed on this file -- unreadable, gone.
+    case failed
+}
+
+/// Whether a server can be asked for checksums, and with which command.
+nonisolated enum SFTPHashSupport: Equatable, Sendable {
+    case untried
+    case works(SFTPHashCommand)
+    case none
+
+    /// As kept with a saved server: nil when untried, "none", or the command.
+    init(stored: String?) {
+        switch stored {
+        case nil: self = .untried
+        case "none": self = .none
+        case let name?: self = SFTPHashCommand(rawValue: name).map { .works($0) } ?? .untried
+        }
+    }
+
+    var stored: String? {
+        switch self {
+        case .untried: nil
+        case .works(let command): command.rawValue
+        case .none: "none"
+        }
     }
 }
 
@@ -332,6 +591,15 @@ nonisolated protocol RemoteListing: Sendable {
     /// Runs one command as root through sudo, over the same connection: with no
     /// password (`sudo -n`), or with the one given, sent on its input.
     func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome
+    /// The SHA-256 of `path`, worked out on the server by `command`.
+    func sha256(of path: String, using command: SFTPHashCommand) async throws -> SFTPHashOutcome
+}
+
+extension RemoteListing {
+    /// A server that runs no commands has none to work out a checksum with.
+    func sha256(of path: String, using command: SFTPHashCommand) async throws -> SFTPHashOutcome {
+        .commandMissing
+    }
 }
 
 extension SFTPSession: RemoteListing {
@@ -343,31 +611,31 @@ extension SFTPSession: RemoteListing {
     /// Streams the file to `destination` a piece at a time, so a large one is
     /// never held in memory whole.
     func makeDirectory(_ path: String) async throws {
-        try await sftp.createDirectory(atPath: path)
+        try await using { try await sftp.createDirectory(atPath: path) }
     }
 
     func removeFile(_ path: String) async throws {
-        try await sftp.remove(at: path)
+        try await using { try await sftp.remove(at: path) }
     }
 
     func removeDirectory(_ path: String) async throws {
-        try await sftp.rmdir(at: path)
+        try await using { try await sftp.rmdir(at: path) }
     }
 
     func rename(_ from: String, to: String) async throws {
-        try await sftp.rename(at: from, to: to)
+        try await using { try await sftp.rename(at: from, to: to) }
     }
 
     func setPermissions(_ path: String, mode: UInt32) async throws {
         var attributes = SFTPFileAttributes()
         attributes.permissions = mode
-        try await sftp.setAttributes(at: path, to: attributes)
+        try await using { try await sftp.setAttributes(at: path, to: attributes) }
     }
 
     func setOwnership(_ path: String, uid: UInt32, gid: UInt32) async throws {
         var attributes = SFTPFileAttributes()
         attributes.uidgid = SFTPFileAttributes.UserGroupId(userId: uid, groupId: gid)
-        try await sftp.setAttributes(at: path, to: attributes)
+        try await using { try await sftp.setAttributes(at: path, to: attributes) }
     }
 
     func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
@@ -382,6 +650,13 @@ extension SFTPSession: RemoteListing {
                 + " sh " + words
         var errors = ""
         var failed = false
+        guard gate.enter() else { throw SFTPError.connectionClosed }
+        defer {
+            if gate.leave() {
+                let group = group
+                Task.detached { try? await group.shutdownGracefully() }
+            }
+        }
         do {
             try await ssh.withExec(command) { inbound, outbound in
                 if let password {
@@ -403,48 +678,103 @@ extension SFTPSession: RemoteListing {
         return failed ? SudoOutcome.reading(errors) : .done
     }
 
+    func sha256(of path: String, using command: SFTPHashCommand) async throws -> SFTPHashOutcome {
+        guard gate.enter() else { throw SFTPError.connectionClosed }
+        defer {
+            if gate.leave() {
+                let group = group
+                Task.detached { try? await group.shutdownGracefully() }
+            }
+        }
+        var output = ""
+        do {
+            try await ssh.withExec(command.line(for: path)) { inbound, _ in
+                for try await piece in inbound {
+                    if case .stdout(let buffer) = piece { output += String(buffer: buffer) }
+                }
+            }
+        } catch let failure as SSHClient.CommandFailed {
+            // 127 is the shell's "command not found".
+            return failure.exitCode == 127 ? .commandMissing : .failed
+        } catch let error as ChannelError where error == .alreadyClosed {
+            // Ended, and the server closed the channel first: the output is all here.
+        }
+        return SFTPHashCommand.digest(in: output).map { .digest($0) } ?? .commandMissing
+    }
+
     func setTimes(_ path: String, modified: Date) async throws {
         var attributes = SFTPFileAttributes()
         attributes.accessModificationTime = SFTPFileAttributes.AccessModificationTime(
             accessTime: modified, modificationTime: modified)
-        try await sftp.setAttributes(at: path, to: attributes)
+        try await using { try await sftp.setAttributes(at: path, to: attributes) }
     }
 
     /// Streams a local file to the server a piece at a time.
     func upload(_ local: URL, to path: String) async throws {
-        let file = try await sftp.openFile(filePath: path, flags: [.write, .create, .truncate])
-        let input = try FileHandle(forReadingFrom: local)
-        defer { try? input.close() }
-        do {
-            var offset: UInt64 = 0
-            while let chunk = try input.read(upToCount: 256 * 1024), !chunk.isEmpty {
-                try await file.write(ByteBuffer(bytes: chunk), at: offset)
-                offset += UInt64(chunk.count)
-            }
-        } catch {
-            try? await file.close()
-            throw error
-        }
-        try await file.close()
+        try await using { try await send(local, to: path) }
     }
 
     func download(_ path: String, to destination: URL) async throws {
-        let file = try await sftp.openFile(filePath: path, flags: .read)
+        try await using { try await receive(path, to: destination) }
+    }
+
+    private func send(_ local: URL, to path: String) async throws {
+        let file = SharedFile(try await sftp.openFile(filePath: path, flags: [.write, .create, .truncate]))
+        let input = try FileHandle(forReadingFrom: local)
+        defer { try? input.close() }
+        let gate = gate
+        let sent: UInt64
+        do {
+            sent = try await SFTPPipeline.send(
+                next: { try input.read(upToCount: SFTPPipeline.writePiece) },
+                write: { piece, offset in
+                    try await file.handle.write(ByteBuffer(bytes: piece), at: offset)
+                    gate.moved()
+                })
+        } catch {
+            try? await file.handle.close()
+            throw error
+        }
+        try await file.handle.close()
+        // What the server holds now, against what was read here: a file that
+        // arrived short is a failure said, not a copy taken as made.
+        // Counted as it was read, not looked up again: the file here may have
+        // changed by now, and that is no fault of the transfer.
+        if let held = try await sftp.getAttributes(at: path).size, held != sent {
+            throw SFTPTransferError.incomplete(path: path, expected: sent, got: held)
+        }
+    }
+
+    private func receive(_ path: String, to destination: URL) async throws {
+        let file = SharedFile(try await sftp.openFile(filePath: path, flags: .read))
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         let output = try FileHandle(forWritingTo: destination)
         defer { try? output.close() }
+        let gate = gate
+        let expected: UInt64?
+        let got: UInt64
         do {
-            var offset: UInt64 = 0
-            while true {
-                let chunk = try await file.read(from: offset, length: 256 * 1024)
-                guard chunk.readableBytes > 0 else { break }
-                try output.write(contentsOf: Data(chunk.readableBytesView))
-                offset += UInt64(chunk.readableBytes)
-            }
+            expected = try? await file.handle.readAttributes().size
+            got = try await SFTPPipeline.receive(
+                expected: expected,
+                read: { offset, length in
+                    let piece = try await file.handle.read(from: offset, length: length)
+                    gate.moved()
+                    return Data(piece.readableBytesView)
+                },
+                write: { piece, offset in
+                    try output.seek(toOffset: offset)
+                    try output.write(contentsOf: piece)
+                })
         } catch {
-            try? await file.close()
+            try? await file.handle.close()
             throw error
         }
-        try await file.close()
+        try await file.handle.close()
+        // Short of the size the server gave when it was opened: not the file.
+        // (Longer is a file still growing there, and is what it has now.)
+        if let expected, got < expected {
+            throw SFTPTransferError.incomplete(path: path, expected: expected, got: got)
+        }
     }
 }

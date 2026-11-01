@@ -41,6 +41,16 @@ struct DiffView: View {
             } else {
             header
             Divider()
+            if let note = document.note {
+                Label(note, systemImage: "info.circle")
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.yellow.opacity(0.12))
+                Divider()
+            }
             content
             if let notice {
                 Divider()
@@ -93,6 +103,9 @@ struct DiffView: View {
             }
             found.delegate = guard_
         })
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if let url = note.object as? URL { document.markUnsent(url) }
+        }
         .onChange(of: document.isDirty) { _, dirty in
             // The dot in the close button, and the only unsaved-changes cue
             // macOS gives a window that is not an NSDocument.
@@ -109,6 +122,22 @@ struct DiffView: View {
 
     // MARK: - Two files that are not text
 
+    /// The answer at a glance, beside the sentence that gives it: green for the
+    /// same, yellow for one being the start of the other, red for different.
+    static func mark(_ outcome: BinaryComparison.Outcome, size: CGFloat = 28) -> some View {
+        let (symbol, color, said): (String, Color, String) = switch outcome {
+        case .same: ("checkmark.circle.fill", .green, "The same")
+        case .prefix: ("arrow.right.circle.fill", .yellow, "One is the start of the other")
+        case .different: ("xmark.circle.fill", .red, "Different")
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: size))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .accessibilityLabel(said)
+            .help(said)
+    }
+
     @ViewBuilder
     private var bytes: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -120,11 +149,14 @@ struct DiffView: View {
             }
 
             if let comparison = document.binary {
-                Text(comparison.verdict(left: pair.left.lastPathComponent,
-                                        right: pair.right.lastPathComponent))
-                    .font(.subheadline)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                HStack(alignment: .center, spacing: 12) {
+                    Self.mark(comparison.outcome)
+                    Text(comparison.verdict(left: pair.left.lastPathComponent,
+                                            right: pair.right.lastPathComponent))
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
                 Text(comparison.isIdentical
                      ? "Nothing to show side by side: there is no difference."
                      : "Bin Edit opens either of them byte by byte.")
@@ -182,6 +214,9 @@ struct DiffView: View {
                             contentIsSame: document.failure == nil && document.left != nil
                                 && diff.isIdentical && !document.isDirty)
             HStack(spacing: 12) {
+                if document.failure == nil, document.left != nil, !document.isDirty {
+                    Self.mark(diff.isIdentical ? .same : .different, size: 18)
+                }
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(diff.isIdentical ? .secondary : .primary)
@@ -200,7 +235,7 @@ struct DiffView: View {
                         .disabled(!document.canRedo)
                         .keyboardShortcut("z", modifiers: [.command, .shift])
                     Button("Save") { act { saveNow() } }
-                        .disabled(!document.isDirty)
+                        .disabled(!document.isDirty && !document.isUnsent)
                         .keyboardShortcut("s", modifiers: .command)
                 }
                 // Only for the one shape it finishes: a file and a copy of it

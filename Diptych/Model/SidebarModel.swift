@@ -6,7 +6,10 @@ import Observation
 extension VolumeList {
     /// Where a server's share is mounted, if it is.
     func mountPoint(of server: KnownServer) -> URL? {
-        server.url.flatMap { ServerVolumes.mountPoint(of: $0, among: servers) }
+        guard let url = server.url else { return nil }
+        // An SFTP server is not mounted: connected, its shadow stands for it.
+        if let connected = RemoteBrowsing.connected(url) { return connected.root }
+        return ServerVolumes.mountPoint(of: url, among: servers)
     }
 
     func volume(at mountPoint: URL) -> SidebarEntry? {

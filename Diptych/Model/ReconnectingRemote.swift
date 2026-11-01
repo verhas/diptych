@@ -48,12 +48,16 @@ actor ReconnectingRemote: RemoteListing {
         let remote: RemoteListing
         let answers: @Sendable () async -> Bool
         let close: @Sendable () async -> Void
+        /// Whether bytes moved over it within the span: a transfer under way.
+        let moved: @Sendable (Duration) -> Bool
 
         init(remote: RemoteListing, answers: @escaping @Sendable () async -> Bool,
-             close: @escaping @Sendable () async -> Void) {
+             close: @escaping @Sendable () async -> Void,
+             moved: @escaping @Sendable (Duration) -> Bool = { _ in false }) {
             self.remote = remote
             self.answers = answers
             self.close = close
+            self.moved = moved
         }
     }
 
@@ -146,12 +150,16 @@ actor ReconnectingRemote: RemoteListing {
     }
 
     /// Whether `link` answers within the patience, a stalled one counting as dead.
+    /// A transfer still moving bytes is an answer: a server busy writing a large
+    /// file -- a Raspberry Pi onto its card -- may take longer than the patience to
+    /// answer anything else, and was closed mid-transfer for it.
     private static func answers(_ link: Link) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
+        if link.moved(patience) { return true }
+        return await withTaskGroup(of: Bool.self) { group in
             group.addTask { await link.answers() }
             group.addTask {
                 try? await Task.sleep(for: patience)
-                return false
+                return link.moved(patience)
             }
             let first = await group.next() ?? false
             group.cancelAll()
@@ -202,6 +210,11 @@ actor ReconnectingRemote: RemoteListing {
         try await perform(idempotent: true) { try await $0.setTimes(path, modified: modified) }
     }
 
+    func sha256(of path: String, using command: SFTPHashCommand) async throws -> SFTPHashOutcome {
+        // Reading only: safe to ask again.
+        try await perform(idempotent: true) { try await $0.sha256(of: path, using: command) }
+    }
+
     func runAsRoot(_ arguments: [String], password: String?) async throws -> SudoOutcome {
         // Only ever used for a change that is the same made twice (chown).
         try await perform(idempotent: true) { try await $0.runAsRoot(arguments, password: password) }
@@ -227,6 +240,7 @@ extension ReconnectingRemote.Link {
         ReconnectingRemote.Link(
             remote: session,
             answers: { (try? await session.homeDirectory()) != nil },
-            close: { await session.close() })
+            close: { await session.close() },
+            moved: { session.gate.moved(within: $0) })
     }
 }

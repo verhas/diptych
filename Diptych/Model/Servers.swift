@@ -294,6 +294,9 @@ struct KnownServer: Codable, Identifiable, Equatable, Sendable {
     /// How often an SFTP connection to it is checked, in seconds, when Diptych's
     /// own setting is wanted over the one in `~/.ssh/config`. Zero: never.
     var keepAliveSeconds: Int?
+    /// Whether the server can work out a file's SHA-256, and with which command:
+    /// nil when not tried yet, "none" when it cannot. See `SFTPHashSupport`.
+    var hashCommand: String?
 
     var id: String { address.lowercased() }
     var url: URL? { URL(string: address) }
@@ -394,6 +397,15 @@ final class ServerStore {
         let id = ServerAddress.withoutPassword(url).absoluteString.lowercased()
         guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
         servers[index].keepAliveSeconds = seconds
+        commit()
+    }
+
+    /// Records whether a server can work out checksums, and with what.
+    func setHashCommand(_ stored: String?, for url: URL) {
+        let id = ServerAddress.withoutPassword(url).absoluteString.lowercased()
+        guard let index = servers.firstIndex(where: { $0.id == id }),
+              servers[index].hashCommand != stored else { return }
+        servers[index].hashCommand = stored
         commit()
     }
 

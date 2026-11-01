@@ -200,6 +200,18 @@ struct Configuration: Codable, Equatable {
     /// wants them. 0: nothing is fetched until it is used.
     var serverPrefetchMegabytes = 10
 
+    /// A file sent to an SFTP server up to this size, in megabytes, is kept in
+    /// the cache as well, for as long as the server is connected, so that using
+    /// it next does not fetch it back. It is also how big a cached file may be
+    /// for its bytes to be checked against the server's with a checksum run
+    /// there, instead of being fetched again. About disk space, where the
+    /// right-click size above is about waiting. 0: nothing is kept.
+    var serverCacheKeepMegabytes = 1000
+
+    /// Reveal in Finder on an SFTP server first says that Finder shows the cache
+    /// on this Mac, not the server.
+    var warnRevealingServerCache = true
+
     var showOriginalLocationInTrash = true
 
     /// Right-click menu entries switched off, by `MenuItem` raw value. Empty --
@@ -542,7 +554,8 @@ struct Configuration: Codable, Equatable {
         case textFormatExtensions, textLineNumbers, textStyle
         case serverRefreshSeconds, copying
         case showOriginalLocationInTrash
-        case showCacheColumnOnServers, serverPrefetchMegabytes
+        case showCacheColumnOnServers, serverPrefetchMegabytes, serverCacheKeepMegabytes,
+            warnRevealingServerCache
         case hiddenMenuItems
         case splitPartWarningThreshold
     }
@@ -566,6 +579,10 @@ struct Configuration: Codable, Equatable {
             (try? container.decode(Bool.self, forKey: .showCacheColumnOnServers)) ?? true
         serverPrefetchMegabytes = min(max(0, (try? container.decode(
             Int.self, forKey: .serverPrefetchMegabytes)) ?? 10), 100_000)
+        serverCacheKeepMegabytes = min(max(0, (try? container.decode(
+            Int.self, forKey: .serverCacheKeepMegabytes)) ?? 1000), 1_000_000)
+        warnRevealingServerCache =
+            (try? container.decode(Bool.self, forKey: .warnRevealingServerCache)) ?? true
         hiddenMenuItems =
             (try? container.decode(Set<String>.self, forKey: .hiddenMenuItems)) ?? []
         splitPartWarningThreshold =

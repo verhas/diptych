@@ -242,7 +242,18 @@ extension AppModel {
         }, interval: SFTPKeepAlive.interval(
             host: host, override: ServerStore.shared.server(for: request.url)?.keepAliveSeconds))
         await remote.startKeepingAlive()
-        let mirror = SFTPMirror(root: root, remote: remote, host: host)
+        // As it is recorded among the servers: with the user, without a password.
+        var recorded = URLComponents(url: request.url, resolvingAgainstBaseURL: false)
+        recorded?.user = request.username
+        recorded?.password = nil
+        let known = recorded?.url
+        let mirror = SFTPMirror(
+            root: root, remote: remote, host: host,
+            hashing: SFTPHashSupport(stored: known.flatMap { ServerStore.shared.server(for: $0) }?.hashCommand),
+            learned: { support in
+                guard let known else { return }
+                Task { @MainActor in ServerStore.shared.setHashCommand(support.stored, for: known) }
+            })
         let server = RemoteBrowsing.Server(
             user: request.username, host: host, port: port, root: root, mirror: mirror,
             close: {

@@ -321,6 +321,32 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            HStack {
+                Text("Keep files up to")
+                TextField("", value: $store.configuration.serverCacheKeepMegabytes,
+                          format: .number)
+                    .frame(width: 70)
+                    .multilineTextAlignment(.trailing)
+                Text("MB in the cache of a connected SFTP server")
+            }
+            Text("A file copied to a server, no bigger than this, stays in the cache too, so "
+                 + "using it next -- Split, Compare, opening it -- does not fetch it back. A "
+                 + "cached file this size or smaller that the server lists as changed is "
+                 + "checked first with a checksum run on the server, and fetched only when "
+                 + "its bytes really differ. This limits disk use; the right-click size "
+                 + "above limits waiting. 0 keeps nothing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Warn that Reveal in Finder shows the cache of an SFTP server",
+                   isOn: $store.configuration.warnRevealingServerCache)
+            Text("Finder cannot show a server: what it shows is Diptych\u{2019}s cache of it on "
+                 + "this Mac.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Divider()
 
             Toggle("Return opens archives and disk images in the pane",

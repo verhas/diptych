@@ -38,6 +38,12 @@ final class OpenTextDocuments {
         guard discardingChanges || !document.hasUnsavedChanges else { return }
         document.load()
     }
+
+    /// The file was written by another window: an open document with nothing
+    /// unsaved shows what is there now, and is left alone when it already does.
+    func readAgainIfChanged(_ url: URL) {
+        documents[FileOperations.canonicalPath(url)]?.document?.readAgainIfChanged()
+    }
 }
 
 @MainActor

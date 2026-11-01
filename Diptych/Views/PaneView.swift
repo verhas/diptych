@@ -863,9 +863,9 @@ struct PaneView: View {
             if !archives.isEmpty {
                 Divider()
                 Button("Extract Here") { act(ids) { model.extractHere() } }
-                    .disabled(pane.volume.isReadOnly)
+                    .disabled(!pane.isWritable)
                 Button("Extract to Other Pane") { act(ids) { model.extractToOtherPane() } }
-                    .disabled(model.otherPaneFolder == nil || model.inactive.volume.isReadOnly)
+                    .disabled(model.otherPaneFolder == nil || !model.inactive.isWritable)
             }
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, item.url.pathExtension.lowercased() == "zip" {
@@ -875,18 +875,59 @@ struct PaneView: View {
         }
     }
 
-    /// Checksum ▸ Create ▸ a kind, and Check -- offered when any plain file is
+    /// Tools: Find Duplicates, Archive, Checksum, Split or Join, and the text
+    /// conversions -- each where it applies and is not switched off in
+    /// Settings, and the menu itself only when one of them is there.
+    @ViewBuilder
+    private func toolsMenu(for ids: Set<FileItem.ID>) -> some View {
+        let config = ConfigStore.shared
+        let files = pane.rows.filter { ids.contains($0.id) && !$0.isDirectory && !$0.isParent }
+        let duplicates = config.menuItemShown(.findDuplicates) && ids.count == 1
+        let archive = config.menuItemShown(.archive)
+        let checksum = config.menuItemShown(.checksum) && !files.isEmpty
+        // Split a single ordinary file, or join when the selection is a set
+        // of parts (any of them) or a manifest. Offered even on read-only
+        // media: the output then goes to the other pane.
+        let urls = files.filter { !ArchiveBrowsing.isInside($0.url) }.map(\.url)
+        let join = config.menuItemShown(.splitJoin) && FileSplitting.joinSource(for: urls) != nil
+        let split = config.menuItemShown(.splitJoin) && !join && urls.count == 1
+            && !FileSplitting.isPart(urls[0]) && !FileSplitting.isManifest(urls[0])
+        let convert = config.menuItemShown(.textConversion) && !files.isEmpty
+        if duplicates || archive || checksum || join || split || convert {
+            Menu("Tools") {
+                if duplicates {
+                    Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
+                }
+                if archive { archiveMenu(for: ids) }
+                if checksum { checksumMenu(for: ids) }
+                if join {
+                    Button("Join Parts") { act(ids) { model.joinParts() } }
+                } else if split {
+                    Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
+                }
+                if convert {
+                    Divider()
+                    Button("Convert Line Endings\u{2026}") {
+                        act(ids) { model.requestConvertLineEndings() }
+                    }
+                    .disabled(!pane.isWritable)
+                    Button("Convert Character Encoding\u{2026}") {
+                        act(ids) { model.requestConvertEncoding() }
+                    }
+                    .disabled(!pane.isWritable)
+                }
+            }
+        }
+    }
+
+    /// Checksum ▸ Create…, and Check -- offered when any plain file is
     /// selected.
     @ViewBuilder
     private func checksumMenu(for ids: Set<FileItem.ID>) -> some View {
         if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory && !$0.isParent }) {
             Menu("Checksum") {
-                Menu("Create") {
-                    Button("MD5") { act(ids) { model.createChecksums(.md5) } }
-                    Button("SHA-1") { act(ids) { model.createChecksums(.sha1) } }
-                    Button("SHA-256") { act(ids) { model.createChecksums(.sha256) } }
-                    Button("SHA-512") { act(ids) { model.createChecksums(.sha512) } }
-                }
+                // Which kinds is asked in a small window that lists the files.
+                Button("Create\u{2026}") { act(ids) { model.requestCreateChecksums() } }
                 Button("Check") { act(ids) { model.checkChecksums() } }
             }
         }
@@ -1007,9 +1048,6 @@ struct PaneView: View {
                     act(ids) { model.findSiblingNames(of: item) }
                 }
             }
-            if ConfigStore.shared.menuItemShown(.findDuplicates), ids.count == 1 {
-                Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
-            }
             // A single folder: what is taking up the room under it.
             if ConfigStore.shared.menuItemShown(.diskUsage),
                ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
@@ -1022,28 +1060,13 @@ struct PaneView: View {
                !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
                 Button("Previous Versions\u{2026}") { act(ids) { model.showPreviousVersions() } }
             }
-            if ConfigStore.shared.menuItemShown(.archive) { archiveMenu(for: ids) }
-            if ConfigStore.shared.menuItemShown(.checksum) { checksumMenu(for: ids) }
-            // Split a single ordinary file, or join when the selection is a set
-            // of parts (any of them) or a manifest. Offered even on read-only
-            // media: the output then goes to the other pane.
-            if ConfigStore.shared.menuItemShown(.splitJoin) {
-                let urls = pane.rows.filter { ids.contains($0.id) && !$0.isParent
-                                              && !$0.isDirectory
-                                              && !ArchiveBrowsing.isInside($0.url) }.map(\.url)
-                if FileSplitting.joinSource(for: urls) != nil {
-                    Button("Join Parts") { act(ids) { model.joinParts() } }
-                } else if urls.count == 1, let url = urls.first,
-                          !FileSplitting.isPart(url), !FileSplitting.isManifest(url) {
-                    Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
-                }
-            }
+            toolsMenu(for: ids)
             // Photos, PNGs and PDFs among the rows: they can be made smaller.
             if ConfigStore.shared.menuItemShown(.optimize),
                pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
                                            && Optimizing.kind(of: $0.url) != nil }) {
                 Button("Optimize File Size\u{2026}") { act(ids) { model.requestOptimize() } }
-                    .disabled(pane.volume.isReadOnly)
+                    .disabled(!pane.isWritable)
             }
             // Only when an image whose EXIF can be changed is selected; the
             // editor takes those and leaves anything else out.
@@ -1158,12 +1181,13 @@ struct PaneView: View {
             if ConfigStore.shared.menuItemShown(.edit),
                ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !item.isBrokenLink {
-                // Named for the format Text Edit will open it as: JSON Edit.
-                let format = TextFormat.of(item.url, extensions: ConfigStore.shared.configuration.textFormats)
-                Button(format.map { "\($0.title) Edit" } ?? "Text Edit") {
-                    act(ids) { model.showTextEditor() }
+                // Text Edit for text, Bin Edit for the rest; Bin Edit for a text
+                // file is the submenu's. Text Edit has no use for a binary file.
+                Menu("Edit") {
+                    Button("Binary Edit") { act(ids) { model.showBinaryView() } }
+                } primaryAction: {
+                    act(ids) { model.editSelection() }
                 }
-                Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
             if ConfigStore.shared.menuItemShown(.scripts) {
                 scripts(for: targets(of: ids))
@@ -1214,13 +1238,20 @@ struct PaneView: View {
                     .keyboardShortcut(.renameSuggested)
                     .disabled(model.isSuggestingName)
                 }
+                // Each says it has no shortcut: without that, every one shows
+                // the submenu's own F2, which belongs to Rename alone.
                 Divider()
                 Button("Lower Case") { act(ids) { model.renameLowercased() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Upper Case") { act(ids) { model.renameUppercased() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Spaces to Underscores") { act(ids) { model.renameSpacesToUnderscores() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Spaces to Dashes") { act(ids) { model.renameSpacesToDashes() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Divider()
                 Button("Replace\u{2026}") { act(ids) { model.requestRenameReplace() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
             } primaryAction: {
                 act(ids) { model.requestRename() }
             }

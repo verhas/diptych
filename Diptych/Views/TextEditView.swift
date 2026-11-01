@@ -93,6 +93,11 @@ struct TextEditView: View {
             note in
             if let window, note.object as? NSWindow === window { link.controller?.loadBaseline() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if (note.object as? URL)?.standardizedFileURL == url.standardizedFileURL {
+                document.markUnsent()
+            }
+        }
         .onChange(of: document.isEdited) { _, edited in
             // The dot in the close button: the unsaved-changes cue every Mac
             // window gives.
@@ -109,7 +114,9 @@ struct TextEditView: View {
         HStack(spacing: 10) {
             Button("Save") { saveNow() }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(!document.isEdited || document.isReadOnly)
+                .disabled(!(document.isEdited || document.isUnsent) || document.isReadOnly)
+                .help(document.isUnsent && !document.isEdited
+                      ? "Saved here, not on the server yet: ask again which version is kept" : "")
             // A property list is saved the way it came; this saves it the
             // other way, and it stays that way.
             if let encoding = document.plistEncoding {
@@ -161,6 +168,8 @@ struct TextEditView: View {
                     .foregroundStyle(.orange)
             } else if document.isEdited {
                 Text("Edited").foregroundStyle(.secondary)
+            } else if document.isUnsent {
+                Text("Not sent to the server").foregroundStyle(.orange)
             }
             if let format = document.format, document.problem == nil {
                 Label(format.title, systemImage: "checkmark.circle")

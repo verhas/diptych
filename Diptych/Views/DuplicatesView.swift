@@ -9,6 +9,7 @@ struct DuplicatesView: View {
     @State private var window: NSWindow?
     /// The full list behind a warning line too long to read in the footer.
     @State private var details: Details?
+    @State private var confirmingDelete = false
 
     private enum Details: String, Identifiable {
         case orphans, unkept
@@ -59,7 +60,7 @@ struct DuplicatesView: View {
                     .resizable().frame(width: 32, height: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(search.url.lastPathComponent).font(.headline)
-                    Text(NamingTemplate.tilde(search.url.path))
+                    Text(Self.shown(search.url))
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                         .textSelection(.enabled)
@@ -100,9 +101,11 @@ struct DuplicatesView: View {
             }
             if !search.isFolder {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Search the whole volume", isOn: $search.options.wholeVolume)
+                    Toggle(search.isOnServer ? "Search the whole server" : "Search the whole volume",
+                           isOn: $search.options.wholeVolume)
                         .help("Then the folder above, without the part already read, and "
-                              + "so on up to the top of the volume")
+                              + (search.isOnServer ? "so on up to the server\u{2019}s /"
+                                                   : "so on up to the top of the volume"))
                 }
                 if !search.volumes.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -199,7 +202,7 @@ struct DuplicatesView: View {
             Button {
                 show(file.id)
             } label: {
-                Text(file.id.path)
+                Text(RemoteBrowsing.reportedPath(file.id))
                     .font(.system(size: 12, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -257,7 +260,8 @@ struct DuplicatesView: View {
                 legend
             }
             if !search.failures.isEmpty {
-                Text("Not moved to the Trash: " + search.failures.joined(separator: "; "))
+                Text((search.isOnServer ? "Not deleted: " : "Not moved to the Trash: ")
+                     + search.failures.joined(separator: "; "))
                     .font(.caption).foregroundStyle(.red)
                     .lineLimit(3)
             }
@@ -273,13 +277,21 @@ struct DuplicatesView: View {
             HStack(spacing: 10) {
                 status
                 Spacer()
-                Button("Move Selected to Trash") {
-                    Task { await search.trashChosen() }
+                Button(search.isOnServer ? "Delete Selected from Server\u{2026}" : "Move Selected to Trash") {
+                    if search.isOnServer { confirmingDelete = true } else { Task { await search.trashChosen() } }
                 }
                 .disabled(!search.canTrash)
                 .help(search.chosen.isEmpty ? "Select the files to throw away first"
-                      : search.canTrash ? "Undo puts them back, from the browser window"
-                      : unkeptText)
+                      : !search.canTrash ? unkeptText
+                      : search.isOnServer ? "A server has no Trash: they are deleted for good"
+                      : "Undo puts them back, from the browser window")
+                .confirmationDialog("Delete \(search.chosen.count) file\(search.chosen.count == 1 ? "" : "s") "
+                                    + "from the server?", isPresented: $confirmingDelete) {
+                    Button("Delete", role: .destructive) { Task { await search.trashChosen() } }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("A server has no Trash: they are deleted for good, and cannot be put back.")
+                }
             }
         }
     }
@@ -358,7 +370,7 @@ struct DuplicatesView: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text("\(found) \u{2014} \(search.foldersRead) folders read, now "
-                     + NamingTemplate.tilde(search.folder))
+                     + Self.shown(URL(fileURLWithPath: search.folder)))
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
@@ -380,7 +392,7 @@ struct DuplicatesView: View {
         case .subfolders:
             "Subfolders, a level at a time"
         case .up(let path):
-            "Wider: everything under " + NamingTemplate.tilde(path)
+            "Wider: everything under " + Self.shown(URL(fileURLWithPath: path))
         case .volume(let name, _):
             "Another volume: \u{201C}\(name)\u{201D}"
         }
@@ -486,10 +498,18 @@ private struct DuplicateWarningDetails: View {
     }
 
     private func path(_ url: URL) -> some View {
-        Text(url.path)
+        Text(RemoteBrowsing.reportedPath(url))
             .font(.system(size: 12, design: .monospaced))
             .lineLimit(1).truncationMode(.middle)
             .textSelection(.enabled)
-            .help(url.path)
+            .help(RemoteBrowsing.reportedPath(url))
+    }
+}
+
+extension DuplicatesView {
+    /// A server's file by its sftp:// address, not where its cache is.
+    static func shown(_ url: URL) -> String {
+        let reported = RemoteBrowsing.reportedPath(url)
+        return reported == url.path ? NamingTemplate.tilde(url.path) : reported
     }
 }

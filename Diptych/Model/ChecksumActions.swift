@@ -4,7 +4,7 @@ import Foundation
 /// A Create Checksum the active pane could not carry out because it is
 /// read-only, waiting for the answer to "put them in the other pane instead?".
 struct PendingChecksum: Sendable {
-    let algorithm: Checksums.Algorithm
+    let algorithms: [Checksums.Algorithm]
     let targets: [URL]
     let into: URL
 }
@@ -12,7 +12,7 @@ struct PendingChecksum: Sendable {
 /// A Create Checksum stopped at checksum files that already exist with a
 /// different sum, waiting for the answer to "overwrite them?".
 struct PendingChecksumOverwrite: Sendable {
-    let algorithm: Checksums.Algorithm
+    let algorithms: [Checksums.Algorithm]
     let plan: Checksums.Plan
 }
 
@@ -39,39 +39,52 @@ extension AppModel {
 
     // MARK: - Creating
 
-    /// A checksum file of `algorithm` beside each selected file. On read-only
-    /// media the files cannot go there, so the user is asked whether to put
-    /// them in the other pane instead.
-    func createChecksums(_ algorithm: Checksums.Algorithm) {
+    /// Create Checksums…: the small window that lists the selected files and
+    /// asks which kinds to make.
+    func requestCreateChecksums() {
         let targets = checksumTargets
         guard !targets.isEmpty else { return }
+        let id = ToolWindows.shared.register(.init(model: self, kind: .checksums, files: targets))
+        openToolWindow?(.checksums, id)
+    }
+
+    /// A checksum file of `algorithm` beside each selected file.
+    func createChecksums(_ algorithm: Checksums.Algorithm) {
+        createChecksums([algorithm], of: checksumTargets)
+    }
+
+    /// A checksum file of each of `algorithms` beside each of `targets`. On
+    /// read-only media the files cannot go there, so the user is asked whether
+    /// to put them in the other pane instead.
+    func createChecksums(_ algorithms: [Checksums.Algorithm], of targets: [URL]) {
+        guard !targets.isEmpty, !algorithms.isEmpty else { return }
         // On a server: of the files' bytes, fetched first -- a placeholder's sum
         // is the sum of nothing -- and the checksum files are sent there.
         if active.isServerListing {
             whenFetched(targets + checksumCompanions(of: targets)) { [weak self] in
-                self?.writeChecksums(algorithm, of: targets, into: nil)
+                self?.writeChecksums(algorithms, of: targets, into: nil)
             }
             return
         }
-        if active.volume.isReadOnly {
-            guard let other = otherPaneFolder, !inactive.volume.isReadOnly else {
+        if !active.isWritable {
+            guard let other = otherPaneFolder, inactive.isWritable else {
                 dialog = .notice(title: "This folder is read-only",
                                  text: "Checksum files cannot be created here, and the other pane "
                                      + "is not a folder they could be created in instead.")
                 return
             }
-            pendingChecksum = PendingChecksum(algorithm: algorithm, targets: targets, into: other)
+            pendingChecksum = PendingChecksum(algorithms: algorithms, targets: targets, into: other)
             dialog = .checksumReadOnly
             return
         }
-        writeChecksums(algorithm, of: targets, into: nil)
+        writeChecksums(algorithms, of: targets, into: nil)
     }
 
     /// The answer to the read-only question: make them in the other pane.
     func confirmChecksumsInOtherPane() {
         guard let pending = pendingChecksum else { return }
         pendingChecksum = nil
-        writeChecksums(pending.algorithm, of: pending.targets, into: pending.into)
+        writeChecksums(pending.algorithms, of: pending.targets, into: pending.into)
     }
 
     /// `folder` nil means beside each original -- each in its own folder, so a
@@ -82,19 +95,27 @@ extension AppModel {
     /// a different sum stops to ask before it is overwritten. The fresh ones
     /// are written either way, so answering No to the overwrite refuses only
     /// the overwrite, not the whole command.
-    private func writeChecksums(_ algorithm: Checksums.Algorithm, of targets: [URL],
+    private func writeChecksums(_ algorithms: [Checksums.Algorithm], of targets: [URL],
                                 into folder: URL?) {
+        let label = Self.label(algorithms)
+        let count = targets.count * algorithms.count
         Task {
-            flash(targets.count == 1
-                  ? "Computing the \(algorithm.label) checksum\u{2026}"
-                  : "Computing \(targets.count) \(algorithm.label) checksums\u{2026}", error: false)
+            flash(count == 1
+                  ? "Computing the \(label) checksum\u{2026}"
+                  : "Computing \(count) \(label) checksums\u{2026}", error: false)
             let plan = await BlockingWork.run {
-                Checksums.classify(algorithm: algorithm, targets: targets, folder: folder)
+                algorithms.reduce(into: Checksums.Plan()) { plan, algorithm in
+                    let one = Checksums.classify(algorithm: algorithm, targets: targets, folder: folder)
+                    plan.fresh += one.fresh
+                    plan.mismatched += one.mismatched
+                    plan.upToDate += one.upToDate
+                    plan.problems += one.problems.filter { !plan.problems.contains($0) }
+                }
             }
             if plan.mismatched.isEmpty {
-                await finishChecksums(algorithm, plan: plan, overwriting: false)
+                await finishChecksums(algorithms, plan: plan, overwriting: false)
             } else {
-                pendingChecksumOverwrite = PendingChecksumOverwrite(algorithm: algorithm, plan: plan)
+                pendingChecksumOverwrite = PendingChecksumOverwrite(algorithms: algorithms, plan: plan)
                 dialog = .checksumOverwrite
             }
         }
@@ -105,7 +126,7 @@ extension AppModel {
         guard let pending = pendingChecksumOverwrite else { return }
         pendingChecksumOverwrite = nil
         dialog = nil
-        Task { await finishChecksums(pending.algorithm, plan: pending.plan, overwriting: true) }
+        Task { await finishChecksums(pending.algorithms, plan: pending.plan, overwriting: true) }
     }
 
     /// Keep the stale checksum files; the fresh ones are still written.
@@ -113,26 +134,17 @@ extension AppModel {
         guard let pending = pendingChecksumOverwrite else { return }
         pendingChecksumOverwrite = nil
         dialog = nil
-        Task { await finishChecksums(pending.algorithm, plan: pending.plan, overwriting: false) }
+        Task { await finishChecksums(pending.algorithms, plan: pending.plan, overwriting: false) }
     }
 
     /// Write the fresh checksum files -- and, when overwriting, the stale ones
     /// too -- then say what happened.
-    private func finishChecksums(_ algorithm: Checksums.Algorithm, plan: Checksums.Plan,
+    private func finishChecksums(_ algorithms: [Checksums.Algorithm], plan: Checksums.Plan,
                                  overwriting: Bool) async {
+        let label = Self.label(algorithms)
         let writes = plan.fresh + (overwriting ? plan.mismatched : [])
-        var result = await BlockingWork.run { Checksums.writeAll(writes) }
-        // Written in a server's folder: sent there. One already on the server
-        // was fetched first, and is sent as any saved file is.
-        let new = result.made.filter { RemoteBrowsing.isInside($0) && RemoteBrowsing.listedNode(of: $0) == nil }
-        if !new.isEmpty {
-            do {
-                try await RemoteBrowsing.publish(new)
-            } catch {
-                result.problems.append("The checksum files could not be sent to the server: "
-                                       + error.localizedDescription)
-            }
-        }
+        let result = await BlockingWork.run { Checksums.writeAll(writes) }
+        // Written in a server's folder, recording it sends it there.
         if !result.made.isEmpty {
             FileHistory.shared.recordCreation(.made("Create Checksum"), of: result.made)
             show(result.made, in: result.made[0].deletingLastPathComponent())
@@ -147,7 +159,7 @@ extension AppModel {
         let left = overwriting ? 0 : plan.mismatched.count
         var parts: [String] = []
         if result.made.count > 0 {
-            parts.append("\(result.made.count) \(algorithm.label) checksum"
+            parts.append("\(result.made.count) \(label) checksum"
                          + "\(result.made.count == 1 ? "" : "s") "
                          + "\(overwriting && plan.fresh.isEmpty ? "replaced" : "created")")
         }
@@ -156,13 +168,37 @@ extension AppModel {
 
         if result.made.isEmpty, left == 0, plan.upToDate > 0 {
             flash(plan.upToDate == 1
-                  ? "The \(algorithm.label) checksum already matches \u{2014} nothing to do"
-                  : "All \(plan.upToDate) \(algorithm.label) checksums already match \u{2014} nothing to do",
+                  ? "The \(label) checksum already matches \u{2014} nothing to do"
+                  : "All \(plan.upToDate) \(label) checksums already match \u{2014} nothing to do",
                   error: false)
         } else if result.made.isEmpty {
             flash(parts.isEmpty ? "Nothing to do" : parts.joined(separator: ", "), error: false)
         } else {
             flash(parts.joined(separator: ", ") + ", undoable", error: false)
+        }
+    }
+
+    /// "SHA-256", or "MD5 and SHA-256", or "MD5, SHA-1 and SHA-256".
+    static func label(_ algorithms: [Checksums.Algorithm]) -> String {
+        let labels = algorithms.map(\.label)
+        guard labels.count > 1 else { return labels.first ?? "" }
+        return labels.dropLast().joined(separator: ", ") + " and " + labels.last!
+    }
+
+    /// Of `targets`, those that are themselves checksum files: named for a kind
+    /// and holding a sum. A server's file not fetched yet goes by its name.
+    nonisolated static func checksumFiles(among targets: [URL],
+                                          pending: Set<URL> = []) -> [URL] {
+        targets.filter { url in
+            guard let kind = Checksums.Algorithm(rawValue: url.pathExtension.lowercased()) else {
+                return false
+            }
+            if pending.contains(url) { return true }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+            defer { try? handle.close() }
+            guard let data = try? handle.read(upToCount: 64 * 1024),
+                  let text = String(data: data, encoding: .utf8) else { return false }
+            return Checksums.hashTokens(in: text).contains { $0.count == kind.hexLength }
         }
     }
 

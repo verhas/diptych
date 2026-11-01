@@ -28,6 +28,10 @@ struct DiptychApp: App {
     static let versionsWindowID = "diptych.versions"
     static let diskUsageWindowID = "diptych.diskUsage"
     static let splitWindowID = "diptych.split"
+    static let checksumsWindowID = "diptych.checksums"
+    static let lineEndingsWindowID = "diptych.lineEndings"
+    static let encodingsWindowID = "diptych.encodings"
+    static let installWindowID = "diptych.install"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -140,6 +144,31 @@ struct DiptychApp: App {
             if let jobId { SplitView(jobId: jobId) }
         }
         .defaultSize(width: 460, height: 360)
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+
+        // The small windows of Tools, each keyed by a job in `ToolWindows`.
+        WindowGroup(id: DiptychApp.checksumsWindowID, for: UUID.self) { $jobId in
+            if let jobId { ChecksumCreateView(jobId: jobId) }
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+
+        WindowGroup(id: DiptychApp.lineEndingsWindowID, for: UUID.self) { $jobId in
+            if let jobId { LineEndingsView(jobId: jobId) }
+        }
+        .defaultSize(width: 760, height: 520)
+        .restorationBehavior(.disabled)
+
+        WindowGroup(id: DiptychApp.encodingsWindowID, for: UUID.self) { $jobId in
+            if let jobId { EncodingsView(jobId: jobId) }
+        }
+        .defaultSize(width: 860, height: 520)
+        .restorationBehavior(.disabled)
+
+        WindowGroup(id: DiptychApp.installWindowID, for: UUID.self) { $jobId in
+            if let jobId { InstallAppView(jobId: jobId) }
+        }
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
 
@@ -410,10 +439,10 @@ struct FileCommands: Commands {
             // as is everything below that would change what is there.
             Button("New Folder") { model?.requestNewFolder() }
                 .keyboardShortcut(.newFolder)
-                .disabled(model == nil || model?.active.isFlat == true || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isFlat == true || model?.active.isWritable == false)
             Button("New File") { model?.requestNewFile() }
                 .keyboardShortcut(.newFile)
-                .disabled(model == nil || model?.active.isFlat == true || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isFlat == true || model?.active.isWritable == false)
             // Absent, not greyed, when the setting says so: a command switched
             // off is not a command that is temporarily unavailable.
             if model?.clipboardCommandIsOffered ?? false {
@@ -456,10 +485,10 @@ struct FileCommands: Commands {
             Button("Join Parts") { model?.joinParts() }
                 .disabled(model?.canJoinParts != true)
             Button("Rename...") { model?.requestRename() }
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
             Button("Rename Many\u{2026}") { model?.requestRenameMany() }
                 .keyboardShortcut(.renameMany)
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
             // Absent unless it can work: switched on, and Apple Intelligence
             // ready on this Mac. Settings says which of the two is missing.
             if model?.namesCanBeSuggested ?? false {
@@ -477,22 +506,22 @@ struct FileCommands: Commands {
             Button("Copy to Other Pane") { model?.copySelection() }
                 .keyboardShortcut(.copyToOtherPane)
                 .disabled(model == nil || model?.otherPaneFolder == nil
-                          || model?.inactive.volume.isReadOnly == true)
+                          || model?.inactive.isWritable == false)
             Button("Move to Other Pane") { model?.moveSelection() }
                 .keyboardShortcut(.moveToOtherPane)
                 .disabled(model == nil || model?.otherPaneFolder == nil
-                          || model?.active.volume.isReadOnly == true
-                          || model?.inactive.volume.isReadOnly == true)
+                          || model?.active.isWritable == false
+                          || model?.inactive.isWritable == false)
 
             Divider()
 
             Button("Change Permissions...") { model?.requestPermissionEdit() }
                 .keyboardShortcut(.changePermissions)
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
             Button("Change Owner...") { model?.requestOwnerEdit() }
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
             Button("Change Group...") { model?.requestGroupEdit() }
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
 
             // Named for what they are. Absent entirely when scripts are
             // switched off, or when none of them suits what is selected --
@@ -531,7 +560,7 @@ struct FileCommands: Commands {
 
             Button("Move to Trash") { model?.trashFromMenu() }
                 .keyboardShortcut(.trashNow)
-                .disabled(model == nil || model?.active.volume.isReadOnly == true)
+                .disabled(model == nil || model?.active.isWritable == false)
 
             Divider()
 
@@ -701,13 +730,8 @@ struct FileCommands: Commands {
 
         // Making a file's checksum and checking one, a menu of its own.
         CommandMenu("Checksum") {
-            Menu("Create") {
-                Button("MD5") { model?.createChecksums(.md5) }
-                Button("SHA-1") { model?.createChecksums(.sha1) }
-                Button("SHA-256") { model?.createChecksums(.sha256) }
-                Button("SHA-512") { model?.createChecksums(.sha512) }
-            }
-            .disabled(model?.canChecksum != true)
+            Button("Create\u{2026}") { model?.requestCreateChecksums() }
+                .disabled(model?.canChecksum != true)
             Button("Check") { model?.checkChecksums() }
                 .disabled(model?.canChecksum != true)
         }

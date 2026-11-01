@@ -57,7 +57,7 @@ developer account.
 | `⇧⌘F` | flat view: the active pane's folder and everything under it as one list, filtered by an expression -- see [Flat view](#flat-view) |
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
-| `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways) |
+| `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways); `⌘V` with text or a picture makes a new file of it |
 | `⌘[` `⌘]` | back / forward through the active pane's directory history |
 | `⌘I` | Info window for the selected file (exactly one) |
 | `⌥↩` | run the selected script or command-line tool, asking for its arguments |
@@ -74,7 +74,9 @@ developer account.
 
 Right-click a row for Open / Copy / Move / Rename / Reveal / Trash; right-clicking
 a row outside the current selection acts on that row, not on what was selected
-before. Double-click
+before. The file tools are gathered under **Tools**: Find Duplicates, Archive,
+Checksum, Split File or Join Parts, Convert Line Endings and Convert Character
+Encoding. Double-click
 anywhere in a row opens it. Clicking in a pane makes it the active one, so an
 operation always applies to the pane you just clicked in. Symlinks to
 directories are followed to their target, as in Finder; opening a broken one
@@ -432,6 +434,20 @@ Diptych quits.
   `~/.ssh/config`, else 60 seconds.
 - **Paths are `sftp://` addresses** everywhere: the path bar, Copy Path, a
   dragged file (as text), and the MCP tools. Tab completes server paths.
+- **What an action makes in a server's folder is sent there**: split parts, a
+  joined file, an archive, what is extracted, a PDF, converted images. What it
+  reads from a server is fetched first, and an archive gets the server's
+  permissions and dates, not the cache's. A server has no undo here. A link
+  cannot be made on a server.
+- **Renaming** -- one at a time, Rename Many, Replace, and the case and space
+  transforms -- renames on the server.
+- **Find Duplicates** on a server searches that server only, up to its `/`. A
+  file's bytes are fetched only when another file has its size. What is chosen
+  is deleted from the server, after asking: there is no Trash.
+- **Reveal in Finder** can only show the cache on this Mac, and says so first;
+  the warning can be turned off there or in Settings ▸ Behaviour.
+- **A saved server** in the sidebar shows as connected while it is; clicking
+  it then opens it rather than connecting again.
 - **Changes are made on the server:** rename, delete (permanent -- a server has
   no Trash, and the dialog says so), new folder, new file, New from Clipboard,
   copy and move both ways, drag and drop, permissions, modification time, owner
@@ -454,6 +470,18 @@ read from the bytes (the signature, the details) waits for them.
 - **A right-click fetches** the files it was made on that are no bigger than
   Settings ▸ Behaviour ▸ *On SFTP servers, fetch files up to … MB* (10 by
   default; 0 turns it off). A bigger one has **Download to Cache** in the menu.
+- **A file sent to the server is kept** as if it had been fetched -- a copy,
+  a new file, one saved under a new name -- when it is no bigger than Settings ▸
+  Behaviour ▸ *Keep files up to … MB in the cache* (1000 by default; 0 keeps
+  nothing): what is here is what the server has, and Split or Compare on it next
+  does not fetch it back. That size is about disk space; the right-click size is
+  about waiting.
+- **A cached file the server lists as changed** -- a new date, the same size --
+  and no bigger than that cache size is checked first with `sha256sum` (or
+  `shasum -a 256`) run on the server, and fetched only when the checksums
+  differ. Only the cache and the server are compared, never another copy on this
+  Mac. Which command a server has, or that it has none, is remembered with the
+  saved server; without one, the file is fetched.
 - **The Cached column**, in server listings only, shows how much of each file
   is here, with a bar while it arrives. A mark after the name says the same: a
   pulsing arrow while it arrives, a tick once it is here, an orange circle when
@@ -471,15 +499,19 @@ or Bin Edit or with any other app. When it is saved, Diptych sends it back --
 but first checks that the server still has the version that was fetched. If
 it does, the save is sent. If it does not, nothing is sent, and you choose:
 
-- **Compare the Two…** (text only): the server's version and yours side by
-  side; saving your side sends it.
+- **Compare the Two…** (text only): the server's version on the left, which
+  cannot be changed, and yours on the right, unlocked. Take differences over
+  from the left, or type, then Save: your side is sent. Saved as it is, yours
+  replaces the server's.
 - **Save Mine as a New File**: yours goes beside it on the server as
   `name-1.ext` (or `-2`, …), and the file itself becomes the server's again.
 - **Keep Mine**: yours replaces the server's, whose changes are lost.
 - **Keep the Server's**: the file here becomes the server's version, and your
   changes are lost.
-- **Decide Later**: nothing is sent until the file is saved again. Ejecting the
-  server, or quitting, asks first while a change has not been sent.
+- **Decide Later**: nothing is sent until the file is saved again. Save stays
+  on in Text Edit, Bin Edit and the comparison, with nothing new typed, and asks
+  again. Ejecting the server, or quitting, asks first while a change has not
+  been sent.
 
 **What cannot be caught.** The check compares what is saved with the version
 Diptych fetched. Diptych's own editors tell it when they hold changes not yet
@@ -815,6 +847,13 @@ A new test is a `Primitive` case, its word in `FlatQuery.primitives` (which
 also makes it a word a saved expression cannot be called), its parsing, its
 hint, and its answer in `FlatEvaluation` -- plus a cost there, if answering
 it needs more than what the listing already knows.
+
+## Previewing text in other encodings
+
+Quick Look reads plain text as UTF-8 or by its byte-order mark, and shows a
+Latin-2 or Windows-1251 file as nonsense. A text file that is not UTF-8 is
+previewed from a UTF-8 copy, its encoding worked out as Text Edit works it out;
+one too short to tell is read as UTF-8, with what does not fit shown as `�`.
 
 ## Previewing a .DS_Store
 
@@ -1335,11 +1374,18 @@ goes to `UndoSnapshots` first.
 
 ## Checksums
 
-**Checksum ▸ Create ▸** a kind writes a file's sum into a little text file
-beside it, and **Checksum ▸ Check** tells you whether a file still matches a
-sum. Both are also on the right-click menu, and both act on whatever ordinary
-files are selected. The kinds are **MD5**, **SHA-1**, **SHA-256** and
-**SHA-512**.
+**Checksum ▸ Create…** writes a file's sum into a little text file beside it,
+and **Checksum ▸ Check** tells you whether a file still matches a sum. Both are
+also on the right-click menu, under **Tools ▸ Checksum**, and both act on
+whatever ordinary files are selected. The kinds are **MD5**, **SHA-1**,
+**SHA-256** and **SHA-512**.
+
+- **Create…** opens a small window listing the files, with a box for each kind:
+  tick one or more and click **Do**. The close button or ⌘W closes it without
+  doing anything. The kinds ticked last time are ticked again. When a selected
+  file is itself a checksum file -- named `.md5`, `.sha1`, `.sha256` or
+  `.sha512` and holding a sum -- the window says in red that this makes a
+  checksum of the checksum, which is probably not what was meant.
 
 - **Create** makes `name.ext` next to each selected file -- `photo.jpg.sha256`
   for a SHA-256 of `photo.jpg` -- holding the sum in the `hash  name` layout
@@ -1529,12 +1575,50 @@ by the first kilobyte.
 Under the verdict is the same properties line as for two texts: permissions,
 owner, dates, ACL and attributes, side by side.
 
+## Converting line endings and encodings
+
+**Tools ▸ Convert Line Endings…** and **Tools ▸ Convert Character Encoding…**
+change the selected files in place, one [Undo](#undo-and-redo) step for all of
+them. Each opens a window listing the files; **Convert** does it and closes the
+window, the close button or ⌘W closes it without. Nothing is ever changed
+lossily: a file that cannot take the change is marked in red with the reason
+and left as it is, and the others are converted. On a read-only volume the
+items are greyed out; a server's files are fetched first and sent back after.
+
+**Line endings.** Each file shows what its lines end in now -- LF, CRLF, CR,
+LF CR, NEL, LS, PS, or *mixed* with how many of each -- and whether its last
+line is ended too. That is shown in orange where it is unusual: a missing one
+after anything but LS or PS, and one present after LS or PS, which separate
+lines rather than end them. Pick one target:
+
+- **LF** -- macOS, Unix, Linux; **CRLF** -- Windows; **CR** -- classic Mac OS;
+  **LF CR** -- Acorn, RISC OS;
+- **NEL** (U+0085), **LS** (U+2028) and **PS** (U+2029) of Unicode.
+
+**Last line has a line ending after it** is on by default, and off when LS or PS
+is picked. A file is converted in its own encoding: LS or PS in a Latin-1 file,
+which has no place for them, is refused. LF CR against LF followed by a classic
+CR is decided for the whole file, by which pair it has more of.
+
+**Character encoding.** Each file shows the encoding it is taken to be in --
+found by its byte-order mark, as UTF-8, by its recorded attribute, or guessed --
+and a line of its text in that encoding, the first with a letter beyond ASCII.
+The guess can be a near neighbour -- Latin-1 for a Latin-2 file -- and the
+sample shows it: change the encoding for one file in its row, or for all of
+them at once above the list. Pick the encoding to write them in; for Unicode,
+**Byte-order mark (BOM) at the start** is a choice, off for UTF-8 and on for
+UTF-16 and UTF-32, whose byte order a file without one cannot tell. A character
+the target has no place for refuses that file, and says how many there are. A
+recorded `com.apple.TextEncoding` that would now be wrong is updated; none is
+added.
+
 ## Text Edit
 
-Right-click a file ▸ **Text Edit** opens it as plain text in Diptych's own
+Right-click a file ▸ **Edit** opens a text file as plain text in Diptych's own
 editor, one window per file, whatever application the file would normally open
-in. For a JSON, XML, YAML or TOML file the item is named for it -- **JSON
-Edit**, **XML Edit** and so on, by the extensions in Settings. Beyond typing, undo, find and replace (⌘F), wrapping and Save (⌘S) it
+in -- and any other file in Bin Edit. **Edit ▸ Binary Edit** opens a text file
+in Bin Edit too. A binary property list counts as text: Text Edit shows it as
+XML. Beyond typing, undo, find and replace (⌘F), wrapping and Save (⌘S) it
 edits by lines as IntelliJ does, and for JSON, XML and YAML it colours, pairs,
 indents, formats and shows the file as a tree -- see below. It is careful
 where general editors are not:
@@ -1552,8 +1636,31 @@ where general editors are not:
 * A file open in a comparison is refused, and the other way round, because two
   windows saving one file would each overwrite the other without a word.
 
-Files that are neither UTF-8 nor marked with their encoding are read as Windows
-Latin-1, then ISO Latin-1, and the window shows which.
+**The encoding** is worked out as Quick Look and the conversion windows work it
+out (`TextEncodings`):
+
+1. A byte-order mark -- so a UTF-16 or UTF-32 file with one opens, NUL bytes and
+   all.
+2. NUL bytes: UTF-16 or UTF-32 without a mark when they fall every other byte,
+   or three in four, and the text reads cleanly so; otherwise not text. Chinese
+   or Japanese UTF-16 without a mark has too few NULs to be told this way.
+3. UTF-8 -- or ISO-2022-JP, seven-bit too, when its escapes are there.
+4. The encoding recorded in the file's `com.apple.TextEncoding` attribute.
+5. With at least eight bytes beyond ASCII to tell by: the encoding the text
+   reads best in, among about thirty -- the Windows, ISO, Mac and DOS Latin,
+   Cyrillic, Greek and others, the Chinese, Japanese and Korean ones, and
+   EBCDIC. Reading best means accented letters inside words, no control
+   characters, no symbols in the middle of a word, no capital straight after a
+   small letter, no word mixing Latin, Greek and Cyrillic. The system's own
+   statistical guess is taken when the bytes are valid in it and it reads
+   nearly as well, as it tells Latin-1 from Latin-2 and one Asian encoding from
+   another where reading cannot. Text that reads the same in two encodings --
+   `naïve` in Windows-1252 against `naďve` in Windows-1250 -- may still be
+   taken for the other: the conversion window's sample shows it.
+6. A file too short for that: Windows Latin-1, or ISO Latin-1 when a byte has no
+   place in that.
+
+The window shows which; saving writes the same encoding and the same mark back.
 
 **The gutter**, left of the text, from left to right:
 
@@ -2515,6 +2622,25 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
 instead, as a double-click in Finder mounts it, asking for the password of an
 encrypted one, and the pane goes to its volume. It is in the sidebar with the
 other disks, and ejected from there.
+
+**Installing from a disk image.** When the volume holds just an application and
+a link to /Applications -- the "drag it there" layout of most Mac downloads,
+hidden files aside -- a small window asks whether to install it, with its
+version and, when it is installed already, the version it replaces.
+**Install** copies it into /Applications with `ditto`, after the system's
+administrator prompt, owned by you as an app dragged there is; **Do NOT
+Install**, the close button or ⌘W leaves it. An installed copy goes to the
+Trash first, and comes back should installing fail; one that is running is
+refused, with a word to quit it. Three boxes, all off to begin with:
+
+- **Open it without the "downloaded from the Internet" question** sets the
+  user-approved flag (`0x40`) in the copy's `com.apple.quarantine`, as
+  answering that question once does. The rest of the attribute -- the app
+  that downloaded it, when, and the download's record -- stays; macOS still
+  checks the signature.
+- **Unmount the disk image afterwards**; a pane showing it goes to the image's
+  folder.
+- **Move the disk image to the Trash afterwards**, undoable like any trashing.
 
 Off in **Settings ▸ Behaviour**, Return opens them as Finder would; **Open as
 Folder** -- **Mount in Pane** for an image -- does it either way.
@@ -3513,6 +3639,8 @@ active pane, so they interoperate with Finder in both directions. macOS has no
 "cut" state for files, so the URLs go on the pasteboard exactly as a copy would
 and the move intent is remembered against the pasteboard's change count -- if
 anything else writes to the pasteboard, the cut lapses and a paste copies.
+With no files on the pasteboard but text or a picture, `⌘V` (and Paste in the
+menus) makes a file of it, exactly as **New from Clipboard** does.
 
 Right-click **Copy** does the same as `⌘C`; its submenu copies *text* instead:
 

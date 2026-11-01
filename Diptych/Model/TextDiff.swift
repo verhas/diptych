@@ -316,23 +316,18 @@ struct TextDiff: Sendable {
 
     /// Read a file as text, or say why not.
     ///
-    /// UTF-8 first, then whatever the file claims: a document written years ago
-    /// on this Mac may well be Latin-1, and refusing to compare it would be
-    /// obtuse when the system can tell us what it is.
+    /// In the encoding `TextEncodings` works out: a document written years ago
+    /// on this Mac may well be Latin-1 or Latin-2, and refusing to compare it
+    /// would be obtuse when its bytes can tell us what it is.
     static func read(_ url: URL) throws -> [String] {
         let name = url.lastPathComponent
         guard let data = try? Data(contentsOf: url) else {
             throw Failure.notText(name: name)
         }
-        // A NUL byte in the first stretch is the oldest and still the best test
-        // for "this is not a text file".
-        if data.prefix(8000).contains(0) { throw Failure.notText(name: name) }
-
-        var text = String(data: data, encoding: .utf8)
-        if text == nil {
-            var encoding = String.Encoding.utf8
-            text = try? String(contentsOf: url, usedEncoding: &encoding)
-        }
+        // A NUL byte early on means it is not text -- unless a byte-order mark
+        // says it is UTF-16 or UTF-32. The encoding as Text Edit works it out.
+        let text = TextEncodings.reading(of: data, at: url, fallback: .windowsCP1252)
+            .flatMap { TextEncodings.decode(data, $0) ?? String(data: data, encoding: .isoLatin1) }
         guard let text else { throw Failure.notText(name: name) }
 
         let lines = Self.lines(of: text)
@@ -356,25 +351,22 @@ struct TextDiff: Sendable {
             throw Failure.unreadable(name: name)
         }
         guard let data = try? Data(contentsOf: url) else { throw Failure.notText(name: name) }
-        if data.prefix(8000).contains(0) { throw Failure.notText(name: name) }
 
-        var encoding = String.Encoding.utf8
-        var text = String(data: data, encoding: .utf8)
-        if text == nil {
-            var guessed = String.Encoding.utf8
-            text = try? String(contentsOf: url, usedEncoding: &guessed)
-            encoding = guessed
+        // See `TextEncodings`: a mark, UTF-8, the recorded encoding, the
+        // system's guess -- and, for a file too short to guess, Windows Latin 1,
+        // which most text that is not UTF-8 is in. Should a byte have no place
+        // in that, ISO Latin 1, where every byte means something: a file that
+        // could not be read at all helps nobody, and the window shows which
+        // encoding was assumed.
+        guard var reading = TextEncodings.reading(of: data, at: url, fallback: .windowsCP1252) else {
+            throw Failure.notText(name: name)
         }
-        // Then the two single-byte encodings most text that is not UTF-8 is in.
-        // The system's guess needs a byte-order mark or an attribute recording
-        // the encoding, and a plain Latin-1 file has neither -- so a file of
-        // European text written on an older system could not be opened at all.
-        // A NUL has already ruled out binary, and every byte means something in
-        // ISO Latin-1, so this cannot fail; the window shows which was assumed.
-        for fallback in [String.Encoding.windowsCP1252, .isoLatin1] where text == nil {
-            text = String(data: data, encoding: fallback)
-            encoding = fallback
+        var text = TextEncodings.decode(data, reading)
+        if text == nil, !reading.hasBOM {
+            reading = TextEncodings.Reading(encoding: .isoLatin1, guessed: true)
+            text = TextEncodings.decode(data, reading)
         }
+        let encoding = reading.encoding
         guard let text else { throw Failure.notText(name: name) }
 
         let lines = Self.lines(of: text)
@@ -388,7 +380,8 @@ struct TextDiff: Sendable {
                           hasFinalNewline: text.last?.isNewline ?? false,
                           encoding: encoding,
                           modified: attributes?[.modificationDate] as? Date,
-                          isWritable: FileManager.default.isWritableFile(atPath: url.path))
+                          isWritable: FileManager.default.isWritableFile(atPath: url.path),
+                          bom: data.prefix(reading.bomLength))
     }
 
     /// Whatever the file already uses, so saving does not convert it.

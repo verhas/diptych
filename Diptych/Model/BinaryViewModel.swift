@@ -203,10 +203,24 @@ final class BinaryViewModel {
         if held { EditedHere.hold(url) } else { EditedHere.release(url) }
     }
 
-    /// The copy here was put back to the server's version: shown as it now is.
-    func readAgain() {
+    /// The copy here was put back to the server's version, or was sent from
+    /// another window: shown as it now is. After a send, only with no edits here,
+    /// and only when the file holds something else than what is shown.
+    func readAgain(discarding: Bool = true) {
+        guard discarding || !hasEdits else { return }
+        if !discarding, (try? Data(contentsOf: url)) == bytes {
+            isUnsent = false
+            return
+        }
         reload()
+        isUnsent = RemoteBrowsing.hasUnsentEdit(url)
     }
+
+    /// A server file saved here and not sent: the question about it was put off.
+    /// Save asks it again, with no edit made.
+    private(set) var isUnsent = false
+
+    func markUnsent() { isUnsent = true }
 
     private func load() async {
         let url = self.url
@@ -244,6 +258,7 @@ final class BinaryViewModel {
 
         if let data = loaded.data { bytes = data }
         loadError = loaded.message
+        if RemoteBrowsing.isInside(url) { isUnsent = RemoteBrowsing.hasUnsentEdit(url) }
         isLoading = false
     }
 
@@ -702,6 +717,11 @@ final class BinaryViewModel {
     }
 
     func save() {
+        if !hasEdits, isUnsent {
+            isUnsent = false
+            ServerEditing.shared.sendAgain(url)
+            return
+        }
         guard hasEdits, mayEdit() else { return }
         let structural = working != nil
         let content = working

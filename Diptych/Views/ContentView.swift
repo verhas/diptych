@@ -168,6 +168,15 @@ struct ContentView: View {
             model.openVersionsWindow = { openWindow(id: DiptychApp.versionsWindowID, value: $0) }
             model.openDiskUsageWindow = { openWindow(id: DiptychApp.diskUsageWindowID, value: $0) }
             model.openSplitWindow = { openWindow(id: DiptychApp.splitWindowID, value: $0) }
+            model.openToolWindow = { kind, id in
+                let window = switch kind {
+                case .checksums: DiptychApp.checksumsWindowID
+                case .lineEndings: DiptychApp.lineEndingsWindowID
+                case .encodings: DiptychApp.encodingsWindowID
+                case .install: DiptychApp.installWindowID
+                }
+                openWindow(id: window, value: id)
+            }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
@@ -787,7 +796,7 @@ struct DialogSheet: View {
     @ViewBuilder
     private var checksumOverwrite: some View {
         let stale = model.pendingChecksumOverwrite?.plan.mismatched ?? []
-        let kind = model.pendingChecksumOverwrite?.algorithm.label ?? ""
+        let kind = model.pendingChecksumOverwrite.map { AppModel.label($0.algorithms) } ?? ""
         let one = stale.count == 1
         Text(one ? "A \(kind) checksum file already exists"
                  : "\(stale.count) \(kind) checksum files already exist")

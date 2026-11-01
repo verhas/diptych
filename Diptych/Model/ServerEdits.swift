@@ -190,6 +190,7 @@ final class ServerEditing {
                 break
             case .sent:
                 model?.flash("Saved \u{201C}\(name)\u{201D} on \(host)", error: false)
+                Self.sentFromHere(url)
                 Self.reloadPanes(showing: url.deletingLastPathComponent())
             case .conflict(let copy, let checksum, let isText):
                 try await settle(url, with: copy, checksum: checksum, isText: isText, on: host,
@@ -212,6 +213,9 @@ final class ServerEditing {
             try? FileManager.default.removeItem(at: copy)
             model?.flash("\u{201C}\(name)\u{201D} was not sent: \(host) keeps its version until "
                          + "it is saved again")
+            // Saved here, so the editor has nothing new to save; it is told, and
+            // Save sends it again.
+            NotificationCenter.default.post(name: Self.notSent, object: url)
             return
         }
         if choice == .compare {
@@ -228,6 +232,7 @@ final class ServerEditing {
             try await RemoteBrowsing.adoptBaseline(url, checksum: checksum)
             if try await RemoteBrowsing.writeBack(url) == .sent {
                 model?.flash("Saved \u{201C}\(name)\u{201D} on \(host), over its version", error: false)
+                Self.sentFromHere(url)
             }
         case .saveAsNew:
             let newName = try await RemoteBrowsing.sendAsNew(url)
@@ -280,18 +285,73 @@ final class ServerEditing {
         // Only the side here can be unlocked and saved.
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: theirs.path)
         try await RemoteBrowsing.adoptBaseline(url, checksum: checksum)
-        model?.openDiffWindow?(DiffPair(left: theirs, right: url))
-        model?.flash("The server\u{2019}s version is on the left, yours on the right. Saving the "
-                     + "right side sends it.", error: false)
+        let pair = DiffPair(left: theirs, right: url)
+        TextDiffPresetOptions.shared.set(.init(
+            ignoreWhitespace: false, wraps: true, unlocked: .right,
+            note: "Left: what \(host) has now, which cannot be changed. Right: yours, unlocked. "
+                + "Take what you want from the left with the arrow beside each difference, or "
+                + "type, then Save: the right side is sent to \(host). Saved as it is, yours "
+                + "replaces the server\u{2019}s."), for: pair)
+        model?.openDiffWindow?(pair)
     }
 
+    /// Files and folders an action made in a server's folders -- split parts, an
+    /// archive, what was extracted, a PDF -- sent to the server. Not one it
+    /// already has: a file written over is sent as any saved file is, by the
+    /// watcher, which sees a change made on the server meanwhile. A link cannot
+    /// be made there.
+    func sendMade(_ urls: [URL]) {
+        let links = urls.filter { (try? $0.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true }
+        let new = urls.filter { url in
+            !links.contains(url) && RemoteBrowsing.listedNode(of: url) == nil
+        }
+        let model = Self.frontmost
+        if !links.isEmpty {
+            model?.flash("A link cannot be made on a server: \(links.count) not sent")
+        }
+        guard let first = new.first else { return }
+        let host = RemoteBrowsing.server(of: first)?.host ?? "the server"
+        let what = new.count == 1 ? "\u{201C}\(first.lastPathComponent)\u{201D}" : "\(new.count) items"
+        model?.flash("Sending \(what) to \(host)\u{2026}", error: false)
+        Task {
+            do {
+                try await RemoteBrowsing.publish(new)
+                model?.flash("Sent \(what) to \(host); a server has no undo here", error: false)
+            } catch {
+                model?.flash("Could not send \(what) to \(host): " + error.localizedDescription)
+            }
+            for folder in Set(new.map { $0.deletingLastPathComponent() }) {
+                Self.reloadPanes(showing: folder)
+            }
+        }
+    }
+
+    /// Asks the server about a file saved here again, without its being written:
+    /// a save the person put off with Decide Later.
+    func sendAgain(_ url: URL) {
+        waiting[url.path]?.cancel()
+        Task { await send(url) }
+    }
+
+    /// Posted when the question about a file saved here was put off: an editor
+    /// that has it open lets it be saved again, to ask again.
+    static let notSent = Notification.Name("ServerEditing.notSent")
+
     /// Posted when the copy here of a server file was put back to the server's
-    /// version: an editor that has it open reads it again.
+    /// version, or was sent: an editor that has it open reads it again -- after a
+    /// send, only when it has no changes of its own (`discarding` is false).
     static let replaced = Notification.Name("ServerEditing.replaced")
 
     private static func replacedHere(_ url: URL) {
         OpenTextDocuments.shared.refreshIfOpen(url, discardingChanges: true)
-        NotificationCenter.default.post(name: replaced, object: url)
+        NotificationCenter.default.post(name: replaced, object: url, userInfo: ["discarding": true])
+    }
+
+    /// The file here was sent, perhaps from another window than the editor's -- a
+    /// comparison: an editor with nothing unsaved shows what was sent.
+    private static func sentFromHere(_ url: URL) {
+        OpenTextDocuments.shared.readAgainIfChanged(url)
+        NotificationCenter.default.post(name: replaced, object: url, userInfo: ["discarding": false])
     }
 
     /// The browser window in front, for what is said and asked.

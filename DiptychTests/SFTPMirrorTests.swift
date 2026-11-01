@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import Diptych
 
@@ -31,8 +32,15 @@ final class SFTPMirrorTests: XCTestCase {
             }
         }
 
+        /// Run while a download is on its way, before its bytes are written.
+        var duringDownload: ((String) async throws -> Void)?
+
         func download(_ path: String, to destination: URL) async throws {
             downloads.append(path)
+            if let during = duringDownload {
+                duringDownload = nil
+                try await during(path)
+            }
             try (files[path] ?? Data()).write(to: destination)
         }
 
@@ -63,9 +71,16 @@ final class SFTPMirrorTests: XCTestCase {
             }
         }
 
+        /// Run once the server lists a file being sent, before the send ends.
+        var duringUpload: ((String) async throws -> Void)?
+
         func upload(_ local: URL, to path: String) async throws {
             files[path] = try Data(contentsOf: local)
             link(path, .file)
+            if let during = duringUpload {
+                duringUpload = nil
+                try await during(path)
+            }
         }
 
         private(set) var modes: [String: UInt32] = [:]
@@ -85,6 +100,17 @@ final class SFTPMirrorTests: XCTestCase {
 
         func setTimes(_ path: String, modified: Date) async throws {
             times[path] = modified
+        }
+
+        /// The checksum commands this server has, and which were asked for.
+        var hashCommands: Set<SFTPHashCommand> = []
+        private(set) var hashAsked: [SFTPHashCommand] = []
+
+        func sha256(of path: String, using command: SFTPHashCommand) async throws -> SFTPHashOutcome {
+            hashAsked.append(command)
+            guard hashCommands.contains(command) else { return .commandMissing }
+            guard let data = files[path] else { return .failed }
+            return .digest(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
         }
 
         /// Whether a change of owner is refused to the user, as a real server does.
@@ -156,6 +182,57 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(note?.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o644)
         XCTAssertEqual(note?.backing, BrowserManifest.Backing.none)
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.origin["host"], "nas")
+    }
+
+    /// Two files of one folder fetched at once, as before an archive is made of
+    /// it: the one that finishes last kept the manifest as it was when it began,
+    /// the other's bytes were off the record, and the next listing emptied them.
+    func testFilesFetchedAtOnceAreAllKeptByTheNextListing() async throws {
+        let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 5),
+                                                 SFTPEntry(name: "b.txt", kind: .file, size: 3)]],
+                                files: ["/d/a.txt": Data("hello".utf8), "/d/b.txt": Data("bye".utf8)])
+        let shadow = mirror(server)
+        try await shadow.populate("/d")
+        server.duringDownload = { _ in _ = try await shadow.materialize("/d/b.txt") }
+
+        let a = try await shadow.materialize("/d/a.txt")
+        try await shadow.populate("/d")
+
+        XCTAssertEqual(try String(contentsOf: a, encoding: .utf8), "hello")
+        let b = a.deletingLastPathComponent().appendingPathComponent("b.txt")
+        XCTAssertEqual(try String(contentsOf: b, encoding: .utf8), "bye")
+        let recordedB = try await node(shadow, "/d/b.txt")
+        XCTAssertEqual(recordedB?.backing, .file("b.txt"))
+    }
+
+    /// Parts Split wrote in a server's folder, sent one by one while the pane
+    /// lists the folder: the part being sent, listed by the server already, was
+    /// made a placeholder, and the rest were never sent. Once sent, the server's
+    /// listing counts again: deleted there, it goes from here.
+    func testAListingWhileAFileMadeHereIsSentLeavesItsBytes() async throws {
+        let server = FakeServer(folders: ["/d": []])
+        let shadow = mirror(server)
+        try await shadow.populate("/d")
+        let folder = await shadow.localURL(for: "/d")
+        let part = folder.appendingPathComponent("big.dmg.002")
+        try Data("two".utf8).write(to: part)
+        let waiting = folder.appendingPathComponent("big.dmg.003")
+        try Data("three".utf8).write(to: waiting)
+        server.duringUpload = { _ in _ = try await shadow.populate("/d") }
+
+        try await shadow.upload(part, to: "/d/big.dmg.002", isDirectory: false, keepingUpTo: .max)
+
+        XCTAssertEqual(try String(contentsOf: part, encoding: .utf8), "two")
+        XCTAssertEqual(try String(contentsOf: waiting, encoding: .utf8), "three")
+        let sent = try await node(shadow, "/d/big.dmg.002")
+        XCTAssertEqual(sent?.backing, .file("big.dmg.002"))
+        // Waiting to be sent: nothing to fetch, and fetching is no error.
+        let fetched = try await shadow.materialize("/d/big.dmg.003")
+        XCTAssertEqual(fetched, waiting)
+
+        try await server.removeFile("/d/big.dmg.002")
+        try await shadow.populate("/d")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: part.path))
     }
 
     func testMaterializingFetchesTheBytesOnceAndRecordsThem() async throws {
@@ -435,8 +512,145 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertFalse(SFTPMirror.needsFetch(changedThere, at: file))
     }
 
+    /// Sent as a new file, the edit is kept here as well: the server and the copy
+    /// here are the same, and listing the folder again leaves it so.
+    func testAFileSentAsNewIsKeptHereAsFetched() async throws {
+        let (server, shadow) = try await editable()
+        server.files["/d/a.txt"] = Data("changed there".utf8)
+        _ = try await edit(shadow, "/d/a.txt", to: "mine")
+        let name = try await shadow.sendAsNew("/d/a.txt")
+        try await shadow.populate("/d")
+        let sent = await shadow.localURL(for: "/d/" + name)
+        let kept = try await node(shadow, "/d/" + name)
+        XCTAssertEqual(kept?.backing, .file(name))
+        XCTAssertEqual(try Data(contentsOf: sent), Data("mine".utf8))
+        XCTAssertFalse(SFTPMirror.needsFetch(kept, at: sent))
+        XCTAssertEqual(kept?.attribute(BrowserManifest.Attribute.checksum)?.stringValue,
+                       try FileChecksum.sha256(of: sent))
+    }
+
+    /// A copy to the server is kept here when it is no bigger than the limit.
+    func testAnUploadIsKeptHereOnlyWithinTheLimit() async throws {
+        let (_, shadow) = try await editable()
+        let local = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+        let small = local.appendingPathComponent("small.txt")
+        let big = local.appendingPathComponent("big.txt")
+        try Data("tiny".utf8).write(to: small)
+        try Data(repeating: 7, count: 100).write(to: big)
+        try await shadow.upload(small, to: "/d/small.txt", isDirectory: false, keepingUpTo: 10)
+        try await shadow.upload(big, to: "/d/big.txt", isDirectory: false, keepingUpTo: 10)
+        try await shadow.populate("/d")
+        let smallNode = try await node(shadow, "/d/small.txt")
+        let bigNode = try await node(shadow, "/d/big.txt")
+        XCTAssertEqual(smallNode?.backing, .file("small.txt"))
+        XCTAssertEqual(bigNode?.backing, BrowserManifest.Backing.none)
+    }
+
     func testAFreeNameCountsUpBeforeTheExtension() {
         XCTAssertEqual(SFTPMirror.freeName(for: "a.txt", among: ["a-1.txt"]), "a-2.txt")
         XCTAssertEqual(SFTPMirror.freeName(for: "Makefile", among: []), "Makefile-1")
+    }
+
+    // MARK: - A checksum on the server instead of fetching again
+
+    /// What a mirror learnt about the server's checksum command.
+    final class Learnt: @unchecked Sendable {
+        private let lock = NSLock()
+        private var said: [SFTPHashSupport] = []
+        func add(_ support: SFTPHashSupport) { lock.withLock { said.append(support) } }
+        var all: [SFTPHashSupport] { lock.withLock { said } }
+    }
+
+    /// A fetched file the server now lists with a new date: changed there, as far
+    /// as the listing can tell.
+    private func touchedOnServer(_ server: FakeServer, hashing: SFTPHashSupport = .untried,
+                                 learnt: Learnt = Learnt()) async throws -> SFTPMirror {
+        let shadow = SFTPMirror(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent("sftp-mirror-\(UUID().uuidString)"),
+            remote: server, host: "nas", hashing: hashing, learned: { learnt.add($0) })
+        try await shadow.populate("/d")
+        _ = try await shadow.materialize("/d/a.txt")
+        try await server.setTimes("/d/a.txt", modified: Date(timeIntervalSince1970: 1_700_000_000))
+        try await shadow.populate("/d")
+        let flagged = try await node(shadow, "/d/a.txt")
+        XCTAssertEqual(flagged?.attribute(BrowserManifest.Attribute.serverChanged)?.boolValue, true)
+        return shadow
+    }
+
+    private func serverWithAFile() -> FakeServer {
+        FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 5,
+                                              modified: Date(timeIntervalSince1970: 1_600_000_000))]],
+                   files: ["/d/a.txt": Data("hello".utf8)])
+    }
+
+    func testTheSameBytesOnTheServerAreNotFetchedAgain() async throws {
+        let server = serverWithAFile()
+        server.hashCommands = [.shasum]
+        let learnt = Learnt()
+        let shadow = try await touchedOnServer(server, learnt: learnt)
+
+        let file = try await shadow.materialize("/d/a.txt", checkingUpTo: 1_000)
+
+        XCTAssertEqual(server.downloads, ["/d/a.txt"], "fetched again")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "hello")
+        let checked = try await node(shadow, "/d/a.txt")
+        XCTAssertNil(checked?.attribute(BrowserManifest.Attribute.serverChanged))
+        // sha256sum first, which this server lacks, then shasum, which it has.
+        XCTAssertEqual(server.hashAsked, [.sha256sum, .shasum])
+        XCTAssertEqual(learnt.all, [.works(.shasum)])
+    }
+
+    func testOtherBytesOfTheSameSizeAreFetched() async throws {
+        let server = serverWithAFile()
+        server.hashCommands = [.sha256sum]
+        let shadow = try await touchedOnServer(server)
+        server.files["/d/a.txt"] = Data("HELLO".utf8)
+
+        let file = try await shadow.materialize("/d/a.txt", checkingUpTo: 1_000)
+
+        XCTAssertEqual(server.downloads, ["/d/a.txt", "/d/a.txt"])
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "HELLO")
+    }
+
+    func testAFileOverTheLimitIsFetchedWithoutAsking() async throws {
+        let server = serverWithAFile()
+        server.hashCommands = [.sha256sum]
+        let shadow = try await touchedOnServer(server)
+
+        _ = try await shadow.materialize("/d/a.txt", checkingUpTo: 4)
+
+        XCTAssertEqual(server.downloads.count, 2)
+        XCTAssertEqual(server.hashAsked, [])
+    }
+
+    /// A server with neither command is asked once; after that it is known, and
+    /// the file is simply fetched.
+    func testAServerWithNoChecksumCommandIsNotAskedAgain() async throws {
+        let server = serverWithAFile()
+        let learnt = Learnt()
+        let shadow = try await touchedOnServer(server, learnt: learnt)
+
+        _ = try await shadow.materialize("/d/a.txt", checkingUpTo: 1_000)
+        XCTAssertEqual(learnt.all, [SFTPHashSupport.none])
+        XCTAssertEqual(server.hashAsked.count, 2)
+
+        try await server.setTimes("/d/a.txt", modified: Date(timeIntervalSince1970: 1_800_000_000))
+        try await shadow.populate("/d")
+        _ = try await shadow.materialize("/d/a.txt", checkingUpTo: 1_000)
+        XCTAssertEqual(server.hashAsked.count, 2)
+        XCTAssertEqual(server.downloads.count, 3)
+    }
+
+    func testWhatIsKeptAboutChecksumsReadsBack() {
+        for support in [SFTPHashSupport.untried, .none, .works(.sha256sum), .works(.shasum)] {
+            XCTAssertEqual(SFTPHashSupport(stored: support.stored), support)
+        }
+        XCTAssertEqual(SFTPHashCommand.digest(in: String(repeating: "Ab", count: 32) + "  /d/a.txt\n"),
+                       String(repeating: "ab", count: 32))
+        XCTAssertNil(SFTPHashCommand.digest(in: "sha256sum: a.txt: No such file\n"))
+        XCTAssertEqual(SFTPHashCommand.sha256sum.line(for: "/d/it's.txt"),
+                       "sha256sum -- '/d/it'\\''s.txt'")
     }
 }

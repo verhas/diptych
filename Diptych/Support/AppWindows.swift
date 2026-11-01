@@ -81,8 +81,10 @@ final class AppWindows {
         windows.removeAll { $0.window == nil || $0.window === window }
     }
 
-    /// Currently open windows, with anything closed since pruned away.
+    /// Currently open windows, with anything closed since pruned away. A closed
+    /// window's view can still update, and register it again: only one on
+    /// screen, or in the Dock, counts.
     var live: [NSWindow] {
-        windows.compactMap(\.window)
+        windows.compactMap(\.window).filter { $0.isVisible || $0.isMiniaturized }
     }
 }

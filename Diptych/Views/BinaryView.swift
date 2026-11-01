@@ -57,7 +57,12 @@ struct BinaryView: View {
         .onChange(of: model.hasEdits) { _, edited in model.holdFile(edited) }
         .onReceive(NotificationCenter.default.publisher(for: ServerEditing.replaced)) { note in
             if (note.object as? URL)?.standardizedFileURL == model.url.standardizedFileURL {
-                model.readAgain()
+                model.readAgain(discarding: note.userInfo?["discarding"] as? Bool ?? true)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if (note.object as? URL)?.standardizedFileURL == model.url.standardizedFileURL {
+                model.markUnsent()
             }
         }
         .background {
@@ -364,9 +369,15 @@ struct BinaryView: View {
                 Label("Read only \u{2014} \(volume) is mounted read-only", systemImage: "lock")
                     .foregroundStyle(.orange)
             }
-            Button("Save\u{2026}") { model.confirmingSave = true }
+            if model.isUnsent, !model.hasEdits {
+                Text("Not sent to the server").foregroundStyle(.orange)
+            }
+            Button("Save\u{2026}") {
+                // Nothing to write: only the question about the server is asked again.
+                if model.hasEdits { model.confirmingSave = true } else { model.save() }
+            }
                 .keyboardShortcut("s")
-                .disabled(!model.hasEdits || model.readOnlyVolume != nil)
+                .disabled(!(model.hasEdits || model.isUnsent) || model.readOnlyVolume != nil)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

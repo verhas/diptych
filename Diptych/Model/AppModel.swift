@@ -321,6 +321,7 @@ final class AppModel {
     @ObservationIgnored var openVersionsWindow: ((FileVersions.Request) -> Void)?
     @ObservationIgnored var openDiskUsageWindow: ((URL) -> Void)?
     @ObservationIgnored var openSplitWindow: ((UUID) -> Void)?
+    @ObservationIgnored var openToolWindow: ((ToolWindows.Kind, UUID) -> Void)?
     /// A Create Checksum held back because the pane is read-only, waiting for
     /// the user to say whether the files may go in the other pane instead.
     @ObservationIgnored var pendingChecksum: PendingChecksum?
@@ -582,7 +583,7 @@ final class AppModel {
     /// Commands that act on exactly one item refuse a multiple selection rather
     /// than silently picking the first. With five files highlighted, "open the
     /// one that happens to sort first" is never what was meant.
-    private func singleSelection(_ verb: String, includingParent: Bool = false) -> FileItem? {
+    func singleSelection(_ verb: String, includingParent: Bool = false) -> FileItem? {
         let rows = includingParent ? active.selectedRows : active.selectedItems
         if rows.count == 1 { return rows[0] }
         dialog = .message(rows.isEmpty
@@ -710,8 +711,12 @@ final class AppModel {
                   error: true)
             return
         }
-        OpenDiffDocuments.shared.refreshIfOpen(asked)
-        openDiffWindow?(asked)
+        // A server's file is fetched first: until then it is an empty placeholder,
+        // and was compared as empty.
+        whenFetched([pair.left, pair.right]) { [weak self] in
+            OpenDiffDocuments.shared.refreshIfOpen(asked)
+            self?.openDiffWindow?(asked)
+        }
     }
 
     /// The MCP round-trip counterpart to `showDiff()`: two explicit paths
@@ -778,7 +783,7 @@ final class AppModel {
         if let textOptions {
             TextDiffPresetOptions.shared.set(textOptions, for: asked)
         }
-        openDiffWindow?(asked)
+        whenFetched([left, right]) { [weak self] in self?.openDiffWindow?(asked) }
         return nil
     }
 
@@ -947,7 +952,7 @@ final class AppModel {
     /// and its selection, which is all it renames unless told otherwise.
     func requestRenameMany() {
         let pane = active
-        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        guard !refusedAsReadOnly(pane, "renamed here", serverWritable: true) else { return }
         let selected = pane.selectedItems.map(\.url)
         if let flat = pane.flat {
             openRenameWindow?(RenameManyRequest(
@@ -962,7 +967,7 @@ final class AppModel {
     /// Open the Replace-in-Names window on the selected files.
     func requestRenameReplace() {
         let pane = active
-        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        guard !refusedAsReadOnly(pane, "renamed here", serverWritable: true) else { return }
         let urls = pane.selectedItems.filter { !$0.isParent }.map(\.url)
         guard !urls.isEmpty else { return }
         openRenameReplaceWindow?(RenameReplaceRequest(urls: urls))
@@ -1045,15 +1050,52 @@ final class AppModel {
             then()
             return
         }
-        flash("Fetching from the server\u{2026}", error: false)
+        // Up for as long as the fetch runs, with how much has come: gone after
+        // two seconds, a long fetch looked like nothing happening at all.
+        toastTask?.cancel()
+        toastIsError = false
+        toast = Self.fetchStatus(urls)
+        let ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self else { return }
+                self.toast = Self.fetchStatus(urls)
+            }
+        }
         Task { [weak self] in
             do {
                 try await RemoteBrowsing.fetch(urls)
+                ticker.cancel()
+                self?.toast = nil
                 then()
             } catch {
+                ticker.cancel()
                 self?.flash("Could not fetch from the server: " + error.localizedDescription)
             }
         }
+    }
+
+    /// "Fetching “a.dmg” from the server… 12.3 MB of 25 MB", as far as is known.
+    private static func fetchStatus(_ urls: [URL]) -> String {
+        let files = urls.filter { !SFTPMirror.isDirectory($0) }
+        // Only what is still to come: a manifest fetched by a right-click is not
+        // fetched again, and is not counted.
+        let coming = urls.filter { RemoteBrowsing.hasPending([$0]) || RemoteBrowsing.isDownloading($0) }
+        let named = coming.isEmpty ? urls : coming
+        let what = named.count == 1 ? "\u{201C}\(named[0].lastPathComponent)\u{201D}" : "\(named.count) items"
+        var text = "Fetching \(what) from the server\u{2026}"
+        guard files.count == urls.count else { return text }
+        var total: Int64 = 0
+        var got: Int64 = 0
+        for file in files {
+            guard let size = RemoteBrowsing.listedNode(of: file)?
+                .attribute(BrowserManifest.Attribute.size)?.intValue else { return text }
+            total += size
+            got += RemoteBrowsing.hasPending([file]) ? min(RemoteBrowsing.received(file) ?? 0, size) : size
+        }
+        let format = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        text += " \(format(got)) of \(format(total))"
+        return text
     }
 
     /// Space, as in Finder.
@@ -3509,6 +3551,10 @@ final class AppModel {
     /// it, so the pending move stays pending and Paste can still perform it.
     func pasteAsLink() {
         guard !refusedAsTarget(active, "pasted into") else { return }
+        guard !RemoteBrowsing.isInside(active.directory) else {
+            flash("A link cannot be made on a server", error: true)
+            return
+        }
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else {
             flash("The clipboard holds no files", error: true)
@@ -3536,7 +3582,12 @@ final class AppModel {
         guard !refusedAsTarget(active, "pasted into", serverWritable: true) else { return }
 
         let urls = Clipboard.fileURLs()
-        guard !urls.isEmpty else { return }
+        // No files, but text or a picture: Paste makes a file of it, the way
+        // New from Clipboard does.
+        guard !urls.isEmpty else {
+            if Clipboard.contents().kind != .empty { newFromClipboard() }
+            return
+        }
 
         let destination = active.directory
         let move = Clipboard.holdsCut
@@ -4425,7 +4476,32 @@ final class AppModel {
 
     func revealSelection() {
         let urls = active.selectedItems.map(\.url)
-        NSWorkspaceOpener.revealInFinder(urls.isEmpty ? [active.directory] : urls)
+        let shown = urls.isEmpty ? [active.directory] : urls
+        if shown.contains(where: RemoteBrowsing.isInside),
+           ConfigStore.shared.configuration.warnRevealingServerCache {
+            guard Self.agreeToRevealCache(host: RemoteBrowsing.server(of: shown[0])?.host) else { return }
+        }
+        NSWorkspaceOpener.revealInFinder(shown)
+    }
+
+    /// Finder cannot show a server: what it shows is the cache on this Mac.
+    /// Said first, until the person says not to.
+    private static func agreeToRevealCache(host: String?) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Finder Shows the Cache, Not the Server"
+        alert.informativeText = "Finder cannot look at \(host ?? "an SFTP server"). What it shows "
+            + "is Diptych\u{2019}s cache of it on this Mac: only what has been listed, a file "
+            + "empty until it has been fetched, and nothing changed there reaches the server. "
+            + "The cache goes at eject and at quit."
+        alert.addButton(withTitle: "Show the Cache")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don\u{2019}t warn again"
+        let answer = alert.runSelectable()
+        if answer == .alertFirstButtonReturn, alert.suppressionButton?.state == .on {
+            ConfigStore.shared.configuration.warnRevealingServerCache = false
+        }
+        return answer == .alertFirstButtonReturn
     }
 
     // MARK: - Run
@@ -4783,6 +4859,10 @@ final class AppModel {
     /// Convert… and Resize…: one dialog, Resize starting with a size.
     func requestConvert(_ urls: [URL], resizing: Bool) {
         guard !urls.isEmpty else { return }
+        // Pictures on a server are fetched before anything is asked about them.
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestConvert(urls, resizing: resizing) }
+        }
         convertingImages = urls
         convertOptions.folder = nil
         if resizing {
@@ -4816,6 +4896,9 @@ final class AppModel {
 
     func requestMakePDF(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestMakePDF(urls) }
+        }
         pdfImages = urls
         pdfPageCounts = [:]
         pdfOptions.folder = nil
@@ -4889,6 +4972,9 @@ final class AppModel {
 
     func requestRecognizeText(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestRecognizeText(urls) }
+        }
         recognizingImages = urls
         dialog = .recognizeText
     }
@@ -5007,6 +5093,9 @@ final class AppModel {
     }
 
     func removeBackground(of urls: [URL]) {
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.removeBackground(of: urls) }
+        }
         makeImages(urls, undoName: "Remove Background") { url throws(ImageMaking.Failure) in
             try ImageMaking.cutOut(url)
         }

@@ -108,6 +108,14 @@ nonisolated enum RemoteBrowsing {
         return cacheRoot.appendingPathComponent(UUID().uuidString)
     }
 
+    /// The connected server an `sftp://` address names, by its user, host and port.
+    static func connected(_ url: URL) -> Server? {
+        guard url.scheme?.lowercased() == "sftp", let host = url.host(percentEncoded: false) else { return nil }
+        let key = Server.key(user: url.user(percentEncoded: false) ?? NSUserName(), host: host,
+                             port: url.port ?? 22)
+        return registry.lock.withLock { registry.servers.first { $0.key == key } }
+    }
+
     /// Each connected server as a sidebar volume: named after its host, and
     /// ejectable, which disconnects it. In the order they connected.
     static func sidebarEntries() -> [SidebarEntry] {
@@ -299,6 +307,101 @@ nonisolated enum RemoteBrowsing {
         try await server.mirror.populate(path)
     }
 
+    /// For work on a thread of its own, which cannot await: runs `work` and
+    /// waits for it. Never on the main thread, nor in a task.
+    static func waiting<T: Sendable>(for work: @escaping @Sendable () async throws -> T) throws -> T {
+        let box = WaitingBox<T>()
+        let done = DispatchSemaphore(value: 0)
+        Task.detached {
+            do { box.result = .success(try await work()) } catch { box.result = .failure(error) }
+            done.signal()
+        }
+        done.wait()
+        return try box.result!.get()
+    }
+
+    /// The sizes a server listed for the files of a shadow folder, by name.
+    static func listedSizes(in folder: URL) -> [String: Int64] {
+        var sizes: [String: Int64] = [:]
+        for node in BrowserManifestStore.read(in: folder)?.nodes ?? [] where node.kind == .file {
+            if let size = node.attribute(BrowserManifest.Attribute.size)?.intValue { sizes[node.name] = size }
+        }
+        return sizes
+    }
+
+    /// Whether a name in a shadow folder is Diptych's own and not the server's:
+    /// the manifest, or a file on its way in.
+    static func isBookkeeping(_ name: String) -> Bool {
+        BrowserManifestStore.number(of: name) != nil || name.hasPrefix(".downloading-")
+    }
+
+    /// Copies of the server items among `urls` as the server has them, for a tool
+    /// that reads folders whole, such as an archiver: without the manifests and
+    /// downloads of Diptych's own, and with the server's permissions and dates in
+    /// place of the cache's. Cloned, so cheap. Items not on a server are given as
+    /// they are; `staging` holds the copies, for `removeCopies`. Fetched first.
+    static func faithfulCopies(of urls: [URL]) throws -> (urls: [URL], staging: URL?) {
+        guard urls.contains(where: isInside) else { return (urls, nil) }
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("server-items-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        var copies: [URL] = []
+        do {
+            for url in urls {
+                guard isInside(url) else {
+                    copies.append(url)
+                    continue
+                }
+                let copy = staging.appendingPathComponent(url.lastPathComponent)
+                try FileManager.default.copyItem(at: url, to: copy)
+                try giveServerFacts(to: copy, of: url)
+                copies.append(copy)
+            }
+        } catch {
+            removeCopies(staging)
+            throw error
+        }
+        return (copies, staging)
+    }
+
+    /// A folder's own facts last: its children are changed first, and a mode
+    /// without write permission would refuse that.
+    private static func giveServerFacts(to copy: URL, of original: URL) throws {
+        if SFTPMirror.isDirectory(copy) {
+            for name in try FileManager.default.contentsOfDirectory(atPath: copy.path) {
+                let child = copy.appendingPathComponent(name)
+                if isBookkeeping(name) {
+                    try FileManager.default.removeItem(at: child)
+                } else {
+                    try giveServerFacts(to: child, of: original.appendingPathComponent(name))
+                }
+            }
+        }
+        guard let node = listedNode(of: original) else { return }
+        var facts: [FileAttributeKey: Any] = [:]
+        if let mode = node.attribute(BrowserManifest.Attribute.mode)?.intValue {
+            facts[.posixPermissions] = Int(mode & 0o7777)
+        }
+        if let modified = node.attribute(BrowserManifest.Attribute.modified)?.dateValue {
+            facts[.modificationDate] = modified
+        }
+        if !facts.isEmpty { try FileManager.default.setAttributes(facts, ofItemAtPath: copy.path) }
+    }
+
+    /// Removes what `faithfulCopies` made, folders the server's mode locked included.
+    static func removeCopies(_ staging: URL?) {
+        guard let staging else { return }
+        if let walker = FileManager.default.enumerator(atPath: staging.path) {
+            while let relative = walker.nextObject() as? String {
+                let path = staging.appendingPathComponent(relative).path
+                if SFTPMirror.isDirectory(URL(fileURLWithPath: path)) {
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+                }
+            }
+        }
+        try? FileManager.default.removeItem(at: staging)
+    }
+
     /// Whether any file under `urls` still lacks its bytes, or any folder has
     /// not been listed. Read from the manifests, so nothing is fetched to ask.
     static func hasPending(_ urls: [URL]) -> Bool {
@@ -314,6 +417,8 @@ nonisolated enum RemoteBrowsing {
         guard isDirectory.boolValue else {
             let node = BrowserManifestStore.read(in: url.deletingLastPathComponent())?.nodes
                 .first { $0.name == url.lastPathComponent }
+            // Not listed, yet here: made here, with nothing to fetch.
+            guard let node else { return false }
             return SFTPMirror.needsFetch(node, at: url)
         }
         guard let manifest = BrowserManifestStore.read(in: url) else { return true }
@@ -620,7 +725,8 @@ nonisolated enum RemoteBrowsing {
             let name = source.lastPathComponent
             try await requireAbsent(name, in: folder, server)
             try await server.mirror.upload(source, to: join(folder, name),
-                                           isDirectory: SFTPMirror.isDirectory(source))
+                                           isDirectory: SFTPMirror.isDirectory(source),
+                                           keepingUpTo: await keptLimit())
         }
         try await refresh(destination)
     }
@@ -634,17 +740,19 @@ nonisolated enum RemoteBrowsing {
         let name = target.lastPathComponent
         try await requireAbsent(name, in: folder, server)
         try await server.mirror.upload(source, to: join(folder, name),
-                                       isDirectory: SFTPMirror.isDirectory(source))
+                                       isDirectory: SFTPMirror.isDirectory(source),
+                                       keepingUpTo: await keptLimit())
         try await refresh(parent)
     }
 
-    /// Sends files written here, in a server's folders, that the server does not
-    /// have yet; then lists their folders.
+    /// Sends files and folders written here, in a server's folders, that the
+    /// server does not have yet; then lists their folders.
     static func publish(_ urls: [URL]) async throws {
         var folders = Set<URL>()
         for url in urls {
             guard let (server, path) = remotePath(url) else { continue }
-            try await server.mirror.upload(url, to: path, isDirectory: false)
+            try await server.mirror.upload(url, to: path, isDirectory: SFTPMirror.isDirectory(url),
+                                           keepingUpTo: .max)
             folders.insert(url.deletingLastPathComponent())
         }
         for folder in folders {
@@ -652,10 +760,27 @@ nonisolated enum RemoteBrowsing {
         }
     }
 
+    /// How big a file sent to a server may be and still be kept here, and how big
+    /// a cached file may be for a checksum on the server to stand in for fetching
+    /// it again: the cache's own setting, not the right-click size. Whichever way
+    /// a file went, the copy here is the server's.
+    @MainActor static func keptLimit() -> Int64 {
+        Int64(ConfigStore.shared.configuration.serverCacheKeepMegabytes) * 1_000_000
+    }
+
     /// The permission bits a server item had when it was listed.
     static func listedMode(of url: URL) -> mode_t? {
         listedNode(of: url)?.attribute(BrowserManifest.Attribute.mode)?.intValue
             .map { mode_t(truncatingIfNeeded: $0) }
+    }
+
+    /// Whether a fetched server file here holds bytes the server does not have:
+    /// saved here, and not sent -- put off, or not yet asked about.
+    static func hasUnsentEdit(_ url: URL) -> Bool {
+        guard let node = listedNode(of: url), case .file = node.backing,
+              let recorded = node.attribute(BrowserManifest.Attribute.checksum)?.stringValue
+        else { return false }
+        return (try? FileChecksum.sha256(of: url)) != recorded
     }
 
     /// A server item as its listing recorded it: the server's facts about it.
@@ -742,7 +867,7 @@ nonisolated enum RemoteBrowsing {
     /// The file at a shadow path, with its bytes fetched.
     static func materialize(_ url: URL) async throws {
         guard let (server, path) = remotePath(url) else { return }
-        _ = try await server.mirror.materialize(path)
+        _ = try await server.mirror.materialize(path, checkingUpTo: await keptLimit())
     }
 
     private static func resolved(_ path: String) -> String {
@@ -764,4 +889,10 @@ final class ServerDownloads {
     func finished(_ key: String) { active.remove(key) }
 
     func isDownloading(_ url: URL) -> Bool { active.contains(url.standardizedFileURL.path) }
+}
+
+/// What `RemoteBrowsing.waiting` hands from the task to the waiting thread; the
+/// semaphore orders the two.
+private final class WaitingBox<T>: @unchecked Sendable {
+    var result: Result<T, Error>?
 }

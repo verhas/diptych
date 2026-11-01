@@ -129,6 +129,30 @@ final class FileSplittingTests: XCTestCase {
         XCTAssertNil(FileSplitting.joinSource(for: []))
     }
 
+    /// Everything selected, as people do: the manifest with its parts is a join
+    /// from the manifest -- of exactly the parts it lists.
+    func testTheManifestSelectedWithItsPartsIsAJoinOfExactlyThoseParts() throws {
+        let file = try write("blob.bin", bytes(250))
+        let (parts, manifest) = try FileSplitting.split(file, partSize: 100, into: nil)
+        let other = root.appendingPathComponent("other.bin.001")
+
+        let all = FileSplitting.joinSelection(for: parts + [manifest])
+        XCTAssertEqual(all?.source, manifest)
+        XCTAssertEqual(all?.selectedParts, parts)
+        XCTAssertNil(FileSplitting.selectionProblem(manifest: manifest, selected: parts))
+
+        // 002 and 003 with the manifest, though 001 is there: refused, saying why.
+        let some = Array(parts.dropFirst())
+        XCTAssertEqual(FileSplitting.joinSelection(for: some + [manifest])?.source, manifest)
+        let problem = FileSplitting.selectionProblem(manifest: manifest, selected: some)
+        XCTAssertTrue(problem?.contains("blob.bin.001") == true, problem ?? "no problem")
+
+        // A part of another file beside the manifest is not a join at all.
+        XCTAssertNil(FileSplitting.joinSelection(for: [manifest, other]))
+        // Alone, the manifest asks nothing of the selection.
+        XCTAssertNil(FileSplitting.joinSelection(for: [manifest])?.selectedParts)
+    }
+
     // MARK: - Round trip
 
     func testSplitThenJoinReproducesTheFileByteForByte() throws {

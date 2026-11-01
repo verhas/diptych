@@ -703,6 +703,11 @@ final class PaneModel {
     /// A folder on an SFTP server: the Cached column belongs to it.
     var isServerListing: Bool { RemoteBrowsing.isInside(directory) }
 
+    /// Whether files can be made or changed here: a folder that is not read-only,
+    /// or a server's, where what is made is sent to the server. The cache a
+    /// server's folder is shown from is read-only to everything else.
+    var isWritable: Bool { !volume.isReadOnly || isServerListing }
+
     /// What is typed in the expression field, run or not.
     var flatDraft = ""
 

@@ -25,7 +25,7 @@ extension AppModel {
     /// what Undo will call it.
     func applyNameTransform(_ label: String, _ transform: @escaping @Sendable (String) -> String) {
         let pane = active
-        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        guard !refusedAsReadOnly(pane, "renamed here", serverWritable: true) else { return }
         let urls = pane.selectedItems.filter { !$0.isParent }.map(\.url)
         guard !urls.isEmpty else { return }
 

@@ -103,8 +103,18 @@ final class ArchiveWindowModel {
         }
         Task {
             let outcome = await BlockingWork.run { () -> Archiving.Failure? in
+                // A server's items as the server has them: without Diptych's own
+                // files, with the server's permissions and dates.
+                let copies: (urls: [URL], staging: URL?)
+                do {
+                    copies = try RemoteBrowsing.faithfulCopies(of: items)
+                } catch {
+                    return Archiving.Failure(message: "The server's items could not be prepared: "
+                                             + error.localizedDescription)
+                }
+                defer { RemoteBrowsing.removeCopies(copies.staging) }
                 do throws(Archiving.Failure) {
-                    try Archiving.create(items, at: target, options: options, password: password,
+                    try Archiving.create(copies.urls, at: target, options: options, password: password,
                                          job: job)
                     return nil
                 } catch {

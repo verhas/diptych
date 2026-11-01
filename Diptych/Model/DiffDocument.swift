@@ -17,6 +17,8 @@ struct SourceFile: Sendable {
     /// else in the meantime can be noticed instead of overwritten.
     var modified: Date?
     var isWritable: Bool
+    /// The byte-order mark it started with, written back before the text.
+    var bom = Data()
 
     func text(from lines: [String]) -> String {
         lines.joined(separator: lineEnding) + (hasFinalNewline && !lines.isEmpty ? lineEnding : "")
@@ -98,6 +100,10 @@ final class DiffDocument {
     /// own state so an MCP `open_diff` call can set it before a window even
     /// exists, the same way it can `ignoreWhitespace`.
     var wraps = true
+    /// Why the window was opened, when something other than the person opened it.
+    private(set) var note: String?
+    /// The side to unlock once the files are first read.
+    @ObservationIgnored private var unlockWhenRead: Side?
 
     private var undoStack: [Step] = []
     private var redoStack: [Step] = []
@@ -108,6 +114,16 @@ final class DiffDocument {
     var isDirty: Bool {
         guard let editable else { return false }
         return lines[editable] != asRead[editable]
+    }
+    /// The sides that are server files saved here and not sent: compared after a
+    /// clash with the server, or with the question about them put off. Save sends
+    /// such a side as it is, with nothing changed.
+    private var unsent: Set<Side> = []
+    var isUnsent: Bool { editable.map { unsent.contains($0) } ?? false }
+
+    func markUnsent(_ url: URL) {
+        if url.standardizedFileURL == pair.left.standardizedFileURL { unsent.insert(.left) }
+        if url.standardizedFileURL == pair.right.standardizedFileURL { unsent.insert(.right) }
     }
     var canUndo: Bool { !undoStack.isEmpty || sessionIsOpen }
     var canRedo: Bool { !redoStack.isEmpty }
@@ -132,6 +148,8 @@ final class DiffDocument {
         if let preset = TextDiffPresetOptions.shared.take(for: pair) {
             ignoreWhitespace = preset.ignoreWhitespace
             wraps = preset.wraps
+            unlockWhenRead = preset.unlocked
+            note = preset.note
         }
     }
 
@@ -239,6 +257,9 @@ final class DiffDocument {
             right = rightFile
             lines = [.left: leftFile.lines, .right: rightFile.lines]
             asRead = lines
+            unsent = Set([Side.left, .right].filter {
+                RemoteBrowsing.hasUnsentEdit($0 == .left ? pair.left : pair.right)
+            })
             failure = nil
             // A full reset, because reading is where a comparison starts.
             // SwiftUI keeps a window's state against the value it was opened
@@ -249,6 +270,10 @@ final class DiffDocument {
             hasSaved = false
             forgetHistory()
             recompute()
+            if let side = unlockWhenRead {
+                unlockWhenRead = nil
+                _ = unlock(side)
+            }
         case .failure(let error):
             // Not text? Then the question is a different one, and it has an
             // answer: compare the bytes.
@@ -648,8 +673,12 @@ final class DiffDocument {
     func save() -> SaveOutcome {
         // What is on screen, including a line still being typed into.
         endLine()
-        guard let side = editable, let file = file(side), isDirty else { return .nothingToDo }
+        guard let side = editable, let file = file(side) else { return .nothingToDo }
         let url = side == .left ? pair.left : pair.right
+        guard isDirty else {
+            if unsent.remove(side) != nil { ServerEditing.shared.sendAgain(url) }
+            return .nothingToDo
+        }
 
         // Somebody else may have written it while this window was open, and in
         // this application that somebody is quite likely Get the Latest. Saving
@@ -667,7 +696,7 @@ final class DiffDocument {
         }
 
         do {
-            try Self.write(data, to: url)
+            try Self.write(file.bom + data, to: url)
         } catch {
             // Worked out from the file, not repeated from the system: macOS
             // says "you do not have permission" for failures that have nothing
@@ -677,6 +706,7 @@ final class DiffDocument {
         }
 
         asRead[side] = lines[side]
+        unsent.remove(side)
         hasSaved = true
         var refreshed = file
         refreshed.modified = (try? FileManager.default

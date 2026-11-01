@@ -28,6 +28,15 @@ extension AppModel {
         // SFTP is not mounted, so NetFS has nothing to do with it: it has its
         // own connection, which asks about an unknown host before it sends anything.
         if ServerAddress.kind(of: url) == .sftp {
+            // Connected already: opened, not connected a second time.
+            if let server = RemoteBrowsing.connected(url) {
+                let folder = RemoteBrowsing.localURL(on: server, remote: url.path(percentEncoded: false))
+                Task {
+                    try? await RemoteBrowsing.refresh(folder)
+                    arrive(url, at: server.root, in: pane, opening: opening)
+                }
+                return
+            }
             connectSFTP(url)
             return
         }

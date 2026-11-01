@@ -148,7 +148,10 @@ final class RenameManyModel {
         let urls = (try? manager.contentsOfDirectory(at: folder,
                                                      includingPropertiesForKeys: [.isDirectoryKey],
                                                      options: [])) ?? []
-        let entries = urls.map { url in
+        // A server's folder holds Diptych's own manifest beside the server's files.
+        let onServer = RemoteBrowsing.isInside(folder)
+        let entries = urls.filter { !onServer || !RemoteBrowsing.isBookkeeping($0.lastPathComponent) }
+            .map { url in
             Entry(name: url.lastPathComponent,
                   isDirectory: (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory)
                       ?? false,
@@ -315,8 +318,7 @@ final class RenameManyModel {
             for step in part.plan.steps {
                 let from = part.folder.appendingPathComponent(step.from)
                 do {
-                    let to = try await FileOperations.shared.rename(from, to: step.to)
-                    await GitService.shared.followMove(from: from, to: to)
+                    let to = try await RenameRunner.renameOne(from, to: step.to)
                     applied.append((from, to))
                 } catch {
                     // Stopped here: the steps after this one were ordered on

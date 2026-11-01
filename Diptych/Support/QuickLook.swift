@@ -163,7 +163,11 @@ final class QuickLookController: NSObject {
         }
         if let type = UTType(filenameExtension: url.pathExtension), type.isDeclared,
            Self.renderable.contains(where: { type.conforms(to: $0) }) {
-            return url
+            // Quick Look reads plain text as UTF-8 or by its mark, and shows a
+            // Latin-2 or Windows-1251 file as nonsense: one that is not is
+            // shown from a UTF-8 copy, read as Text Edit reads it.
+            guard Self.isPlainTextual(type), let text = reencodedText(at: url) else { return url }
+            return scratchText(text, for: url) ?? url
         }
         guard let text = readableText(at: url) else { return url }
 
@@ -351,17 +355,47 @@ final class QuickLookController: NSObject {
         return target
     }
 
+    /// Text shown as text, not rendered: what is not UTF-8 is worth a copy.
+    /// HTML and RTF name their own encoding inside and are rendered.
+    private static func isPlainTextual(_ type: UTType) -> Bool {
+        type.conforms(to: .plainText) || type.conforms(to: .sourceCode)
+            || [.json, .yaml, .xml].contains(where: { type.conforms(to: $0) })
+    }
+
+    /// The bytes of a text file to preview, when it is small enough to copy.
+    private func textData(at url: URL) -> Data? {
+        let limit = 4 * 1024 * 1024
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= limit else { return nil }
+        return try? Data(contentsOf: url, options: .mappedIfSafe)
+    }
+
+    /// A text file's text, when it is in something other than plain UTF-8 --
+    /// nil when Quick Look can show the file as it is. A file too short for its
+    /// encoding to be told is read as UTF-8, as Quick Look itself would.
+    private func reencodedText(at url: URL) -> String? {
+        guard let data = textData(at: url),
+              let reading = TextEncodings.reading(of: data, at: url, fallback: .utf8),
+              reading.encoding != .utf8 || reading.guessed else { return nil }
+        return TextEncodings.decodeForShowing(data, reading)
+    }
+
+    private func scratchText(_ text: String, for url: URL) -> URL? {
+        let target = scratch.appendingPathComponent(url.lastPathComponent + ".txt")
+        // The mark makes sure Quick Look does not guess again.
+        guard let data = TextEncodings.encode(text, .utf8, bom: true),
+              (try? data.write(to: target, options: .atomic)) != nil else { return nil }
+        return target
+    }
+
     /// Heuristic, deliberately conservative: better to fall back to Quick Look's
     /// own "no preview" panel than to render a binary as mojibake.
     private func readableText(at url: URL) -> String? {
-        let limit = 4 * 1024 * 1024
-        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              size > 0, size <= limit,
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
-
-        // A NUL byte early on is the classic "this is binary" signal.
-        if data.prefix(8192).contains(0) { return nil }
-        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        guard let data = textData(at: url),
+              // A NUL byte early on is the classic "this is binary" signal --
+              // unless a byte-order mark says it is UTF-16 or UTF-32.
+              let reading = TextEncodings.reading(of: data, at: url, fallback: .utf8) else { return nil }
+        let text = TextEncodings.decodeForShowing(data, reading)
 
         // Control characters other than tab and the line endings mean it is
         // structured binary that happens to decode.

@@ -134,4 +134,41 @@ final class ReconnectingRemoteTests: XCTestCase {
         _ = try await remote.entries(in: "/")
         XCTAssertEqual(opened.count, 0)
     }
+
+    /// A server busy writing a large file can take longer than the patience to
+    /// answer a question: while bytes still move, the connection is kept, not
+    /// closed under the transfer.
+    func testAConnectionMovingBytesIsKeptThoughItDoesNotAnswer() async throws {
+        let opened = Opened()
+        let busy = ReconnectingRemote.Link(remote: Scripted(failures: 0, listed: []),
+                                           answers: { false }, close: {}, moved: { _ in true })
+        let remote = ReconnectingRemote(
+            link: busy,
+            open: {
+                opened.count += 1
+                return ReconnectingRemoteTests.link(Scripted(failures: 0), answers: true)
+            })
+
+        await remote.checkAlive()
+        _ = try await remote.entries(in: "/")
+        XCTAssertEqual(opened.count, 0)
+    }
+
+    /// Once closed, a session starts nothing; its thread goes when the last
+    /// request under way has ended, not under it.
+    func testAClosedSessionGateStartsNothingAndShutsDownAfterTheLast() {
+        let gate = SFTPSessionGate()
+        XCTAssertTrue(gate.enter())
+        gate.close()
+        XCTAssertFalse(gate.enter())
+        XCTAssertFalse(gate.closingFinished())
+        XCTAssertTrue(gate.leave())
+
+        let idle = SFTPSessionGate()
+        idle.close()
+        XCTAssertTrue(idle.closingFinished())
+        XCTAssertFalse(idle.moved(within: .seconds(60)))
+        idle.moved()
+        XCTAssertTrue(idle.moved(within: .seconds(60)))
+    }
 }
