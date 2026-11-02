@@ -659,7 +659,15 @@ struct PaneView: View {
                             provider.suggestedName = item.name
                             return provider
                         }
-                        provider.registerObject(item.url.path as NSString, visibility: .all)
+                        // The file URL and nothing else -- in particular no
+                        // plain-text path beside it. Finder's own drag of an
+                        // existing file, sniffed again, carries no text type at
+                        // all, and Terminal still pastes the path from the URL
+                        // alone. With the text there, Chrome hands the page a
+                        // text drop as well as a file one, and a web uploader
+                        // (ChatGPT's) spun on it forever where Finder's drop of
+                        // the same file uploaded in seconds.
+                        //
                         // Not `registerObject(item.url as NSURL)`: `NSURL`'s
                         // own conformance bundles "public.file-url" together
                         // with the generic "public.url" -- a type Finder's own
