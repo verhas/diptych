@@ -292,4 +292,55 @@ final class TextConversionTests: XCTestCase {
         XCTAssertEqual(lines[2], "/usr/sbin/chown -R 501:admin '/Applications/T.app'")
         XCTAssertFalse(script.contains("xattr"), "the copy is approved afterwards, as its owner")
     }
+
+    // MARK: - The same text in different bytes
+
+    private func differences(_ left: Data, _ right: Data) throws -> [String] {
+        let a = try TextDiff.load(file("left-\(UUID()).txt", left))
+        let b = try TextDiff.load(file("right-\(UUID()).txt", right))
+        XCTAssertEqual(a.lines, b.lines, "the same text")
+        return TextDiff.sameTextDifferences(a, b)
+    }
+
+    func testOnlyTheLastLineEndingDiffers() throws {
+        let parts = try differences(Data("one\ntwo\n".utf8), Data("one\ntwo".utf8))
+        XCTAssertEqual(parts, ["only the last line's ending (only the left file's last line has one)"])
+    }
+
+    func testAOneLineFileDiffersOnlyInItsEnding() throws {
+        let parts = try differences(Data("one".utf8), Data("one\r\n".utf8))
+        XCTAssertEqual(parts, ["only the last line's ending (only the right file's last line has one)"])
+    }
+
+    func testTheLineEndingsDiffer() throws {
+        let parts = try differences(Data("one\ntwo\n".utf8), Data("one\r\ntwo\r\n".utf8))
+        XCTAssertEqual(parts, ["the line endings (left LF, right CRLF)"])
+    }
+
+    func testTheLineEndingsAndTheLastOneDiffer() throws {
+        let parts = try differences(Data("one\ntwo\n".utf8), Data("one\r\ntwo".utf8))
+        XCTAssertEqual(parts, ["the line endings (left LF, right CRLF)",
+                               "the last line's ending (only the left file's last line has one)"])
+    }
+
+    func testTheEncodingDiffers() throws {
+        let text = "Привет, это длинная русская строка для проверки кодировки файла.\n"
+        let dos = try XCTUnwrap(text.data(using: String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosRussian.rawValue)))))
+        let parts = try differences(Data(text.utf8), dos)
+        XCTAssertEqual(parts.count, 1)
+        XCTAssertTrue(parts[0].hasPrefix("the character encoding (left UTF-8, right "), parts[0])
+    }
+
+    func testTheEncodingAndTheLineEndingsDiffer() throws {
+        let latin2 = try XCTUnwrap((hungarian + "\r\n" + hungarian + "\r\n").data(using: .isoLatin2))
+        let parts = try differences(Data((hungarian + "\n" + hungarian + "\n").utf8), latin2)
+        XCTAssertEqual(parts.count, 2)
+        XCTAssertTrue(parts[0].hasPrefix("the character encoding"))
+        XCTAssertEqual(parts[1], "the line endings (left LF, right CRLF)")
+    }
+
+    func testOnlyAByteOrderMarkDiffers() throws {
+        let parts = try differences(Data("héllo\n".utf8), Data([0xEF, 0xBB, 0xBF]) + Data("héllo\n".utf8))
+        XCTAssertEqual(parts, ["the byte-order mark (only the right file has one)"])
+    }
 }

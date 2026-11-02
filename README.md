@@ -1325,7 +1325,10 @@ spacing*, and wrapping that applies to both sides or to neither.
   anything else as hex. It opens by itself when the text is the same and
   something else is not, which is what the folder comparison or a sync meant
   by "different". Two files whose text is the same but whose bytes are not
-  -- line endings, a byte-order mark, another encoding -- are said to be so.
+  are said to be so, and in what: the character encoding (each side's
+  named), a byte-order mark, the line endings (LF on one side, CRLF on the
+  other, or mixed, counted), or only the last line's ending, there on one
+  side and not on the other.
   A chmod, a new tag or an attribute set elsewhere shows up at once.
 
 ## Previous versions

@@ -19,6 +19,9 @@ struct SourceFile: Sendable {
     var isWritable: Bool
     /// The byte-order mark it started with, written back before the text.
     var bom = Data()
+    /// What its lines end with, as read: how two files of the same text can
+    /// still differ.
+    var lineEndings = LineEndingReport()
 
     func text(from lines: [String]) -> String {
         lines.joined(separator: lineEnding) + (hasFinalNewline && !lines.isEmpty ? lineEnding : "")

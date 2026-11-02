@@ -144,6 +144,9 @@ Quick Look **guess the encoding** of text that is not UTF-8.
   compares as text, and its mark is written back when it is saved.
 - So does one without a mark, told by where its NUL bytes fall, for text that
   is mostly Latin, Greek or Cyrillic.
+- A comparison of two files with the same text says what their bytes differ
+  in: the character encoding, naming both, a byte-order mark, the line
+  endings, or only the last line's ending.
 - DOS code pages (437, 850, 852, 866), EBCDIC, KOI8-R and ISO-2022-JP are
   recognised. A guess is taken only when the file is valid in it and its text
   reads like text.

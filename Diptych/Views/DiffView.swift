@@ -354,11 +354,31 @@ struct DiffView: View {
     /// The same text is not always the same file.
     private var sameText: String {
         let properties = document.properties
-        if properties?.bytesAreSame == false { return "The text is the same, the bytes are not." }
+        if properties?.bytesAreSame == false {
+            let parts = byteDifferences
+            guard !parts.isEmpty else { return "The text is the same, the bytes are not." }
+            return "The text is the same; it differs in " + Self.listed(parts.map(Self.headline)) + "."
+        }
         if properties?.differing.isEmpty == false {
             return "The content is the same; other properties are not."
         }
         return "These two files are the same."
+    }
+
+    /// What the same text is written differently in, read from both sides.
+    private var byteDifferences: [String] {
+        guard let left = document.left, let right = document.right else { return [] }
+        return TextDiff.sameTextDifferences(left, right)
+    }
+
+    /// "the line endings (left LF, right CRLF)" -> "the line endings".
+    private static func headline(_ part: String) -> String {
+        part.components(separatedBy: " (").first ?? part
+    }
+
+    private static func listed(_ parts: [String]) -> String {
+        guard parts.count > 1 else { return parts.first ?? "" }
+        return parts.dropLast().joined(separator: ", ") + " and " + parts.last!
     }
 
     // MARK: - The comparison
@@ -370,10 +390,12 @@ struct DiffView: View {
         } else if document.left == nil {
             message("Reading\u{2026}")
         } else if diff.isIdentical && !document.isDirty {
-            message(document.properties?.bytesAreSame == false
-                    ? "Every line matches, including the blank ones -- the bytes do not: the "
-                        + "line endings, a byte-order mark or the encoding differ."
-                    : "Every line matches, including the blank ones.")
+            message(document.properties?.bytesAreSame != false
+                    ? "Every line matches, including the blank ones."
+                    : byteDifferences.isEmpty
+                    ? "Every line matches, including the blank ones -- the bytes do not."
+                    : "Every line matches, including the blank ones -- the bytes do not. They differ in "
+                        + Self.listed(byteDifferences) + ".")
         } else {
             GeometryReader { geometry in
               let text = textWidths(in: geometry.size.width)

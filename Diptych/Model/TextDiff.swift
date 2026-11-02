@@ -381,7 +381,42 @@ struct TextDiff: Sendable {
                           encoding: encoding,
                           modified: attributes?[.modificationDate] as? Date,
                           isWritable: FileManager.default.isWritableFile(atPath: url.path),
-                          bom: data.prefix(reading.bomLength))
+                          bom: data.prefix(reading.bomLength),
+                          lineEndings: LineEndings.report(of: text))
+    }
+
+    /// What two files of the same lines differ in, when their bytes do:
+    /// each part a phrase, empty when it is none of these -- the same
+    /// letters composed differently, say.
+    static func sameTextDifferences(_ left: SourceFile, _ right: SourceFile) -> [String] {
+        var parts: [String] = []
+        func named(_ file: SourceFile) -> String {
+            TextEncodings.name(of: file.encoding) + (file.bom.isEmpty ? "" : " with a byte-order mark")
+        }
+        if left.encoding != right.encoding {
+            parts.append("the character encoding (left \(named(left)), right \(named(right)))")
+        } else if left.bom != right.bom {
+            parts.append(left.bom.isEmpty
+                         ? "the byte-order mark (only the right file has one)"
+                         : right.bom.isEmpty ? "the byte-order mark (only the left file has one)"
+                                             : "the byte-order mark")
+        }
+        let l = left.lineEndings, r = right.lineEndings
+        // The same lines have the same endings between them; only the last
+        // one can be there in one and not in the other. A file of one line
+        // has no kind of its own, so it differs only in that.
+        let apart = LineEnding.allCases.reduce(0) { $0 + abs(l.counts[$1, default: 0] - r.counts[$1, default: 0]) }
+        let kindsDiffer = !l.hasNone && !r.hasNone
+            && (Set(l.counts.keys) != Set(r.counts.keys) || apart > 1)
+        if kindsDiffer {
+            parts.append("the line endings (left \(l.description), right \(r.description))")
+        }
+        if l.endsWithOne != r.endsWithOne {
+            let which = l.endsWithOne ? "left" : "right"
+            parts.append((kindsDiffer ? "" : "only ")
+                         + "the last line's ending (only the \(which) file's last line has one)")
+        }
+        return parts
     }
 
     /// Whatever the file already uses, so saving does not convert it.
