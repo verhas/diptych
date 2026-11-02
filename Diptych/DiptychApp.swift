@@ -13,6 +13,7 @@ struct DiptychApp: App {
     static let renameWindowID = "diptych.rename"
     static let renameReplaceWindowID = "diptych.renameReplace"
     static let diffWindowID = "diptych.diff"
+    static let visualPreviewWindowID = "diptych.visualPreview"
     static let directoryDiffWindowID = "diptych.directoryDiff"
     static let releaseNotesWindowID = "diptych.releaseNotes"
     static let mcpConsoleWindowID = "diptych.mcpConsole"
@@ -192,6 +193,13 @@ struct DiptychApp: App {
             if let pair { DiffView(pair: pair) }
         }
         .defaultSize(width: 1000, height: 640)
+        .restorationBehavior(.disabled)
+
+        // Two PDFs or pictures laid one over the other, flipping: one per pair.
+        WindowGroup(id: DiptychApp.visualPreviewWindowID, for: DiffPair.self) { $pair in
+            if let pair { VisualPreviewView(pair: pair) }
+        }
+        .defaultSize(width: 1100, height: 860)
         .restorationBehavior(.disabled)
 
         // One comparison per pair of folders, for the same reason.

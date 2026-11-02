@@ -9,7 +9,9 @@ The right-click menu gathers the file tools under **Tools**, with two new
 ones: **Convert Line Endings** and **Convert Character Encoding**. **Edit**
 opens a file in Text Edit or Bin Edit, whichever fits it. A disk image made
 to install from **installs its app** in one click. Text Edit, comparisons and
-Quick Look **guess the encoding** of text that is not UTF-8.
+Quick Look **guess the encoding** of text that is not UTF-8. Two PDFs or
+pictures whose bytes differ are **compared by what they show**, with a
+**Visual Preview** that flips one over the other.
 
 ---
 
@@ -104,6 +106,9 @@ Quick Look **guess the encoding** of text that is not UTF-8.
 - "Fetching … from the server" counts only what is still to come.
 - Paste, with text or a picture on the clipboard and no files, makes a file of
   it, as New from Clipboard does.
+- A file dragged from a pane into a web page -- a chat in Chrome, say --
+  arrives as the file, as from Finder. It used to carry its path as text as
+  well, which the page took instead, and the upload hung.
 
 ## Tools, Edit and conversions
 
@@ -150,6 +155,26 @@ Quick Look **guess the encoding** of text that is not UTF-8.
 - DOS code pages (437, 850, 852, 866), EBCDIC, KOI8-R and ISO-2022-JP are
   recognised. A guess is taken only when the file is valid in it and its text
   reads like text.
+
+## Comparing PDFs and pictures by what they show
+
+- Two PDFs or two pictures whose bytes differ are compared by what they show
+  as well: the same pixels stored differently, the same to the eye, nearly
+  the same with one spot different, probably two scans of the same page, or
+  different. Page by page for PDFs of as many pages; a PNG against a JPEG,
+  or a picture against a one-page PDF, works too.
+- A scan is laid over the other before it is judged, and the text read from
+  both has to match, numbers and all: two copies of one form filled in
+  differently are different.
+- **Visual Preview** flips between the two, at a pace from 0.1 s to never,
+  with a *Mix* slider to see one through the other and *Align turn and
+  offset* to lay a scan over the other.
+- Each answer comes with its reasons: the compression or the program that
+  wrote each file, the resolutions, where on the page the spot that differs
+  is, and how far a scan was turned and moved.
+- A turn of up to 10° and a move of up to 15% of the page are found; a scan
+  at another size is drawn at the size of the other first. A page takes
+  about a second.
 
 ## Upgrading
 

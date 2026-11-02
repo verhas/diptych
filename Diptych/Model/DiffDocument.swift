@@ -72,6 +72,13 @@ final class DiffDocument {
     private(set) var binary: BinaryComparison?
     private(set) var isComparingBytes = false
 
+    /// What two PDFs or two pictures whose bytes differ show: the same
+    /// pixels, the same to the eye, two scans of one page, or not the same.
+    private(set) var visual: VisualComparison?
+    /// How far that has got, while it is under way.
+    private(set) var visualProgress: String?
+    @ObservationIgnored private var visualCancel: CancellationFlag?
+
     /// Everything besides the bytes: permissions, owner, dates, flags, the
     /// access control list and every extended attribute. What two files a
     /// folder comparison or a sync calls different differ in, when it is not
@@ -184,6 +191,7 @@ final class DiffDocument {
         rightWatcher = nil
         reloadTask?.cancel()
         propertiesTask?.cancel()
+        visualCancel?.cancel()
     }
 
     private func watch(_ url: URL) -> DispatchSourceFileSystemObject? {
@@ -319,9 +327,34 @@ final class DiffDocument {
         case .success(let comparison):
             binary = comparison
             failure = nil
+            await compareVisually(skip: comparison.isIdentical)
         case .failure(let error):
             failure = "These files could not be compared: \(error.localizedDescription)"
         }
+    }
+
+    /// The bytes differ; perhaps what they show does not.
+    private func compareVisually(skip: Bool) async {
+        visualCancel?.cancel()
+        guard !skip else {
+            visual = nil
+            return
+        }
+        let cancel = CancellationFlag()
+        visualCancel = cancel
+        let pair = pair
+        visualProgress = "Looking at them\u{2026}"
+        let found = await BlockingWork.run { [weak self] in
+            VisualComparison.compare(pair.left, pair.right, cancel: cancel) { step in
+                Task { @MainActor in
+                    guard let self, !cancel.isCancelled else { return }
+                    self.visualProgress = step
+                }
+            }
+        }
+        guard !cancel.isCancelled else { return }
+        visual = found
+        visualProgress = nil
     }
 
     func file(_ side: Side) -> SourceFile? { side == .left ? left : right }

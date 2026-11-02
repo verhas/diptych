@@ -433,7 +433,7 @@ Diptych quits.
   connection is checked. The default is `ServerAliveInterval` from
   `~/.ssh/config`, else 60 seconds.
 - **Paths are `sftp://` addresses** everywhere: the path bar, Copy Path, a
-  dragged file (as text), and the MCP tools. Tab completes server paths.
+  dragged server file (as text), and the MCP tools. Tab completes server paths.
 - **What an action makes in a server's folder is sent there**: split parts, a
   joined file, an archive, what is extracted, a PDF, converted images. What it
   reads from a server is fetched first, and an archive gets the server's
@@ -1330,6 +1330,31 @@ spacing*, and wrapping that applies to both sides or to neither.
   other, or mixed, counted), or only the last line's ending, there on one
   side and not on the other.
   A chmod, a new tag or an attribute set elsewhere shows up at once.
+- **Two PDFs or two pictures are also compared by what they show**, when
+  their bytes differ -- PNG against JPEG, a PDF against a scan of one page,
+  page by page when the page counts match. The answer is the strongest that
+  holds: *the same pixels* (the same pictures decoded and the same text,
+  stored differently -- another compression, another PDF writer, both
+  named), *the same to the eye* (compressed again or at another resolution,
+  nowhere enough to see), *nearly the same* (the text the same and nothing
+  moved, but one spot looks different, and where it is), *probably two scans
+  of the same page* (turned and moved, then laid over each other, with the
+  text read from both matching, numbers and all -- a guess, and said to be
+  one), or *different*: two copies of one form with other amounts on them
+  are different, and the numbers that differ are named.
+- **Visual Preview** lays the two over each other, page by page (the arrow
+  keys step), and flips between them every 0.1 to 10 seconds, or never
+  (Space flips by hand). *Mix* shows the other one through: at 0% each is
+  shown alone, at 50% both evenly and nothing changes. *Align turn and
+  offset* turns and moves the right one until it lies over the left as
+  closely as it can, and says by how much; a progress bar with the time left
+  appears when that takes more than two seconds.
+- **What it can and cannot tell.** A turn of up to 10° either way and a move
+  of up to 15% of the page are found; two scans at different resolutions are
+  first drawn at one size. The text of a scan is read on the Mac (no network),
+  and a page with too little text to read is judged by its look alone, which
+  is said. Comparing takes about a second a page, in the background; the byte
+  comparison above it is shown at once.
 
 ## Previous versions
 

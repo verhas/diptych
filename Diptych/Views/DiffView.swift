@@ -23,6 +23,7 @@ struct DiffView: View {
     @State private var window: NSWindow?
     @State private var wheel = SidewaysWheel()
     @State private var propertiesOpen: Bool?
+    @Environment(\.openWindow) private var openWindow
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -162,6 +163,7 @@ struct DiffView: View {
                      : "Bin Edit opens either of them byte by byte.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !comparison.isIdentical { byContent }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -188,6 +190,80 @@ struct DiffView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Two PDFs or pictures: what they show, which bytes cannot say.
+    @ViewBuilder
+    private var byContent: some View {
+        if let visual = document.visual {
+            Divider()
+            Text("Compared by what they show").font(.headline)
+            HStack(alignment: .center, spacing: 12) {
+                Self.mark(visual.verdict)
+                Text(visual.headline)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            let pageNotes = visual.pages.filter { !$0.notes.isEmpty || visual.pages.count > 1 }
+            if !visual.notes.isEmpty || !pageNotes.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(visual.notes, id: \.self) { note in
+                        Text("\u{2022} " + note)
+                    }
+                    ForEach(pageNotes, id: \.number) { page in
+                        Text("\u{2022} " + Self.pageLine(page, of: visual))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            }
+            if visual.canPreview {
+                Button("Visual Preview\u{2026}") {
+                    openWindow(id: DiptychApp.visualPreviewWindowID, value: pair)
+                }
+                .help("Lay the two over each other and flip between them, page by page")
+            }
+        } else if let progress = document.visualProgress {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Comparing what they show \u{2014} " + progress)
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The mark for a comparison by eye: green for the same, yellow for the
+    /// same to the eye or two scans of it, red for different.
+    static func mark(_ verdict: VisualComparison.Verdict?, size: CGFloat = 28) -> some View {
+        let (symbol, color, said): (String, Color, String) = switch verdict {
+        case .samePixels?: ("checkmark.circle.fill", .green, "The same pixels")
+        case .indistinguishable?: ("eye.circle.fill", .green, "The same to the eye")
+        case .nearlySame?: ("exclamationmark.circle.fill", .yellow, "Nearly the same")
+        case .rescanned?: ("questionmark.circle.fill", .yellow, "Probably two scans of the same")
+        case .different?, nil: ("xmark.circle.fill", .red, "Different")
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: size))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .accessibilityLabel(said)
+            .help(said)
+    }
+
+    private static func pageLine(_ page: VisualComparison.Page, of visual: VisualComparison) -> String {
+        let said = switch page.verdict {
+        case .samePixels: "the same pixels"
+        case .indistinguishable:
+            "the same to the eye (\(String(format: "%.1f", page.similarity * 100))% alike)"
+        case .nearlySame: "nearly the same"
+        case .rescanned: "probably two scans of the same page"
+        case .different: "different"
+        }
+        let lead = visual.pages.count > 1 ? "Page \(page.number): \(said)." : ""
+        return ([lead] + page.notes).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     private func fileLine(_ url: URL) -> some View {
