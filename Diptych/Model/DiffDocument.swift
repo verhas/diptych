@@ -76,7 +76,12 @@ final class DiffDocument {
     /// pixels, the same to the eye, two scans of one page, or not the same.
     private(set) var visual: VisualComparison?
     /// How far that has got, while it is under way.
-    private(set) var visualProgress: String?
+    private(set) var visualProgress: VisualComparison.Step?
+    /// When it began, for the time left.
+    private(set) var visualStarted: Date?
+    /// Whether the two can be laid over each other: known before the
+    /// comparison is, so the preview can be opened while it runs.
+    private(set) var canPreviewVisually = false
     @ObservationIgnored private var visualCancel: CancellationFlag?
 
     /// Everything besides the bytes: permissions, owner, dates, flags, the
@@ -338,14 +343,21 @@ final class DiffDocument {
         visualCancel?.cancel()
         guard !skip else {
             visual = nil
+            canPreviewVisually = false
             return
         }
         let cancel = CancellationFlag()
         visualCancel = cancel
         let pair = pair
-        visualProgress = "Looking at them\u{2026}"
+        visualProgress = VisualComparison.Step(text: "looking at them\u{2026}", fraction: 0)
+        visualStarted = Date()
+        let pages = await BlockingWork.run { VisualComparison.pairedPages(pair.left, pair.right) }
+        guard !cancel.isCancelled else { return }
+        canPreviewVisually = pages > 0
+        // What the preview, or an earlier look, has already aligned.
+        let known = AlignmentStore.shared.fits(pair, pages: pages)
         let found = await BlockingWork.run { [weak self] in
-            VisualComparison.compare(pair.left, pair.right, cancel: cancel) { step in
+            VisualComparison.compare(pair.left, pair.right, known: known, cancel: cancel) { step in
                 Task { @MainActor in
                     guard let self, !cancel.isCancelled else { return }
                     self.visualProgress = step
@@ -353,8 +365,12 @@ final class DiffDocument {
             }
         }
         guard !cancel.isCancelled else { return }
+        for page in found?.pages ?? [] {
+            if let fit = page.alignment { AlignmentStore.shared.store(fit, pair, page: page.number - 1) }
+        }
         visual = found
         visualProgress = nil
+        visualStarted = nil
     }
 
     func file(_ side: Side) -> SourceFile? { side == .left ? left : right }

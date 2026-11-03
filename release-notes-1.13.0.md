@@ -167,12 +167,21 @@ pictures whose bytes differ are **compared by what they show**, with a
   both has to match, numbers and all: two copies of one form filled in
   differently are different.
 - **Visual Preview** flips between the two, at a pace from 0.1 s to never,
-  with a *Mix* slider to see one through the other and *Align turn and
-  offset* to lay a scan over the other.
+  with a *Mix* slider to see one through the other and *Align turn, size
+  and offset* to lay a scan over the other. The picture moves to each better
+  fit while the search runs, and a *Similarity* from 0 to 100% says how alike
+  the two are, as they lie or as aligned. Zoom in (pinch, ⌘-scroll, ⌘+) and
+  move about (scroll, drag) on both at once; *Fit* shows the whole page again.
+- The alignment is found once and kept: the comparison and the preview share
+  it, so opening the preview again animates to the fit instead of searching.
+  The preview can be opened while the comparison still runs, and the
+  comparison shows a progress bar with the time left.
 - Each answer comes with its reasons: the compression or the program that
   wrote each file, the resolutions, where on the page the spot that differs
-  is, and how far a scan was turned and moved.
-- A turn of up to 10° and a move of up to 15% of the page are found; a scan
+  is, and how far a scan was turned, resized and moved.
+- A page scanned sideways or upside down is turned back first; then a turn
+  of up to 10°, a size up to 10% either way and a move of up to 15% of the
+  page are found, the turns and sizes tried on every core; a scan
   at another size is drawn at the size of the other first. A page takes
   about a second.
 

@@ -273,41 +273,66 @@ final class VisualSource: @unchecked Sendable {
 struct PagePair: @unchecked Sendable {
     let left: CGImage
     let right: CGImage
+    /// Where on the sheet the left page is, in its pixels: all of it, or
+    /// less when the right one needs more room.
+    var leftRect: CGRect
+    /// Where the right one is, at the shape it is drawn: turned, when it is.
+    var rightRect: CGRect
 
     var width: Int { left.width }
     var height: Int { left.height }
 
-    /// Page `page` of each, the left at `longSide` pixels on its longer side.
+    /// Page `page` of each, on one sheet `longSide` pixels on its longer side.
     ///
-    /// The right one is stretched to the same size when the two are nearly
-    /// the same shape -- the same page scanned at another resolution, or
-    /// cropped a hair differently. Otherwise it is drawn at the left's scale,
-    /// centred: two scans of one page at one resolution, cropped differently,
-    /// then still match where they overlap.
-    static func render(_ a: VisualSource, _ b: VisualSource, page: Int, longSide: Int) -> PagePair? {
-        let sizeA = a.size(of: page), sizeB = b.size(of: page)
+    /// When the two are nearly the same shape -- the same page scanned at
+    /// another resolution, or cropped a hair differently -- the sheet is the
+    /// left one's shape and both fill it. Otherwise each is drawn at its own
+    /// shape, centred, on a sheet large enough for both, so neither is cut
+    /// off and which is left does not change how they lie: at one scale when
+    /// the two measure alike -- points against points, pixels against pixels
+    /// -- so two scans at one resolution, cropped differently, match where
+    /// they overlap; at the same area otherwise.
+    ///
+    /// `quarterTurns` turns the right one that many quarters clockwise first,
+    /// and lays it out as the page it then is: a scan fed in sideways.
+    static func render(_ a: VisualSource, _ b: VisualSource, page: Int, longSide: Int,
+                       quarterTurns: Int = 0) -> PagePair? {
+        let turns = ((quarterTurns % 4) + 4) % 4
+        let sizeA = a.size(of: page), unturnedB = b.size(of: page)
+        var sizeB = turns % 2 == 0 ? unturnedB : CGSize(width: unturnedB.height, height: unturnedB.width)
         guard sizeA.width > 0, sizeA.height > 0, sizeB.width > 0, sizeB.height > 0 else { return nil }
-        let scale = Double(longSide) / Double(max(sizeA.width, sizeA.height))
-        let width = max(Int((sizeA.width * scale).rounded()), 1)
-        let height = max(Int((sizeA.height * scale).rounded()), 1)
-        let full = CGRect(x: 0, y: 0, width: width, height: height)
 
         let aspectA = sizeA.width / sizeA.height, aspectB = sizeB.width / sizeB.height
-        let rectB: CGRect
-        if abs(aspectA - aspectB) / aspectA <= 0.03 {
-            rectB = full
-        } else {
-            // At the same scale when the two measure alike -- points against
-            // points, pixels against pixels; fitted inside otherwise.
-            let scaleB = a.kind == b.kind
-                ? scale
-                : min(Double(width) / sizeB.width, Double(height) / sizeB.height)
-            let w = sizeB.width * scaleB, h = sizeB.height * scaleB
-            rectB = CGRect(x: (Double(width) - w) / 2, y: (Double(height) - h) / 2, width: w, height: h)
+        let alike = abs(aspectA - aspectB) / aspectA <= 0.03
+        if alike {
+            sizeB = sizeA
+        } else if a.kind != b.kind {
+            let k = (Double(sizeA.width * sizeA.height) / Double(sizeB.width * sizeB.height)).squareRoot()
+            sizeB = CGSize(width: sizeB.width * k, height: sizeB.height * k)
         }
-        guard let left = canvas(width, height, { a.draw(page, in: $0, rect: full) }),
-              let right = canvas(width, height, { b.draw(page, in: $0, rect: rectB) }) else { return nil }
-        return PagePair(left: left, right: right)
+        let sheet = CGSize(width: max(sizeA.width, sizeB.width), height: max(sizeA.height, sizeB.height))
+        let scale = Double(longSide) / Double(max(sheet.width, sheet.height))
+        let width = max(Int((sheet.width * scale).rounded()), 1)
+        let height = max(Int((sheet.height * scale).rounded()), 1)
+        func centred(_ size: CGSize) -> CGRect {
+            if alike { return CGRect(x: 0, y: 0, width: width, height: height) }
+            let w = size.width * scale, h = size.height * scale
+            return CGRect(x: (Double(width) - w) / 2, y: (Double(height) - h) / 2, width: w, height: h)
+        }
+        let rectA = centred(sizeA), rectB = centred(sizeB)
+        guard let left = canvas(width, height, { a.draw(page, in: $0, rect: rectA) }),
+              let right = canvas(width, height, { context in
+                  guard turns != 0 else { return b.draw(page, in: context, rect: rectB) }
+                  // About the middle of where it goes, drawn at its own
+                  // shape there: clockwise on the page is negative to Core
+                  // Graphics, whose y goes up.
+                  context.translateBy(x: rectB.midX, y: rectB.midY)
+                  context.rotate(by: -Double(turns) * .pi / 2)
+                  let w = turns % 2 == 0 ? rectB.width : rectB.height
+                  let h = turns % 2 == 0 ? rectB.height : rectB.width
+                  b.draw(page, in: context, rect: CGRect(x: -w / 2, y: -h / 2, width: w, height: h))
+              }) else { return nil }
+        return PagePair(left: left, right: right, leftRect: rectA, rightRect: rectB)
     }
 
     /// A white sheet `width` x `height` with `draw` done on it.
@@ -325,6 +350,31 @@ struct PagePair: @unchecked Sendable {
         guard let a = GrayImage(left, width: width, height: height),
               let b = GrayImage(right, width: width, height: height) else { return nil }
         return (a, b)
+    }
+}
+
+extension PagePair {
+
+    /// The quarter turn of the right one that lies best over the left, with
+    /// the fit found for it on small drawings of the two: where the search
+    /// at full size starts. Upright first; the other three only when upright
+    /// does not already match.
+    static func roughFit(_ a: VisualSource, _ b: VisualSource, page: Int, cancel: CancellationFlag?,
+                         progress: (@Sendable (Double) -> Void)? = nil) -> ImageAlignment.Fit? {
+        var best: ImageAlignment.Fit?
+        for turns in 0..<4 {
+            if cancel?.isCancelled == true { return nil }
+            guard let small = render(a, b, page: page, longSide: 200, quarterTurns: turns),
+                  let (ga, gb) = small.grays,
+                  var fit = ImageAlignment.find(ga, gb, cancel: cancel, progress: { p in
+                      progress?((Double(turns) + p.fraction) / 4)
+                  }) else { continue }
+            fit.transform.quarterTurns = turns
+            if best == nil || fit.similarity > best!.similarity { best = fit }
+            if turns == 0, fit.similarity >= 0.8 { break }
+        }
+        progress?(1)
+        return best
     }
 }
 
@@ -357,6 +407,16 @@ struct VisualComparison: Sendable {
         /// for a page that needed it.
         var similarity: Double
         var notes: [String]
+        /// How the right one lies best over the left, when that was looked
+        /// for -- or, for two the same to the eye, that it lies in place.
+        var alignment: ImageAlignment.Fit? = nil
+    }
+
+    /// Where a comparison has got: what it is doing, and the share of the
+    /// whole done.
+    struct Step: Sendable {
+        var text: String
+        var fraction: Double
     }
 
     var leftFormat: String
@@ -389,9 +449,23 @@ struct VisualComparison: Sendable {
 
     // MARK: - Comparing
 
+    /// How many pages the two have to lay over each other: 0 unless both
+    /// are pictures or PDFs with as many pages. Quick: only the files'
+    /// headers are read.
+    static func pairedPages(_ leftURL: URL, _ rightURL: URL) -> Int {
+        guard let left = VisualSource.open(leftURL), let right = VisualSource.open(rightURL),
+              left.pageCount == right.pageCount else { return 0 }
+        return left.pageCount
+    }
+
     /// Nil when either file is not something to look at.
-    static func compare(_ leftURL: URL, _ rightURL: URL, cancel: CancellationFlag? = nil,
-                        progress: (@Sendable (String) -> Void)? = nil) -> VisualComparison? {
+    ///
+    /// `known` are alignments already found, by page -- by the preview, say,
+    /// or an earlier comparison of the same files -- which are not looked
+    /// for again.
+    static func compare(_ leftURL: URL, _ rightURL: URL, known: [Int: ImageAlignment.Fit] = [:],
+                        cancel: CancellationFlag? = nil,
+                        progress: (@Sendable (Step) -> Void)? = nil) -> VisualComparison? {
         guard let left = VisualSource.open(leftURL), let right = VisualSource.open(rightURL) else {
             return nil
         }
@@ -403,17 +477,19 @@ struct VisualComparison: Sendable {
         for page in 0..<left.pageCount {
             if cancel?.isCancelled == true { return nil }
             let prefix = left.pageCount > 1 ? "Page \(page + 1) of \(left.pageCount): " : ""
-            progress?(prefix + "looking\u{2026}")
-            result.pages.append(comparePage(page, left, right, cancel: cancel) { step in
-                progress?(prefix + step)
+            let pages = Double(left.pageCount)
+            progress?(Step(text: prefix + "looking\u{2026}", fraction: Double(page) / pages))
+            result.pages.append(comparePage(page, left, right, known: known[page], cancel: cancel) { text, done in
+                progress?(Step(text: prefix + text, fraction: (Double(page) + done) / pages))
             })
         }
         return result
     }
 
+    /// `step` is told what is being done and how much of the page is done.
     private static func comparePage(_ page: Int, _ a: VisualSource, _ b: VisualSource,
-                                    cancel: CancellationFlag?,
-                                    step: (String) -> Void) -> Page {
+                                    known: ImageAlignment.Fit?, cancel: CancellationFlag?,
+                                    step: @escaping @Sendable (String, Double) -> Void) -> Page {
         let number = page + 1
         guard let pair = PagePair.render(a, b, page: page, longSide: 1600),
               let (grayA, grayB) = pair.grays else {
@@ -435,25 +511,55 @@ struct VisualComparison: Sendable {
                 notes.append("The same pixels, compressed differently: "
                              + "left \(listed(encodingsA)), right \(listed(encodingsB)).")
             }
-            return Page(number: number, verdict: .samePixels, similarity: 1, notes: notes)
+            return Page(number: number, verdict: .samePixels, similarity: 1, notes: notes,
+                        alignment: ImageAlignment.Fit(transform: .identity, similarity: 1, finest: .max))
         }
 
         // 2. Not the same pixels, but nothing a person could see.
         if looksAlike(ssim, worst) {
             notes += pictureDifferences(picturesA, picturesB)
-            return Page(number: number, verdict: .indistinguishable, similarity: ssim, notes: notes)
+            // In place: nothing to align, only how alike, at a size that
+            // takes a moment.
+            let alike = ImageAlignment.similarity(grayA.halved().halved(), grayB.halved().halved())
+            return Page(number: number, verdict: .indistinguishable, similarity: ssim, notes: notes,
+                        alignment: ImageAlignment.Fit(transform: .identity, similarity: alike, finest: .max))
         }
 
         // 3. Two scans of one page? Laid over each other first.
-        step("aligning\u{2026}")
-        let found = ImageAlignment.find(grayA, grayB, finest: 400, cancel: cancel)
-        let transform = found?.0 ?? .identity
-        let aligned = grayB.transformed(transform)
-        let alignedSSIM = GrayImage.ssim(grayA, aligned)
-        let alignedWorst = GrayImage.worstBlock(grayA, aligned)
-        // Not moved: no scan's worth of turn or shift. Then whatever differs
-        // is a detail on the page, not where the page sits.
-        let moved = abs(transform.degrees) >= 0.1 || abs(transform.dx) >= 0.003 || abs(transform.dy) >= 0.003
+        var fit = known
+        if fit == nil {
+            step("aligning\u{2026}", 0.1)
+            fit = PagePair.roughFit(a, b, page: page, cancel: cancel) { done in
+                step("aligning\u{2026}", 0.1 + 0.2 * done)
+            }
+        }
+        // The right one as the fit has it: turned a quarter or more first,
+        // when it was fed in sideways.
+        // Turned, the sheet both are on can be another shape: the left one is
+        // taken from it too.
+        let turns = fit?.transform.quarterTurns ?? 0
+        var leftImage = pair.left, rightImage = pair.right, leftGray = grayA, rightGray = grayB
+        if turns != 0, let turned = PagePair.render(a, b, page: page, longSide: 1600, quarterTurns: turns),
+           let grays = turned.grays {
+            leftImage = turned.left
+            rightImage = turned.right
+            leftGray = grays.0
+            rightGray = grays.1
+        }
+        if let rough = fit, known == nil {
+            fit = ImageAlignment.find(leftGray, rightGray, finest: 400, around: rough, cancel: cancel) { progress in
+                step("aligning\u{2026}", 0.3 + 0.4 * progress.fraction)
+            } ?? rough
+        }
+        if cancel?.isCancelled == true { fit = nil }
+        let transform = fit?.transform ?? .identity
+        let aligned = rightGray.transformed(transform)
+        let alignedSSIM = GrayImage.ssim(leftGray, aligned)
+        let alignedWorst = GrayImage.worstBlock(leftGray, aligned)
+        // Not moved: no scan's worth of turn, size or shift. Then whatever
+        // differs is a detail on the page, not where the page sits.
+        let moved = turns != 0 || abs(transform.degrees) >= 0.1 || abs(transform.scale - 1) >= 0.003
+            || abs(transform.dx) >= 0.003 || abs(transform.dy) >= 0.003
         // With text to go by, lying in place is enough: two scans would not.
         // Without it, the pictures also have to agree nearly everywhere.
         let inPlace = !moved
@@ -470,11 +576,11 @@ struct VisualComparison: Sendable {
             notes.append("The text in them is the same.")
             if inPlace { notes.append(whereItIs) }
             return Page(number: number, verdict: inPlace ? .nearlySame : .rescanned,
-                        similarity: inPlace ? ssim : alignedSSIM, notes: notes)
+                        similarity: inPlace ? ssim : alignedSSIM, notes: notes, alignment: fit)
         }
 
-        step("reading the text\u{2026}")
-        let textA = recognizedText(pair.left), textB = recognizedText(pair.right)
+        step("reading the text\u{2026}", 0.7)
+        let textA = recognizedText(leftImage), textB = recognizedText(rightImage)
         let enoughText = textA.count >= 30 && textB.count >= 30
         if enoughText {
             let similarity = textSimilarity(textA, textB)
@@ -488,7 +594,7 @@ struct VisualComparison: Sendable {
                 notes.append("The text read from them matches (\(percent)%), numbers and all.")
                 if inPlace { notes.append(whereItIs) }
                 return Page(number: number, verdict: inPlace ? .nearlySame : .rescanned,
-                            similarity: inPlace ? ssim : alignedSSIM, notes: notes)
+                            similarity: inPlace ? ssim : alignedSSIM, notes: notes, alignment: fit)
             }
             if similarity >= 0.8, numbersA != numbersB {
                 notes.append("The text is much the same (\(percent)%), but the numbers in it are not"
@@ -496,20 +602,20 @@ struct VisualComparison: Sendable {
             } else {
                 notes.append("The text read from them is \(percent)% the same.")
             }
-            return Page(number: number, verdict: .different, similarity: alignedSSIM, notes: notes)
+            return Page(number: number, verdict: .different, similarity: alignedSSIM, notes: notes, alignment: fit)
         }
         // Little text to go by: the picture has to say it.
         notes.append("There is too little text on it to read, so this goes by how it looks alone.")
         if inPlace, ssim >= 0.98 {
             notes.append(whereItIs)
-            return Page(number: number, verdict: .nearlySame, similarity: ssim, notes: notes)
+            return Page(number: number, verdict: .nearlySame, similarity: ssim, notes: notes, alignment: fit)
         }
         if looksAlike(alignedSSIM, alignedWorst) || alignedSSIM >= 0.8 {
             notes.append("Laid over each other, the two match "
                          + "(\(Int((alignedSSIM * 100).rounded(.down)))%).")
-            return Page(number: number, verdict: .rescanned, similarity: alignedSSIM, notes: notes)
+            return Page(number: number, verdict: .rescanned, similarity: alignedSSIM, notes: notes, alignment: fit)
         }
-        return Page(number: number, verdict: .different, similarity: max(ssim, alignedSSIM), notes: notes)
+        return Page(number: number, verdict: .different, similarity: max(ssim, alignedSSIM), notes: notes, alignment: fit)
     }
 
     // MARK: - Reading the text

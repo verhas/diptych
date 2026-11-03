@@ -1345,16 +1345,40 @@ spacing*, and wrapping that applies to both sides or to neither.
 - **Visual Preview** lays the two over each other, page by page (the arrow
   keys step), and flips between them every 0.1 to 10 seconds, or never
   (Space flips by hand). *Mix* shows the other one through: at 0% each is
-  shown alone, at 50% both evenly and nothing changes. *Align turn and
-  offset* turns and moves the right one until it lies over the left as
-  closely as it can, and says by how much; a progress bar with the time left
-  appears when that takes more than two seconds.
-- **What it can and cannot tell.** A turn of up to 10° either way and a move
-  of up to 15% of the page are found; two scans at different resolutions are
+  shown alone, at 50% both evenly and nothing changes. *Align turn, size and
+  offset* turns, resizes and moves the right one until it lies over the left
+  as closely as it can, and says by how much: "They match best with B turned
+  6.02° anticlockwise, made 3.0% smaller, moved 5.9% left and 5.0% down".
+  The picture moves to each better fit as the search finds it; a progress bar
+  with the time left appears when that takes more than two seconds. What is
+  found is kept while Diptych runs, and shared with the comparison in the diff
+  window: whichever aligned a page first, the other does not search again.
+  Opened again, B glides from where it lies to the fit, and only a finer
+  refinement, at the preview's resolution, is left to do. The preview opens
+  as soon as the two are known to be pages, without waiting for the
+  comparison.
+- **Zoom and move** the two together: pinch, or scroll with ⌘ or ⌥ held, to
+  zoom at the pointer; scroll or drag to move; ⌘+ and ⌘− zoom at the middle.
+  The size shown is against the page's own (100% is a pixel of a picture, or a
+  point of a PDF, to a point of the screen), for each of the two when they
+  differ. Two pages of different shapes are both shown whole, centred, on a
+  sheet that holds both -- whichever of them is the left one. *Fit*, ⌘0 or a double-click shows
+  the whole page again.
+- **Similarity** is shown under the pages, 0 to 100%, for the two as they
+  lie or as aligned: how closely the ink of one follows the ink of the other,
+  the paper left out, so two pages of other text do not score high for being
+  mostly white. A rough figure, to see by; a form filled in otherwise still
+  scores in the middle, for the form.
+- **What it can and cannot tell.** A page fed in sideways or upside down
+  (a quarter turn, a half, three quarters) and, on top of that, a turn of up
+  to 10° either way, a size up to 10% larger or smaller and a move of up to
+  15% of the page are found
+  (Align, and judging two scans, both); two scans at different resolutions are
   first drawn at one size. The text of a scan is read on the Mac (no network),
   and a page with too little text to read is judged by its look alone, which
-  is said. Comparing takes about a second a page, in the background; the byte
-  comparison above it is shown at once.
+  is said. Comparing takes about a second a page, in the background, with a
+  progress bar and the time left; the byte comparison above it is shown at
+  once.
 
 ## Previous versions
 

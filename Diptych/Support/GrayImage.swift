@@ -97,19 +97,20 @@ struct GrayImage: Sendable {
         return GrayImage(width: width, height: height, pixels: pixels.map { ($0 - mean) / spread })
     }
 
-    /// The picture turned by `angle` radians clockwise about its centre: each
-    /// pixel of the result, with whether it came from inside the original.
-    func rotated(by angle: Double) -> (pixels: [Float], valid: [Float]) {
+    /// The picture turned by `angle` radians clockwise and made `scale`
+    /// times its size, both about its centre: each pixel of the result, with
+    /// whether it came from inside the original.
+    func warped(angle: Double, scale: Double = 1) -> (pixels: [Float], valid: [Float]) {
         var out = [Float](repeating: 0, count: pixels.count)
         var valid = [Float](repeating: 0, count: pixels.count)
-        let c = cos(angle), s = sin(angle)
+        let c = cos(angle) / scale, s = sin(angle) / scale
         let cx = Double(width - 1) / 2, cy = Double(height - 1) / 2
         pixels.withUnsafeBufferPointer { p in
             for y in 0..<height {
                 let py = Double(y) - cy
                 for x in 0..<width {
                     let px = Double(x) - cx
-                    // The inverse turn: where in the original this pixel was.
+                    // The inverse: where in the original this pixel was.
                     let sx = c * px + s * py + cx
                     let sy = -s * px + c * py + cy
                     guard sx >= 0, sy >= 0, sx <= Double(width - 1), sy <= Double(height - 1)
@@ -127,10 +128,10 @@ struct GrayImage: Sendable {
         return (out, valid)
     }
 
-    /// This picture with `transform` applied -- turned, then moved -- and
-    /// paper wherever nothing of it lands.
+    /// This picture with `transform` applied -- turned and sized, then
+    /// moved -- and paper wherever nothing of it lands.
     func transformed(_ transform: ImageAlignment.Transform) -> GrayImage {
-        let (turned, valid) = rotated(by: transform.angle)
+        let (turned, valid) = warped(angle: transform.angle, scale: transform.scale)
         let tx = Int((transform.dx * Double(width)).rounded())
         let ty = Int((transform.dy * Double(height)).rounded())
         var out = [Float](repeating: 1, count: pixels.count)

@@ -220,19 +220,43 @@ struct DiffView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             }
-            if visual.canPreview {
-                Button("Visual Preview\u{2026}") {
-                    openWindow(id: DiptychApp.visualPreviewWindowID, value: pair)
-                }
-                .help("Lay the two over each other and flip between them, page by page")
-            }
+            previewButton
         } else if let progress = document.visualProgress {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Comparing what they show \u{2014} " + progress)
-                    .font(.subheadline).foregroundStyle(.secondary)
+            Divider()
+            Text("Compared by what they show").font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: progress.fraction)
+                    .frame(maxWidth: 360)
+                HStack(spacing: 6) {
+                    Text(progress.text.prefix(1).uppercased() + progress.text.dropFirst())
+                    Text(Self.timeLeft(progress, since: document.visualStarted))
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
+            previewButton
         }
+    }
+
+    /// Open as soon as the two are known to be pages to lay over each other:
+    /// it does not wait for the comparison.
+    @ViewBuilder
+    private var previewButton: some View {
+        if document.canPreviewVisually {
+            Button("Visual Preview\u{2026}") {
+                openWindow(id: DiptychApp.visualPreviewWindowID, value: pair)
+            }
+            .help("Lay the two over each other and flip between them, page by page")
+        }
+    }
+
+    /// "About 12 s left", once a couple of seconds have shown the pace.
+    static func timeLeft(_ step: VisualComparison.Step, since start: Date?) -> String {
+        guard let start, step.fraction > 0.02 else { return "" }
+        let elapsed = Date().timeIntervalSince(start)
+        guard elapsed >= 2 else { return "" }
+        let left = Int((elapsed / step.fraction * (1 - step.fraction)).rounded(.up))
+        return left < 60 ? "about \(left) s left" : "about \(left / 60) min \(left % 60) s left"
     }
 
     /// The mark for a comparison by eye: green for the same, yellow for the
