@@ -24,6 +24,7 @@ struct DiffView: View {
     @State private var wheel = SidewaysWheel()
     @State private var propertiesOpen: Bool?
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.controlActiveState) private var activeState
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -106,6 +107,10 @@ struct DiffView: View {
         })
         .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
             if let url = note.object as? URL { document.markUnsent(url) }
+        }
+        // Back from changing one of them elsewhere.
+        .onChange(of: activeState) { _, state in
+            if state == .key { Task { await document.recheck() } }
         }
         .onChange(of: document.isDirty) { _, dirty in
             // The dot in the close button, and the only unsaved-changes cue

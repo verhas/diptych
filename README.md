@@ -1351,10 +1351,21 @@ spacing*, and wrapping that applies to both sides or to neither.
   6.02° anticlockwise, made 3.0% smaller, moved 5.9% left and 5.0% down".
   The picture moves to each better fit as the search finds it; a progress bar
   with the time left appears when that takes more than two seconds. What is
-  found is kept while Diptych runs, and shared with the comparison in the diff
-  window: whichever aligned a page first, the other does not search again.
+  found -- the fits, and the comparison's answer -- is kept, also after
+  Diptych quits (in `~/Library/Caches/Diptych/Visual`), and shared with the
+  comparison in the diff window: whichever aligned a page first, the other
+  does not search again, and comparing the same two again answers at once.
+  It is kept against what is in the two files, a SHA-256 of each, and not
+  their names or dates: change either in any way, even keeping its date, and
+  both are looked at afresh; a renamed or copied file, unchanged, finds what
+  was found for it. The preview checks the files again each time its window
+  comes to the front, and on each step to another page.
   Opened again, B glides from where it lies to the fit, and only a finer
-  refinement, at the preview's resolution, is left to do. The preview opens
+  refinement, at the preview's resolution, is left to do. The pages of a PDF
+  are aligned in order, first to last, whichever one is on screen: stepping
+  to another page does not stop or restart the search, and a page not reached
+  yet says which page is being aligned first. The comparison hands over each
+  page's fit as soon as it has it. The preview opens
   as soon as the two are known to be pages, without waiting for the
   comparison.
 - **Zoom and move** the two together: pinch, or scroll with ⌘ or ⌥ held, to

@@ -392,15 +392,15 @@ extension PagePair {
 ///    read from both. A guess, and said to be one.
 ///
 /// Anything else is different.
-struct VisualComparison: Sendable {
+struct VisualComparison: Sendable, Codable {
 
-    enum Verdict: Int, Sendable, Comparable {
+    enum Verdict: Int, Sendable, Comparable, Codable {
         case samePixels, indistinguishable, nearlySame, rescanned, different
 
         static func < (a: Verdict, b: Verdict) -> Bool { a.rawValue < b.rawValue }
     }
 
-    struct Page: Sendable {
+    struct Page: Sendable, Codable {
         var number: Int
         var verdict: Verdict
         /// How alike the two look, 0 to 1, as they are -- or once aligned,
@@ -465,7 +465,8 @@ struct VisualComparison: Sendable {
     /// for again.
     static func compare(_ leftURL: URL, _ rightURL: URL, known: [Int: ImageAlignment.Fit] = [:],
                         cancel: CancellationFlag? = nil,
-                        progress: (@Sendable (Step) -> Void)? = nil) -> VisualComparison? {
+                        progress: (@Sendable (Step) -> Void)? = nil,
+                        aligned: (@Sendable (Int, ImageAlignment.Fit) -> Void)? = nil) -> VisualComparison? {
         guard let left = VisualSource.open(leftURL), let right = VisualSource.open(rightURL) else {
             return nil
         }
@@ -479,9 +480,12 @@ struct VisualComparison: Sendable {
             let prefix = left.pageCount > 1 ? "Page \(page + 1) of \(left.pageCount): " : ""
             let pages = Double(left.pageCount)
             progress?(Step(text: prefix + "looking\u{2026}", fraction: Double(page) / pages))
-            result.pages.append(comparePage(page, left, right, known: known[page], cancel: cancel) { text, done in
+            let compared = comparePage(page, left, right, known: known[page], cancel: cancel) { text, done in
                 progress?(Step(text: prefix + text, fraction: (Double(page) + done) / pages))
-            })
+            }
+            // Handed on at once: the preview may be waiting for this page.
+            if let fit = compared.alignment { aligned?(page, fit) }
+            result.pages.append(compared)
         }
         return result
     }

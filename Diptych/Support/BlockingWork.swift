@@ -40,6 +40,17 @@ enum BlockingWork {
         }
     }
 
+    /// Long work for the processor, done while nothing more urgent needs
+    /// it: below what the user is waiting to see, so a page asked for is
+    /// drawn at once even while a search keeps every core busy.
+    static func compute<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: work())
+            }
+        }
+    }
+
     static func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { continuation in
             queue.async {

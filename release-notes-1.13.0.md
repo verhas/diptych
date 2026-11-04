@@ -174,6 +174,12 @@ pictures whose bytes differ are **compared by what they show**, with a
   move about (scroll, drag) on both at once; *Fit* shows the whole page again.
 - The alignment is found once and kept: the comparison and the preview share
   it, so opening the preview again animates to the fit instead of searching.
+  The pages are aligned in order, first to last, in the background: stepping
+  between pages no longer stops the search or starts it again.
+- What the comparison and the alignment found is kept on disk, against a
+  SHA-256 of each file: the same two compared again answer at once, and a
+  file changed in any way -- pages reordered, say -- is looked at afresh. The
+  preview notices a change when its window comes to the front.
   The preview can be opened while the comparison still runs, and the
   comparison shows a progress bar with the time left.
 - Each answer comes with its reasons: the compression or the program that

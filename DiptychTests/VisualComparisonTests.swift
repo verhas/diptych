@@ -264,15 +264,46 @@ final class VisualComparisonTests: XCTestCase {
         let b = save(page(turn: 1), "b.png", .png)
         let pair = DiffPair(left: a, right: b)
         let store = AlignmentStore()
+        let key = try XCTUnwrap(AlignmentStore.Key.of(pair))
         let coarse = ImageAlignment.Fit(transform: .identity, similarity: 0.5, finest: 400)
         let fine = ImageAlignment.Fit(transform: .identity, similarity: 0.9, finest: 1600)
-        store.store(fine, pair, page: 0)
-        store.store(coarse, pair, page: 0)
-        XCTAssertEqual(store.fit(pair, page: 0), fine)
-        XCTAssertNil(store.fit(pair, page: 1))
-        // Saved again, otherwise: the fit no longer holds.
+        store.store(fine, key, page: 0)
+        store.store(coarse, key, page: 0)
+        XCTAssertEqual(store.fit(key, page: 0), fine)
+        XCTAssertNil(store.fit(key, page: 1))
+        // Saved again, otherwise: what is in it is another key, with nothing
+        // found for it.
         save(page(turn: 2, noise: 3), "b.png", .png)
-        XCTAssertNil(store.fit(pair, page: 0))
+        let changed = try XCTUnwrap(AlignmentStore.Key.of(pair))
+        XCTAssertNotEqual(changed, key)
+        XCTAssertNil(store.fit(changed, page: 0))
+        // Back as it was -- under another name, even -- and what was found
+        // for it holds again.
+        let copy = save(page(turn: 1), "copy of b.png", .png)
+        XCTAssertEqual(AlignmentStore.Key.of(DiffPair(left: a, right: copy)), key)
+    }
+
+    @MainActor
+    func testWhatWasFoundIsKeptAcrossLaunches() throws {
+        let a = save(page(noise: 6), "a.png", .png)
+        let b = save(page(turn: 1.2, noise: 10), "b.png", .png)
+        let key = try XCTUnwrap(AlignmentStore.Key.of(DiffPair(left: a, right: b)))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("visual-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let result = try compare(a, b)
+
+        AlignmentStore(directory: directory).store(result, key)
+        let written = directory.appendingPathComponent("\(key.left)-\(key.right).json")
+        let deadline = Date().addingTimeInterval(5)
+        while !FileManager.default.fileExists(atPath: written.path), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let later = AlignmentStore(directory: directory)
+        let kept = try XCTUnwrap(later.comparison(key))
+        XCTAssertEqual(kept.verdict, result.verdict)
+        XCTAssertEqual(kept.pages.first?.similarity, result.pages.first?.similarity)
+        XCTAssertEqual(later.fit(key, page: 0), result.pages.first?.alignment)
     }
 
     func testTheComparisonHandsBackWhatItAligned() throws {

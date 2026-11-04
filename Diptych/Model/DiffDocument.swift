@@ -226,7 +226,7 @@ final class DiffDocument {
         return source
     }
 
-    private func diskChanged(_ url: URL) {
+    private func diskChanged(_ url: URL, attempt: Int = 0) {
         // A save that replaces the file -- write-to-a-temporary-name and
         // rename over the original, which is how this app's own `save()`
         // writes, and how many editors do -- swaps in a new inode at this
@@ -239,6 +239,17 @@ final class DiffDocument {
         } else {
             rightWatcher?.cancel()
             rightWatcher = watch(url)
+        }
+        // Replaced, and not there again yet: watched, and read, once it is.
+        // Otherwise the watch is gone for good, and so is every later save.
+        if (url == pair.left ? leftWatcher : rightWatcher) == nil {
+            if attempt < 20 {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    self?.diskChanged(url, attempt: attempt + 1)
+                }
+            }
+            return
         }
 
         refreshProperties()
@@ -338,12 +349,31 @@ final class DiffDocument {
         }
     }
 
+    /// What was in the two when they were last compared by what they show.
+    @ObservationIgnored private var comparedKey: AlignmentStore.Key?
+    @ObservationIgnored private var rechecking = false
+
+    /// Back at the window: two files compared by what they show are read
+    /// through again, and compared again if either has changed. The watch
+    /// on them sees most saves, but not every way a file can be replaced.
+    func recheck() async {
+        guard comparedKey != nil, !rechecking, !isDirty else { return }
+        rechecking = true
+        defer { rechecking = false }
+        let pair = pair
+        let key = await BlockingWork.run { AlignmentStore.Key.of(pair) }
+        guard let key, key != comparedKey else { return }
+        await reload()
+    }
+
     /// The bytes differ; perhaps what they show does not.
     private func compareVisually(skip: Bool) async {
         visualCancel?.cancel()
         guard !skip else {
             visual = nil
             canPreviewVisually = false
+            let pair = pair
+            comparedKey = await BlockingWork.run { AlignmentStore.Key.of(pair) }
             return
         }
         let cancel = CancellationFlag()
@@ -351,23 +381,38 @@ final class DiffDocument {
         let pair = pair
         visualProgress = VisualComparison.Step(text: "looking at them\u{2026}", fraction: 0)
         visualStarted = Date()
-        let pages = await BlockingWork.run { VisualComparison.pairedPages(pair.left, pair.right) }
+        // Both read through for what is in them: a comparison made of these
+        // very two before is the answer, whatever their names or dates.
+        let (pages, key) = await BlockingWork.run {
+            (VisualComparison.pairedPages(pair.left, pair.right), AlignmentStore.Key.of(pair))
+        }
         guard !cancel.isCancelled else { return }
+        // Not the answer about the old ones while the new ones are looked at.
+        if key != comparedKey { visual = nil }
+        comparedKey = key
         canPreviewVisually = pages > 0
+        let store = AlignmentStore.shared
+        if let key, let kept = store.comparison(key) {
+            visual = kept
+            visualProgress = nil
+            visualStarted = nil
+            return
+        }
         // What the preview, or an earlier look, has already aligned.
-        let known = AlignmentStore.shared.fits(pair, pages: pages)
-        let found = await BlockingWork.run { [weak self] in
-            VisualComparison.compare(pair.left, pair.right, known: known, cancel: cancel) { step in
+        let known = key.map { store.fits($0, pages: pages) } ?? [:]
+        let found = await BlockingWork.compute { [weak self] in
+            VisualComparison.compare(pair.left, pair.right, known: known, cancel: cancel, progress: { step in
                 Task { @MainActor in
                     guard let self, !cancel.isCancelled else { return }
                     self.visualProgress = step
                 }
-            }
+            }, aligned: { page, fit in
+                guard let key else { return }
+                Task { @MainActor in AlignmentStore.shared.store(fit, key, page: page) }
+            })
         }
         guard !cancel.isCancelled else { return }
-        for page in found?.pages ?? [] {
-            if let fit = page.alignment { AlignmentStore.shared.store(fit, pair, page: page.number - 1) }
-        }
+        if let key, let found { store.store(found, key) }
         visual = found
         visualProgress = nil
         visualStarted = nil

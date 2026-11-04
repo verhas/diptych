@@ -33,6 +33,7 @@ struct VisualPreviewView: View {
     /// How far the page has been moved from the middle, in points.
     @State private var pan: CGSize = .zero
     @FocusState private var focused: Bool
+    @Environment(\.controlActiveState) private var activeState
 
     private var interval: Double? {
         Self.intervals[min(max(intervalIndex, 0), Self.intervals.count - 1)]
@@ -53,6 +54,11 @@ struct VisualPreviewView: View {
         .onChange(of: align) { _, on in Task { await model.loadPage(align: on) } }
         .task(id: intervalIndex) { await flip() }
         .onDisappear { model.close() }
+        // Back from changing one of them elsewhere: the preview opened again
+        // for the same two comes to this window, too.
+        .onChange(of: activeState) { _, state in
+            if state == .key { Task { await model.recheck() } }
+        }
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -304,6 +310,11 @@ struct VisualPreviewView: View {
         if align {
             if let progress = model.alignProgress {
                 text = "Aligning\u{2026} \(Int((progress.fraction * 100).rounded()))%."
+            } else if model.unalignable.contains(model.page) {
+                text = "B could not be aligned."
+            } else if model.waiting {
+                text = model.aligningPage.map { "Aligning page \($0 + 1) first; this one comes after." }
+                    ?? "Waiting to align\u{2026}"
             } else if model.transform == .identity {
                 text = "B is already in place."
             } else {
@@ -383,7 +394,6 @@ final class VisualPreviewModel {
     /// the shape B then has, which can differ from the upright one's.
     @ObservationIgnored private var turned: [Int: [Int: PagePair]] = [:]
     @ObservationIgnored private var unaligned: [Int: Double] = [:]
-    @ObservationIgnored private var cancel: CancellationFlag?
 
     init(pair: DiffPair) {
         self.pair = pair
@@ -391,10 +401,15 @@ final class VisualPreviewModel {
 
     func open() async {
         let pair = pair
-        let opened = await BlockingWork.run { () -> SourcePair? in
-            guard let a = VisualSource.open(pair.left), let b = VisualSource.open(pair.right) else { return nil }
-            return SourcePair(a: a, b: b)
+        let (opened, key, stamp) = await BlockingWork.run { () -> (SourcePair?, AlignmentStore.Key?, String) in
+            let stamp = Self.stamp(pair)
+            guard let a = VisualSource.open(pair.left), let b = VisualSource.open(pair.right) else {
+                return (nil, nil, stamp)
+            }
+            return (SourcePair(a: a, b: b), AlignmentStore.Key.of(pair), stamp)
         }
+        self.key = key
+        self.stamp = stamp
         guard let opened else {
             failure = "These files cannot be shown as pages or pictures."
             return
@@ -405,6 +420,7 @@ final class VisualPreviewModel {
             return
         }
         pageCount = opened.a.pageCount
+        page = max(0, min(page, pageCount - 1))
         await loadPage(align: UserDefaults.standard.bool(forKey: "visualPreview.align"))
     }
 
@@ -415,18 +431,89 @@ final class VisualPreviewModel {
     }
 
     func close() {
-        cancel?.cancel()
+        presentation += 1
+        stopAligning()
+    }
+
+    // MARK: The files changing
+
+    /// What is in the two, as the fits are kept against.
+    @ObservationIgnored private var key: AlignmentStore.Key?
+    /// Their sizes, dates and inodes when last looked at: a quick look
+    /// whether they can have changed.
+    @ObservationIgnored private var stamp = ""
+    @ObservationIgnored private var checking = false
+
+    nonisolated private static func stamp(_ pair: DiffPair) -> String {
+        [pair.left, pair.right].map { url in
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return "-" }
+            let size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
+            let date = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+            let inode = (attributes[.systemFileNumber] as? NSNumber)?.int64Value ?? 0
+            return "\(size)@\(date)#\(inode)"
+        }.joined(separator: "|")
+    }
+
+    /// Whether either file has changed since it was opened -- by what is in
+    /// it, unless `quick`, when only a changed size, date or inode counts --
+    /// and if so, everything shown and found for the old ones gone, and the
+    /// new ones shown from the start.
+    func recheck(quick: Bool = false) async {
+        guard !checking, sources != nil || failure != nil else { return }
+        checking = true
+        defer { checking = false }
+        let pair = pair
+        let known = key, stamped = stamp
+        let changed = await BlockingWork.run { () -> Bool in
+            let stamp = Self.stamp(pair)
+            if quick { return stamp != stamped }
+            return stamp != stamped || AlignmentStore.Key.of(pair) != known
+        }
+        guard changed else { return }
+        presentation += 1
+        stopAligning()
+        sources = nil
+        rendered = [:]
+        turned = [:]
+        unaligned = [:]
+        unalignable = []
+        presented = nil
+        images = nil
+        failure = nil
+        transform = .identity
+        pose = .identity
+        glide = nil
+        similarity = nil
+        waiting = false
+        shownPage = -1
+        shownQuarterTurns = 0
+        await open()
     }
 
     /// The current page, drawn, and aligned when asked.
     func loadPage(align: Bool) async {
         guard let (a, b) = sources, pageCount > 0 else { return }
         let page = page
-        cancel?.cancel()
-        let cancel = CancellationFlag()
-        self.cancel = cancel
+        wantsAlignment = align
+        // Changed since? Then all of it again, this page with it.
+        if !checking {
+            let pair = pair, stamped = stamp
+            if await BlockingWork.run({ Self.stamp(pair) != stamped }) {
+                await recheck()
+                return
+            }
+        }
+        presentation += 1
+        let mine = presentation
+        func current() -> Bool { mine == presentation && page == self.page }
         alignProgress = nil
         alignIsSlow = false
+        if align { startAligning() } else { stopAligning() }
+        // Another page, not drawn yet: not the last one meanwhile.
+        if shownPage != page, rendered[page] == nil {
+            images = nil
+            shownPage = -1
+        }
         if rendered[page] == nil {
             let screen = NSScreen.main.map { Int(max($0.frame.width, $0.frame.height) * $0.backingScaleFactor) }
             let longSide = min(screen ?? 2400, 3000)
@@ -435,8 +522,9 @@ final class VisualPreviewModel {
                 PagePair.render(pages.a, pages.b, page: page, longSide: longSide)
             }
         }
-        func current() -> Bool { !cancel.isCancelled && page == self.page }
-        guard current() else { return }
+        // Still this page: shown, even if the alignment has moved on
+        // meanwhile -- it hands over to `present` below.
+        guard page == self.page, wantsAlignment == align else { return }
         nativeSize = a.size(of: page)
         unturnedSizeB = b.size(of: page)
         guard let upright = rendered[page] else {
@@ -444,137 +532,256 @@ final class VisualPreviewModel {
             failure = "Page \(page + 1) could not be drawn."
             return
         }
-        // A turned pair of this page stays until it has been turned back,
-        // below; anything else gives way at once.
+        // A turned pair of this page stays until it has been turned back;
+        // anything else gives way at once.
         if shownQuarterTurns == 0 || shownPage != page || images == nil {
             images = upright
             shownQuarterTurns = 0
         }
+        if shownPage != page { presented = nil }
         shownPage = page
-        guard align else {
-            // Back to where it lies: a turned B turned back first.
-            glide = .easeInOut(duration: 0.4)
-            transform = .identity
-            if shownQuarterTurns != 0 {
-                pose = Self.lying(quarterTurns: shownQuarterTurns)
-                try? await Task.sleep(for: .milliseconds(400))
-                guard current() else { return }
-                glide = nil
-                images = upright
-                shownQuarterTurns = 0
-            }
-            pose = .identity
+        if align {
+            await present(page)
+        } else {
+            presented = nil
+            waiting = false
+            guard await showUpright(upright, current: current) else { return }
             await showUnalignedSimilarity(upright, page: page, current: current)
-            return
         }
+    }
 
-        // From where it lies to the fit, which is shown, not jumped to.
-        glide = nil
+    /// B back where it lies: turned back first, when it is shown turned.
+    /// False when something else has been asked for meanwhile.
+    private func showUpright(_ upright: PagePair, current: () -> Bool) async -> Bool {
+        glide = .easeInOut(duration: 0.4)
         transform = .identity
-        pose = .identity
-        images = upright
-        shownQuarterTurns = 0
-        similarity = nil
-        // Finer than a pixel of the page itself tells nothing, and finer than
-        // 1600 no longer shows at the size the preview is drawn.
-        let native = a.kind == .image ? Int(max(nativeSize?.width ?? 0, nativeSize?.height ?? 0)) : 0
-        let target = min(1600, native > 0 ? native : 1600, max(upright.width, upright.height))
-        let pages = SourcePair(a: a, b: b)
-
-        alignProgress = ImageAlignment.Progress(fraction: 0, secondsLeft: nil)
-        let slow = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled, !cancel.isCancelled else { return }
-            self?.alignIsSlow = true
+        if shownQuarterTurns != 0 {
+            pose = Self.lying(quarterTurns: shownQuarterTurns)
+            try? await Task.sleep(for: .milliseconds(400))
+            guard current() else { return false }
+            glide = nil
+            images = upright
+            shownQuarterTurns = 0
         }
-        defer { slow.cancel() }
-        var start = AlignmentStore.shared.fit(pair, page: page)
+        pose = .identity
+        return true
+    }
+
+    // MARK: Aligning, page after page
+
+    /// Whether B is to be shown aligned.
+    @ObservationIgnored private var wantsAlignment = false
+    /// Counts what the page shows: each new showing makes the ones still
+    /// under way give up.
+    @ObservationIgnored private var presentation = 0
+    @ObservationIgnored private var job: Task<Void, Never>?
+    @ObservationIgnored private var jobCancel: CancellationFlag?
+    /// The page being aligned, if one is. The pages are aligned first to
+    /// last, whichever is shown: one at a time, as each search already
+    /// keeps every core busy.
+    private(set) var aligningPage: Int?
+    /// The page is shown as it lies until its turn comes.
+    private(set) var waiting = false
+    /// The pages for which no fit could be worked out.
+    private(set) var unalignable: Set<Int> = []
+    @ObservationIgnored private var aligningSince = Date()
+    /// What the search of the page under way began from, and its latest word.
+    @ObservationIgnored private var searchStart: [Int: ImageAlignment.Fit] = [:]
+    @ObservationIgnored private var latest: (page: Int, progress: ImageAlignment.Progress)?
+    /// The page and fit B has been brought to; the search moves it on from there.
+    @ObservationIgnored private var presented: (page: Int, fit: ImageAlignment.Fit)?
+    /// Until when B is on its way to `presented`: the search's word waits.
+    @ObservationIgnored private var settling = Date.distantPast
+
+    /// Finer than a pixel of the page itself tells nothing, and finer than
+    /// 1600 no longer shows at the size the preview is drawn.
+    private func target(_ page: Int) -> Int {
+        guard let (a, _) = sources, a.kind == .image else { return 1600 }
+        let size = a.size(of: page)
+        let native = Int(max(size.width, size.height))
+        return native > 0 ? min(1600, native) : 1600
+    }
+
+    private func startAligning() {
+        guard job == nil, let (a, b) = sources, pageCount > 0 else { return }
+        let cancel = CancellationFlag()
+        jobCancel = cancel
+        let pages = SourcePair(a: a, b: b)
+        let count = pageCount
+        job = Task { [weak self] in
+            for page in 0..<count {
+                guard !cancel.isCancelled, let self else { return }
+                await self.align(page, pages, cancel: cancel)
+            }
+            guard !cancel.isCancelled, let self else { return }
+            self.job = nil
+        }
+    }
+
+    private func stopAligning() {
+        jobCancel?.cancel()
+        jobCancel = nil
+        job = nil
+        aligningPage = nil
+        searchStart = [:]
+        latest = nil
+    }
+
+    /// One page's fit, found and kept -- or refined from the one the
+    /// comparison found, which was looked for on a coarser picture.
+    private func align(_ page: Int, _ pages: SourcePair, cancel: CancellationFlag) async {
+        let target = target(page)
+        var start = keptFit(page)
+        if let start, start.finest >= target { return }
+        aligningPage = page
+        aligningSince = Date()
+        latest = (page, ImageAlignment.Progress(fraction: 0, secondsLeft: nil))
+        defer {
+            if aligningPage == page { aligningPage = nil }
+            latest = nil
+            searchStart[page] = nil
+        }
+        if page == self.page { Task { await present(page) } }
         if start == nil {
             // Which way up, on small drawings: the quarter turns are tried
             // before the search proper.
-            start = await BlockingWork.run { [weak self] in
+            start = await BlockingWork.compute { [weak self] in
                 PagePair.roughFit(pages.a, pages.b, page: page, cancel: cancel) { done in
                     Task { @MainActor in
-                        guard !cancel.isCancelled, let self, self.alignProgress != nil else { return }
-                        self.alignProgress = ImageAlignment.Progress(fraction: 0.2 * done, secondsLeft: nil)
+                        guard !cancel.isCancelled else { return }
+                        self?.heard(page, ImageAlignment.Progress(fraction: 0.2 * done, secondsLeft: nil))
                     }
                 }
             }
-            guard current() else { return }
+            guard !cancel.isCancelled else { return }
+            // The comparison may have got here meanwhile.
+            if let found = keptFit(page), found.finest > start?.finest ?? -1 {
+                start = found
+            }
         }
         guard let start else {
-            alignProgress = nil
-            alignIsSlow = false
+            unalignable.insert(page)
+            if page == self.page { Task { await present(page) } }
             return
         }
-
-        // B the way up the fit has it, drawn so: shown first as it lies, then
-        // turned and moved into place.
-        let turns = start.transform.quarterTurns
-        var sheet = upright
-        if turns != 0 {
-            if let known = turned[page]?[turns] {
-                sheet = known
-            } else if let drawn = await BlockingWork.run({
-                PagePair.render(pages.a, pages.b, page: page, longSide: max(upright.width, upright.height),
-                                quarterTurns: turns)
-            }) {
-                turned[page, default: [:]][turns] = drawn
-                sheet = drawn
-            }
-            guard current() else { return }
-            images = sheet
-            shownQuarterTurns = turns
-            pose = Self.lying(quarterTurns: turns)
-        }
-        try? await Task.sleep(for: .milliseconds(60))
-        guard current() else { return }
-        glide = .easeInOut(duration: 0.9)
-        transform = start.transform
-        pose = start.transform.fine
-        similarity = start.similarity
-        // Found on a picture as fine as this one: nothing to add.
-        if start.finest >= target {
-            alignProgress = nil
-            alignIsSlow = false
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(900))
-        guard current() else { return }
-
-        glide = .easeOut(duration: 0.15)
-        let base = alignProgress?.fraction ?? 0
-        let search = sheet
-        let found = await BlockingWork.run { [weak self] () -> ImageAlignment.Fit? in
-            let sheet = search
-            let scale = min(1, Double(target) / Double(max(sheet.width, sheet.height)))
-            let w = max(Int(Double(sheet.width) * scale), 1), h = max(Int(Double(sheet.height) * scale), 1)
-            guard let ga = GrayImage(sheet.left, width: w, height: h),
-                  let gb = GrayImage(sheet.right, width: w, height: h) else { return nil }
-            return ImageAlignment.find(ga, gb, around: start, cancel: cancel) { progress in
-                Task { @MainActor in
-                    guard !cancel.isCancelled, let self, self.alignProgress != nil else { return }
-                    var shown = progress
-                    shown.fraction = base + (1 - base) * progress.fraction
-                    self.alignProgress = shown
-                    // Shown as it is found: the picture moves towards the fit.
-                    if let best = progress.best {
-                        self.transform = best
-                        self.pose = best.fine
+        searchStart[page] = start
+        latest = (page, ImageAlignment.Progress(fraction: 0.2, secondsLeft: nil,
+                                                best: start.transform, similarity: start.similarity))
+        if page == self.page { Task { await present(page) } }
+        if start.finest < target {
+            let found = await BlockingWork.compute { [weak self] () -> ImageAlignment.Fit? in
+                guard let sheet = PagePair.render(pages.a, pages.b, page: page, longSide: target,
+                                                  quarterTurns: start.transform.quarterTurns),
+                      let (ga, gb) = sheet.grays else { return nil }
+                return ImageAlignment.find(ga, gb, around: start, cancel: cancel) { progress in
+                    Task { @MainActor in
+                        guard !cancel.isCancelled else { return }
+                        var shown = progress
+                        shown.fraction = 0.2 + 0.8 * progress.fraction
+                        self?.heard(page, shown)
                     }
-                    self.similarity = progress.similarity
                 }
             }
+            guard !cancel.isCancelled else { return }
+            keep(found ?? start, page)
+        } else {
+            keep(start, page)
         }
+        if page == self.page { Task { await present(page) } }
+    }
+
+    private func keptFit(_ page: Int) -> ImageAlignment.Fit? {
+        key.flatMap { AlignmentStore.shared.fit($0, page: page) }
+    }
+
+    private func keep(_ fit: ImageAlignment.Fit, _ page: Int) {
+        if let key { AlignmentStore.shared.store(fit, key, page: page) }
+    }
+
+    /// Word from the search of `page`: shown when that is the page in sight.
+    private func heard(_ page: Int, _ progress: ImageAlignment.Progress) {
+        guard aligningPage == page else { return }
+        latest = (page, progress)
+        guard wantsAlignment, page == self.page else { return }
+        alignProgress = progress
+        alignIsSlow = Date().timeIntervalSince(aligningSince) >= 2
+        guard Date() >= settling, presented?.page == page, let best = progress.best,
+              best.quarterTurns == shownQuarterTurns else { return }
+        // Shown as it is found: the picture moves towards the fit.
+        glide = .easeOut(duration: 0.15)
+        transform = best
+        pose = best.fine
+        if let similarity = progress.similarity { self.similarity = similarity }
+    }
+
+    /// B where what is known of the page's fit puts it: from where it lies to
+    /// the fit, shown, not jumped to; and from one fit on to a better one.
+    private func present(_ page: Int) async {
+        presentation += 1
+        let mine = presentation
+        func current() -> Bool { mine == presentation && page == self.page && wantsAlignment }
+        guard current(), let upright = rendered[page], let (a, b) = sources else { return }
+        if shownPage != page || images == nil {
+            images = upright
+            shownQuarterTurns = 0
+            shownPage = page
+            presented = nil
+        }
+        let searching = aligningPage == page
+        alignProgress = searching ? latest?.progress ?? ImageAlignment.Progress(fraction: 0, secondsLeft: nil) : nil
+        alignIsSlow = searching && Date().timeIntervalSince(aligningSince) >= 2
+        let fit = (searching ? searchStart[page] : nil) ?? keptFit(page)
+        guard let fit else {
+            // Not reached yet, or not to be aligned: as it lies meanwhile.
+            presented = nil
+            similarity = nil
+            waiting = !unalignable.contains(page)
+            _ = await showUpright(upright, current: current)
+            return
+        }
+        waiting = false
+        let turns = fit.transform.quarterTurns
+        if let presented, presented.page == page, shownQuarterTurns == turns,
+           presented.fit.transform.quarterTurns == turns {
+            glide = .easeInOut(duration: 0.5)
+            settling = Date().addingTimeInterval(0.5)
+        } else {
+            glide = nil
+            transform = .identity
+            pose = .identity
+            images = upright
+            shownQuarterTurns = 0
+            similarity = nil
+            // B the way up the fit has it, drawn so: shown first as it
+            // lies, then turned and moved into place.
+            if turns != 0 {
+                var sheet = turned[page]?[turns]
+                if sheet == nil {
+                    let pages = SourcePair(a: a, b: b)
+                    let longSide = max(upright.width, upright.height)
+                    sheet = await BlockingWork.run {
+                        PagePair.render(pages.a, pages.b, page: page, longSide: longSide, quarterTurns: turns)
+                    }
+                    if let sheet { turned[page, default: [:]][turns] = sheet }
+                }
+                guard current(), let sheet else { return }
+                images = sheet
+                shownQuarterTurns = turns
+                pose = Self.lying(quarterTurns: turns)
+            }
+            try? await Task.sleep(for: .milliseconds(60))
+            guard current() else { return }
+            glide = .easeInOut(duration: 0.9)
+            settling = Date().addingTimeInterval(0.9)
+        }
+        transform = fit.transform
+        pose = fit.transform.fine
+        similarity = fit.similarity
+        presented = (page, fit)
+        try? await Task.sleep(for: .milliseconds(max(0, Int(settling.timeIntervalSinceNow * 1000)) + 10))
         guard current() else { return }
-        alignProgress = nil
-        alignIsSlow = false
-        if let found {
-            AlignmentStore.shared.store(found, pair, page: page)
-            transform = found.transform
-            pose = found.transform.fine
-            similarity = found.similarity
-        }
+        // What the search found while B was on its way.
+        if aligningPage == page, let latest, latest.page == page { heard(page, latest.progress) }
     }
 
     /// The pose that shows B, drawn `quarterTurns` round, as it lies: turned

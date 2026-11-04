@@ -24,7 +24,7 @@ enum ImageAlignment {
     /// `angle`, `scale` and the move are what the pixel search finds; the
     /// quarter turns are chosen before it, since a picture cannot be turned
     /// a quarter within the frame of another shape without losing its ends.
-    struct Transform: Sendable, Equatable, Hashable {
+    struct Transform: Sendable, Equatable, Hashable, Codable {
         var angle: Double
         var dx: Double
         var dy: Double
@@ -112,7 +112,7 @@ enum ImageAlignment {
     /// A transform found, how alike the two are laid so, and how fine a
     /// picture it was found on: the longer side, in pixels. The transform
     /// holds at any size; only its precision is that of `finest`.
-    struct Fit: Sendable, Equatable {
+    struct Fit: Sendable, Equatable, Codable {
         var transform: Transform
         var similarity: Double
         var finest: Int
