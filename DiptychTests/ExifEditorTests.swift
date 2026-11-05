@@ -942,8 +942,13 @@ extension ExifEditorTests {
         XCTAssertFalse(window.isExcludedFromWindowsMenu, "in the Dock's list")
         NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
         XCTAssertFalse(AppWindows.shared.live.contains(window))
+        // Its view updating registers it again, closed: still not on the list.
+        AppWindows.shared.register(window)
+        XCTAssertFalse(AppWindows.shared.live.contains(window), "a closed window is not cycled to")
+        window.orderFront(nil)
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         XCTAssertTrue(AppWindows.shared.live.contains(window))
+        window.orderOut(nil)
         AppWindows.shared.unregister(window)
     }
 

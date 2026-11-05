@@ -192,9 +192,54 @@ final class BinaryViewModel {
     /// Off the main actor. Mapping is cheap, but `stat` and the first faults
     /// are not free on a cold or networked volume, and doing them inline is
     /// what makes a window hang on the way up.
+    /// The server a file is being fetched from while the window waits for it.
+    private(set) var waitingFor: String?
+    private var holdsFile = false
+
+    /// Holds a server file against being fetched again while it has changes here.
+    func holdFile(_ held: Bool) {
+        guard held != holdsFile, RemoteBrowsing.isInside(url) else { return }
+        holdsFile = held
+        if held { EditedHere.hold(url) } else { EditedHere.release(url) }
+    }
+
+    /// The copy here was put back to the server's version, or was sent from
+    /// another window: shown as it now is. After a send, only with no edits here,
+    /// and only when the file holds something else than what is shown.
+    func readAgain(discarding: Bool = true) {
+        guard discarding || !hasEdits else { return }
+        if !discarding, (try? Data(contentsOf: url)) == bytes {
+            isUnsent = false
+            return
+        }
+        reload()
+        isUnsent = RemoteBrowsing.hasUnsentEdit(url)
+    }
+
+    /// A server file saved here and not sent: the question about it was put off.
+    /// Save asks it again, with no edit made.
+    private(set) var isUnsent = false
+
+    func markUnsent() { isUnsent = true }
+
     private func load() async {
         let url = self.url
         let limit = Self.maximumSize
+        // A file on a server whose bytes are not here, or are of an older
+        // version: the window opens at once and fills when they have arrived.
+        if RemoteBrowsing.hasPending([url]) {
+            waitingFor = RemoteBrowsing.server(of: url)?.host ?? "the server"
+            do {
+                try await RemoteBrowsing.download(url)
+                waitingFor = nil
+            } catch {
+                waitingFor = nil
+                loadError = "\(url.lastPathComponent) could not be fetched from the server: "
+                    + error.localizedDescription
+                isLoading = false
+                return
+            }
+        }
 
         let loaded: (data: Data?, message: String?) =
             await Task.detached(priority: .userInitiated) {
@@ -213,6 +258,7 @@ final class BinaryViewModel {
 
         if let data = loaded.data { bytes = data }
         loadError = loaded.message
+        if RemoteBrowsing.isInside(url) { isUnsent = RemoteBrowsing.hasUnsentEdit(url) }
         isLoading = false
     }
 
@@ -671,6 +717,11 @@ final class BinaryViewModel {
     }
 
     func save() {
+        if !hasEdits, isUnsent {
+            isUnsent = false
+            ServerEditing.shared.sendAgain(url)
+            return
+        }
         guard hasEdits, mayEdit() else { return }
         let structural = working != nil
         let content = working

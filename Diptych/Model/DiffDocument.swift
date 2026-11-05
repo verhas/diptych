@@ -17,6 +17,11 @@ struct SourceFile: Sendable {
     /// else in the meantime can be noticed instead of overwritten.
     var modified: Date?
     var isWritable: Bool
+    /// The byte-order mark it started with, written back before the text.
+    var bom = Data()
+    /// What its lines end with, as read: how two files of the same text can
+    /// still differ.
+    var lineEndings = LineEndingReport()
 
     func text(from lines: [String]) -> String {
         lines.joined(separator: lineEnding) + (hasFinalNewline && !lines.isEmpty ? lineEnding : "")
@@ -67,6 +72,18 @@ final class DiffDocument {
     private(set) var binary: BinaryComparison?
     private(set) var isComparingBytes = false
 
+    /// What two PDFs or two pictures whose bytes differ show: the same
+    /// pixels, the same to the eye, two scans of one page, or not the same.
+    private(set) var visual: VisualComparison?
+    /// How far that has got, while it is under way.
+    private(set) var visualProgress: VisualComparison.Step?
+    /// When it began, for the time left.
+    private(set) var visualStarted: Date?
+    /// Whether the two can be laid over each other: known before the
+    /// comparison is, so the preview can be opened while it runs.
+    private(set) var canPreviewVisually = false
+    @ObservationIgnored private var visualCancel: CancellationFlag?
+
     /// Everything besides the bytes: permissions, owner, dates, flags, the
     /// access control list and every extended attribute. What two files a
     /// folder comparison or a sync calls different differ in, when it is not
@@ -98,6 +115,10 @@ final class DiffDocument {
     /// own state so an MCP `open_diff` call can set it before a window even
     /// exists, the same way it can `ignoreWhitespace`.
     var wraps = true
+    /// Why the window was opened, when something other than the person opened it.
+    private(set) var note: String?
+    /// The side to unlock once the files are first read.
+    @ObservationIgnored private var unlockWhenRead: Side?
 
     private var undoStack: [Step] = []
     private var redoStack: [Step] = []
@@ -108,6 +129,16 @@ final class DiffDocument {
     var isDirty: Bool {
         guard let editable else { return false }
         return lines[editable] != asRead[editable]
+    }
+    /// The sides that are server files saved here and not sent: compared after a
+    /// clash with the server, or with the question about them put off. Save sends
+    /// such a side as it is, with nothing changed.
+    private var unsent: Set<Side> = []
+    var isUnsent: Bool { editable.map { unsent.contains($0) } ?? false }
+
+    func markUnsent(_ url: URL) {
+        if url.standardizedFileURL == pair.left.standardizedFileURL { unsent.insert(.left) }
+        if url.standardizedFileURL == pair.right.standardizedFileURL { unsent.insert(.right) }
     }
     var canUndo: Bool { !undoStack.isEmpty || sessionIsOpen }
     var canRedo: Bool { !redoStack.isEmpty }
@@ -132,6 +163,8 @@ final class DiffDocument {
         if let preset = TextDiffPresetOptions.shared.take(for: pair) {
             ignoreWhitespace = preset.ignoreWhitespace
             wraps = preset.wraps
+            unlockWhenRead = preset.unlocked
+            note = preset.note
         }
     }
 
@@ -163,6 +196,7 @@ final class DiffDocument {
         rightWatcher = nil
         reloadTask?.cancel()
         propertiesTask?.cancel()
+        visualCancel?.cancel()
     }
 
     private func watch(_ url: URL) -> DispatchSourceFileSystemObject? {
@@ -192,7 +226,7 @@ final class DiffDocument {
         return source
     }
 
-    private func diskChanged(_ url: URL) {
+    private func diskChanged(_ url: URL, attempt: Int = 0) {
         // A save that replaces the file -- write-to-a-temporary-name and
         // rename over the original, which is how this app's own `save()`
         // writes, and how many editors do -- swaps in a new inode at this
@@ -205,6 +239,17 @@ final class DiffDocument {
         } else {
             rightWatcher?.cancel()
             rightWatcher = watch(url)
+        }
+        // Replaced, and not there again yet: watched, and read, once it is.
+        // Otherwise the watch is gone for good, and so is every later save.
+        if (url == pair.left ? leftWatcher : rightWatcher) == nil {
+            if attempt < 20 {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    self?.diskChanged(url, attempt: attempt + 1)
+                }
+            }
+            return
         }
 
         refreshProperties()
@@ -239,6 +284,9 @@ final class DiffDocument {
             right = rightFile
             lines = [.left: leftFile.lines, .right: rightFile.lines]
             asRead = lines
+            unsent = Set([Side.left, .right].filter {
+                RemoteBrowsing.hasUnsentEdit($0 == .left ? pair.left : pair.right)
+            })
             failure = nil
             // A full reset, because reading is where a comparison starts.
             // SwiftUI keeps a window's state against the value it was opened
@@ -249,6 +297,10 @@ final class DiffDocument {
             hasSaved = false
             forgetHistory()
             recompute()
+            if let side = unlockWhenRead {
+                unlockWhenRead = nil
+                _ = unlock(side)
+            }
         case .failure(let error):
             // Not text? Then the question is a different one, and it has an
             // answer: compare the bytes.
@@ -291,9 +343,79 @@ final class DiffDocument {
         case .success(let comparison):
             binary = comparison
             failure = nil
+            await compareVisually(skip: comparison.isIdentical)
         case .failure(let error):
             failure = "These files could not be compared: \(error.localizedDescription)"
         }
+    }
+
+    /// What was in the two when they were last compared by what they show.
+    @ObservationIgnored private var comparedKey: AlignmentStore.Key?
+    @ObservationIgnored private var rechecking = false
+
+    /// Back at the window: two files compared by what they show are read
+    /// through again, and compared again if either has changed. The watch
+    /// on them sees most saves, but not every way a file can be replaced.
+    func recheck() async {
+        guard comparedKey != nil, !rechecking, !isDirty else { return }
+        rechecking = true
+        defer { rechecking = false }
+        let pair = pair
+        let key = await BlockingWork.run { AlignmentStore.Key.of(pair) }
+        guard let key, key != comparedKey else { return }
+        await reload()
+    }
+
+    /// The bytes differ; perhaps what they show does not.
+    private func compareVisually(skip: Bool) async {
+        visualCancel?.cancel()
+        guard !skip else {
+            visual = nil
+            canPreviewVisually = false
+            let pair = pair
+            comparedKey = await BlockingWork.run { AlignmentStore.Key.of(pair) }
+            return
+        }
+        let cancel = CancellationFlag()
+        visualCancel = cancel
+        let pair = pair
+        visualProgress = VisualComparison.Step(text: "looking at them\u{2026}", fraction: 0)
+        visualStarted = Date()
+        // Both read through for what is in them: a comparison made of these
+        // very two before is the answer, whatever their names or dates.
+        let (pages, key) = await BlockingWork.run {
+            (VisualComparison.pairedPages(pair.left, pair.right), AlignmentStore.Key.of(pair))
+        }
+        guard !cancel.isCancelled else { return }
+        // Not the answer about the old ones while the new ones are looked at.
+        if key != comparedKey { visual = nil }
+        comparedKey = key
+        canPreviewVisually = pages > 0
+        let store = AlignmentStore.shared
+        if let key, let kept = store.comparison(key) {
+            visual = kept
+            visualProgress = nil
+            visualStarted = nil
+            return
+        }
+        // What the preview, or an earlier look, has already aligned.
+        let known = key.map { store.fits($0, pages: pages) } ?? [:]
+        let found = await BlockingWork.compute { [weak self] in
+            VisualComparison.compare(pair.left, pair.right, known: known, cancel: cancel, progress: { step in
+                Task { @MainActor in
+                    guard let self, !cancel.isCancelled else { return }
+                    self.visualProgress = step
+                }
+            }, aligned: { page, fit in
+                guard let key else { return }
+                Task { @MainActor in AlignmentStore.shared.store(fit, key, page: page) }
+            })
+        }
+        guard !cancel.isCancelled else { return }
+        if let key, let found { store.store(found, key) }
+        visual = found
+        visualProgress = nil
+        visualStarted = nil
     }
 
     func file(_ side: Side) -> SourceFile? { side == .left ? left : right }
@@ -648,8 +770,12 @@ final class DiffDocument {
     func save() -> SaveOutcome {
         // What is on screen, including a line still being typed into.
         endLine()
-        guard let side = editable, let file = file(side), isDirty else { return .nothingToDo }
+        guard let side = editable, let file = file(side) else { return .nothingToDo }
         let url = side == .left ? pair.left : pair.right
+        guard isDirty else {
+            if unsent.remove(side) != nil { ServerEditing.shared.sendAgain(url) }
+            return .nothingToDo
+        }
 
         // Somebody else may have written it while this window was open, and in
         // this application that somebody is quite likely Get the Latest. Saving
@@ -667,7 +793,7 @@ final class DiffDocument {
         }
 
         do {
-            try Self.write(data, to: url)
+            try Self.write(file.bom + data, to: url)
         } catch {
             // Worked out from the file, not repeated from the system: macOS
             // says "you do not have permission" for failures that have nothing
@@ -677,6 +803,7 @@ final class DiffDocument {
         }
 
         asRead[side] = lines[side]
+        unsent.remove(side)
         hasSaved = true
         var refreshed = file
         refreshed.modified = (try? FileManager.default

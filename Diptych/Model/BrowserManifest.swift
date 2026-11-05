@@ -174,6 +174,19 @@ struct BrowserManifest: Codable, Equatable, Sendable {
         static let gid = "gid"
         static let modified = "mtime"
         static let created = "btime"
+        /// The owner and group as the server names them: a file on a server, whose
+        /// numbers may mean other users on this Mac."
+        static let ownerName = "owner"
+        static let groupName = "group"
+        /// A server file fetched here: the SHA-256 of what was fetched or last
+        /// sent, and when the copy here was made or last sent -- a change after
+        /// that is the person's, to write back.
+        static let checksum = "sha256"
+        static let localModified = "localMtime"
+        /// A fetched server file the server has changed since: the copy here is
+        /// still the one fetched, kept for whoever has it open, and fetched
+        /// again the next time it is opened.
+        static let serverChanged = "serverChanged"
     }
 }
 

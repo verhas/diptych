@@ -22,9 +22,11 @@ enum ColumnArrangement {
     /// The columns greyed are those with nothing in them in any of `rows`.
     static func showMenu(for event: NSEvent, in header: NSTableHeaderView, rows: [FileItem]) {
         menuHandler.empty = empty(in: rows)
-        menuHandler.inTrash = header.tableView.flatMap { table in
+        let pane = header.tableView.flatMap { table in
             header.window.flatMap { TableFinder.pane(of: table, in: $0) }
-        }?.isTrashListing ?? false
+        }
+        menuHandler.inTrash = pane?.isTrashListing ?? false
+        menuHandler.onServer = pane?.isServerListing ?? false
         NSMenu.popUpContextMenu(menuHandler.menu, with: event, for: header)
     }
 
@@ -90,8 +92,9 @@ enum ColumnArrangement {
     /// resize -- is left to the header.
     static func drag(from event: NSEvent, in header: NSTableHeaderView) -> Bool {
         guard let window = header.window, let table = header.tableView else { return false }
-        let trash = TableFinder.pane(of: table, in: window)?.isTrashListing ?? false
-        let columns = ConfigStore.shared.configuration.columns(inTrash: trash)
+        let pane = TableFinder.pane(of: table, in: window)
+        let columns = ConfigStore.shared.configuration.columns(inTrash: pane?.isTrashListing ?? false,
+                                                               onServer: pane?.isServerListing ?? false)
         guard table.tableColumns.count == columns.count else { return false }
         let start = header.convert(event.locationInWindow, from: nil)
         let column = header.column(at: start)
@@ -178,6 +181,7 @@ enum ColumnArrangement {
         /// The menu is for a Trash pane: Original Location is then offered, and
         /// nowhere else.
         var inTrash = false
+        var onServer = false
 
         override init() {
             super.init()
@@ -189,12 +193,13 @@ enum ColumnArrangement {
             menu.removeAllItems()
             let configuration = ConfigStore.shared.configuration
             let trash = inTrash
-            let shown = configuration.columns(inTrash: trash)
+            let server = onServer
+            let shown = configuration.columns(inTrash: trash, onServer: server)
             // Those shown first, in their order, then the rest as Settings
-            // lists them. Original Location is offered only in a Trash pane --
-            // and has an effect only there.
+            // lists them. Original Location is offered only in a Trash pane,
+            // Cached only on a server -- and each has an effect only there.
             let all = shown + configuration.columnOrder.filter {
-                !shown.contains($0) && ($0 != .originalLocation || trash)
+                !shown.contains($0) && ($0 != .originalLocation || trash) && ($0 != .cache || server)
             }
             for column in all {
                 let item = NSMenuItem(title: column.title, action: #selector(toggle(_:)),
@@ -224,6 +229,8 @@ enum ColumnArrangement {
                 // column, never part of the general enabled set.
                 if column == .originalLocation {
                     ConfigStore.shared.configuration.showOriginalLocationInTrash = show
+                } else if column == .cache {
+                    ConfigStore.shared.configuration.showCacheColumnOnServers = show
                 } else {
                     ConfigStore.shared.setEnabled(column, show)
                 }

@@ -11,7 +11,7 @@ import Observation
 nonisolated enum ServerAddress {
 
     enum Kind: String, Sendable {
-        case smb, nfs, webdav, ftp, afp
+        case smb, nfs, webdav, ftp, afp, sftp
 
         var label: String {
             switch self {
@@ -20,6 +20,7 @@ nonisolated enum ServerAddress {
             case .webdav: "WebDAV"
             case .ftp: "FTP"
             case .afp: "AFP"
+            case .sftp: "SFTP"
             }
         }
 
@@ -48,9 +49,10 @@ nonisolated enum ServerAddress {
         case "nfs", "afp", "ftp", "http", "https": mapped = scheme
         case "webdav", "dav": mapped = "http"
         case "webdavs", "davs": mapped = "https"
-        case "sftp", "ssh":
-            return .failure(ServerProblem("macOS cannot mount SFTP by itself. A mounter such as "
-                + "Mountain Duck, or sshfs on macFUSE, makes it a folder Diptych can open."))
+        // Not mounted: Diptych talks SFTP itself, so it is never handed to NetFS.
+        case "sftp": mapped = "sftp"
+        case "ssh":
+            return .failure(ServerProblem("SFTP addresses start with sftp://, not ssh://."))
         case "s3", "gs":
             return .failure(ServerProblem("An object store is not a file server macOS can mount. "
                 + "rclone mount, or an app such as Mountain Duck, makes it a folder."))
@@ -87,6 +89,7 @@ nonisolated enum ServerAddress {
         case "http", "https", "webdav", "webdavs": .webdav
         case "ftp": .ftp
         case "afp": .afp
+        case "sftp": .sftp
         default: nil
         }
     }
@@ -288,6 +291,12 @@ struct KnownServer: Codable, Identifiable, Equatable, Sendable {
     var lastUsed = Date()
     /// Where it was last mounted, so a pane left there can bring it back.
     var mountPoint: String?
+    /// How often an SFTP connection to it is checked, in seconds, when Diptych's
+    /// own setting is wanted over the one in `~/.ssh/config`. Zero: never.
+    var keepAliveSeconds: Int?
+    /// Whether the server can work out a file's SHA-256, and with which command:
+    /// nil when not tried yet, "none" when it cannot. See `SFTPHashSupport`.
+    var hashCommand: String?
 
     var id: String { address.lowercased() }
     var url: URL? { URL(string: address) }
@@ -381,6 +390,23 @@ final class ServerStore {
             $0.openAtLogin = on
             if on { $0.saved = true }
         }
+    }
+
+    /// Sets, or clears, Diptych's own keep-alive interval for a server.
+    func setKeepAlive(_ seconds: Int?, for url: URL) {
+        let id = ServerAddress.withoutPassword(url).absoluteString.lowercased()
+        guard let index = servers.firstIndex(where: { $0.id == id }) else { return }
+        servers[index].keepAliveSeconds = seconds
+        commit()
+    }
+
+    /// Records whether a server can work out checksums, and with what.
+    func setHashCommand(_ stored: String?, for url: URL) {
+        let id = ServerAddress.withoutPassword(url).absoluteString.lowercased()
+        guard let index = servers.firstIndex(where: { $0.id == id }),
+              servers[index].hashCommand != stored else { return }
+        servers[index].hashCommand = stored
+        commit()
     }
 
     func forget(_ server: KnownServer) {
@@ -489,6 +515,7 @@ nonisolated struct VolumeFacts: Equatable, Sendable {
     /// Stats the volume: off the main actor. Inside an archive opened as a
     /// folder, the archive is the volume, and read-only.
     static func of(_ url: URL) -> VolumeFacts {
+        if let facts = RemoteBrowsing.volumeFacts(of: url) { return facts }
         if let facts = ArchiveBrowsing.volumeFacts(of: url) { return facts }
         guard let values = try? url.resourceValues(forKeys: [
             .volumeIsLocalKey, .volumeIsReadOnlyKey, .volumeTypeNameKey,

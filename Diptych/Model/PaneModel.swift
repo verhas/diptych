@@ -98,7 +98,11 @@ final class PaneModel {
             // Only the pane the panel follows: the other one, reloaded after
             // a change made here, took the panel to its own selection.
             if let owner, owner.active !== self { return }
-            QuickLookController.shared.update(selectedRows.map(\.url))
+            if let owner {
+                owner.followQuickLook(selectedRows)
+            } else {
+                QuickLookController.shared.update(selectedRows.map(\.url))
+            }
         }
     }
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
@@ -617,6 +621,9 @@ final class PaneModel {
 
     func goUp() {
         guard directory.pathComponents.count > 1 else { return }
+        // A server's top has nothing above it in the pane: its shadow's parent
+        // is the caches folder, which is not a place to go.
+        guard !RemoteBrowsing.isServerRoot(directory) else { return }
         let leaving = directory
 
         // Out of the top of an opened archive: beside it, on it. Matched by
@@ -642,6 +649,12 @@ final class PaneModel {
     func open(_ item: FileItem) {
         if item.isParent {
             goUp()
+            return
+        }
+
+        // A file on a server is a placeholder until its bytes are fetched.
+        if !item.isEnterable, RemoteBrowsing.isInside(item.url) {
+            owner?.whenFetched([item.url]) { NSWorkspaceOpener.open(item.url) }
             return
         }
 
@@ -687,6 +700,13 @@ final class PaneModel {
 
     /// Showing a Trash folder -- where the Original Location column belongs.
     var isTrashListing: Bool { !isFlat && Trash.isTrash(directory) }
+    /// A folder on an SFTP server: the Cached column belongs to it.
+    var isServerListing: Bool { RemoteBrowsing.isInside(directory) }
+
+    /// Whether files can be made or changed here: a folder that is not read-only,
+    /// or a server's, where what is made is sent to the server. The cache a
+    /// server's folder is shown from is read-only to everything else.
+    var isWritable: Bool { !volume.isReadOnly || isServerListing }
 
     /// What is typed in the expression field, run or not.
     var flatDraft = ""
@@ -1147,6 +1167,17 @@ final class PaneModel {
             do {
                 // Asked of the folder itself: the pane's facts are still
                 // those of where it came from, on arriving at a server.
+                // A folder on a server is listed again first, so that its rows are
+                // what the server has now. A failure leaves the rows already there.
+                if RemoteBrowsing.isInside(target) {
+                    do {
+                        try await RemoteBrowsing.refresh(target)
+                    } catch {
+                        self?.owner?.flash("Could not list the folder on the server: "
+                                           + error.localizedDescription)
+                    }
+                    guard !Task.isCancelled else { return }
+                }
                 let onServer = await BlockingWork.run { VolumeFacts.of(target).isNetwork }
                 guard !Task.isCancelled else { return }
                 var loaded = try await DirectoryLoader.load(

@@ -143,12 +143,52 @@ enum FileSplitting {
     /// selection is not a join -- a mix of unrelated files, or not parts at all.
     /// The returned URL is a manifest or the first part, ready for `join`.
     nonisolated static func joinSource(for urls: [URL]) -> URL? {
+        joinSelection(for: urls)?.source
+    }
+
+    /// What to join from, and -- when the manifest was selected together with
+    /// parts, as selecting everything does -- the parts that were selected, so
+    /// the join can check they are all the manifest lists, no more and no fewer.
+    nonisolated static func joinSelection(for urls: [URL]) -> (source: URL, selectedParts: [URL]?)? {
         guard !urls.isEmpty else { return nil }
-        if urls.count == 1, isManifest(urls[0]) { return urls[0] }
-        guard urls.allSatisfy(isPart) else { return nil }
+        let manifests = urls.filter(isManifest)
+        if manifests.count == 1 {
+            let manifest = manifests[0]
+            let parts = urls.filter { !isManifest($0) }
+            if parts.isEmpty { return (manifest, nil) }
+            // Every other item a part of the same file.
+            guard let base = base(of: manifest),
+                  parts.allSatisfy({ isPart($0) && $0.deletingPathExtension().path == base.path })
+            else { return nil }
+            return (manifest, parts)
+        }
+        guard manifests.isEmpty, urls.allSatisfy(isPart) else { return nil }
         let bases = Set(urls.map { $0.deletingPathExtension().path })
-        guard bases.count == 1 else { return nil }
-        return firstPart(of: urls[0])
+        guard bases.count == 1, let first = firstPart(of: urls[0]) else { return nil }
+        return (first, nil)
+    }
+
+    /// Why `selected` is not the set of parts the manifest lists: those it lists
+    /// that are not selected, and those selected it does not list. Nil when they
+    /// are the same set.
+    nonisolated static func selectionProblem(manifest: URL, selected: [URL]) -> String? {
+        guard let data = try? Data(contentsOf: manifest),
+              let value = try? JSONDecoder().decode(Manifest.self, from: data) else {
+            return "\u{201C}\(manifest.lastPathComponent)\u{201D} could not be read."
+        }
+        let listed = Set(value.parts.map(\.name))
+        let chosen = Set(selected.map(\.lastPathComponent))
+        let unselected = listed.subtracting(chosen).sorted()
+        let unlisted = chosen.subtracting(listed).sorted()
+        guard !unselected.isEmpty || !unlisted.isEmpty else { return nil }
+        var said: [String] = []
+        if !unselected.isEmpty {
+            said.append("not selected: " + unselected.joined(separator: ", "))
+        }
+        if !unlisted.isEmpty {
+            said.append("not in the manifest: " + unlisted.joined(separator: ", "))
+        }
+        return "Select every part the manifest lists, or the manifest alone (" + said.joined(separator: "; ") + ")."
     }
 
     // MARK: - Splitting

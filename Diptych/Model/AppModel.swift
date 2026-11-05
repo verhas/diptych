@@ -44,6 +44,15 @@ final class AppModel {
         case scriptProblems
         case getScripts
         case connectServer
+        case sftpTrust
+        case sftpLogin
+        case keepAlive
+        /// Deleting items on a server: final, with no Trash to take them back from.
+        case serverDelete
+        /// The sudo password, for a change on a server only root may make.
+        case sudoPassword
+        /// A server's user or group, typed by name or number.
+        case serverAccount
         case historyStep
         case historyMany
         case tips
@@ -77,6 +86,12 @@ final class AppModel {
             case .scriptProblems: return "scriptProblems"
             case .getScripts:     return "getScripts"
             case .connectServer:  return "connectServer"
+            case .sftpTrust:      return "sftpTrust"
+            case .sftpLogin:      return "sftpLogin"
+            case .keepAlive:      return "keepAlive"
+            case .serverDelete:   return "serverDelete"
+            case .sudoPassword:   return "sudoPassword"
+            case .serverAccount:  return "serverAccount"
             case .historyStep:    return "historyStep"
             case .historyMany:    return "historyMany"
             case .tips:           return "tips"
@@ -168,6 +183,48 @@ final class AppModel {
     var connectingTo: URL?
     var connectProblem: String?
     @ObservationIgnored var connectRequest: ServerMounter.Request?
+    /// An SFTP attempt a question is open about, and the question itself: the
+    /// trust dialog for an unknown host, or the login dialog.
+    @ObservationIgnored var sftpRequest: SFTPConnectRequest?
+    var sftpTrust: SFTPTrustPrompt?
+    var sftpLogin: SFTPLoginPrompt?
+    /// The server root whose keep-alive interval the dialog is about.
+    @ObservationIgnored var keepAliveServer: URL?
+    /// The fetch an open Quick Look panel is waiting for, cancelled by a later move.
+    @ObservationIgnored var quickLookFetch: Task<Void, Never>?
+    /// The sudo question while it is asked, and who waits for its answer.
+    var sudoPrompt: SudoPrompt?
+    @ObservationIgnored private var sudoAnswer: CheckedContinuation<SudoAnswer?, Never>?
+
+    /// Whether the typed account is a group rather than a user.
+    @ObservationIgnored var accountIsGroup = false
+
+    struct SudoPrompt: Equatable {
+        let host: String
+        let user: String
+        let wasWrong: Bool
+    }
+
+    /// Asks for the sudo password, and waits for it: nil when the person declines.
+    func askSudoPassword(host: String, user: String, wasWrong: Bool) async -> SudoAnswer? {
+        // A question still open is answered as declined: one at a time.
+        answerSudo(nil)
+        return await withCheckedContinuation { continuation in
+            sudoAnswer = continuation
+            sudoPrompt = SudoPrompt(host: host, user: user, wasWrong: wasWrong)
+            dialog = .sudoPassword
+        }
+    }
+
+    func answerSudo(_ answer: SudoAnswer?) {
+        let waiting = sudoAnswer
+        sudoAnswer = nil
+        if sudoPrompt != nil {
+            sudoPrompt = nil
+            if dialog == .sudoPassword { dialog = nil }
+        }
+        waiting?.resume(returning: answer)
+    }
     private(set) var toastIsError = true
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Text backing the New Folder sheet.
@@ -264,6 +321,7 @@ final class AppModel {
     @ObservationIgnored var openVersionsWindow: ((FileVersions.Request) -> Void)?
     @ObservationIgnored var openDiskUsageWindow: ((URL) -> Void)?
     @ObservationIgnored var openSplitWindow: ((UUID) -> Void)?
+    @ObservationIgnored var openToolWindow: ((ToolWindows.Kind, UUID) -> Void)?
     /// A Create Checksum held back because the pane is read-only, waiting for
     /// the user to say whether the files may go in the other pane instead.
     @ObservationIgnored var pendingChecksum: PendingChecksum?
@@ -525,7 +583,7 @@ final class AppModel {
     /// Commands that act on exactly one item refuse a multiple selection rather
     /// than silently picking the first. With five files highlighted, "open the
     /// one that happens to sort first" is never what was meant.
-    private func singleSelection(_ verb: String, includingParent: Bool = false) -> FileItem? {
+    func singleSelection(_ verb: String, includingParent: Bool = false) -> FileItem? {
         let rows = includingParent ? active.selectedRows : active.selectedItems
         if rows.count == 1 { return rows[0] }
         dialog = .message(rows.isEmpty
@@ -653,8 +711,12 @@ final class AppModel {
                   error: true)
             return
         }
-        OpenDiffDocuments.shared.refreshIfOpen(asked)
-        openDiffWindow?(asked)
+        // A server's file is fetched first: until then it is an empty placeholder,
+        // and was compared as empty.
+        whenFetched([pair.left, pair.right]) { [weak self] in
+            OpenDiffDocuments.shared.refreshIfOpen(asked)
+            self?.openDiffWindow?(asked)
+        }
     }
 
     /// The MCP round-trip counterpart to `showDiff()`: two explicit paths
@@ -721,7 +783,7 @@ final class AppModel {
         if let textOptions {
             TextDiffPresetOptions.shared.set(textOptions, for: asked)
         }
-        openDiffWindow?(asked)
+        whenFetched([left, right]) { [weak self] in self?.openDiffWindow?(asked) }
         return nil
     }
 
@@ -890,7 +952,7 @@ final class AppModel {
     /// and its selection, which is all it renames unless told otherwise.
     func requestRenameMany() {
         let pane = active
-        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        guard !refusedAsReadOnly(pane, "renamed here", serverWritable: true) else { return }
         let selected = pane.selectedItems.map(\.url)
         if let flat = pane.flat {
             openRenameWindow?(RenameManyRequest(
@@ -905,7 +967,7 @@ final class AppModel {
     /// Open the Replace-in-Names window on the selected files.
     func requestRenameReplace() {
         let pane = active
-        guard !refusedAsReadOnly(pane, "renamed here") else { return }
+        guard !refusedAsReadOnly(pane, "renamed here", serverWritable: true) else { return }
         let urls = pane.selectedItems.filter { !$0.isParent }.map(\.url)
         guard !urls.isEmpty else { return }
         openRenameReplaceWindow?(RenameReplaceRequest(urls: urls))
@@ -929,14 +991,166 @@ final class AppModel {
         // Refreshes the document right now if it is already tracked --
         // whether its window is genuinely still open or one `openWindow` is
         // about to bring back with state SwiftUI never actually reset.
+        // A file on a server is fetched by the window itself, which opens at once
+        // and says it is waiting.
         OpenTextDocuments.shared.refreshIfOpen(item.url)
         openTextWindow?(item.url)
     }
 
+    /// The size up to which a right-click on a server file fetches it.
+    private var prefetchLimit: Int64 {
+        Int64(ConfigStore.shared.configuration.serverPrefetchMegabytes) * 1_000_000
+    }
+
+    /// Server files among `ids` that are not here, or are of a version the server
+    /// has changed since.
+    private func serverFilesToFetch(_ ids: Set<FileItem.ID>, in pane: PaneModel) -> [FileItem] {
+        guard pane.isServerListing else { return [] }
+        return pane.rows.filter {
+            ids.contains($0.id) && !$0.isParent && !$0.isDirectory
+                && !ServerDownloads.shared.isDownloading($0.url) && RemoteBrowsing.hasPending([$0.url])
+        }
+    }
+
+    /// Starts fetching the small ones of the server files right-clicked. Returns
+    /// nothing: it is called while the menu is built.
+    func prefetchForMenu(_ ids: Set<FileItem.ID>, in pane: PaneModel) {
+        let limit = prefetchLimit
+        guard limit > 0 else { return }
+        RemoteBrowsing.prefetch(serverFilesToFetch(ids, in: pane).map(\.url), upTo: limit)
+    }
+
+    /// Whether the menu offers Download to Cache: for a server file the
+    /// right-click left alone, too big or of unknown size.
+    func offersDownloadToCache(_ ids: Set<FileItem.ID>, in pane: PaneModel) -> Bool {
+        let limit = prefetchLimit
+        return serverFilesToFetch(ids, in: pane).contains { $0.sizeIsUnknown || $0.byteSize > limit }
+    }
+
+    func downloadToCache(_ ids: Set<FileItem.ID>, in pane: PaneModel) {
+        let urls = serverFilesToFetch(ids, in: pane).map(\.url)
+        Task { [weak self] in
+            for url in urls {
+                do {
+                    try await RemoteBrowsing.download(url)
+                } catch {
+                    self?.flash("Could not fetch \u{201C}\(url.lastPathComponent)\u{201D}: "
+                                + error.localizedDescription)
+                    return
+                }
+            }
+        }
+    }
+
+    /// Runs `then` once the files on a server among `urls` are here: at once
+    /// when nothing is to be fetched. An app given a file before that would get
+    /// the empty placeholder, locked, and show it as the file.
+    func whenFetched(_ urls: [URL], then: @escaping @MainActor () -> Void) {
+        guard RemoteBrowsing.hasPending(urls) else {
+            then()
+            return
+        }
+        // Up for as long as the fetch runs, with how much has come: gone after
+        // two seconds, a long fetch looked like nothing happening at all.
+        toastTask?.cancel()
+        toastIsError = false
+        toast = Self.fetchStatus(urls)
+        let ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled, let self else { return }
+                self.toast = Self.fetchStatus(urls)
+            }
+        }
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(urls)
+                ticker.cancel()
+                self?.toast = nil
+                then()
+            } catch {
+                ticker.cancel()
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
+    }
+
+    /// "Fetching “a.dmg” from the server… 12.3 MB of 25 MB", as far as is known.
+    private static func fetchStatus(_ urls: [URL]) -> String {
+        let files = urls.filter { !SFTPMirror.isDirectory($0) }
+        // Only what is still to come: a manifest fetched by a right-click is not
+        // fetched again, and is not counted.
+        let coming = urls.filter { RemoteBrowsing.hasPending([$0]) || RemoteBrowsing.isDownloading($0) }
+        let named = coming.isEmpty ? urls : coming
+        let what = named.count == 1 ? "\u{201C}\(named[0].lastPathComponent)\u{201D}" : "\(named.count) items"
+        var text = "Fetching \(what) from the server\u{2026}"
+        guard files.count == urls.count else { return text }
+        var total: Int64 = 0
+        var got: Int64 = 0
+        for file in files {
+            guard let size = RemoteBrowsing.listedNode(of: file)?
+                .attribute(BrowserManifest.Attribute.size)?.intValue else { return text }
+            total += size
+            got += RemoteBrowsing.hasPending([file]) ? min(RemoteBrowsing.received(file) ?? 0, size) : size
+        }
+        let format = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        text += " \(format(got)) of \(format(total))"
+        return text
+    }
+
     /// Space, as in Finder.
+    /// The open panel follows the cursor. A file on a server is fetched before the
+    /// panel shows it, and until then the panel keeps what it showed: an empty
+    /// placeholder is never shown as if it were the file. A move made meanwhile
+    /// abandons the fetch in progress.
+    func followQuickLook(_ rows: [FileItem]) {
+        quickLookFetch?.cancel()
+        quickLookFetch = nil
+        let urls = rows.map(\.url)
+        let files = rows.filter { !$0.isDirectory }.map(\.url)
+        guard RemoteBrowsing.hasPending(files) else {
+            QuickLookController.shared.update(urls)
+            return
+        }
+        flash("Fetching from the server\u{2026}", error: false)
+        quickLookFetch = Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(files)
+                guard !Task.isCancelled else { return }
+                // The same files, now with their bytes: drawn again, not kept.
+                QuickLookController.shared.update(urls, force: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
+    }
+
     func toggleQuickLook() {
         // Rows rather than items: `..` is previewable, as the folder it is.
-        QuickLookController.shared.toggle(active.selectedRows.map(\.url), owner: self)
+        let rows = active.selectedRows.map(\.url)
+        // Closing is at once, whatever is being fetched.
+        if QuickLookController.shared.isVisible {
+            QuickLookController.shared.toggle(rows, owner: self)
+            return
+        }
+        // A file on a server is fetched before it is previewed. Folders are
+        // not: their files would be everything below them.
+        let files = active.selectedRows.filter { !$0.isDirectory }.map(\.url)
+        guard RemoteBrowsing.hasPending(files) else {
+            QuickLookController.shared.toggle(rows, owner: self)
+            return
+        }
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.fetch(files)
+                guard let self else { return }
+                QuickLookController.shared.toggle(rows, owner: self)
+            } catch {
+                self?.flash("Could not fetch from the server: " + error.localizedDescription)
+            }
+        }
     }
 
     /// Move the cursor one row, keeping any open preview in step. Used when the
@@ -983,15 +1197,30 @@ final class AppModel {
     }
 
     func viewSelection() {
-        active.selectedItems.filter { !$0.isEnterable }.map(\.url).forEach(NSWorkspaceOpener.open)
+        let urls = active.selectedItems.filter { !$0.isEnterable }.map(\.url)
+        whenFetched(urls) { urls.forEach(NSWorkspaceOpener.open) }
     }
 
     func copySelection()  { transfer(.copy) }
     func moveSelection()  { transfer(.move) }
 
-    private func transfer(_ kind: FileOperations.Transfer) {
-        let urls = active.selectedItems.map(\.url)
+    private func transfer(_ kind: FileOperations.Transfer, urls chosen: [URL]? = nil) {
+        let urls = chosen ?? active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        // Files on a server are placeholders until fetched. Fetch them, then
+        // transfer the real files.
+        if RemoteBrowsing.hasPending(urls) {
+            flash("Fetching from the server\u{2026}", error: false)
+            Task { [weak self] in
+                do {
+                    try await RemoteBrowsing.fetch(urls)
+                    self?.transfer(kind, urls: urls)
+                } catch {
+                    self?.flash("Could not fetch from the server: " + error.localizedDescription)
+                }
+            }
+            return
+        }
         // The other pane is hidden in single-pane mode: there is nowhere to
         // copy or move "to the other pane", so it is refused rather than acting
         // on a pane that is not on screen.
@@ -1000,8 +1229,9 @@ final class AppModel {
                   + "to it.", error: true)
             return
         }
-        if kind == .move, refusedAsReadOnly(active, "moved from here") { return }
-        guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into")
+        if kind == .move, refusedAsReadOnly(active, "moved from here", serverWritable: true) { return }
+        guard !refusedAsTarget(inactive, kind == .copy ? "copied into" : "moved into",
+                               serverWritable: true)
         else { return }
         performTransfer(urls, to: inactive.directory, kind: kind,
                         into: inactive, from: kind == .move ? active : nil)
@@ -1010,18 +1240,23 @@ final class AppModel {
     /// A flat view lists many folders and is none of them: nothing can be
     /// copied, moved or made into it. Nor into a folder on a read-only server.
     /// Says so, and is true, when `pane` is either.
-    func refusedAsTarget(_ pane: PaneModel, _ what: String) -> Bool {
+    func refusedAsTarget(_ pane: PaneModel, _ what: String, serverWritable: Bool = false) -> Bool {
         if pane.isFlat {
             flash("Nothing can be \(what) a flat view: it is many folders, not one", error: true)
             return true
         }
-        return refusedAsReadOnly(pane, what + " it")
+        return refusedAsReadOnly(pane, what + " it", serverWritable: serverWritable)
     }
 
     /// FTP, or a share mounted read-only: nothing in `pane` can be changed.
     /// Said, rather than left to fail halfway through.
-    func refusedAsReadOnly(_ pane: PaneModel, _ what: String) -> Bool {
+    /// `serverWritable` is for the operations that are made on a server itself
+    /// (rename, delete, a new folder, copy in or out). Everything else on a
+    /// server is refused, since a change made only to the cache would never
+    /// reach the server.
+    func refusedAsReadOnly(_ pane: PaneModel, _ what: String, serverWritable: Bool = false) -> Bool {
         guard pane.volume.isReadOnly else { return false }
+        if serverWritable, RemoteBrowsing.isInside(pane.directory) { return false }
         let name = pane.volume.name ?? pane.directory.lastPathComponent
         flash("Nothing can be \(what): \u{201C}\(name)\u{201D} is read-only", error: true)
         return true
@@ -1044,6 +1279,16 @@ final class AppModel {
         // Finder's "Delete Immediately" instead -- which always asks, because it
         // cannot be undone.
         if active.isTrashListing { requestDeleteImmediately(); return }
+        // A server has no Trash: what is deleted there is gone, and says so.
+        let urls = active.selectedItems.map(\.url)
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be deleted together")
+                return
+            }
+            dialog = .serverDelete
+            return
+        }
         dialog = .trash
     }
 
@@ -1053,6 +1298,11 @@ final class AppModel {
         // In the Trash, Command-Delete deletes for good -- and that still asks,
         // the one case where the shortcut does not go through without a word.
         if active.isTrashListing { requestDeleteImmediately(); return }
+        // A server's items are deleted for good, so the shortcut asks as well.
+        if active.selectedItems.contains(where: { RemoteBrowsing.isInside($0.url) }) {
+            requestTrash()
+            return
+        }
         confirmTrash()
     }
 
@@ -1060,6 +1310,26 @@ final class AppModel {
         let pane = active
         let urls = pane.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+        // A server has no Trash: its items are deleted there.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be deleted together")
+                return
+            }
+            let successor = successorAfterDeleting(in: pane)
+            Task {
+                do {
+                    try await RemoteBrowsing.remove(urls)
+                    Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
+                    pane.pendingSelection = successor.map { [$0] } ?? []
+                    pane.reload()
+                    inactive.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         guard !refusedAsReadOnly(pane, "moved to the Trash from here") else { return }
 
         // Where the cursor should land afterwards.
@@ -1231,7 +1501,7 @@ final class AppModel {
 
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
@@ -1338,12 +1608,11 @@ final class AppModel {
             let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
             let url = pane.directory.appendingPathComponent(name)
             do {
-                try data.write(to: url, options: .withoutOverwriting)
+                try await writeNewFile(data, to: url)
             } catch {
                 dialog = .message(error.localizedDescription)
                 return
             }
-            FileHistory.shared.recordCreation(.clipboard, of: [url])
             await offerRename(of: url, in: pane)
             // The file is made either way; this says why it kept the plain name.
             if !stopped, let why = answer.explanation { flash(why) }
@@ -1362,16 +1631,31 @@ final class AppModel {
     }
 
     private func write(_ data: Data, as name: String) {
-        let url = active.directory.appendingPathComponent(name)
-        do {
-            try data.write(to: url, options: .withoutOverwriting)
-            FileHistory.shared.recordCreation(.clipboard, of: [url])
-            active.pendingSelection = [url]
-            active.reload()
-            flash("Created \(name)", error: false)
-        } catch {
-            dialog = .message(error.localizedDescription)
+        let pane = active
+        let url = pane.directory.appendingPathComponent(name)
+        Task {
+            do {
+                try await writeNewFile(data, to: url)
+                pane.pendingSelection = [url]
+                pane.reload()
+                flash("Created \(name)", error: false)
+            } catch {
+                dialog = .message(error.localizedDescription)
+            }
         }
+    }
+
+    /// Writes a new file from the clipboard, never over one already there. In a
+    /// folder on a server it is made on the server, which has no undo history here.
+    private func writeNewFile(_ data: Data, to url: URL) async throws {
+        let folder = url.deletingLastPathComponent()
+        if RemoteBrowsing.isInside(folder) {
+            _ = try await RemoteBrowsing.createFile(named: url.lastPathComponent, in: folder,
+                                                    contents: data)
+            return
+        }
+        try data.write(to: url, options: .withoutOverwriting)
+        FileHistory.shared.recordCreation(.clipboard, of: [url])
     }
 
     // MARK: - Scripts
@@ -1548,13 +1832,13 @@ final class AppModel {
     @ObservationIgnored private var scriptProblemsWaiting = false
 
     func requestNewFolder() {
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         textInput = suggestedName("untitled folder")
         dialog = .newFolder
     }
 
     func requestNewFile() {
-        guard !refusedAsTarget(active, "made in") else { return }
+        guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
         textInput = suggestedName("untitled.txt")
         dialog = .newFile
     }
@@ -1593,6 +1877,18 @@ final class AppModel {
         let name = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let parent = active.directory
+        if RemoteBrowsing.isInside(parent) {
+            Task {
+                do {
+                    let url = try await RemoteBrowsing.createFile(named: name, in: parent)
+                    active.pendingSelection = [url]
+                    active.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         Task {
             do {
                 let url = try await FileOperations.shared.createFile(named: name, in: parent)
@@ -1609,6 +1905,18 @@ final class AppModel {
         let name = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         let parent = active.directory
+        if RemoteBrowsing.isInside(parent) {
+            Task {
+                do {
+                    let url = try await RemoteBrowsing.makeFolder(named: name, in: parent)
+                    active.pendingSelection = [url]
+                    active.reload()
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
         Task {
             do {
                 let url = try await FileOperations.shared.createDirectory(named: name, in: parent)
@@ -1624,7 +1932,7 @@ final class AppModel {
     /// Rename happens in the row itself, as in Finder -- no dialog.
     func requestRename() {
         guard let item = singleSelection("rename") else { return }
-        guard !refusedAsReadOnly(active, "renamed here") else { return }
+        guard !refusedAsReadOnly(active, "renamed here", serverWritable: true) else { return }
 
         // With the Quick Look panel up it holds key focus, so a text field in
         // this window could never receive typing. Take key back; the panel stays
@@ -1809,6 +2117,19 @@ final class AppModel {
             return nil
         }
 
+        if RemoteBrowsing.isInside(item.url) {
+            return Task { () -> Bool in
+                do {
+                    let url = try await RemoteBrowsing.rename(item.url, to: newName)
+                    pane.pendingSelection = [advance ? (successor ?? url) : url]
+                    pane.reload()
+                    return true
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                    return false
+                }
+            }
+        }
         return Task { () -> Bool in
             do {
                 let url = try await FileOperations.shared.rename(item.url, to: newName)
@@ -2041,6 +2362,26 @@ final class AppModel {
                                  into destinationPane: PaneModel,
                                  from sourcePane: PaneModel?) {
         guard !urls.isEmpty else { return }
+        // Files on a server are placeholders until fetched: a drop or a paste
+        // of them fetches them first, as F5 does.
+        if RemoteBrowsing.hasPending(urls) {
+            flash("Fetching from the server\u{2026}", error: false)
+            Task { [weak self] in
+                do {
+                    try await RemoteBrowsing.fetch(urls)
+                    self?.performTransfer(urls, to: destination, kind: kind,
+                                          into: destinationPane, from: sourcePane)
+                } catch {
+                    self?.flash("Could not fetch from the server: " + error.localizedDescription)
+                }
+            }
+            return
+        }
+        if RemoteBrowsing.isInside(destination) {
+            transferToServer(urls, to: destination, kind: kind,
+                             into: destinationPane, from: sourcePane)
+            return
+        }
 
         // The same thing asked for again while it waits or runs -- a folder
         // grabbed three times, F6 pressed twice. A move cannot happen twice,
@@ -2250,6 +2591,35 @@ final class AppModel {
         flash("The transfer goes on in the background", error: false)
     }
 
+    /// A copy or move onto a server: the items are uploaded there. A move then
+    /// takes its originals away: one on this Mac goes to the Trash, one on a
+    /// server is removed there.
+    private func transferToServer(_ urls: [URL], to destination: URL,
+                                  kind: FileOperations.Transfer,
+                                  into destinationPane: PaneModel,
+                                  from sourcePane: PaneModel?) {
+        let onServer = urls.filter(RemoteBrowsing.isInside)
+        let onThisMac = urls.filter { !RemoteBrowsing.isInside($0) }
+        flash("\(kind == .move ? "Moving" : "Copying") to the server\u{2026}", error: false)
+        Task { [weak self] in
+            do {
+                try await RemoteBrowsing.upload(urls, into: destination)
+                if kind == .move {
+                    if !onThisMac.isEmpty { _ = await FileOperations.shared.trash(onThisMac) }
+                    if !onServer.isEmpty { try await RemoteBrowsing.remove(onServer) }
+                }
+                destinationPane.reload()
+                sourcePane?.reload()
+                let configuration = ConfigStore.shared.configuration
+                Sounds.playIfEnabled(kind == .move ? configuration.moveSound : configuration.copySound)
+                self?.flash("\(kind == .move ? "Moved" : "Copied") \(urls.count) item"
+                            + "\(urls.count == 1 ? "" : "s") to the server", error: false)
+            } catch {
+                self?.dialog = .message(error.localizedDescription)
+            }
+        }
+    }
+
     private func runTransfer(_ urls: [URL], to destination: URL,
                              kind: FileOperations.Transfer,
                              into destinationPane: PaneModel,
@@ -2383,6 +2753,10 @@ final class AppModel {
                 if kind == .copy, ArchiveBrowsing.isInside(source) {
                     let (from, to) = (source, target)
                     await BlockingWork.run { ArchiveBrowsing.unlockCopy(at: to, from: from) }
+                } else if RemoteBrowsing.isInside(source) {
+                    // Off a server, copied or moved: the server's bits, not the lock.
+                    let (from, to) = (source, target)
+                    await BlockingWork.run { ArchiveBrowsing.applyListedModes(at: to, from: from) }
                 }
                 outcome.succeeded.append(target)
                 progress.finishedItem()
@@ -2399,6 +2773,21 @@ final class AppModel {
         // left a panel with nothing to cancel on screen for good.
         reveal.cancel()
         transferProgress = nil
+
+        // A move out of a server takes its items away there, once their copies
+        // are here.
+        if kind == .move {
+            let copied = Set(outcome.succeeded.map(\.lastPathComponent))
+            let gone = urls.filter { RemoteBrowsing.isInside($0) && copied.contains($0.lastPathComponent) }
+            if !gone.isEmpty {
+                do {
+                    try await RemoteBrowsing.remove(gone)
+                } catch {
+                    flash("Copied, but could not remove them from the server: "
+                          + error.localizedDescription)
+                }
+            }
+        }
 
         destinationPane.pendingSelection = Set(outcome.succeeded)
         await Self.awaitListing(sourcePane)
@@ -2472,6 +2861,29 @@ final class AppModel {
         let name = entry.name
         let mountPoint = entry.url.path
         let verb = entry.isNetwork ? "disconnect" : "eject"
+
+        // An SFTP server is a pseudo volume: disconnecting it closes its
+        // connection and removes its shadow. Its panes go home first.
+        if RemoteBrowsing.isServerRoot(entry.url) {
+            let unsent = RemoteBrowsing.unsentEdits(under: entry.url)
+            guard unsent.isEmpty else {
+                dialog = .notice(
+                    title: "Not Disconnected: Changes Are Not on \(name) Yet",
+                    text: "These files were changed here and are not on the server yet. Wait for "
+                        + "them to be sent, or settle them, then disconnect:\n"
+                        + unsent.prefix(10).map(\.lastPathComponent).joined(separator: "\n"))
+                return
+            }
+            ServerEditing.shared.stop(entry.url)
+            for pane in [left, right]
+            where pane.directory.path == mountPoint || pane.directory.path.hasPrefix(mountPoint + "/") {
+                pane.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+            }
+            RemoteBrowsing.disconnect(root: entry.url)
+            VolumeList.shared.reload()
+            flash("Disconnected \(name)", error: false)
+            return
+        }
 
         // A server's share is unmounted; there is no disk to eject.
         FileManager.default.unmountVolume(at: entry.url,
@@ -3117,8 +3529,12 @@ final class AppModel {
         guard !forwardToTextEditor(#selector(NSText.copy(_:))) else { return }
         let urls = active.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
-        Clipboard.copy(urls)
-        flash("Copied \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+        // Files on a server are fetched first: pasted in Finder or another app,
+        // the copies here are what arrives, and a placeholder is an empty file.
+        whenFetched(urls) { [weak self] in
+            Clipboard.copy(urls)
+            self?.flash("Copied \(urls.count) item\(urls.count == 1 ? "" : "s")", error: false)
+        }
     }
 
     func cutSelectionToClipboard() {
@@ -3135,6 +3551,10 @@ final class AppModel {
     /// it, so the pending move stays pending and Paste can still perform it.
     func pasteAsLink() {
         guard !refusedAsTarget(active, "pasted into") else { return }
+        guard !RemoteBrowsing.isInside(active.directory) else {
+            flash("A link cannot be made on a server", error: true)
+            return
+        }
         let urls = Clipboard.fileURLs()
         guard !urls.isEmpty else {
             flash("The clipboard holds no files", error: true)
@@ -3159,10 +3579,15 @@ final class AppModel {
 
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
-        guard !refusedAsTarget(active, "pasted into") else { return }
+        guard !refusedAsTarget(active, "pasted into", serverWritable: true) else { return }
 
         let urls = Clipboard.fileURLs()
-        guard !urls.isEmpty else { return }
+        // No files, but text or a picture: Paste makes a file of it, the way
+        // New from Clipboard does.
+        guard !urls.isEmpty else {
+            if Clipboard.contents().kind != .empty { newFromClipboard() }
+            return
+        }
 
         let destination = active.directory
         let move = Clipboard.holdsCut
@@ -3188,7 +3613,7 @@ final class AppModel {
         let items = active.selectedItems
         guard !items.isEmpty else { return }
 
-        let values = items.map { fullPath ? $0.url.path : $0.name }
+        let values = items.map { fullPath ? ArchiveBrowsing.shownText($0.url) : $0.name }
         let text = Shell.arguments(values)
         Clipboard.copyText(text)
         // What was copied, not only that something was: the text itself, as
@@ -3233,6 +3658,10 @@ final class AppModel {
         }
         let urls = files.map(\.url)
         let name = files.count == 1 ? files[0].name : "\(files.count) files"
+        whenFetched(urls) { [weak self] in self?.copyContents(of: urls, name: name) }
+    }
+
+    private func copyContents(of urls: [URL], name: String) {
         Task {
             let contents = await Task.detached { Clipboard.readContents(of: urls) }.value
             switch contents {
@@ -3448,9 +3877,13 @@ final class AppModel {
     /// SwiftUI's URL importer hands over only the first item of a multi-item
     /// drag -- measured, not assumed. The drag pasteboard has them all.
     func dragPasteboardURLs() -> [URL] {
-        NSPasteboard(name: .drag)
-            .readObjects(forClasses: [NSURL.self],
-                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let pasteboard = NSPasteboard(name: .drag)
+        let files = pasteboard.readObjects(forClasses: [NSURL.self],
+                                           options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        // A file on a server is dragged as its sftp:// address; read back here
+        // as its copy, while the server is connected.
+        let texts = pasteboard.readObjects(forClasses: [NSString.self]) as? [String] ?? []
+        return files + texts.compactMap { RemoteBrowsing.actual(text: $0) }
     }
 
     /// Whether a drop happening right now would move rather than copy. The drag
@@ -3533,6 +3966,11 @@ final class AppModel {
         if modifiers.contains(.option) { return false }   // Option forces a copy
         if modifiers.contains(.command) { return true }   // Command forces a move
         // Finder's rule: within a volume a drag moves, across volumes it copies.
+        // A server is a volume of its own, though its copies here are on this
+        // Mac's disk; within one server a drag moves.
+        let servers = Set(urls.map { RemoteBrowsing.server(of: $0)?.key })
+        let target = RemoteBrowsing.server(of: destination)?.key
+        if servers != [nil] || target != nil { return servers == [target] }
         return onSameVolume(urls, as: destination)
     }
 
@@ -3700,7 +4138,7 @@ final class AppModel {
         // A click that slipped: nothing was meant to go anywhere, and the
         // image sliding home is all there is to say.
         if isWobble(urls, in: pane) { return false }
-        if refusedAsReadOnly(pane, "dropped into it") { return false }
+        if refusedAsReadOnly(pane, "dropped into it", serverWritable: true) { return false }
         // Dropping something back into the folder it already lives in -- or a
         // folder onto itself or into a folder of its own. A folder nudged a
         // few points lands on its own row, which is a folder to drop into.
@@ -3752,6 +4190,21 @@ final class AppModel {
 
     func requestOwnerEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Owner") else { return }
+        // On a server, the users its listings show, and Other for any name or
+        // number: this Mac's users are not the server's.
+        if RemoteBrowsing.server(of: active.directory) != nil {
+            let users = RemoteBrowsing.accountNames(for: active.directory).users
+            picker.show(sections: [.init(title: "Users", items: users),
+                                   .init(title: "", items: [Self.otherAccount])],
+                        current: target.owner) { [weak self] name in
+                if name == Self.otherAccount {
+                    self?.askAccount(group: false, current: target.owner)
+                } else {
+                    self?.applyOwnership(owner: name, group: nil)
+                }
+            }
+            return
+        }
         picker.show(sections: [.init(title: "Users", items: AccountLookup.users())],
                     current: target.owner) { [weak self] name in
             self?.applyOwnership(owner: name, group: nil)
@@ -3760,6 +4213,19 @@ final class AppModel {
 
     func requestGroupEdit(anchor: FileItem.ID? = nil) {
         guard let target = ownershipTarget(anchor, column: "Group") else { return }
+        if RemoteBrowsing.server(of: active.directory) != nil {
+            let groups = RemoteBrowsing.accountNames(for: active.directory).groups
+            picker.show(sections: [.init(title: "Groups", items: groups),
+                                   .init(title: "", items: [Self.otherAccount])],
+                        current: target.group) { [weak self] name in
+                if name == Self.otherAccount {
+                    self?.askAccount(group: true, current: target.group)
+                } else {
+                    self?.applyOwnership(owner: nil, group: name)
+                }
+            }
+            return
+        }
 
         // Your own groups first: they are the only ones a chgrp will accept
         // without root.
@@ -3772,8 +4238,24 @@ final class AppModel {
         }
     }
 
+    /// The picker's entry for a user or group the server's listings do not show.
+    static let otherAccount = "Other\u{2026}"
+
+    /// A server's user or group by any name or number, typed.
+    private func askAccount(group: Bool, current: String) {
+        accountIsGroup = group
+        textInput = current
+        dialog = .serverAccount
+    }
+
+    func applyTypedAccount() {
+        let text = textInput.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        applyOwnership(owner: accountIsGroup ? nil : text, group: accountIsGroup ? text : nil)
+    }
+
     private func ownershipTarget(_ anchor: FileItem.ID?, column: String) -> FileItem? {
-        guard !refusedAsReadOnly(active, "changed here") else { return nil }
+        guard !refusedAsReadOnly(active, "changed here", serverWritable: true) else { return nil }
         let items = active.selectedItems
         guard !items.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -3793,6 +4275,24 @@ final class AppModel {
         let pane = active
         let urls = pane.selectedItems.map(\.url)
         guard !urls.isEmpty else { return }
+
+        // On a server the change is made there, through sudo when the user may not.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be changed together")
+                return
+            }
+            Task {
+                do {
+                    try await RemoteBrowsing.setOwnership(owner: owner, group: group, for: urls)
+                    pane.reload()
+                    flash("Changed the owner on the server", error: false)
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
 
         Task {
             let before = await BlockingWork.run {
@@ -3860,7 +4360,7 @@ final class AppModel {
     /// `anchor` is the row whose cell hosts the editor; the edit still applies
     /// to the whole selection.
     func requestPermissionEdit(anchor: FileItem.ID? = nil) {
-        guard !refusedAsReadOnly(active, "changed here") else { return }
+        guard !refusedAsReadOnly(active, "changed here", serverWritable: true) else { return }
         let selected = active.selectedItems
         guard !selected.isEmpty else {
             dialog = .notice(title: "Nothing is selected",
@@ -3917,6 +4417,24 @@ final class AppModel {
 
         guard !urls.isEmpty else { return }
 
+        // On a server the bits are set there, and the folder listed again.
+        if urls.contains(where: RemoteBrowsing.isInside) {
+            guard urls.allSatisfy(RemoteBrowsing.isInside) else {
+                flash("Items on a server and items on this Mac cannot be changed together")
+                return
+            }
+            Task {
+                do {
+                    try await RemoteBrowsing.setPermissions(UInt32(mode & 0o7777), for: urls)
+                    pane.reload()
+                    flash("Changed the permissions on the server", error: false)
+                } catch {
+                    dialog = .message(error.localizedDescription)
+                }
+            }
+            return
+        }
+
         Task {
             // All twelve bits: the editor can now express setuid, setgid and
             // sticky, so it owns them rather than having them preserved behind
@@ -3958,7 +4476,32 @@ final class AppModel {
 
     func revealSelection() {
         let urls = active.selectedItems.map(\.url)
-        NSWorkspaceOpener.revealInFinder(urls.isEmpty ? [active.directory] : urls)
+        let shown = urls.isEmpty ? [active.directory] : urls
+        if shown.contains(where: RemoteBrowsing.isInside),
+           ConfigStore.shared.configuration.warnRevealingServerCache {
+            guard Self.agreeToRevealCache(host: RemoteBrowsing.server(of: shown[0])?.host) else { return }
+        }
+        NSWorkspaceOpener.revealInFinder(shown)
+    }
+
+    /// Finder cannot show a server: what it shows is the cache on this Mac.
+    /// Said first, until the person says not to.
+    private static func agreeToRevealCache(host: String?) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Finder Shows the Cache, Not the Server"
+        alert.informativeText = "Finder cannot look at \(host ?? "an SFTP server"). What it shows "
+            + "is Diptych\u{2019}s cache of it on this Mac: only what has been listed, a file "
+            + "empty until it has been fetched, and nothing changed there reaches the server. "
+            + "The cache goes at eject and at quit."
+        alert.addButton(withTitle: "Show the Cache")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don\u{2019}t warn again"
+        let answer = alert.runSelectable()
+        if answer == .alertFirstButtonReturn, alert.suppressionButton?.state == .on {
+            ConfigStore.shared.configuration.warnRevealingServerCache = false
+        }
+        return answer == .alertFirstButtonReturn
     }
 
     // MARK: - Run
@@ -4316,6 +4859,10 @@ final class AppModel {
     /// Convert… and Resize…: one dialog, Resize starting with a size.
     func requestConvert(_ urls: [URL], resizing: Bool) {
         guard !urls.isEmpty else { return }
+        // Pictures on a server are fetched before anything is asked about them.
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestConvert(urls, resizing: resizing) }
+        }
         convertingImages = urls
         convertOptions.folder = nil
         if resizing {
@@ -4349,6 +4896,9 @@ final class AppModel {
 
     func requestMakePDF(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestMakePDF(urls) }
+        }
         pdfImages = urls
         pdfPageCounts = [:]
         pdfOptions.folder = nil
@@ -4422,6 +4972,9 @@ final class AppModel {
 
     func requestRecognizeText(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.requestRecognizeText(urls) }
+        }
         recognizingImages = urls
         dialog = .recognizeText
     }
@@ -4540,6 +5093,9 @@ final class AppModel {
     }
 
     func removeBackground(of urls: [URL]) {
+        guard !RemoteBrowsing.hasPending(urls) else {
+            return whenFetched(urls) { [weak self] in self?.removeBackground(of: urls) }
+        }
         makeImages(urls, undoName: "Remove Background") { url throws(ImageMaking.Failure) in
             try ImageMaking.cutOut(url)
         }
@@ -4771,11 +5327,19 @@ final class AppModel {
 
     func calculateDirectorySizes() {
         guard canCalculateDirectorySizes else { return }
-        if active.volume.isNetwork {
+        let folders = DirectorySizes.folders(in: active.rows)
+        // A folder on a server is not totalled from this Mac: its files are
+        // placeholders, and a total of them would be zero. It is shown as unknown.
+        let onServer = folders.filter(RemoteBrowsing.isInside)
+        if !onServer.isEmpty {
+            DirectorySizes.shared.markUnknown(onServer)
+            flash("A folder on a server shows ??? : finding its size would mean downloading "
+                  + "everything in it", error: false)
+        } else if active.volume.isNetwork {
             flash("On a server: every folder below is read over the network, which can take "
                   + "long. Clear Directory Sizes stops it.", error: false)
         }
-        DirectorySizes.shared.calculate(DirectorySizes.folders(in: active.rows))
+        DirectorySizes.shared.calculate(folders.filter { !RemoteBrowsing.isInside($0) })
     }
 
     func swapPanes() {

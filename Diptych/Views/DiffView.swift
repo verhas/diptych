@@ -23,6 +23,8 @@ struct DiffView: View {
     @State private var window: NSWindow?
     @State private var wheel = SidewaysWheel()
     @State private var propertiesOpen: Bool?
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.controlActiveState) private var activeState
 
     private var pair: DiffPair { document.pair }
     private var diff: TextDiff { document.diff }
@@ -41,6 +43,16 @@ struct DiffView: View {
             } else {
             header
             Divider()
+            if let note = document.note {
+                Label(note, systemImage: "info.circle")
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.yellow.opacity(0.12))
+                Divider()
+            }
             content
             if let notice {
                 Divider()
@@ -93,6 +105,13 @@ struct DiffView: View {
             }
             found.delegate = guard_
         })
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if let url = note.object as? URL { document.markUnsent(url) }
+        }
+        // Back from changing one of them elsewhere.
+        .onChange(of: activeState) { _, state in
+            if state == .key { Task { await document.recheck() } }
+        }
         .onChange(of: document.isDirty) { _, dirty in
             // The dot in the close button, and the only unsaved-changes cue
             // macOS gives a window that is not an NSDocument.
@@ -109,6 +128,22 @@ struct DiffView: View {
 
     // MARK: - Two files that are not text
 
+    /// The answer at a glance, beside the sentence that gives it: green for the
+    /// same, yellow for one being the start of the other, red for different.
+    static func mark(_ outcome: BinaryComparison.Outcome, size: CGFloat = 28) -> some View {
+        let (symbol, color, said): (String, Color, String) = switch outcome {
+        case .same: ("checkmark.circle.fill", .green, "The same")
+        case .prefix: ("arrow.right.circle.fill", .yellow, "One is the start of the other")
+        case .different: ("xmark.circle.fill", .red, "Different")
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: size))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .accessibilityLabel(said)
+            .help(said)
+    }
+
     @ViewBuilder
     private var bytes: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -120,16 +155,20 @@ struct DiffView: View {
             }
 
             if let comparison = document.binary {
-                Text(comparison.verdict(left: pair.left.lastPathComponent,
-                                        right: pair.right.lastPathComponent))
-                    .font(.subheadline)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                HStack(alignment: .center, spacing: 12) {
+                    Self.mark(comparison.outcome)
+                    Text(comparison.verdict(left: pair.left.lastPathComponent,
+                                            right: pair.right.lastPathComponent))
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
                 Text(comparison.isIdentical
                      ? "Nothing to show side by side: there is no difference."
                      : "Bin Edit opens either of them byte by byte.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !comparison.isIdentical { byContent }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -158,6 +197,104 @@ struct DiffView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Two PDFs or pictures: what they show, which bytes cannot say.
+    @ViewBuilder
+    private var byContent: some View {
+        if let visual = document.visual {
+            Divider()
+            Text("Compared by what they show").font(.headline)
+            HStack(alignment: .center, spacing: 12) {
+                Self.mark(visual.verdict)
+                Text(visual.headline)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            let pageNotes = visual.pages.filter { !$0.notes.isEmpty || visual.pages.count > 1 }
+            if !visual.notes.isEmpty || !pageNotes.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(visual.notes, id: \.self) { note in
+                        Text("\u{2022} " + note)
+                    }
+                    ForEach(pageNotes, id: \.number) { page in
+                        Text("\u{2022} " + Self.pageLine(page, of: visual))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            }
+            previewButton
+        } else if let progress = document.visualProgress {
+            Divider()
+            Text("Compared by what they show").font(.headline)
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: progress.fraction)
+                    .frame(maxWidth: 360)
+                HStack(spacing: 6) {
+                    Text(progress.text.prefix(1).uppercased() + progress.text.dropFirst())
+                    Text(Self.timeLeft(progress, since: document.visualStarted))
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            previewButton
+        }
+    }
+
+    /// Open as soon as the two are known to be pages to lay over each other:
+    /// it does not wait for the comparison.
+    @ViewBuilder
+    private var previewButton: some View {
+        if document.canPreviewVisually {
+            Button("Visual Preview\u{2026}") {
+                openWindow(id: DiptychApp.visualPreviewWindowID, value: pair)
+            }
+            .help("Lay the two over each other and flip between them, page by page")
+        }
+    }
+
+    /// "About 12 s left", once a couple of seconds have shown the pace.
+    static func timeLeft(_ step: VisualComparison.Step, since start: Date?) -> String {
+        guard let start, step.fraction > 0.02 else { return "" }
+        let elapsed = Date().timeIntervalSince(start)
+        guard elapsed >= 2 else { return "" }
+        let left = Int((elapsed / step.fraction * (1 - step.fraction)).rounded(.up))
+        return left < 60 ? "about \(left) s left" : "about \(left / 60) min \(left % 60) s left"
+    }
+
+    /// The mark for a comparison by eye: green for the same, yellow for the
+    /// same to the eye or two scans of it, red for different.
+    static func mark(_ verdict: VisualComparison.Verdict?, size: CGFloat = 28) -> some View {
+        let (symbol, color, said): (String, Color, String) = switch verdict {
+        case .samePixels?: ("checkmark.circle.fill", .green, "The same pixels")
+        case .indistinguishable?: ("eye.circle.fill", .green, "The same to the eye")
+        case .nearlySame?: ("exclamationmark.circle.fill", .yellow, "Nearly the same")
+        case .rescanned?: ("questionmark.circle.fill", .yellow, "Probably two scans of the same")
+        case .different?, nil: ("xmark.circle.fill", .red, "Different")
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: size))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, color)
+            .accessibilityLabel(said)
+            .help(said)
+    }
+
+    private static func pageLine(_ page: VisualComparison.Page, of visual: VisualComparison) -> String {
+        let said = switch page.verdict {
+        case .samePixels: "the same pixels"
+        case .indistinguishable:
+            "the same to the eye (\(String(format: "%.1f", page.similarity * 100))% alike)"
+        case .nearlySame: "nearly the same"
+        case .rescanned: "probably two scans of the same page"
+        case .different: "different"
+        }
+        let lead = visual.pages.count > 1 ? "Page \(page.number): \(said)." : ""
+        return ([lead] + page.notes).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
     private func fileLine(_ url: URL) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "doc").foregroundStyle(.secondary)
@@ -182,6 +319,9 @@ struct DiffView: View {
                             contentIsSame: document.failure == nil && document.left != nil
                                 && diff.isIdentical && !document.isDirty)
             HStack(spacing: 12) {
+                if document.failure == nil, document.left != nil, !document.isDirty {
+                    Self.mark(diff.isIdentical ? .same : .different, size: 18)
+                }
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(diff.isIdentical ? .secondary : .primary)
@@ -200,7 +340,7 @@ struct DiffView: View {
                         .disabled(!document.canRedo)
                         .keyboardShortcut("z", modifiers: [.command, .shift])
                     Button("Save") { act { saveNow() } }
-                        .disabled(!document.isDirty)
+                        .disabled(!document.isDirty && !document.isUnsent)
                         .keyboardShortcut("s", modifiers: .command)
                 }
                 // Only for the one shape it finishes: a file and a copy of it
@@ -319,11 +459,31 @@ struct DiffView: View {
     /// The same text is not always the same file.
     private var sameText: String {
         let properties = document.properties
-        if properties?.bytesAreSame == false { return "The text is the same, the bytes are not." }
+        if properties?.bytesAreSame == false {
+            let parts = byteDifferences
+            guard !parts.isEmpty else { return "The text is the same, the bytes are not." }
+            return "The text is the same; it differs in " + Self.listed(parts.map(Self.headline)) + "."
+        }
         if properties?.differing.isEmpty == false {
             return "The content is the same; other properties are not."
         }
         return "These two files are the same."
+    }
+
+    /// What the same text is written differently in, read from both sides.
+    private var byteDifferences: [String] {
+        guard let left = document.left, let right = document.right else { return [] }
+        return TextDiff.sameTextDifferences(left, right)
+    }
+
+    /// "the line endings (left LF, right CRLF)" -> "the line endings".
+    private static func headline(_ part: String) -> String {
+        part.components(separatedBy: " (").first ?? part
+    }
+
+    private static func listed(_ parts: [String]) -> String {
+        guard parts.count > 1 else { return parts.first ?? "" }
+        return parts.dropLast().joined(separator: ", ") + " and " + parts.last!
     }
 
     // MARK: - The comparison
@@ -335,10 +495,12 @@ struct DiffView: View {
         } else if document.left == nil {
             message("Reading\u{2026}")
         } else if diff.isIdentical && !document.isDirty {
-            message(document.properties?.bytesAreSame == false
-                    ? "Every line matches, including the blank ones -- the bytes do not: the "
-                        + "line endings, a byte-order mark or the encoding differ."
-                    : "Every line matches, including the blank ones.")
+            message(document.properties?.bytesAreSame != false
+                    ? "Every line matches, including the blank ones."
+                    : byteDifferences.isEmpty
+                    ? "Every line matches, including the blank ones -- the bytes do not."
+                    : "Every line matches, including the blank ones -- the bytes do not. They differ in "
+                        + Self.listed(byteDifferences) + ".")
         } else {
             GeometryReader { geometry in
               let text = textWidths(in: geometry.size.width)

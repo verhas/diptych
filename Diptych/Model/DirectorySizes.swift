@@ -32,6 +32,9 @@ final class DirectorySizes {
         case updating(Int64)
         /// Worked out, and nothing under it is waiting.
         case done(Int64)
+        /// Not known, and not knowable without downloading everything in it:
+        /// a folder on a server. Shown as `???`, never as a zero.
+        case unknown
 
         /// Said beside it where there is room: the Info window.
         var note: String {
@@ -39,12 +42,14 @@ final class DirectorySizes {
             case .waiting:  "being worked out"
             case .updating: "an estimate, being worked out"
             case .done:     "everything in it"
+            case .unknown:  "not known: finding out would mean downloading everything in it"
             }
         }
 
         var text: String {
             switch self {
             case .waiting: "??"
+            case .unknown: "???"
             case .updating(let size), .done(let size):
                 ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
             }
@@ -69,6 +74,11 @@ final class DirectorySizes {
     func shown(for url: URL) -> Shown? {
         _ = revision
         return store.shown(url.path)
+    }
+
+    /// The folders whose size is not known, as opposed to not yet worked out.
+    func markUnknown(_ folders: [URL]) {
+        store.markUnknown(folders.map(\.path))
     }
 
     /// Works out the size of each of these folders, after whatever is being
@@ -107,6 +117,8 @@ final class DirectorySizes {
             let device: dev_t
             /// The folders in it when it was last read.
             var folders: [String] = []
+            /// Not knowable here: shown as unknown, whatever is or is not read.
+            var unknown = false
         }
 
         /// One folder to read, and the folders above it whose `pending`
@@ -149,6 +161,7 @@ final class DirectorySizes {
             lock.lock()
             defer { lock.unlock() }
             guard let entry = entries[Self.key(path)] else { return nil }
+            if entry.unknown { return .unknown }
             switch (entry.size, entry.pending) {
             case (nil, 0):            return nil
             case (nil, _):            return .waiting
@@ -179,6 +192,15 @@ final class DirectorySizes {
             lock.lock()
             defer { lock.unlock() }
             return entries.isEmpty
+        }
+
+        func markUnknown(_ paths: [String]) {
+            lock.lock()
+            for path in paths {
+                entries[Self.key(path)] = Entry(size: nil, pending: 0, device: 0, folders: [], unknown: true)
+            }
+            lock.unlock()
+            publish()
         }
 
         func clear() {

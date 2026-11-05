@@ -91,7 +91,7 @@ struct ContentView: View {
         //
         // A DropDelegate rather than .dropDestination, because only a delegate
         // can advertise *move* -- .dropDestination always shows the copy badge.
-        .onDrop(of: [.fileURL],
+        .onDrop(of: [.fileURL, .utf8PlainText],
                 delegate: PaneDropDelegate(model: model, isTargeted: $isDropTarget))
         .overlay {
             if isDropTarget {
@@ -168,6 +168,15 @@ struct ContentView: View {
             model.openVersionsWindow = { openWindow(id: DiptychApp.versionsWindowID, value: $0) }
             model.openDiskUsageWindow = { openWindow(id: DiptychApp.diskUsageWindowID, value: $0) }
             model.openSplitWindow = { openWindow(id: DiptychApp.splitWindowID, value: $0) }
+            model.openToolWindow = { kind, id in
+                let window = switch kind {
+                case .checksums: DiptychApp.checksumsWindowID
+                case .lineEndings: DiptychApp.lineEndingsWindowID
+                case .encodings: DiptychApp.encodingsWindowID
+                case .install: DiptychApp.installWindowID
+                }
+                openWindow(id: window, value: id)
+            }
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
@@ -536,7 +545,11 @@ struct PaneDropDelegate: DropDelegate {
     @Binding var isTargeted: Bool
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.fileURL])
+        if info.hasItemsConforming(to: [.fileURL]) { return true }
+        // Text is taken only when it is the address of a file on a connected
+        // server: a server's file is dragged that way.
+        return info.hasItemsConforming(to: [.utf8PlainText])
+            && MainActor.assumeIsolated { !model.dragPasteboardURLs().isEmpty }
     }
 
     func dropEntered(info: DropInfo) { isTargeted = true }
@@ -783,7 +796,7 @@ struct DialogSheet: View {
     @ViewBuilder
     private var checksumOverwrite: some View {
         let stale = model.pendingChecksumOverwrite?.plan.mismatched ?? []
-        let kind = model.pendingChecksumOverwrite?.algorithm.label ?? ""
+        let kind = model.pendingChecksumOverwrite.map { AppModel.label($0.algorithms) } ?? ""
         let one = stale.count == 1
         Text(one ? "A \(kind) checksum file already exists"
                  : "\(stale.count) \(kind) checksum files already exist")
@@ -821,6 +834,10 @@ struct DialogSheet: View {
             case .gitNotSent:
                 gitNotSent
 
+            case .keepAlive:
+                prompt(title: "Keep Alive", detail: model.keepAliveHint,
+                       confirm: "Set") { model.applyKeepAlive() }
+
             case .newFolder:
                 prompt(title: "New Folder",
                        detail: "Create a folder in \(model.active.directory.lastPathComponent)",
@@ -839,6 +856,29 @@ struct DialogSheet: View {
                     detail: items.prefix(5).map(\.name).joined(separator: "\n")
                         + (items.count > 5 ? "\n and \(items.count - 5) more" : ""),
                     confirm: "Move to Trash",
+                    destructive: true) { model.confirmTrash() }
+
+            case .serverAccount:
+                prompt(title: model.accountIsGroup ? "Group on the Server" : "Owner on the Server",
+                       detail: "A name the server knows, or a number. When the server refuses, "
+                           + "sudo is offered.",
+                       confirm: "Change") { model.applyTypedAccount() }
+
+            case .sudoPassword:
+                if let prompt = model.sudoPrompt {
+                    SudoPasswordView(prompt: prompt,
+                                     answer: { model.answerSudo($0) })
+                }
+
+            case .serverDelete:
+                let items = model.active.selectedItems
+                confirmation(
+                    title: "Delete \(items.count == 1 ? "\u{201C}\(items.first?.name ?? "")\u{201D}" : "\(items.count) items") permanently?",
+                    detail: "This is on a server, which has no Trash. It is deleted there at once, "
+                        + "and it cannot be undone: nothing can bring it back.\n\n"
+                        + items.prefix(5).map(\.name).joined(separator: "\n")
+                        + (items.count > 5 ? "\nand \(items.count - 5) more" : ""),
+                    confirm: "Delete Permanently",
                     destructive: true) { model.confirmTrash() }
 
             case .deleteImmediately:
@@ -925,6 +965,20 @@ struct DialogSheet: View {
 
             case .connectServer:
                 ConnectServerView(model: model) { model.dialog = nil }
+
+            case .sftpTrust:
+                if let prompt = model.sftpTrust {
+                    SFTPTrustView(prompt: prompt,
+                                  trust: { model.trustSFTPHost() },
+                                  decline: { model.declineSFTPTrust() })
+                }
+
+            case .sftpLogin:
+                if let login = model.sftpLogin {
+                    SFTPLoginView(prompt: login,
+                                  connect: { model.answerSFTPLogin(username: $0, password: $1) },
+                                  cancel: { model.cancelSFTPLogin() })
+                }
 
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
@@ -1026,6 +1080,7 @@ struct DialogSheet: View {
         // Scripts shows a script's source, whose lines are long.
         .frame(width: dialog == .getScripts ? 640
                : dialog == .historyStep || dialog == .connectServer || dialog == .historyMany || dialog == .runArguments
+                 || dialog == .sftpTrust
                ? 600 : 470)
     }
 

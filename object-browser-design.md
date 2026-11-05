@@ -203,6 +203,12 @@ archive:
    identity source, so there is one code path. Behaviour is unchanged; this is
    a refactor, done when it buys clarity, not before.
 5. **More file sources** — SFTP (writable: save = upload), disk images.
+   *SFTP, in progress: the connection (keys or password, host keys checked
+   against `~/.ssh/known_hosts` and Diptych's own list) and `SFTPMirror`, the
+   shadow of a server laid out like an opened archive, with placeholders that
+   `materialize` fills on demand. Still to do: wiring the mirror into a pane
+   (the path the pane shows for a remote folder is the open question), and
+   write-back, so that a save uploads.*
 6. **v2 object sources** — processes, login items, `defaults`, each with its
    own columns and actions, reachable only where someone looks for them.
 

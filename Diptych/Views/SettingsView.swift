@@ -304,6 +304,49 @@ struct BehaviourSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            HStack {
+                Text("On SFTP servers, fetch files up to")
+                TextField("", value: $store.configuration.serverPrefetchMegabytes,
+                          format: .number)
+                    .frame(width: 60)
+                    .multilineTextAlignment(.trailing)
+                Text("MB when right-clicked")
+            }
+            Text("A file on an SFTP server is fetched when it is first opened, previewed or "
+                 + "copied. A right-click fetches it at once when it is no bigger than this, "
+                 + "so it is here by the time a command wants it -- and fetches it again when "
+                 + "the server has changed it since. A bigger one has Download to Cache in the "
+                 + "menu instead. 0 fetches nothing on a right-click.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Text("Keep files up to")
+                TextField("", value: $store.configuration.serverCacheKeepMegabytes,
+                          format: .number)
+                    .frame(width: 70)
+                    .multilineTextAlignment(.trailing)
+                Text("MB in the cache of a connected SFTP server")
+            }
+            Text("A file copied to a server, no bigger than this, stays in the cache too, so "
+                 + "using it next -- Split, Compare, opening it -- does not fetch it back. A "
+                 + "cached file this size or smaller that the server lists as changed is "
+                 + "checked first with a checksum run on the server, and fetched only when "
+                 + "its bytes really differ. This limits disk use; the right-click size "
+                 + "above limits waiting. 0 keeps nothing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Warn that Reveal in Finder shows the cache of an SFTP server",
+                   isOn: $store.configuration.warnRevealingServerCache)
+            Text("Finder cannot show a server: what it shows is Diptych\u{2019}s cache of it on "
+                 + "this Mac.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Divider()
 
             Toggle("Return opens archives and disk images in the pane",
@@ -399,7 +442,7 @@ struct ColumnSettingsView: View {
             List {
                 // Original Location is left out: it belongs only to a Trash
                 // listing and has its own switch below, not the general set.
-                ForEach(store.configuration.columnOrder.filter { $0 != .originalLocation }) { column in
+                ForEach(store.configuration.columnOrder.filter { !$0.isListingOnly }) { column in
                     row(for: column)
                 }
                 .onMove { source, destination in
@@ -415,6 +458,15 @@ struct ColumnSettingsView: View {
             Text("A column, shown only when a pane is a Trash folder, giving where each file "
                  + "was before Diptych moved it to the Trash. It never appears in an ordinary "
                  + "folder.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Show what is kept here in SFTP server listings", isOn: Binding(
+                get: { store.configuration.showCacheColumnOnServers },
+                set: { store.configuration.showCacheColumnOnServers = $0 }))
+            Text("The Cached column, shown only in a folder on an SFTP server: how much of each "
+                 + "file has been fetched to this Mac, a bar while it arrives, and whether the "
+                 + "server has changed the file since.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 

@@ -63,7 +63,12 @@ struct PathCrumbs: View {
     }
 
     private func name(of folder: URL) -> Text {
-        Text(folder.pathComponents.count == 1 ? "/" : folder.lastPathComponent)
+        // A server's root is the server: its address, not a bare slash.
+        if folder.scheme == "sftp", folder.pathComponents.count <= 1 {
+            let text = folder.absoluteString.removingPercentEncoding ?? folder.absoluteString
+            return Text(text.hasSuffix("/") ? text : text + "/")
+        }
+        return Text(folder.pathComponents.count == 1 ? "/" : folder.lastPathComponent)
     }
 
     private func link(to folder: URL, cameFrom: URL?) -> some View {
@@ -81,6 +86,8 @@ struct PathCrumbs: View {
         .onContinuousHover { phase in
             if case .active = phase { NSCursor.pointingHand.set() }
         }
-        .help(folder.path)
+        .help(folder.scheme == "sftp"
+              ? (folder.absoluteString.removingPercentEncoding ?? folder.absoluteString)
+              : folder.path)
     }
 }

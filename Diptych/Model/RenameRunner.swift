@@ -35,8 +35,7 @@ enum RenameRunner {
             for step in part.plan.steps {
                 let from = part.folder.appendingPathComponent(step.from)
                 do {
-                    let to = try await FileOperations.shared.rename(from, to: step.to)
-                    await GitService.shared.followMove(from: from, to: to)
+                    let to = try await renameOne(from, to: step.to)
                     result.applied.append((from, to))
                 } catch {
                     result.failures.append(
@@ -52,5 +51,13 @@ enum RenameRunner {
         }.count
         result.notStarted = total - result.applied.count
         return result
+    }
+
+    /// One step: on a server, renamed there; here, with Git told to follow it.
+    static func renameOne(_ from: URL, to name: String) async throws -> URL {
+        if RemoteBrowsing.isInside(from) { return try await RemoteBrowsing.rename(from, to: name) }
+        let to = try await FileOperations.shared.rename(from, to: name)
+        await GitService.shared.followMove(from: from, to: to)
+        return to
     }
 }

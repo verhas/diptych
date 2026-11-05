@@ -100,6 +100,8 @@ nonisolated enum ArchiveBrowsing {
     /// and inside the archive that one came out of, for a zip in a zip.
     /// Anything else as it is.
     static func shown(_ url: URL) -> URL {
+        // A server's folder is shown by its sftp:// address, not as a path.
+        if let remote = RemoteBrowsing.shown(url) { return remote }
         var url = url
         for _ in 0..<16 {
             guard let opened = opened(containing: url) else { break }
@@ -109,9 +111,19 @@ nonisolated enum ArchiveBrowsing {
         return url
     }
 
+    /// A path as text for the person to copy or read: a server's folder as its
+    /// sftp:// address, a folder inside an archive as inside the archive, and
+    /// anything else as its path.
+    static func shownText(_ url: URL) -> String {
+        let display = shown(url)
+        guard display.scheme == "sftp" else { return display.path }
+        return display.absoluteString.removingPercentEncoding ?? display.absoluteString
+    }
+
     /// A path through an opened archive -- `…/photos.zip/2024` -- as the
     /// folder it was unpacked to; nil for one that is not.
     static func actual(_ shown: URL) -> URL? {
+        if shown.scheme == "sftp" { return RemoteBrowsing.actual(shown) }
         var path = shown.standardizedFileURL.path
         var mapped = false
         // The outer archive first, then any opened from inside it.
@@ -190,6 +202,16 @@ nonisolated enum ArchiveBrowsing {
     /// user gives.
     nonisolated static func unlockCopy(at target: URL, from source: URL) {
         guard let opened = opened(containing: source) else { return }
+        applyListedModes(at: target, from: source)
+        if let mark = Archiving.quarantine(of: opened.archive) {
+            Archiving.markQuarantined(target, with: mark)
+        }
+    }
+
+    /// Gives a copy taken out of any manifest-backed source -- an opened archive,
+    /// a server's shadow -- the modes its manifests record, item by item, rather
+    /// than the read-only lock the copy it came from carries.
+    nonisolated static func applyListedModes(at target: URL, from source: URL) {
         let manager = FileManager()
         // Every item copied, paired with where it came from.
         var pairs = [(target: target, source: source)]
@@ -221,9 +243,6 @@ nonisolated enum ArchiveBrowsing {
                 var info = stat()
                 if lstat(target.path, &info) == 0 { chmod(target.path, (info.st_mode & 0o7777) | 0o600) }
             }
-        }
-        if let mark = Archiving.quarantine(of: opened.archive) {
-            Archiving.markQuarantined(target, with: mark)
         }
     }
 

@@ -40,8 +40,13 @@ final class ServerTests: XCTestCase {
         XCTAssertEqual(parse("smb://peter@nas/photos")?.user(), "peter")
     }
 
+    func testSFTPIsAnAddressOfItsOwnAndNotMounted() {
+        XCTAssertEqual(parse("sftp://host/x")?.absoluteString, "sftp://host/x")
+        XCTAssertEqual(ServerAddress.kind(of: parse("sftp://host/x")!), .sftp)
+        XCTAssertTrue(problem("ssh://host/x")?.contains("sftp://") ?? false)
+    }
+
     func testWhatCannotBeMountedSaysWhy() {
-        XCTAssertTrue(problem("sftp://host/x")?.contains("SFTP") ?? false)
         XCTAssertTrue(problem("s3://bucket")?.contains("object store") ?? false)
         XCTAssertTrue(problem("gopher://x")?.contains("smb://") ?? false)
         XCTAssertNotNil(problem(""))

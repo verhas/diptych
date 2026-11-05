@@ -30,7 +30,14 @@ struct TextEditView: View {
         VStack(spacing: 0) {
             bar
             Divider()
-            if let failure = document.failure {
+            if let host = document.waitingFor {
+                ContentUnavailableView {
+                    Label("Fetching from \(host)\u{2026}", systemImage: "arrow.down.circle")
+                } description: {
+                    ProgressView().controlSize(.small)
+                    Text("The file opens as soon as it has arrived.")
+                }
+            } else if let failure = document.failure {
                 ContentUnavailableView {
                     Label("Cannot Edit as Text", systemImage: "doc.text")
                 } description: {
@@ -75,13 +82,21 @@ struct TextEditView: View {
             if document.plistEncoding != nil { link.showsTree = true }
             DiffWindows.shared.claimForEditing(url)
             guard_.shouldClose = { closeIsAllowed() }
-            guard_.willClose = { DiffWindows.shared.releaseFromEditing(url) }
+            guard_.willClose = {
+                DiffWindows.shared.releaseFromEditing(url)
+                document.close()
+            }
             found.delegate = guard_
         })
         // A commit made elsewhere moves the base of the commit bar.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
             note in
             if let window, note.object as? NSWindow === window { link.controller?.loadBaseline() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if (note.object as? URL)?.standardizedFileURL == url.standardizedFileURL {
+                document.markUnsent()
+            }
         }
         .onChange(of: document.isEdited) { _, edited in
             // The dot in the close button: the unsaved-changes cue every Mac
@@ -99,7 +114,9 @@ struct TextEditView: View {
         HStack(spacing: 10) {
             Button("Save") { saveNow() }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(!document.isEdited || document.isReadOnly)
+                .disabled(!(document.isEdited || document.isUnsent) || document.isReadOnly)
+                .help(document.isUnsent && !document.isEdited
+                      ? "Saved here, not on the server yet: ask again which version is kept" : "")
             // A property list is saved the way it came; this saves it the
             // other way, and it stays that way.
             if let encoding = document.plistEncoding {
@@ -151,6 +168,8 @@ struct TextEditView: View {
                     .foregroundStyle(.orange)
             } else if document.isEdited {
                 Text("Edited").foregroundStyle(.secondary)
+            } else if document.isUnsent {
+                Text("Not sent to the server").foregroundStyle(.orange)
             }
             if let format = document.format, document.problem == nil {
                 Label(format.title, systemImage: "checkmark.circle")

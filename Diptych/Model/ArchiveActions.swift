@@ -55,9 +55,12 @@ extension AppModel {
         guard !items.isEmpty else { return }
         let parents = Set(items.map { $0.deletingLastPathComponent() })
         let folder = parents.count == 1 ? parents.first! : active.directory
-        openArchiveWindow?(ArchiveRequest(items: items, folder: folder,
-                                          otherFolder: inactive.volume.isReadOnly
-                                              ? nil : otherPaneFolder))
+        let otherFolder = !inactive.isWritable ? nil : otherPaneFolder
+        // What is on a server, folders with everything in them, is fetched first.
+        whenFetched(items) { [weak self] in
+            self?.openArchiveWindow?(ArchiveRequest(items: items, folder: folder,
+                                                    otherFolder: otherFolder))
+        }
     }
 
     // MARK: - Extracting
@@ -124,21 +127,23 @@ extension AppModel {
             .map(\.url)
     }
 
-    var canExtract: Bool { !extractableSelection.isEmpty && !active.volume.isReadOnly }
+    var canExtract: Bool { !extractableSelection.isEmpty && active.isWritable }
 
     var canExtractToOtherPane: Bool {
-        !extractableSelection.isEmpty && otherPaneFolder != nil && !inactive.volume.isReadOnly
+        !extractableSelection.isEmpty && otherPaneFolder != nil && inactive.isWritable
     }
 
     /// Beside each archive.
     func extractHere() {
         guard canExtract else { return }
-        extract(extractableSelection, to: nil)
+        let archives = extractableSelection
+        whenFetched(archives) { [weak self] in self?.extract(archives, to: nil) }
     }
 
     func extractToOtherPane() {
         guard canExtractToOtherPane, let folder = otherPaneFolder else { return }
-        extract(extractableSelection, to: folder)
+        let archives = extractableSelection
+        whenFetched(archives) { [weak self] in self?.extract(archives, to: folder) }
     }
 
     /// One archive after the other: unpacked into a temporary folder as the
@@ -163,8 +168,9 @@ extension AppModel {
                     }
                 }
             }
+            var undoable = true
             if !made.isEmpty {
-                FileHistory.shared.recordCreation(.made("Extract"), of: made)
+                undoable = FileHistory.shared.recordCreation(.made("Extract"), of: made)
                 show(made, in: made[0].deletingLastPathComponent())
             }
             if !problems.isEmpty {
@@ -172,9 +178,8 @@ extension AppModel {
                                                      : "Not everything was extracted",
                                  text: problems.joined(separator: "\n\n"))
             } else if !made.isEmpty {
-                flash(archives.count == 1 ? "Extracted, undoable"
-                                          : "\(archives.count) archives extracted, undoable",
-                      error: false)
+                flash((archives.count == 1 ? "Extracted" : "\(archives.count) archives extracted")
+                      + (undoable ? ", undoable" : ""), error: false)
             }
         }
     }
@@ -436,6 +441,7 @@ extension AppModel {
             switch result {
             case .success(let point):
                 pane.navigate(to: point)
+                offerInstall(fromVolume: point, image: image)
             case .failure(let failure):
                 guard failure.message != "Cancelled." else { return }
                 dialog = .notice(title: "\u{201C}\(image.lastPathComponent)\u{201D} Could Not Be Mounted",
@@ -500,12 +506,13 @@ extension AppModel {
             .map(\.url)
     }
 
-    var canOptimize: Bool { !optimizableSelection.isEmpty && !active.volume.isReadOnly }
+    var canOptimize: Bool { !optimizableSelection.isEmpty && active.isWritable }
 
     /// A window with every one of them, before and after.
     func requestOptimize() {
         guard canOptimize else { return }
-        openOptimizeWindow?(OptimizeRequest(items: optimizableSelection))
+        let items = optimizableSelection
+        whenFetched(items) { [weak self] in self?.openOptimizeWindow?(OptimizeRequest(items: items)) }
     }
 
     // MARK: - Showing

@@ -24,7 +24,9 @@ struct BinaryView: View {
         VStack(spacing: 0) {
             controls
             Divider()
-            if model.isLoading {
+            if let host = model.waitingFor {
+                notice("Fetching from \(host)\u{2026} The file opens as soon as it has arrived.")
+            } else if model.isLoading {
                 notice("Reading\u{2026}")
             } else if let error = model.loadError {
                 notice(error)
@@ -47,7 +49,22 @@ struct BinaryView: View {
                 WindowSubjects.shared.register(window, kind: "binEdit", description: model.url.path)
             }
         })
-        .onDisappear { keys.stop() }
+        .onDisappear {
+            keys.stop()
+            model.holdFile(false)
+        }
+        // A server file with changes here is not fetched again under them.
+        .onChange(of: model.hasEdits) { _, edited in model.holdFile(edited) }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.replaced)) { note in
+            if (note.object as? URL)?.standardizedFileURL == model.url.standardizedFileURL {
+                model.readAgain(discarding: note.userInfo?["discarding"] as? Bool ?? true)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ServerEditing.notSent)) { note in
+            if (note.object as? URL)?.standardizedFileURL == model.url.standardizedFileURL {
+                model.markUnsent()
+            }
+        }
         .background {
             // A zero-size button is the only way to give a plain shortcut to
             // something that is not a menu item.
@@ -352,9 +369,15 @@ struct BinaryView: View {
                 Label("Read only \u{2014} \(volume) is mounted read-only", systemImage: "lock")
                     .foregroundStyle(.orange)
             }
-            Button("Save\u{2026}") { model.confirmingSave = true }
+            if model.isUnsent, !model.hasEdits {
+                Text("Not sent to the server").foregroundStyle(.orange)
+            }
+            Button("Save\u{2026}") {
+                // Nothing to write: only the question about the server is asked again.
+                if model.hasEdits { model.confirmingSave = true } else { model.save() }
+            }
                 .keyboardShortcut("s")
-                .disabled(!model.hasEdits || model.readOnlyVolume != nil)
+                .disabled(!(model.hasEdits || model.isUnsent) || model.readOnlyVolume != nil)
         }
         .font(.system(size: 11))
         .padding(.horizontal, 12)

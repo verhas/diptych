@@ -340,12 +340,26 @@ struct PaneView: View {
                 if pane.isEditingPath {
                     // AppKit, for Tab completion and a coloured suggestion --
                     // neither of which a SwiftUI TextField can express.
-                    PathField(text: $pathText,
-                              selectsAll: pathSelectsAll,
-                              base: pane.directory.path,
-                              onCommit: { commitPath() },
-                              onCancel: { endPathEdit() })
-                        .frame(height: 21)
+                    HStack(spacing: 0) {
+                        // A server's address is where the path is, not part of it:
+                        // shown, and not edited.
+                        if let server = serverPrefix {
+                            Text(server)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .fixedSize()
+                        }
+                        // On a server, the path typed is the server's, completed
+                        // from the listings kept for it here.
+                        PathField(text: $pathText,
+                                  selectsAll: pathSelectsAll,
+                                  base: serverPrefix == nil ? pane.directory.path
+                                      : ArchiveBrowsing.shown(pane.directory).path,
+                                  root: RemoteBrowsing.server(of: pane.directory)?.root.path,
+                                  onCommit: { commitPath() },
+                                  onCancel: { endPathEdit() })
+                            .frame(height: 21)
+                    }
                 } else {
                     Button {
                         beginPathEdit()
@@ -421,6 +435,9 @@ struct PaneView: View {
     private var crumbTarget: (url: URL, lastIsLink: Bool) {
         let here = ArchiveBrowsing.shown(pane.directory).standardizedFileURL.path
         guard pane.isEditingPath else { return (ArchiveBrowsing.shown(pane.directory), pane.isFlat) }
+        // A server's folder is typed as its address, which is not a local path:
+        // nothing is previewed from it while it is being typed.
+        if RemoteBrowsing.isInside(pane.directory) { return (ArchiveBrowsing.shown(pane.directory), pane.isFlat) }
         if let inside = ArchiveBrowsing.actual(URL(fileURLWithPath: PathCompletion.resolve(
             pathText, base: ArchiveBrowsing.shown(pane.directory).path))) {
             let shown = ArchiveBrowsing.shown(inside)
@@ -455,8 +472,22 @@ struct PaneView: View {
 
     /// `/Users/verhasp/Documents` shown as `~/Documents`; a folder inside an
     /// opened archive as inside the archive.
+    /// `sftp://peter@nas` for a folder on a server: the part of its address that
+    /// is not its path. Nil anywhere else.
+    private var serverPrefix: String? {
+        let shown = ArchiveBrowsing.shown(pane.directory)
+        guard shown.scheme == "sftp" else { return nil }
+        let text = shown.absoluteString.removingPercentEncoding ?? shown.absoluteString
+        return String(text.dropLast(shown.path.count))
+    }
+
     private var displayPath: String {
-        (ArchiveBrowsing.shown(pane.directory).path as NSString).abbreviatingWithTildeInPath
+        let shown = ArchiveBrowsing.shown(pane.directory)
+        // A server's folder reads as its address, which is what it is.
+        if shown.scheme == "sftp" {
+            return shown.absoluteString.removingPercentEncoding ?? shown.absoluteString
+        }
+        return (shown.path as NSString).abbreviatingWithTildeInPath
     }
 
     private func beginPathEdit(selectingAll: Bool = false) {
@@ -465,7 +496,7 @@ struct PaneView: View {
         // With the separator already there, typing a child's name works
         // straight away and Tab completes inside this directory rather than
         // re-completing its own name. "/" is the one path that already ends in
-        // one.
+        // one. A server's folder is edited as its whole address.
         let path = ArchiveBrowsing.shown(pane.directory).path
         pathText = path.hasSuffix("/") ? path : path + "/"
         pane.isEditingPath = true
@@ -492,7 +523,50 @@ struct PaneView: View {
         }
     }
 
+    /// The path bar's commit for a server folder. The text is an sftp:// address,
+    /// which opens that server, or a path on this server: absolute, or relative
+    /// to the folder being shown. A path the server does not have keeps the
+    /// editor open, as a local typo does.
+    private func commitServerPath() {
+        let typed = pathText.trimmingCharacters(in: .whitespaces)
+        if typed.lowercased().hasPrefix("sftp://") {
+            guard let address = URL(string: typed) else {
+                model.flash("\u{201C}\(typed)\u{201D} is not an address")
+                pathFieldFocused = true
+                return
+            }
+            endPathEdit()
+            model.connect(to: address, in: pane)
+            return
+        }
+
+        let current = ArchiveBrowsing.shown(pane.directory)
+        let remote = PathCompletion.resolve(typed, base: current.path)
+        var components = URLComponents(url: current, resolvingAgainstBaseURL: false)
+        components?.path = remote
+        guard let target = components?.url, let local = ArchiveBrowsing.actual(target) else {
+            model.flash("\u{201C}\(typed)\u{201D} is not a place on the server")
+            pathFieldFocused = true
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await RemoteBrowsing.refresh(local)
+                endPathEdit()
+                pane.navigate(to: local)
+            } catch {
+                model.flash("\u{201C}\(remote)\u{201D} could not be listed on the server: "
+                            + error.localizedDescription)
+                pathFieldFocused = true
+            }
+        }
+    }
+
     private func commitPath() {
+        if RemoteBrowsing.isInside(pane.directory) {
+            commitServerPath()
+            return
+        }
         // Resolved against the pane, so a bare name or a "../" means what it
         // says in a shell: relative to where you are, not to wherever the
         // process happens to think it is standing.
@@ -536,7 +610,8 @@ struct PaneView: View {
                                 set: { pane.sort(by: $0) })
         // The columns for this pane -- the Original Location column among them
         // only when this is a Trash listing (and its setting is on).
-        let columns = ConfigStore.shared.configuration.columns(inTrash: pane.isTrashListing)
+        let columns = ConfigStore.shared.configuration.columns(inTrash: pane.isTrashListing,
+                                                               onServer: pane.isServerListing)
         return Table(of: FileItem.self, selection: $pane.selection, sortOrder: sortOrder) {
             TableColumnForEach(columns) { column in
                 TableColumn(title(for: column), sortUsing: FileComparator(column: column)) { item in
@@ -573,7 +648,26 @@ struct PaneView: View {
                         // where every promise-based attempt before it landed
                         // as the file's own file:// URL, stringified as-is.
                         let provider = NSItemProvider()
-                        provider.registerObject(item.url.path as NSString, visibility: .all)
+                        // A file on a server is dragged as its sftp:// address,
+                        // text only: its copy here is no file to hand anyone --
+                        // most likely an empty placeholder, which a drop into
+                        // Finder would turn into an empty file. A drop in a
+                        // pane reads the address back.
+                        if RemoteBrowsing.isInside(item.url) {
+                            provider.registerObject(
+                                RemoteBrowsing.reportedPath(item.url) as NSString, visibility: .all)
+                            provider.suggestedName = item.name
+                            return provider
+                        }
+                        // The file URL and nothing else -- in particular no
+                        // plain-text path beside it. Finder's own drag of an
+                        // existing file, sniffed again, carries no text type at
+                        // all, and Terminal still pastes the path from the URL
+                        // alone. With the text there, Chrome hands the page a
+                        // text drop as well as a file one, and a web uploader
+                        // (ChatGPT's) spun on it forever where Finder's drop of
+                        // the same file uploaded in seconds.
+                        //
                         // Not `registerObject(item.url as NSURL)`: `NSURL`'s
                         // own conformance bundles "public.file-url" together
                         // with the generic "public.url" -- a type Finder's own
@@ -624,7 +718,7 @@ struct PaneView: View {
         // A fresh table identity when the Original Location column comes or goes
         // -- entering or leaving a Trash listing. Changing a Table's column
         // *count* in place is what AppKit crashes on; rebuilding sidesteps it.
-        .id(columns.contains(.originalLocation))
+        .id([columns.contains(.originalLocation), columns.contains(.cache)])
     }
 
     /// An archive being unpacked to be shown: how far, and Stop.
@@ -777,9 +871,9 @@ struct PaneView: View {
             if !archives.isEmpty {
                 Divider()
                 Button("Extract Here") { act(ids) { model.extractHere() } }
-                    .disabled(pane.volume.isReadOnly)
+                    .disabled(!pane.isWritable)
                 Button("Extract to Other Pane") { act(ids) { model.extractToOtherPane() } }
-                    .disabled(model.otherPaneFolder == nil || model.inactive.volume.isReadOnly)
+                    .disabled(model.otherPaneFolder == nil || !model.inactive.isWritable)
             }
             if ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, item.url.pathExtension.lowercased() == "zip" {
@@ -789,18 +883,59 @@ struct PaneView: View {
         }
     }
 
-    /// Checksum ▸ Create ▸ a kind, and Check -- offered when any plain file is
+    /// Tools: Find Duplicates, Archive, Checksum, Split or Join, and the text
+    /// conversions -- each where it applies and is not switched off in
+    /// Settings, and the menu itself only when one of them is there.
+    @ViewBuilder
+    private func toolsMenu(for ids: Set<FileItem.ID>) -> some View {
+        let config = ConfigStore.shared
+        let files = pane.rows.filter { ids.contains($0.id) && !$0.isDirectory && !$0.isParent }
+        let duplicates = config.menuItemShown(.findDuplicates) && ids.count == 1
+        let archive = config.menuItemShown(.archive)
+        let checksum = config.menuItemShown(.checksum) && !files.isEmpty
+        // Split a single ordinary file, or join when the selection is a set
+        // of parts (any of them) or a manifest. Offered even on read-only
+        // media: the output then goes to the other pane.
+        let urls = files.filter { !ArchiveBrowsing.isInside($0.url) }.map(\.url)
+        let join = config.menuItemShown(.splitJoin) && FileSplitting.joinSource(for: urls) != nil
+        let split = config.menuItemShown(.splitJoin) && !join && urls.count == 1
+            && !FileSplitting.isPart(urls[0]) && !FileSplitting.isManifest(urls[0])
+        let convert = config.menuItemShown(.textConversion) && !files.isEmpty
+        if duplicates || archive || checksum || join || split || convert {
+            Menu("Tools") {
+                if duplicates {
+                    Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
+                }
+                if archive { archiveMenu(for: ids) }
+                if checksum { checksumMenu(for: ids) }
+                if join {
+                    Button("Join Parts") { act(ids) { model.joinParts() } }
+                } else if split {
+                    Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
+                }
+                if convert {
+                    Divider()
+                    Button("Convert Line Endings\u{2026}") {
+                        act(ids) { model.requestConvertLineEndings() }
+                    }
+                    .disabled(!pane.isWritable)
+                    Button("Convert Character Encoding\u{2026}") {
+                        act(ids) { model.requestConvertEncoding() }
+                    }
+                    .disabled(!pane.isWritable)
+                }
+            }
+        }
+    }
+
+    /// Checksum ▸ Create…, and Check -- offered when any plain file is
     /// selected.
     @ViewBuilder
     private func checksumMenu(for ids: Set<FileItem.ID>) -> some View {
         if pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory && !$0.isParent }) {
             Menu("Checksum") {
-                Menu("Create") {
-                    Button("MD5") { act(ids) { model.createChecksums(.md5) } }
-                    Button("SHA-1") { act(ids) { model.createChecksums(.sha1) } }
-                    Button("SHA-256") { act(ids) { model.createChecksums(.sha256) } }
-                    Button("SHA-512") { act(ids) { model.createChecksums(.sha512) } }
-                }
+                // Which kinds is asked in a small window that lists the files.
+                Button("Create\u{2026}") { act(ids) { model.requestCreateChecksums() } }
                 Button("Check") { act(ids) { model.checkChecksums() } }
             }
         }
@@ -892,6 +1027,9 @@ struct PaneView: View {
                 }
                 Divider()
             }
+            // A right-click on server files starts fetching the small ones, so
+            // they are here by the time a command in this menu wants them.
+            let _ = model.prefetchForMenu(ids, in: pane)
             if !reachesNothing {
                 Button("Open") {
                     act(ids) {
@@ -899,6 +1037,11 @@ struct PaneView: View {
                     }
                 }
                 .keyboardShortcut(.open)
+            }
+            // Only for what the right-click did not fetch by itself: too big for
+            // the setting, or of no size the server gave.
+            if model.offersDownloadToCache(ids, in: pane) {
+                Button("Download to Cache") { act(ids) { model.downloadToCache(ids, in: pane) } }
             }
             if ConfigStore.shared.menuItemShown(.getInfo) {
                 Button("Get Info") { act(ids) { model.showInfo() } }
@@ -913,9 +1056,6 @@ struct PaneView: View {
                     act(ids) { model.findSiblingNames(of: item) }
                 }
             }
-            if ConfigStore.shared.menuItemShown(.findDuplicates), ids.count == 1 {
-                Button("Find Duplicates\u{2026}") { act(ids) { model.findDuplicates() } }
-            }
             // A single folder: what is taking up the room under it.
             if ConfigStore.shared.menuItemShown(.diskUsage),
                ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
@@ -928,28 +1068,13 @@ struct PaneView: View {
                !item.isDirectory, !item.isParent, !ArchiveBrowsing.isInside(item.url) {
                 Button("Previous Versions\u{2026}") { act(ids) { model.showPreviousVersions() } }
             }
-            if ConfigStore.shared.menuItemShown(.archive) { archiveMenu(for: ids) }
-            if ConfigStore.shared.menuItemShown(.checksum) { checksumMenu(for: ids) }
-            // Split a single ordinary file, or join when the selection is a set
-            // of parts (any of them) or a manifest. Offered even on read-only
-            // media: the output then goes to the other pane.
-            if ConfigStore.shared.menuItemShown(.splitJoin) {
-                let urls = pane.rows.filter { ids.contains($0.id) && !$0.isParent
-                                              && !$0.isDirectory
-                                              && !ArchiveBrowsing.isInside($0.url) }.map(\.url)
-                if FileSplitting.joinSource(for: urls) != nil {
-                    Button("Join Parts") { act(ids) { model.joinParts() } }
-                } else if urls.count == 1, let url = urls.first,
-                          !FileSplitting.isPart(url), !FileSplitting.isManifest(url) {
-                    Button("Split File\u{2026}") { act(ids) { model.requestSplitFile() } }
-                }
-            }
+            toolsMenu(for: ids)
             // Photos, PNGs and PDFs among the rows: they can be made smaller.
             if ConfigStore.shared.menuItemShown(.optimize),
                pane.rows.contains(where: { ids.contains($0.id) && !$0.isDirectory
                                            && Optimizing.kind(of: $0.url) != nil }) {
                 Button("Optimize File Size\u{2026}") { act(ids) { model.requestOptimize() } }
-                    .disabled(pane.volume.isReadOnly)
+                    .disabled(!pane.isWritable)
             }
             // Only when an image whose EXIF can be changed is selected; the
             // editor takes those and leaves anything else out.
@@ -1064,12 +1189,13 @@ struct PaneView: View {
             if ConfigStore.shared.menuItemShown(.edit),
                ids.count == 1, let item = pane.rows.first(where: { ids.contains($0.id) }),
                !item.isDirectory, !item.isParent, !item.isBrokenLink {
-                // Named for the format Text Edit will open it as: JSON Edit.
-                let format = TextFormat.of(item.url, extensions: ConfigStore.shared.configuration.textFormats)
-                Button(format.map { "\($0.title) Edit" } ?? "Text Edit") {
-                    act(ids) { model.showTextEditor() }
+                // Text Edit for text, Bin Edit for the rest; Bin Edit for a text
+                // file is the submenu's. Text Edit has no use for a binary file.
+                Menu("Edit") {
+                    Button("Binary Edit") { act(ids) { model.showBinaryView() } }
+                } primaryAction: {
+                    act(ids) { model.editSelection() }
                 }
-                Button("Bin Edit") { act(ids) { model.showBinaryView() } }
             }
             if ConfigStore.shared.menuItemShown(.scripts) {
                 scripts(for: targets(of: ids))
@@ -1120,13 +1246,20 @@ struct PaneView: View {
                     .keyboardShortcut(.renameSuggested)
                     .disabled(model.isSuggestingName)
                 }
+                // Each says it has no shortcut: without that, every one shows
+                // the submenu's own F2, which belongs to Rename alone.
                 Divider()
                 Button("Lower Case") { act(ids) { model.renameLowercased() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Upper Case") { act(ids) { model.renameUppercased() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Spaces to Underscores") { act(ids) { model.renameSpacesToUnderscores() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Button("Spaces to Dashes") { act(ids) { model.renameSpacesToDashes() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
                 Divider()
                 Button("Replace\u{2026}") { act(ids) { model.requestRenameReplace() } }
+                    .keyboardShortcut(KeyboardShortcut?.none)
             } primaryAction: {
                 act(ids) { model.requestRename() }
             }
@@ -1139,7 +1272,9 @@ struct PaneView: View {
 
             Divider()
 
-            Button("Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
+            // A server has no Trash: its items are deleted, and the name says so.
+            Button(ids.contains(where: { RemoteBrowsing.isInside($0) }) ? "Delete Permanently\u{2026}"
+                   : "Move to Trash", role: .destructive) { act(ids) { model.requestTrash() } }
                 .keyboardShortcut(.trash)
         }
     }
@@ -1362,6 +1497,8 @@ struct PaneView: View {
         var growing = false
         var uncounted = 0
         for item in selected {
+            // A size that is not known is not counted as zero: it is counted as not counted.
+            if item.sizeIsUnknown { uncounted += 1; continue }
             guard item.isEnterable else { bytes += item.byteSize; continue }
             // A link to a folder is not what is in it: not counted, as before.
             if item.isSymlink { continue }
@@ -1369,7 +1506,7 @@ struct PaneView: View {
             case .done(let size)?: bytes += size
             case .updating(let size)?: bytes += size; growing = true
             case .waiting?: growing = true
-            case nil: uncounted += 1
+            case .unknown?, nil: uncounted += 1
             }
         }
         var size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)

@@ -1,0 +1,540 @@
+import XCTest
+@testable import Diptych
+
+/// The mapping between a server's shadow folders and their sftp:// addresses,
+/// and what is fetched before a file is used, against a fake server.
+final class RemoteBrowsingTests: XCTestCase {
+
+    private var server: SFTPMirrorTests.FakeServer!
+
+    override func setUp() {
+        super.setUp()
+        RemoteBrowsing.cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("remote-browsing-\(UUID().uuidString)")
+        server = SFTPMirrorTests.FakeServer(
+            folders: ["/": [SFTPEntry(name: "home", kind: .directory)],
+                      "/home": [SFTPEntry(name: "peter", kind: .directory)],
+                      "/home/peter": [SFTPEntry(name: "note.txt", kind: .file, size: 5)]],
+            files: ["/home/peter/note.txt": Data("hello".utf8)])
+    }
+
+    override func tearDown() {
+        RemoteBrowsing.removeAll()
+        super.tearDown()
+    }
+
+    /// Connects the fake server as `peter@nas`, the way a connection does.
+    private func connect() async throws -> RemoteBrowsing.Server {
+        let root = RemoteBrowsing.shadowRoot(user: "peter", host: "nas", port: 22)
+        let mirror = SFTPMirror(root: root, remote: server, host: "nas")
+        let connected = RemoteBrowsing.Server(user: "peter", host: "nas", port: 22, root: root,
+                                              mirror: mirror, close: {})
+        RemoteBrowsing.add(connected)
+        try await mirror.populate("/")
+        return connected
+    }
+
+    func testAShadowFolderIsShownByItsAddressAndFoundAgain() async throws {
+        let connected = try await connect()
+        let local = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        XCTAssertTrue(RemoteBrowsing.isInside(local))
+        XCTAssertEqual(RemoteBrowsing.shown(local)?.absoluteString, "sftp://peter@nas/home/peter")
+
+        let address = URL(string: "sftp://peter@nas/home/peter")!
+        XCTAssertEqual(RemoteBrowsing.actual(address)?.standardizedFileURL.path,
+                       local.standardizedFileURL.path)
+        XCTAssertNil(RemoteBrowsing.actual(URL(string: "sftp://someone@nas/home/peter")!))
+    }
+
+    /// An address as text -- dragged, or given by an agent -- with its spaces as
+    /// they are, finds the copy as the escaped address does.
+    func testAnAddressWrittenAsTextIsFoundEscapedOrNot() async throws {
+        let connected = try await connect()
+        let local = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/My Notes.txt")
+        XCTAssertEqual(RemoteBrowsing.actual(text: "sftp://peter@nas/home/peter/My Notes.txt")?.path,
+                       local.path)
+        XCTAssertEqual(RemoteBrowsing.actual(text: "sftp://peter@nas/home/peter/My%20Notes.txt")?.path,
+                       local.path)
+        XCTAssertNil(RemoteBrowsing.actual(text: "/home/peter/note.txt"))
+        XCTAssertNil(RemoteBrowsing.actual(text: "sftp://someone@nas/home"))
+    }
+
+    func testTheTopOfAServerIsItsRootAndNothingLiesAboveIt() async throws {
+        let connected = try await connect()
+        XCTAssertTrue(RemoteBrowsing.isServerRoot(connected.root))
+        XCTAssertFalse(RemoteBrowsing.isServerRoot(RemoteBrowsing.localURL(on: connected, remote: "/home")))
+    }
+
+    func testAServerFolderIsANetworkVolumeThatIsReadOnly() async throws {
+        let connected = try await connect()
+        let facts = RemoteBrowsing.volumeFacts(of: RemoteBrowsing.localURL(on: connected, remote: "/home"))
+        XCTAssertEqual(facts?.isNetwork, true)
+        XCTAssertEqual(facts?.isReadOnly, true)
+        XCTAssertEqual(facts?.name, "nas")
+    }
+
+    func testAFileIsPendingUntilItsBytesAreFetched() async throws {
+        let connected = try await connect()
+        let file = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home/peter"))
+        XCTAssertTrue(RemoteBrowsing.hasPending([file]))
+
+        try await RemoteBrowsing.materialize(file)
+        XCTAssertFalse(RemoteBrowsing.hasPending([file]))
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "hello")
+    }
+
+    func testFetchingAFolderFetchesEveryFileBelowIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home")
+        XCTAssertTrue(RemoteBrowsing.hasPending([home]))
+
+        try await RemoteBrowsing.fetch([home])
+        XCTAssertFalse(RemoteBrowsing.hasPending([home]))
+        let file = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "hello")
+    }
+
+    func testAPathThatIsNotOnAServerIsNotPending() {
+        XCTAssertFalse(RemoteBrowsing.hasPending([URL(fileURLWithPath: "/tmp")]))
+        XCTAssertNil(RemoteBrowsing.shown(URL(fileURLWithPath: "/tmp")))
+    }
+
+    func testAConnectedServerIsAnEjectableNetworkVolumeNamedAfterItsHost() async throws {
+        let connected = try await connect()
+        let entries = RemoteBrowsing.sidebarEntries()
+        XCTAssertEqual(entries.map(\.name), ["nas"])
+        XCTAssertEqual(entries.first?.url.path, connected.root.path)
+        XCTAssertEqual(entries.first?.isEjectable, true)
+        XCTAssertEqual(entries.first?.isNetwork, true)
+    }
+
+    func testDisconnectingRemovesTheServerAndItsShadow() async throws {
+        let connected = try await connect()
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: connected.root.path))
+
+        XCTAssertTrue(RemoteBrowsing.disconnect(root: connected.root))
+        XCTAssertTrue(RemoteBrowsing.sidebarEntries().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: connected.root.path))
+        XCTAssertFalse(RemoteBrowsing.disconnect(root: connected.root))
+    }
+
+    // MARK: - Changes made on the server
+
+    func testANewFolderIsMadeOnTheServerAndListed() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let made = try await RemoteBrowsing.makeFolder(named: "photos", in: home)
+
+        XCTAssertEqual(server.folders["/home/peter/photos"], [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: made.path))
+        XCTAssertEqual(made.standardizedFileURL.path,
+                       RemoteBrowsing.localURL(on: connected, remote: "/home/peter/photos").standardizedFileURL.path)
+    }
+
+    func testAFileIsUploadedAndAnExistingNameIsNotWrittenOver() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let local = FileManager.default.temporaryDirectory
+            .appendingPathComponent("upload-\(UUID().uuidString).txt")
+        try Data("new".utf8).write(to: local)
+
+        try await RemoteBrowsing.upload([local], into: home)
+        XCTAssertEqual(server.files["/home/peter/" + local.lastPathComponent], Data("new".utf8))
+
+        do {
+            try await RemoteBrowsing.upload([local], into: home)
+            XCTFail("written over")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .exists(local.lastPathComponent))
+        }
+    }
+
+    func testAFolderIsUploadedWithEverythingInIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tree-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("sub"),
+                                                withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: folder.appendingPathComponent("sub/a.txt"))
+
+        try await RemoteBrowsing.upload([folder], into: home)
+        let name = folder.lastPathComponent
+        XCTAssertEqual(server.files["/home/peter/\(name)/sub/a.txt"], Data("a".utf8))
+    }
+
+    func testRenameAndDeleteAreMadeOnTheServer() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+
+        let renamed = try await RemoteBrowsing.rename(note, to: "memo.txt")
+        XCTAssertNil(server.files["/home/peter/note.txt"])
+        XCTAssertEqual(server.files["/home/peter/memo.txt"], Data("hello".utf8))
+        XCTAssertEqual(renamed.lastPathComponent, "memo.txt")
+
+        try await RemoteBrowsing.remove([renamed])
+        XCTAssertNil(server.files["/home/peter/memo.txt"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+    }
+
+    func testPermissionsAreSetOnTheServerAndTheListingShowsThem() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+
+        try await RemoteBrowsing.setPermissions(0o600, for: [note])
+        XCTAssertEqual(server.modes["/home/peter/note.txt"], 0o600)
+        let shown = try await node(connected, "/home/peter/note.txt")
+        XCTAssertEqual(shown?.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o600)
+    }
+
+    private func node(_ server: RemoteBrowsing.Server, _ path: String) async throws -> BrowserManifest.Node? {
+        let folder = RemoteBrowsing.localURL(on: server, remote: (path as NSString).deletingLastPathComponent)
+        return BrowserManifestStore.read(in: folder)?.nodes.first { $0.name == (path as NSString).lastPathComponent }
+    }
+
+    func testDeletingAFolderDeletesWhatIsInIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home")
+        try await RemoteBrowsing.refresh(home)
+        let peter = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+
+        try await RemoteBrowsing.remove([peter])
+        XCTAssertNil(server.folders["/home/peter"])
+        XCTAssertNil(server.files["/home/peter/note.txt"])
+    }
+
+    /// A placeholder's own size is zero, so the size is the server's listing: and
+    /// a listing without one leaves the size unknown, never zero.
+    func testAPlaceholderHasTheSizeTheServerListedOrNoneAtAll() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5),
+                                         SFTPEntry(name: "unknown.bin", kind: .file)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+
+        XCTAssertEqual(RemoteBrowsing.placeholder(folder.appendingPathComponent("note.txt"))?.size, 5)
+        let unknown = RemoteBrowsing.placeholder(folder.appendingPathComponent("unknown.bin"))
+        XCTAssertNotNil(unknown)
+        XCTAssertNil(unknown?.size)
+    }
+
+    /// What the MCP tools report: the address of a server's folder, which is
+    /// where it is, and not the cache it is read from.
+    func testAServerFolderIsReportedByItsAddressAndALocalOneByItsPath() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        XCTAssertEqual(RemoteBrowsing.reportedPath(home), "sftp://peter@nas/home/peter")
+        XCTAssertEqual(RemoteBrowsing.reportedPath(URL(fileURLWithPath: "/tmp/x")), "/tmp/x")
+    }
+
+    /// A server's own absolute path finds the copy kept for it, once it is listed.
+    func testAServerPathFindsItsListedCopy() async throws {
+        let connected = try await connect()
+        XCTAssertTrue(RemoteBrowsing.shadows(ofRemotePath: "/home/peter").isEmpty)
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home/peter"))
+        let found = RemoteBrowsing.shadows(ofRemotePath: "/home/peter")
+        XCTAssertEqual(found.map { $0.standardizedFileURL.path },
+                       [RemoteBrowsing.localURL(on: connected, remote: "/home/peter").standardizedFileURL.path])
+    }
+
+    // MARK: - Files, times and owners
+
+    func testAnEmptyFileIsCreatedOnTheServer() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        _ = try await RemoteBrowsing.createFile(named: "new.txt", in: home)
+        XCTAssertEqual(server.files["/home/peter/new.txt"], Data())
+    }
+
+    func testTheModificationTimeIsSetOnTheServer() async throws {
+        let connected = try await connect()
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home/peter"))
+        let note = RemoteBrowsing.localURL(on: connected, remote: "/home/peter/note.txt")
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        try await RemoteBrowsing.setTimes(modified: when, for: [note])
+        XCTAssertEqual(server.times["/home/peter/note.txt"], when)
+    }
+
+    /// The server's names, from its own listing: a name only the server has is
+    /// set by its number there, and a name it does not show is refused.
+    func testTheOwnerIsSetByTheServersOwnNameOrByNumber() async throws {
+        server.folders["/home/peter"] = [
+            SFTPEntry(name: "note.txt", kind: .file, size: 5, uid: 1000, gid: 1000,
+                      ownerName: "verhas", groupName: "verhas"),
+            SFTPEntry(name: "web.txt", kind: .file, size: 1, uid: 33, gid: 33,
+                      ownerName: "www-data", groupName: "www-data"),
+        ]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let note = folder.appendingPathComponent("note.txt")
+
+        XCTAssertEqual(RemoteBrowsing.accounts(of: connected).users["www-data"], 33)
+        XCTAssertTrue(RemoteBrowsing.knowsAccount("www-data", group: false, for: note))
+        XCTAssertTrue(RemoteBrowsing.knowsAccount("4242", group: true, for: note))
+        XCTAssertFalse(RemoteBrowsing.knowsAccount("nobody-here", group: false, for: note))
+
+        try await RemoteBrowsing.setOwnership(owner: "www-data", group: nil, for: [note])
+        XCTAssertEqual(server.owners["/home/peter/note.txt"]?.0, 33)
+        XCTAssertEqual(server.owners["/home/peter/note.txt"]?.1, 1000)
+
+        do {
+            try await RemoteBrowsing.setOwnership(owner: "nobody-here", group: nil, for: [note])
+            XCTFail("an unknown name was taken")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .unknownAccount("nobody-here"))
+        }
+    }
+
+    func testAFileIsCreatedOnTheServerWithItsContent() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        _ = try await RemoteBrowsing.createFile(named: "hello.txt", in: home, contents: Data("hi".utf8))
+        XCTAssertEqual(server.files["/home/peter/hello.txt"], Data("hi".utf8))
+    }
+
+    func testAFileIsUploadedUnderTheNameItIsGiven() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let local = FileManager.default.temporaryDirectory.appendingPathComponent("up-\(UUID().uuidString)")
+        try Data("x".utf8).write(to: local)
+        try await RemoteBrowsing.upload(local, as: home.appendingPathComponent("renamed.txt"))
+        XCTAssertEqual(server.files["/home/peter/renamed.txt"], Data("x".utf8))
+    }
+
+    func testTheListedModeIsTheServersNotTheLockedCopys() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        XCTAssertEqual(RemoteBrowsing.listedMode(of: folder.appendingPathComponent("note.txt")), 0o644)
+    }
+
+    // MARK: - Through sudo
+
+    /// A server that refuses the change to the user gets it through sudo: first
+    /// with no password, then with the one the person gives, kept as chosen.
+    func testARefusedOwnerChangeIsMadeThroughSudoWithThePasswordGiven() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5,
+                                                   uid: 1000, gid: 1000, ownerName: "peter")]
+        server.refusesOwnership = true
+        server.sudoAnswers = [.needsPassword, .done]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        RemoteBrowsing.askForSudo = { _, _, _ in SudoAnswer(password: "secret", keep: .fiveMinutes) }
+        defer { RemoteBrowsing.askForSudo = { host, user, wrong in
+            await SudoPrompter.ask(host: host, user: user, wasWrong: wrong) } }
+
+        try await RemoteBrowsing.setOwnership(owner: "0", group: nil, for: [folder.appendingPathComponent("note.txt")])
+
+        XCTAssertEqual(server.sudoCalls.map(\.password), [nil, "secret"])
+        XCTAssertEqual(server.sudoCalls.last?.arguments, ["chown", "0:1000", "--", "/home/peter/note.txt"])
+        XCTAssertEqual(SudoPasswords.shared.password(for: connected.key), "secret")
+
+        RemoteBrowsing.disconnect(root: connected.root)
+        XCTAssertNil(SudoPasswords.shared.password(for: connected.key))
+    }
+
+    func testAUserNotAllowedToUseSudoIsToldSo() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, uid: 1000, gid: 1000)]
+        server.refusesOwnership = true
+        server.sudoAnswers = [.notAllowed("peter is not in the sudoers file.")]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        do {
+            try await RemoteBrowsing.setOwnership(owner: "0", group: nil, for: [folder.appendingPathComponent("note.txt")])
+            XCTFail("done without sudo rights")
+        } catch {
+            XCTAssertEqual(error as? RemoteWriteError, .sudoRefused("peter is not in the sudoers file."))
+        }
+    }
+
+    func testAnEditNotYetSentIsCountedAsUnsent() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let note = folder.appendingPathComponent("note.txt")
+        try await RemoteBrowsing.materialize(note)
+        XCTAssertTrue(RemoteBrowsing.unsentEdits(under: connected.root).isEmpty)
+
+        try Data("changed".utf8).write(to: note)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)],
+                                              ofItemAtPath: note.path)
+        XCTAssertEqual(RemoteBrowsing.unsentEdits(under: connected.root).map(\.lastPathComponent), ["note.txt"])
+    }
+
+    /// The Info window shows a server file as the server has it: its mode and its
+    /// owner, never the copy kept here or a user of this Mac.
+    func testTheInfoWindowShowsTheServersFactsNotTheCopys() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o640,
+                                                   uid: 33, gid: 33, ownerName: "www-data", groupName: "www-data")]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+
+        let file = folder.appendingPathComponent("note.txt")
+        let shown = await MainActor.run { () -> (onServer: Bool, mode: mode_t, owner: String, group: String) in
+            let info = FileInfoModel(url: file)
+            return (info.isOnServer, info.mode, info.owner, info.group)
+        }
+        XCTAssertTrue(shown.onServer)
+        XCTAssertEqual(shown.mode & 0o7777, 0o640)
+        XCTAssertEqual(shown.owner, "www-data")
+        XCTAssertEqual(shown.group, "www-data")
+        XCTAssertEqual(RemoteBrowsing.accountNames(for: folder).users, ["www-data"])
+    }
+
+    /// The whole way of a save: an editor writes the copy here the way Diptych's
+    /// own Text Edit does, the watcher sees it, and the server gets it.
+    func testASaveInTheShadowIsSentByTheWatcher() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "note.txt", kind: .file, size: 5, mode: 0o644)]
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let file = folder.appendingPathComponent("note.txt")
+        try await RemoteBrowsing.materialize(file)
+        await MainActor.run { ServerEditing.shared.watch(connected.root) }
+        defer { Task { @MainActor in ServerEditing.shared.stop(connected.root) } }
+        try await Task.sleep(for: .seconds(1))
+
+        try await Task.sleep(for: .milliseconds(20))
+        try DiffDocument.write(Data("edited here".utf8), to: file)
+        for _ in 0..<40 where server.files["/home/peter/note.txt"] != Data("edited here".utf8) {
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        XCTAssertEqual(server.files["/home/peter/note.txt"], Data("edited here".utf8))
+    }
+
+    /// Asked for twice at once, a file is fetched once.
+    func testTwoAskingAtOnceShareOneDownload() async throws {
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let file = folder.appendingPathComponent("note.txt")
+        async let first: Void = RemoteBrowsing.download(file)
+        async let second: Void = RemoteBrowsing.download(file)
+        _ = try await (first, second)
+        XCTAssertEqual(server.downloads, ["/home/peter/note.txt"])
+        XCTAssertFalse(RemoteBrowsing.hasPending([file]))
+    }
+
+    /// A right-click fetches a file up to the size allowed, and nothing bigger.
+    func testARightClickFetchesOnlyWhatIsSmallEnough() async throws {
+        server.folders["/home/peter"] = [SFTPEntry(name: "small.txt", kind: .file, size: 5),
+                                         SFTPEntry(name: "big.bin", kind: .file, size: 5_000),
+                                         SFTPEntry(name: "unknown", kind: .file)]
+        server.files["/home/peter/small.txt"] = Data("small".utf8)
+        let connected = try await connect()
+        let folder = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(folder)
+        let names = ["small.txt", "big.bin", "unknown"]
+        RemoteBrowsing.prefetch(names.map { folder.appendingPathComponent($0) }, upTo: 1_000)
+        for _ in 0..<40 where server.downloads.isEmpty || RemoteBrowsing.isDownloading(folder.appendingPathComponent("small.txt")) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(server.downloads, ["/home/peter/small.txt"])
+    }
+
+    /// Made in a server's folder, a folder with what is in it is sent there.
+    func testAFolderMadeInAServerFolderIsSentWithWhatIsInIt() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let made = home.appendingPathComponent("extracted")
+        try FileManager.default.createDirectory(at: made.appendingPathComponent("sub"),
+                                                withIntermediateDirectories: true)
+        try Data("part".utf8).write(to: made.appendingPathComponent("sub/a.txt"))
+        try Data("one".utf8).write(to: home.appendingPathComponent("big.zip.001"))
+
+        try await RemoteBrowsing.publish([made, home.appendingPathComponent("big.zip.001")])
+        XCTAssertEqual(server.files["/home/peter/extracted/sub/a.txt"], Data("part".utf8))
+        XCTAssertEqual(server.files["/home/peter/big.zip.001"], Data("one".utf8))
+        XCTAssertFalse(RemoteBrowsing.hasPending([home.appendingPathComponent("big.zip.001")]))
+    }
+
+    /// What an archiver is given of a server's folder: no manifest, and the
+    /// server's permissions and dates rather than the cache's.
+    func testAServerFolderIsCopiedAsTheServerHasIt() async throws {
+        let when = Date(timeIntervalSince1970: 1_600_000_000)
+        server.folders["/home/peter"] = [SFTPEntry(name: "run.sh", kind: .file, size: 2, mode: 0o755,
+                                                   modified: when)]
+        server.files["/home/peter/run.sh"] = Data("ls".utf8)
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(RemoteBrowsing.localURL(on: connected, remote: "/home"))
+        try await RemoteBrowsing.fetch([home])
+
+        let copies = try RemoteBrowsing.faithfulCopies(of: [home])
+        defer { RemoteBrowsing.removeCopies(copies.staging) }
+        let copy = try XCTUnwrap(copies.urls.first)
+        XCTAssertNotEqual(copy, home)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: copy.path), ["run.sh"])
+        let facts = try FileManager.default.attributesOfItem(atPath: copy.appendingPathComponent("run.sh").path)
+        XCTAssertEqual(facts[.posixPermissions] as? Int, 0o755)
+        XCTAssertEqual(facts[.modificationDate] as? Date, when)
+
+        let local = URL(fileURLWithPath: "/tmp")
+        XCTAssertEqual(try RemoteBrowsing.faithfulCopies(of: [local]).urls, [local])
+    }
+
+    /// Copies on a server are found among the server's files, whose bytes are
+    /// fetched only when another file has their size.
+    func testDuplicatesOnAServerAreFoundThere() async throws {
+        server.folders["/home/peter"] = [
+            SFTPEntry(name: "a.txt", kind: .file, size: 5), SFTPEntry(name: "b.txt", kind: .file, size: 5),
+            SFTPEntry(name: "c.txt", kind: .file, size: 5), SFTPEntry(name: "d.txt", kind: .file, size: 6)]
+        server.files = ["/home/peter/a.txt": Data("hello".utf8), "/home/peter/b.txt": Data("hello".utf8),
+                        "/home/peter/c.txt": Data("world".utf8), "/home/peter/d.txt": Data("longer".utf8)]
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+
+        // On a thread of its own, as the window runs it: it waits for the server.
+        let found: [String] = await withCheckedContinuation { done in
+            Thread.detachNewThread {
+                var names: [String] = []
+                DuplicateFinder.search(for: home, options: .init(), cancelled: CancellationFlag()) { event in
+                    if case .found(_, let file) = event { names.append(file.url.lastPathComponent) }
+                }
+                done.resume(returning: names)
+            }
+        }
+        XCTAssertEqual(found.sorted(), ["a.txt", "b.txt"])
+        XCTAssertFalse(server.downloads.contains("/home/peter/d.txt"), "no other file of its size")
+    }
+
+    /// A server already connected is found by its address, and only by its own.
+    func testAConnectedServerIsFoundByItsAddress() async throws {
+        let connected = try await connect()
+        XCTAssertEqual(RemoteBrowsing.connected(URL(string: "sftp://peter@nas/home")!)?.root, connected.root)
+        XCTAssertNil(RemoteBrowsing.connected(URL(string: "sftp://someone@nas/home")!))
+        XCTAssertNil(RemoteBrowsing.connected(URL(string: "sftp://peter@nas:2222/")!))
+        XCTAssertNil(RemoteBrowsing.connected(URL(string: "smb://nas/home")!))
+    }
+
+    /// Renamed on the server in case only, the file is still listed here: on a
+    /// disk that ignores case, the old name gone is the new one.
+    func testARenameInCaseOnlyKeepsTheFileListed() async throws {
+        let connected = try await connect()
+        let home = RemoteBrowsing.localURL(on: connected, remote: "/home/peter")
+        try await RemoteBrowsing.refresh(home)
+        let renamed = try await RemoteBrowsing.rename(home.appendingPathComponent("note.txt"), to: "NOTE.TXT")
+        XCTAssertEqual(server.files["/home/peter/NOTE.TXT"], Data("hello".utf8))
+        let names = try FileManager.default.contentsOfDirectory(atPath: home.path)
+            .filter { !RemoteBrowsing.isBookkeeping($0) }
+        XCTAssertEqual(names, ["NOTE.TXT"])
+        XCTAssertEqual(renamed.lastPathComponent, "NOTE.TXT")
+    }
+}

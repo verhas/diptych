@@ -25,12 +25,16 @@ struct FileItem: Identifiable, Hashable, Sendable {
     /// Only meaningful for non-directories: every directory carries the execute
     /// bit, since that is what makes it traversable.
     let isExecutable: Bool
-    let byteSize: Int64
-    let modified: Date
+    var byteSize: Int64
+    var modified: Date
 
     // Populated only when the matching column is switched on; the loader does
     // not pay for metadata nobody is showing.
     var created: Date = .distantPast
+    /// A file on a server whose size the server did not give. Shown as `???`.
+    var sizeIsUnknown = false
+    /// A file on a server: whether its bytes are here. Nil for anything else.
+    var serverCache: ServerCache?
     var added: Date = .distantPast
     var kind: String = ""
     var owner: String = ""
@@ -103,7 +107,13 @@ struct FileItem: Identifiable, Hashable, Sendable {
     var sizeText: String {
         if isParent { return "" }
         if isDirectory && !isPackage { return "--" }
-        return ByteCountFormatter.string(fromByteCount: byteSize, countStyle: .file)
+        // Not zero: the size is not known here, so it is not said to be nothing.
+        if sizeIsUnknown { return "???" }
+        return Self.byteText(byteSize)
+    }
+
+    static func byteText(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     var modifiedText: String {
@@ -141,6 +151,7 @@ struct FileItem: Identifiable, Hashable, Sendable {
         case .tags:          return tags.joined(separator: ", ")
         case .git:           return gitStates.map(\.title).joined(separator: ", ")
         case .originalLocation: return originalLocation
+        case .cache:         return serverCache?.bytesHere.map(Self.byteText) ?? ""
         default:             return media?.text(for: column) ?? ""
         }
     }
@@ -159,5 +170,24 @@ struct FileItem: Identifiable, Hashable, Sendable {
                  isExecutable: false,
                  byteSize: 0,
                  modified: .distantPast)
+    }
+}
+
+/// What is kept here of a file on a server. A download in progress is not
+/// part of it: that is asked of `RemoteBrowsing` as it happens.
+enum ServerCache: Hashable, Sendable {
+    /// Listed only: the copy here is an empty placeholder.
+    case notFetched
+    /// Fetched, `bytes` of it, and the server still has that version.
+    case fetched(bytes: Int64)
+    /// Fetched, and the server has changed the file since: fetched again the
+    /// next time it is opened, unless it was changed here too.
+    case changedThere(bytes: Int64)
+
+    var bytesHere: Int64? {
+        switch self {
+        case .notFetched: nil
+        case .fetched(let bytes), .changedThere(let bytes): bytes
+        }
     }
 }

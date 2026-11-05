@@ -21,13 +21,20 @@ struct InfoView: View {
             TabView {
                 general.tabItem { Label("General", systemImage: "doc") }
                 ownership.tabItem { Label("Ownership", systemImage: "person.crop.circle") }
-                tags.tabItem { Label("Tags", systemImage: "tag") }
-                attributes.tabItem { Label("Attributes", systemImage: "list.bullet.rectangle") }
-                access.tabItem { Label("Access", systemImage: "lock.shield") }
+                // Tags, extended attributes and access control lists are this
+                // Mac's: SFTP carries none of them, and what has a file open is
+                // asked of this Mac's programs. None is offered for a server's file.
+                if !model.isOnServer {
+                    tags.tabItem { Label("Tags", systemImage: "tag") }
+                    attributes.tabItem { Label("Attributes", systemImage: "list.bullet.rectangle") }
+                    access.tabItem { Label("Access", systemImage: "lock.shield") }
+                }
                 signature.tabItem { Label("Signature", systemImage: "checkmark.seal") }
                 details.tabItem { Label("Details", systemImage: "text.magnifyingglass") }
                 openUsing.tabItem { Label("Open Using", systemImage: "square.and.arrow.up.on.square") }
-                openBy.tabItem { Label("Open By", systemImage: "bolt.horizontal.circle") }
+                if !model.isOnServer {
+                    openBy.tabItem { Label("Open By", systemImage: "bolt.horizontal.circle") }
+                }
                 share.tabItem { Label("Share", systemImage: "square.and.arrow.up") }
             }
             .padding(14)
@@ -140,6 +147,8 @@ struct InfoView: View {
 
                 panel("Dates") {
                     DatePicker("Created", selection: $model.created)
+                        // A server keeps no creation date.
+                        .disabled(model.isOnServer)
                     DatePicker("Modified", selection: $model.modified)
                     // Neither of these is settable: "added" belongs to the
                     // folder's index, "accessed" to the kernel.
@@ -162,6 +171,22 @@ struct InfoView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 panel("Owner and group") {
+                if model.isOnServer {
+                    // The server's own users: typed, by name or number, since this
+                    // Mac's are not the server's.
+                    let known = RemoteBrowsing.accountNames(for: model.url)
+                    TextField("Owner (name or number)", text: $model.owner)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Group (name or number)", text: $model.group)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Apply Owner and Group") { model.applyOwnership() }
+                    Text("Known on the server: users \(known.users.joined(separator: ", ")); groups "
+                         + "\(known.groups.joined(separator: ", ")). Any other name, or a number, "
+                         + "can be typed. When the server refuses, sudo is offered.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                 Picker("Owner", selection: $model.owner) {
                     ForEach(AccountLookup.users(), id: \.self) { Text($0).tag($0) }
                 }
@@ -181,6 +206,7 @@ struct InfoView: View {
                          + "password; macOS will ask.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
                 }
 
                 panel("Permissions (\(model.modeText))") {
@@ -570,6 +596,7 @@ struct InfoView: View {
                 Spacer()
                 if model.isReadingDetails { ProgressView().controlSize(.small) }
             }
+            if let host = model.waitingForDownload { waitingNotice(host) }
 
             if let report = model.details {
                 if let nothing = report.nothing {
@@ -606,7 +633,7 @@ struct InfoView: View {
                         .textSelection(.enabled)
                     }
                 }
-            } else if !model.isReadingDetails {
+            } else if !model.isReadingDetails, model.waitingForDownload == nil {
                 Text("Nothing has been read yet.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
@@ -734,15 +761,27 @@ struct InfoView: View {
 
     // MARK: - Code signature and notarization
 
+    /// What is read from a server file's bytes, while they are on their way.
+    private func waitingNotice(_ host: String) -> some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("Waiting for the file to arrive from \(host)\u{2026} This is read from what is "
+                 + "in the file, so it is shown once the file is here.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var signature: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let host = model.waitingForDownload { waitingNotice(host) }
                 HStack(alignment: .firstTextBaseline) {
                     Text("Code signature and notarization").font(.headline)
                     Spacer()
                     if model.isReadingSigning { ProgressView().controlSize(.small) }
                     Button("Check Again") { model.recheckSigning() }
-                        .disabled(model.isReadingSigning)
+                        .disabled(model.isReadingSigning || model.waitingForDownload != nil)
                 }
 
                 if let report = model.signing {
@@ -788,7 +827,7 @@ struct InfoView: View {
                             .frame(maxHeight: 180)
                         }
                     }
-                } else if !model.isReadingSigning {
+                } else if !model.isReadingSigning, model.waitingForDownload == nil {
                     Text("Nothing has been read yet.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -887,8 +926,12 @@ struct InfoView: View {
                  + "that offers itself \u{2014} the same sheet as Finder\u{2019}s Share.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ShareButton(items: [model.url], title: "Share\u{2026}")
-                .frame(width: 110, height: 30)
+            if let host = model.waitingForDownload {
+                waitingNotice(host)
+            } else {
+                ShareButton(items: [model.url], title: "Share\u{2026}")
+                    .frame(width: 110, height: 30)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

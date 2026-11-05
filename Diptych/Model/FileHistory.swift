@@ -241,6 +241,8 @@ final class FileHistory {
     /// wanted -- which is the same ordering problem the rename itself solved,
     /// read backwards.
     func recordRenames(_ applied: [(from: URL, to: URL)], in folder: URL, renames: Int) {
+        // A server's renames have no undo here.
+        let applied = applied.filter { !RemoteBrowsing.isInside($0.to) }
         guard !applied.isEmpty else { return }
         record("Rename Many",
                told: "\(renames) item\(renames == 1 ? "" : "s") in \(Self.folder(of: applied[0].to)) "
@@ -254,6 +256,7 @@ final class FileHistory {
     /// transforms and the find-and-replace window record, so Undo says "Lower
     /// Case" or "Replace in Names" rather than "Rename Many".
     func recordRenames(_ applied: [(from: URL, to: URL)], renames: Int, as label: String) {
+        let applied = applied.filter { !RemoteBrowsing.isInside($0.to) }
         guard !applied.isEmpty else { return }
         record(label,
                told: "\(renames) item\(renames == 1 ? "" : "s") in \(Self.folder(of: applied[0].to)) "
@@ -305,11 +308,18 @@ final class FileHistory {
         }
     }
 
-    func recordCreation(_ kind: Creation, of urls: [URL]) {
-        guard let first = urls.first else { return }
+    /// Whether it can be undone: what was made in a folder on a server is sent
+    /// there instead, and a server's changes have no undo here.
+    @discardableResult
+    func recordCreation(_ kind: Creation, of urls: [URL]) -> Bool {
+        let onServer = urls.filter { RemoteBrowsing.isInside($0) }
+        if !onServer.isEmpty { ServerEditing.shared.sendMade(onServer) }
+        let here = urls.filter { !RemoteBrowsing.isInside($0) }
+        guard let first = here.first else { return false }
         record(kind.name,
-               told: kind.told(urls, folder: folder(of: first), names: names(urls)),
-               removals(urls))
+               told: kind.told(here, folder: folder(of: first), names: names(here)),
+               removals(here))
+        return onServer.isEmpty
     }
 
     /// Moving to the Trash, which the Trash itself makes reversible: the item

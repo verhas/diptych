@@ -131,11 +131,16 @@ enum DuplicateFinder {
         var info = stat()
         guard lstat(url.path, &info) == 0 else { return }
         let isFolder = info.st_mode & S_IFMT == S_IFDIR
+        // On a server, what the shadow holds is its listing: the folders are
+        // listed as they are reached, sizes are the listed ones, and a file's
+        // bytes are fetched only once another of its size turns up.
+        let onServer = RemoteBrowsing.isInside(url)
 
         if isFolder {
             guard let path = realPath(url.path) else { return }
             var walk = Walk(mode: .groups, options: options, device: info.st_dev,
                             cancelled: cancelled, report: report)
+            walk.onServer = onServer
             walk.pruned = prunedFor(path)
             walk.breadthFirst(path, skipping: nil, descend: options.subfolders,
                               stage: .folder, then: .subfolders)
@@ -149,13 +154,17 @@ enum DuplicateFinder {
               let folder = realPath(url.deletingLastPathComponent().path),
               let bytes = realPath(url.path) else { return }
         let original = URL(fileURLWithPath: folder).appendingPathComponent(url.lastPathComponent)
+        let size = onServer
+            ? RemoteBrowsing.listedSizes(in: url.deletingLastPathComponent())[url.lastPathComponent] ?? 0
+            : Int64(content.st_size)
         var walk = Walk(mode: .copies(of: original, bytes: URL(fileURLWithPath: bytes),
-                                      size: Int64(content.st_size), inode: Inode(content)),
+                                      size: size, inode: Inode(content)),
                         options: options, device: info.st_dev, cancelled: cancelled,
                         report: report)
+        walk.onServer = onServer
         walk.pruned = prunedFor(folder)
         walk.announceOriginal()
-        guard content.st_size > 0 else { return }
+        guard size > 0 else { return }
 
         walk.breadthFirst(folder, skipping: nil,
                           descend: options.subfolders || options.wholeVolume,
@@ -163,7 +172,9 @@ enum DuplicateFinder {
         if walk.isOver { return }
 
         if options.wholeVolume {
-            let ceiling = ceiling.flatMap(realPath)
+            // A server's top is its `/`, not the top of the disk its cache is on.
+            let ceiling = (onServer ? RemoteBrowsing.server(of: url)?.root.path : ceiling)
+                .flatMap(realPath)
             var current = folder
             while current != "/" && current != ceiling {
                 let parent = (current as NSString).deletingLastPathComponent
@@ -178,7 +189,7 @@ enum DuplicateFinder {
             }
         }
 
-        if !options.volumes.isEmpty {
+        if !options.volumes.isEmpty, !onServer {
             for root in others ?? otherVolumes(than: walk.device)
             where options.volumes.contains(root.path) {
                 walk.device = root.device
@@ -239,6 +250,10 @@ enum DuplicateFinder {
         let cancelled: CancellationFlag
         let report: (Event) -> Void
         var pruned: Set<String> = []
+        /// Reading a server's shadow: see `search`.
+        var onServer = false
+        /// On a server, the sizes listed for the folder being read, by name.
+        var listedSizes: [String: Int64] = [:]
 
         var foldersRead = 0
         var filesRead = 0
@@ -309,6 +324,16 @@ enum DuplicateFinder {
         /// One folder: its files looked at, its folders returned.
         mutating func readFolder(_ folder: String, isRoot: Bool) -> [String] {
             guard read.insert(folder).inserted else { return [] }
+            if onServer {
+                let here = URL(fileURLWithPath: folder)
+                do {
+                    try RemoteBrowsing.waiting { try await RemoteBrowsing.refresh(here) }
+                } catch {
+                    report(.unreadable(folder))
+                    return []
+                }
+                listedSizes = RemoteBrowsing.listedSizes(in: here)
+            }
             guard let directory = opendir(folder) else {
                 if errno == EACCES || errno == EPERM { report(.unreadable(folder)) }
                 return []
@@ -331,6 +356,7 @@ enum DuplicateFinder {
             while let entry = readdir(directory) {
                 let name = Self.name(of: entry)
                 if name == "." || name == ".." { continue }
+                if onServer && RemoteBrowsing.isBookkeeping(name) { continue }
                 names.append((name, entry.pointee.d_type))
             }
             // In a steady order, the way a listing shows them.
@@ -371,9 +397,11 @@ enum DuplicateFinder {
             var info = stat()
             // A link by what it leads to; a broken one leads to nothing.
             guard (isLink ? stat(path, &info) : lstat(path, &info)) == 0,
-                  info.st_mode & S_IFMT == S_IFREG, info.st_size > 0 else { return }
+                  info.st_mode & S_IFMT == S_IFREG else { return }
+            let size = onServer
+                ? listedSizes[(path as NSString).lastPathComponent] ?? 0 : Int64(info.st_size)
+            guard size > 0 else { return }
             let inode = Inode(info)
-            let size = Int64(info.st_size)
             let url = URL(fileURLWithPath: path)
             guard isLink else {
                 guard let kind = firstSight(path, inode) else { return }
@@ -422,7 +450,7 @@ enum DuplicateFinder {
         /// Read side by side, a chunk at a time, so a stop is heeded inside a
         /// large file too. The sizes are known to be the same.
         func sameBytes(_ a: URL, _ b: URL) -> Bool {
-            guard let left = FileHandle(forReadingAtPath: a.path),
+            guard here(a), here(b), let left = FileHandle(forReadingAtPath: a.path),
                   let right = FileHandle(forReadingAtPath: b.path) else { return false }
             defer {
                 try? left.close()
@@ -474,7 +502,7 @@ enum DuplicateFinder {
 
         mutating func digest(_ candidate: Candidate) -> String? {
             if let known = digests[candidate.inode] { return known }
-            guard let handle = FileHandle(forReadingAtPath: candidate.bytes.path) else { return nil }
+            guard here(candidate.bytes), let handle = FileHandle(forReadingAtPath: candidate.bytes.path) else { return nil }
             defer { try? handle.close() }
             var hash = SHA256()
             while !isOver, let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
@@ -486,10 +514,37 @@ enum DuplicateFinder {
             return digest
         }
 
+        /// On a server, the file's bytes fetched -- only now, as another file
+        /// shares its size. Whether they are here.
+        func here(_ url: URL) -> Bool {
+            guard onServer, RemoteBrowsing.hasPending([url]) else { return true }
+            return (try? RemoteBrowsing.waiting { try await RemoteBrowsing.download(url) }) != nil
+        }
+
+        /// What a server's listing says sets two of its files apart: the copies
+        /// here have the cache's permissions and dates, not the server's.
+        func listedDifferences(_ a: URL, _ b: URL) -> DirectoryComparison.Difference {
+            let x = RemoteBrowsing.listedNode(of: a), y = RemoteBrowsing.listedNode(of: b)
+            func value(_ node: BrowserManifest.Node?, _ key: String) -> AttributeValue? { node?.attribute(key) }
+            var differences: DirectoryComparison.Difference = []
+            if value(x, BrowserManifest.Attribute.mode) != value(y, BrowserManifest.Attribute.mode) {
+                differences.insert(.permissions)
+            }
+            if value(x, BrowserManifest.Attribute.modified) != value(y, BrowserManifest.Attribute.modified) {
+                differences.insert(.modified)
+            }
+            if value(x, BrowserManifest.Attribute.uid) != value(y, BrowserManifest.Attribute.uid)
+                || value(x, BrowserManifest.Attribute.gid) != value(y, BrowserManifest.Attribute.gid) {
+                differences.insert(.ownership)
+            }
+            return differences
+        }
+
         func emit(_ group: Int, _ candidate: Candidate) {
             var differences: DirectoryComparison.Difference = []
             if let reference = references[group], reference != candidate.url {
-                differences = PropertyComparison.of(reference, candidate.url).differences
+                differences = onServer ? listedDifferences(reference, candidate.url)
+                    : PropertyComparison.of(reference, candidate.url).differences
                 if reference.lastPathComponent != candidate.url.lastPathComponent {
                     differences.insert(.name)
                 }
@@ -565,11 +620,16 @@ final class DuplicateSearch {
     /// on their way are not taken for the new one's.
     @ObservationIgnored private var generation = 0
 
+    /// On a server: searched there only, up to its `/`, and what is chosen is
+    /// deleted from it -- a server has no Trash.
+    let isOnServer: Bool
+
     init(url: URL) {
         self.url = url
+        isOnServer = RemoteBrowsing.isInside(url)
         var info = stat()
         isFolder = lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
-        guard !isFolder else { return }
+        guard !isFolder, !isOnServer else { return }
         // Off the main thread: a server's volume can take its time to answer.
         let device = info.st_dev
         Task.detached { [weak self] in
@@ -670,15 +730,34 @@ final class DuplicateSearch {
     func trashChosen() async {
         guard canTrash else { return }
         let urls = groups.flatMap(\.files).map(\.id).filter { chosen.contains($0) }
+        if isOnServer {
+            var gone: Set<URL> = []
+            failures = []
+            for url in urls {
+                do {
+                    try await RemoteBrowsing.remove([url])
+                    gone.insert(url)
+                } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
+            }
+            if !gone.isEmpty { Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound) }
+            forget(gone)
+            return
+        }
         let (outcome, moved, _) = await FileOperations.shared.trashRecording(urls)
         FileHistory.shared.recordTrash(moved)
         TrashOriginals.shared.record(moved)
         if !outcome.succeeded.isEmpty {
             Sounds.playIfEnabled(ConfigStore.shared.configuration.trashSound)
         }
-        let gone = Set(outcome.succeeded)
-        chosen.subtract(gone)
         failures = outcome.failures.map { "\($0.url.lastPathComponent): \($0.message)" }
+        forget(Set(outcome.succeeded))
+    }
+
+    /// Files gone from the list, and groups no longer of copies.
+    private func forget(_ gone: Set<URL>) {
+        chosen.subtract(gone)
         groups = groups.compactMap { group in
             var group = group
             group.files.removeAll { gone.contains($0.id) }

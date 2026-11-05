@@ -11,7 +11,14 @@ final class TextDiffPresetOptions {
     static let shared = TextDiffPresetOptions()
     private init() {}
 
-    struct Preset { var ignoreWhitespace: Bool; var wraps: Bool }
+    struct Preset {
+        var ignoreWhitespace: Bool
+        var wraps: Bool
+        /// The side unlocked once the two are read, ready to edit and save.
+        var unlocked: DiffDocument.Side? = nil
+        /// What the window says above the comparison, about why it is open.
+        var note: String? = nil
+    }
 
     private var pending: [DiffPair: Preset] = [:]
 

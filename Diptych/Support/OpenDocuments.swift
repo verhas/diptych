@@ -26,13 +26,23 @@ final class OpenTextDocuments {
     /// If a document for this file already exists anywhere -- its window
     /// visibly open, or merely still alive behind a "closed" one -- reload it
     /// from disk right now, before that window is asked to come forward.
-    func refreshIfOpen(_ url: URL) {
+    /// Not while it has changes typed and not saved: reading the file again
+    /// would throw them away without a word. `discardingChanges` is for when
+    /// the person chose that, keeping the server's version of a file.
+    func refreshIfOpen(_ url: URL, discardingChanges: Bool = false) {
         let key = FileOperations.canonicalPath(url)
         guard let document = documents[key]?.document else {
             documents.removeValue(forKey: key)
             return
         }
+        guard discardingChanges || !document.hasUnsavedChanges else { return }
         document.load()
+    }
+
+    /// The file was written by another window: an open document with nothing
+    /// unsaved shows what is there now, and is left alone when it already does.
+    func readAgainIfChanged(_ url: URL) {
+        documents[FileOperations.canonicalPath(url)]?.document?.readAgainIfChanged()
     }
 }
 

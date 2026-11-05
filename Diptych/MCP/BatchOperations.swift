@@ -23,8 +23,22 @@ enum BatchOperationKind: String, CaseIterable, Sendable {
     case addTags = "add_tags"
     case removeTags = "remove_tags"
     case setTags = "set_tags"
+    case createFile = "create_file"
+    case setTimes = "set_times"
 
     init?(mcpName: String) { self.init(rawValue: mcpName) }
+
+    /// The operations a folder on a server takes: each is made on the server, and
+    /// the listing follows. The rest are refused there, and say so.
+    var worksOnServers: Bool {
+        switch self {
+        case .deletePermanent, .rename, .setPermissions, .setOwner, .setTimes,
+             .createFile, .createDirectory, .move, .copy:
+            true
+        default:
+            false
+        }
+    }
 
     var displayName: String {
         switch self {
@@ -37,6 +51,8 @@ enum BatchOperationKind: String, CaseIterable, Sendable {
         case .setOwner: "Change Owner"
         case .createSymlink: "Create Symlink"
         case .createDirectory: "Create Folder"
+        case .createFile: "Create File"
+        case .setTimes: "Set Times"
         case .setXattr: "Set Attribute"
         case .removeXattr: "Remove Attribute"
         case .addTags: "Add Tags"
@@ -185,6 +201,15 @@ final class BatchOperationRow: Identifiable {
     private var confirmedDestructivePath: String?
     /// set_permissions only: the mode on disk, read at the last revalidate.
     var currentMode: mode_t?
+    /// set_times only: the time to set, and whether it is the creation time (on
+    /// this Mac only: a server keeps no creation time).
+    var time: Date?
+    var timeIsCreation = false
+    /// create_file only: the new file's content, as written in `contentEncoding`;
+    /// nil for an empty file.
+    var contentText: String?
+    var contentEncoding = XattrEncoding.text
+    var contents: Data? { contentText.flatMap(contentEncoding.decode) }
 
     init(kind: BatchOperationKind) {
         self.kind = kind
@@ -265,7 +290,7 @@ final class BatchOperationRow: Identifiable {
         case .move, .copy, .rename, .trash, .deletePermanent, .setPermissions, .setOwner,
              .setXattr, .removeXattr, .addTags, .removeTags, .setTags:
             return source
-        case .createSymlink, .createDirectory:
+        case .createSymlink, .createDirectory, .createFile, .setTimes:
             return nil
         }
     }
@@ -280,12 +305,41 @@ final class BatchOperationRow: Identifiable {
         case .rename:
             guard let source, let newName else { return nil }
             return source.deletingLastPathComponent().appendingPathComponent(newName)
-        case .createSymlink, .createDirectory:
+        case .createSymlink, .createDirectory, .createFile:
             return targetPath
+        case .setTimes:
+            return nil
         case .trash, .deletePermanent, .setPermissions, .setOwner,
              .setXattr, .removeXattr, .addTags, .removeTags, .setTags:
             return nil
         }
+    }
+
+    /// A time as the agent wrote it: `now`, or an ISO-8601 date, with or without
+    /// its time and zone (local time when there is no zone).
+    static func parseTime(_ text: String) -> Date? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.lowercased() == "now" { return Date() }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: trimmed) { return date }
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = .current
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// What the row does, as the review window says it: a deletion on a server
+    /// says it is permanent.
+    var label: String {
+        if kind == .deletePermanent, let source, RemoteBrowsing.isInside(source) {
+            return "Delete permanently (on the server)"
+        }
+        return kind.displayName
     }
 
     var shortDescription: String {
@@ -312,6 +366,17 @@ final class BatchOperationRow: Identifiable {
                 problems.append("target (new name) is required.")
             }
         case .trash, .deletePermanent:
+            if source == nil { problems.append("source is required.") }
+        case .createFile, .createDirectory:
+            if targetPath == nil { problems.append("target (the new item's path) is required.") }
+            if kind == .createFile {
+                if let unknownEncoding {
+                    problems.append("encoding \"\(unknownEncoding)\" is not one of text, hex, base64.")
+                } else if contentText != nil, contents == nil {
+                    problems.append("value is not valid \(contentEncoding.rawValue).")
+                }
+            }
+        case .setTimes:
             if source == nil { problems.append("source is required.") }
         case .setPermissions:
             if source == nil { problems.append("source is required.") }
@@ -353,8 +418,55 @@ final class BatchOperationRow: Identifiable {
                 problems.append("A tag name cannot be empty or span lines.")
             }
         }
+        // On a server only deletion is proposed: there is no Trash there, and what
+        // is deleted is gone. Anything else changes a server only from its pane.
+        if let source, RemoteBrowsing.isInside(source), !kind.worksOnServers {
+            if kind == .trash {
+                problems.append("A server has no Trash: deleting there is final. Propose "
+                    + "delete_permanent for it, and say so in the reason.")
+            } else {
+                problems.append("Links, extended attributes and tags are not made on a server "
+                    + "by a proposal. Do it in a Diptych pane.")
+            }
+        }
+        if let targetPath, RemoteBrowsing.isInside(targetPath), !kind.worksOnServers {
+            problems.append("Links, extended attributes and tags are not made on a server "
+                + "by a proposal. Do it in a Diptych pane.")
+        }
+        if kind == .move || kind == .copy, let targetPath, RemoteBrowsing.isInside(targetPath),
+           FileManager.default.fileExists(atPath: targetPath.path) {
+            problems.append("\(targetPath.lastPathComponent) is already there on the server, and "
+                + "is not written over.")
+        }
+        if kind == .setTimes {
+            if time == nil {
+                problems.append("The time is required: an ISO-8601 date such as 2026-01-31T12:00:00, or now.")
+            }
+            if timeIsCreation, let source, RemoteBrowsing.isInside(source) {
+                problems.append("A server keeps no creation time, so only the modification time "
+                    + "can be set there.")
+            }
+        }
+        if kind == .setOwner, let source, RemoteBrowsing.isInside(source) {
+            if let owner, !RemoteBrowsing.knowsAccount(owner, group: false, for: source) {
+                problems.append("\u{201C}\(owner)\u{201D} is not a user the server's listings show. "
+                    + "Give its number, or show a folder with files it owns in a pane first.")
+            }
+            if let group, !RemoteBrowsing.knowsAccount(group, group: true, for: source) {
+                problems.append("\u{201C}\(group)\u{201D} is not a group the server's listings show. "
+                    + "Give its number, or show a folder with files in it in a pane first.")
+            }
+        }
+        if (kind == .createFile || kind == .createDirectory), let targetPath,
+           FileManager.default.fileExists(atPath: targetPath.path) {
+            problems.append("\(targetPath.lastPathComponent) already exists.")
+        }
         if let source, !FileOperations.exists(source) {
-            problems.append("\(source.path) does not exist.")
+            problems.append(RemoteBrowsing.isInside(source)
+                ? "\(source.lastPathComponent) is not in the listing of its server folder yet. "
+                    + "Show that folder in a pane, then propose again."
+                : "\(source.path) does not exist on this Mac or in a listed folder of a "
+                    + "connected server. Give the folder's sftp:// address, as get_pane reports it.")
         }
         return problems
     }
@@ -393,8 +505,14 @@ final class BatchOperationsModel {
         revalidate()
     }
 
+    /// Select All and Select None. A permanent deletion asks for its own
+    /// confirmation, and the one batch confirmation is not enough for it: selecting
+    /// all confirms those deletions too, and selecting none withdraws them.
     func toggleAll(_ included: Bool) {
-        for row in rows { row.included = included }
+        for row in rows {
+            row.included = included
+            if row.kind == .deletePermanent { row.destructiveConfirmed = included }
+        }
         revalidate()
     }
 
@@ -412,7 +530,11 @@ final class BatchOperationsModel {
                 row.willOverwrite = false
             }
             if row.kind == .setPermissions, let source = row.source {
-                row.currentMode = try? FileOperations.currentMode(of: source)
+                // A server's mode as the server listed it: the copy kept here is
+                // locked, and its bits are not the server's.
+                row.currentMode = RemoteBrowsing.isInside(source)
+                    ? RemoteBrowsing.listedMode(of: source)
+                    : try? FileOperations.currentMode(of: source)
             }
             if let source = row.source, row.kind == .setXattr || row.kind == .removeXattr,
                let name = row.xattrName {
@@ -539,6 +661,17 @@ final class BatchOperationsModel {
             }
             // An archive opened as a folder is read-only: copied out of,
             // never changed.
+            // A server's folder is changed in Diptych's own panes, where every change
+            // reaches the server. Its cached copy here would only be changed on this Mac.
+            // A permanent deletion on a server is carried out there: that is its whole point.
+            if (row.targetPath.map(RemoteBrowsing.isInside) == true
+                && row.kind != .createFile && row.kind != .createDirectory)
+                || (row.source.map(RemoteBrowsing.isInside) == true && !row.kind.worksOnServers) {
+                rowResults[row.id] = "Skipped: it is on a server. Change it in a Diptych pane, "
+                    + "where the change reaches the server."
+                failed.insert(row.id)
+                continue
+            }
             if row.targetPath.map(ArchiveBrowsing.isInside) == true
                 || (row.kind != .copy && row.source.map(ArchiveBrowsing.isInside) == true) {
                 rowResults[row.id] = "Skipped: it is inside an archive opened as a folder, which "
@@ -550,6 +683,15 @@ final class BatchOperationsModel {
             switch row.kind {
             case .move:
                 guard let source = row.source, let target = row.targetPath else { continue }
+                if RemoteBrowsing.isInside(source) || RemoteBrowsing.isInside(target) {
+                    do {
+                        rowResults[row.id] = try await Self.transferWithServer(source, to: target, move: true)
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 if let error = await FileOperations.shared.transferOne(
                     source, to: target, kind: .move, overwrite: true) {
                     rowResults[row.id] = error
@@ -561,6 +703,15 @@ final class BatchOperationsModel {
 
             case .copy:
                 guard let source = row.source, let target = row.targetPath else { continue }
+                if RemoteBrowsing.isInside(source) || RemoteBrowsing.isInside(target) {
+                    do {
+                        rowResults[row.id] = try await Self.transferWithServer(source, to: target, move: false)
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 if let error = await FileOperations.shared.transferOne(
                     source, to: target, kind: .copy, overwrite: true,
                     copying: ConfigStore.shared.configuration.copying) {
@@ -573,6 +724,16 @@ final class BatchOperationsModel {
 
             case .rename:
                 guard let source = row.source, let newName = row.newName else { continue }
+                if RemoteBrowsing.isInside(source) {
+                    do {
+                        _ = try await RemoteBrowsing.rename(source, to: newName)
+                        rowResults[row.id] = "Renamed on the server."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 do {
                     let result = try await FileOperations.shared.rename(source, to: newName)
                     rowResults[row.id] = "Renamed."
@@ -584,6 +745,12 @@ final class BatchOperationsModel {
 
             case .trash:
                 guard let source = row.source else { continue }
+                // Not reached for a server: its items are deleted, never trashed.
+                if RemoteBrowsing.isInside(source) {
+                    rowResults[row.id] = "Refused: a server has no Trash."
+                    failed.insert(row.id)
+                    continue
+                }
                 let (outcome, moved, _) = await FileOperations.shared.trashRecording([source])
                 if let first = moved.first, outcome.isCompleteSuccess {
                     rowResults[row.id] = "Moved to Trash."
@@ -595,6 +762,16 @@ final class BatchOperationsModel {
 
             case .deletePermanent:
                 guard let source = row.source else { continue }
+                if RemoteBrowsing.isInside(source) {
+                    do {
+                        try await RemoteBrowsing.remove([source])
+                        rowResults[row.id] = "Deleted on the server. It cannot be undone."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 let outcome = await FileOperations.shared.deleteOutright([source])
                 if outcome.isCompleteSuccess {
                     rowResults[row.id] = "Deleted."
@@ -605,6 +782,16 @@ final class BatchOperationsModel {
 
             case .setPermissions:
                 guard let source = row.source, let mode = row.mode else { continue }
+                if RemoteBrowsing.isInside(source) {
+                    do {
+                        try await RemoteBrowsing.setPermissions(UInt32(mode & 0o7777), for: [source])
+                        rowResults[row.id] = "Permissions set on the server."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 let before = (try? FileOperations.currentMode(of: source)) ?? 0
                 if before & 0o7777 == mode & 0o7777 {
                     rowResults[row.id] = "Unchanged: already \(FileOperations.rwxString(mode))."
@@ -621,6 +808,16 @@ final class BatchOperationsModel {
 
             case .setOwner:
                 guard let source = row.source else { continue }
+                if RemoteBrowsing.isInside(source) {
+                    do {
+                        try await RemoteBrowsing.setOwnership(owner: row.owner, group: row.group, for: [source])
+                        rowResults[row.id] = "Owner/group set on the server."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 let attributes = try? FileManager.default.attributesOfItem(atPath: source.path)
                 let beforeOwner = attributes?[.ownerAccountName] as? String
                 let beforeGroup = attributes?[.groupOwnerAccountName] as? String
@@ -652,8 +849,55 @@ final class BatchOperationsModel {
                     failed.insert(row.id)
                 }
 
+            case .createFile:
+                guard let target = row.targetPath else { continue }
+                do {
+                    let contents = row.contents ?? Data()
+                    if RemoteBrowsing.isInside(target) {
+                        _ = try await RemoteBrowsing.createFile(named: target.lastPathComponent,
+                                                                in: target.deletingLastPathComponent(),
+                                                                contents: contents)
+                        rowResults[row.id] = "File created on the server."
+                    } else {
+                        guard FileManager.default.createFile(atPath: target.path, contents: contents) else {
+                            throw CocoaError(.fileWriteUnknown)
+                        }
+                        rowResults[row.id] = "File created."
+                    }
+                } catch {
+                    rowResults[row.id] = error.localizedDescription
+                    failed.insert(row.id)
+                }
+
+            case .setTimes:
+                guard let source = row.source, let time = row.time else { continue }
+                do {
+                    if RemoteBrowsing.isInside(source) {
+                        try await RemoteBrowsing.setTimes(modified: time, for: [source])
+                        rowResults[row.id] = "Modification time set on the server."
+                    } else {
+                        let key: FileAttributeKey = row.timeIsCreation ? .creationDate : .modificationDate
+                        try FileManager.default.setAttributes([key: time], ofItemAtPath: source.path)
+                        rowResults[row.id] = row.timeIsCreation ? "Creation time set." : "Modification time set."
+                    }
+                } catch {
+                    rowResults[row.id] = error.localizedDescription
+                    failed.insert(row.id)
+                }
+
             case .createDirectory:
                 guard let target = row.targetPath else { continue }
+                if RemoteBrowsing.isInside(target) {
+                    do {
+                        _ = try await RemoteBrowsing.makeFolder(named: target.lastPathComponent,
+                                                                in: target.deletingLastPathComponent())
+                        rowResults[row.id] = "Folder created on the server."
+                    } catch {
+                        rowResults[row.id] = error.localizedDescription
+                        failed.insert(row.id)
+                    }
+                    continue
+                }
                 do {
                     let created = try await FileOperations.shared.createDirectory(
                         named: target.lastPathComponent, in: target.deletingLastPathComponent())
@@ -785,6 +1029,41 @@ struct RefusedAttributeWrite {
 }
 
 extension BatchOperationsModel {
+
+    /// Why a copy or move with a server did not happen, in words.
+    struct TransferFailure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// A copy or move with a server at one end or both. A server's item is fetched
+    /// first, so that its bytes are copied rather than a placeholder. A copy onto a
+    /// server never writes over a name there. A move takes its original away once
+    /// the copy is made: from the server when it was there, to the Trash when it
+    /// was on this Mac.
+    static func transferWithServer(_ source: URL, to target: URL, move: Bool) async throws -> String {
+        if RemoteBrowsing.isInside(source) { try await RemoteBrowsing.fetch([source]) }
+        if RemoteBrowsing.isInside(target) {
+            try await RemoteBrowsing.upload(source, as: target)
+        } else {
+            if let error = await FileOperations.shared.transferOne(
+                source, to: target, kind: .copy, overwrite: false,
+                copying: ConfigStore.shared.configuration.copying) {
+                throw TransferFailure(message: error)
+            }
+            // The copy kept here is locked: the copy made from it gets the server's bits.
+            ArchiveBrowsing.applyListedModes(at: target, from: source)
+        }
+        let onto = RemoteBrowsing.isInside(target) ? "to the server" : "from the server"
+        guard move else { return "Copied \(onto)." }
+        if RemoteBrowsing.isInside(source) {
+            try await RemoteBrowsing.remove([source])
+            return "Moved \(onto): copied, then removed from the server."
+        }
+        _ = await FileOperations.shared.trash([source])
+        return "Moved \(onto): copied, and the original is in the Trash."
+    }
+
 
     /// One question for every attribute change a read-only item refused --
     /// not one per row, which for a few hundred locked files would be a few
@@ -979,6 +1258,21 @@ extension BatchOperationRow {
 
     enum BuildResult { case unknownOp(String), row(BatchOperationRow) }
 
+    /// A path as the agent gave it. A folder on a server is named by its sftp://
+    /// address, and its files are read from the copy kept here. Anything else
+    /// is a path on this Mac.
+    static func localURL(_ path: String) -> URL {
+        if let local = RemoteBrowsing.actual(text: path) { return local }
+        let local = URL(fileURLWithPath: path)
+        // An absolute path that is not on this Mac may be the server's own path:
+        // used only when exactly one connected server has it listed.
+        if path.hasPrefix("/"), !FileManager.default.fileExists(atPath: path) {
+            let matches = RemoteBrowsing.shadows(ofRemotePath: path)
+            if matches.count == 1 { return matches[0] }
+        }
+        return local
+    }
+
     /// One row from `propose_file_operations`' arguments. An unrecognized
     /// `op` fails the whole call (handled by the caller); anything else
     /// becomes a row, flagged in `problems` when a field is missing or
@@ -991,8 +1285,8 @@ extension BatchOperationRow {
         guard let kind = BatchOperationKind(mcpName: op) else { return .unknownOp(op) }
         let row = BatchOperationRow(kind: kind)
         row.reason = reason
-        let sourceURL = source.map { URL(fileURLWithPath: $0) }
-        let targetURL = target.map { URL(fileURLWithPath: $0) }
+        let sourceURL = source.map(localURL)
+        let targetURL = target.map(localURL)
         row.linkTarget = linkTarget.map { URL(fileURLWithPath: $0) }
 
         switch kind {
@@ -1018,6 +1312,20 @@ extension BatchOperationRow {
             }
         case .createSymlink, .createDirectory:
             row.targetPath = targetURL
+        case .createFile:
+            row.targetPath = targetURL
+            row.contentText = value
+            if let encoding {
+                if let known = XattrEncoding(rawValue: encoding.lowercased()) {
+                    row.contentEncoding = known
+                } else {
+                    row.unknownEncoding = encoding
+                }
+            }
+        case .setTimes:
+            row.source = sourceURL
+            row.timeIsCreation = name == "created"
+            row.time = value.flatMap(Self.parseTime)
         case .setXattr, .removeXattr:
             row.source = sourceURL
             row.xattrName = name

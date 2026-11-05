@@ -16,11 +16,12 @@ enum MenuItem: String, CaseIterable, Identifiable, Sendable {
     case archive
     case checksum
     case splitJoin
+    case textConversion
     case optimize
     case image
     case video
     case run
-    case edit            // Text Edit / Bin Edit
+    case edit            // Edit, and Binary Edit
     case scripts
 
     var id: String { rawValue }
@@ -35,11 +36,12 @@ enum MenuItem: String, CaseIterable, Identifiable, Sendable {
         case .archive:          "Archive"
         case .checksum:         "Checksum"
         case .splitJoin:        "Split File / Join Parts"
+        case .textConversion:   "Convert Line Endings / Encoding"
         case .optimize:         "Optimize File Size"
         case .image:            "Image tools"
         case .video:            "Video tools"
         case .run:              "Run / Run App"
-        case .edit:             "Text Edit / Bin Edit"
+        case .edit:             "Edit / Binary Edit"
         case .scripts:          "Scripts"
         }
     }
@@ -55,6 +57,7 @@ enum MenuItem: String, CaseIterable, Identifiable, Sendable {
         case .archive:          "Create, open, extract, recover password."
         case .checksum:         "Create and check MD5/SHA sums."
         case .splitJoin:        "Cut a file into parts and rejoin them."
+        case .textConversion:   "Line endings and character encodings, in place."
         case .optimize:         "Make pictures and PDFs smaller."
         case .image:            "Rotate, convert, EXIF, make PDF."
         case .video:            "Edit video metadata."
@@ -78,7 +81,7 @@ struct MenuPreset: Identifiable, Sendable {
 
     static let developer = MenuPreset(name: "Developer", shown: [
         .getInfo, .findSiblings, .findDuplicates, .previousVersions, .diskUsage,
-        .archive, .checksum, .splitJoin, .run, .edit, .scripts,
+        .archive, .checksum, .splitJoin, .textConversion, .run, .edit, .scripts,
     ])
 
     static let contentCreator = MenuPreset(name: "Content Creator", shown: [

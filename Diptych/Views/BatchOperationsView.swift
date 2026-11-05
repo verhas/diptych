@@ -189,7 +189,7 @@ struct BatchOperationsView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(row.kind.displayName).font(.system(size: 12, weight: .semibold))
+                    Text(row.label).font(.system(size: 12, weight: .semibold))
                     if let reason = row.reason, !reason.isEmpty {
                         Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -237,17 +237,17 @@ struct BatchOperationsView: View {
         switch row.kind {
         case .move, .copy:
             HStack(spacing: 6) {
-                Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
-                EditableTextField("Destination path", initial: row.targetPath?.path ?? "",
+                EditableTextField("Destination path", initial: shownPath(row.targetPath),
                                   disabled: disabled) {
-                    row.targetPath = $0.isEmpty ? nil : URL(fileURLWithPath: $0)
+                    row.targetPath = $0.isEmpty ? nil : BatchOperationRow.localURL($0)
                 }
                 .onSubmit { model.revalidate() }
             }
         case .rename:
             HStack(spacing: 6) {
-                Text(row.source?.lastPathComponent ?? "?").font(.caption).lineLimit(1)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
                 EditableTextField("New name", initial: row.newName ?? "", disabled: disabled) {
                     row.newName = $0.isEmpty ? nil : $0
@@ -255,10 +255,10 @@ struct BatchOperationsView: View {
                 .onSubmit { model.revalidate() }
             }
         case .trash, .deletePermanent:
-            Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+            Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
         case .setPermissions:
             HStack(spacing: 10) {
-                Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 Text(row.currentMode.map(FileOperations.rwxString) ?? "?????????")
                     .font(PaneFont.monospacedSwiftUI).foregroundStyle(.secondary)
                     .help("The permissions it has now")
@@ -272,9 +272,48 @@ struct BatchOperationsView: View {
                     .frame(width: 90, height: 16)
                     .disabled(disabled)
             }
+        case .setTimes:
+            HStack(spacing: 6) {
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
+                Picker("", selection: Binding(
+                    get: { row.timeIsCreation },
+                    set: { row.timeIsCreation = $0; model.revalidate() })) {
+                    Text("Modified").tag(false)
+                    Text("Created").tag(true)
+                }
+                .labelsHidden().frame(width: 100).disabled(disabled)
+                EditableTextField("Date, or now", initial: row.time.map(timeText) ?? "",
+                                  disabled: disabled) {
+                    row.time = $0.isEmpty ? nil : BatchOperationRow.parseTime($0)
+                }
+                .onSubmit { model.revalidate() }
+            }
+        case .setOwner where RemoteBrowsing.isInside(row.source ?? URL(fileURLWithPath: "/")):
+            // A server's own names: typed, since this Mac's users are not the server's.
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
+                    EditableTextField("Owner (name or number)", initial: row.owner ?? "",
+                                      disabled: disabled) {
+                        row.owner = $0.isEmpty ? nil : $0
+                    }
+                    .onSubmit { model.revalidate() }
+                    EditableTextField("Group (name or number)", initial: row.group ?? "",
+                                      disabled: disabled) {
+                        row.group = $0.isEmpty ? nil : $0
+                    }
+                    .onSubmit { model.revalidate() }
+                }
+                if let server = row.source.flatMap(RemoteBrowsing.server(of:)) {
+                    let known = RemoteBrowsing.accounts(of: server)
+                    Text("Known on the server: users \(known.users.keys.sorted().joined(separator: ", ")); "
+                         + "groups \(known.groups.keys.sorted().joined(separator: ", "))")
+                        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
         case .setOwner:
             HStack(spacing: 8) {
-                Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 Picker("", selection: Binding(
                     get: { row.owner ?? "" },
                     set: { row.owner = $0.isEmpty ? nil : $0; model.revalidate() })) {
@@ -292,9 +331,9 @@ struct BatchOperationsView: View {
             }
         case .createSymlink:
             HStack(spacing: 6) {
-                EditableTextField("New link path", initial: row.targetPath?.path ?? "",
+                EditableTextField("New link path", initial: shownPath(row.targetPath),
                                   disabled: disabled) {
-                    row.targetPath = $0.isEmpty ? nil : URL(fileURLWithPath: $0)
+                    row.targetPath = $0.isEmpty ? nil : BatchOperationRow.localURL($0)
                 }
                 .onSubmit { model.revalidate() }
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.secondary)
@@ -304,12 +343,29 @@ struct BatchOperationsView: View {
                 }
                 .onSubmit { model.revalidate() }
             }
-        case .createDirectory:
-            EditableTextField("New folder path", initial: row.targetPath?.path ?? "",
-                              disabled: disabled) {
-                row.targetPath = $0.isEmpty ? nil : URL(fileURLWithPath: $0)
+        case .createDirectory, .createFile:
+            VStack(alignment: .leading, spacing: 3) {
+                EditableTextField(row.kind == .createFile ? "New file path" : "New folder path",
+                                  initial: shownPath(row.targetPath),
+                                  disabled: disabled) {
+                    row.targetPath = $0.isEmpty ? nil : BatchOperationRow.localURL($0)
+                }
+                .onSubmit { model.revalidate() }
+                if row.kind == .createFile {
+                    // What the file will hold: text is shown and editable, hex or
+                    // base64 is shown by its size.
+                    if row.contentEncoding == .text {
+                        EditableTextField("Content (empty for an empty file)",
+                                          initial: row.contentText ?? "", disabled: disabled) {
+                            row.contentText = $0.isEmpty ? nil : $0
+                        }
+                        .onSubmit { model.revalidate() }
+                    } else {
+                        Text("\(row.contents?.count ?? 0) bytes, given as \(row.contentEncoding.rawValue)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
-            .onSubmit { model.revalidate() }
         case .setXattr, .removeXattr:
             attributeEditor(row, model: model, disabled: disabled)
         case .addTags, .removeTags, .setTags:
@@ -324,7 +380,7 @@ struct BatchOperationsView: View {
                                  disabled: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+                Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
                 EditableTextField("Attribute name", initial: row.xattrName ?? "",
                                   disabled: disabled) {
                     row.xattrName = $0.isEmpty ? nil : $0
@@ -368,7 +424,7 @@ struct BatchOperationsView: View {
     private func tagEditor(_ row: BatchOperationRow, model: BatchOperationsModel,
                            disabled: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(row.source?.path ?? "?").font(.caption).lineLimit(1).truncationMode(.middle)
+            Text(shownPath(row.source)).font(.caption).lineLimit(1).truncationMode(.middle)
             HStack(spacing: 6) {
                 TagChips(tags: row.currentTags ?? [], removable: false) { _ in }
                     .help("The tags it has now")
@@ -545,4 +601,17 @@ final class EndEditingOnClick {
         }
         return nil
     }
+}
+
+/// A path as the review window shows it: a folder on a server by its address.
+private func shownPath(_ url: URL?) -> String {
+    url.map(RemoteBrowsing.reportedPath) ?? ""
+}
+
+/// A time as the review window writes it, so that it can be read back as typed.
+private func timeText(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+    return formatter.string(from: date)
 }
