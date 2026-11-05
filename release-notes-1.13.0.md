@@ -195,3 +195,14 @@ pictures whose bytes differ are **compared by what they show**, with a
 
 Nothing to do. The Cached column is on in server listings; Settings ▸ Columns
 turns it off.
+
+## Explain with an Agent
+
+- A new script in **File ▸ Get Scripts**: select PDFs, **Scripts ▸ Explain
+  with an Agent**, and the first installed agent -- Claude Code, Codex,
+  Copilot, Gemini or Cursor -- reads each one and writes an HTML report beside
+  it, of the same name: at a glance, key points, explained, terms, what to
+  check, and links to the PDF and to related documents in the same folder.
+  It runs headless in the agent terminal's folder, so its MCP servers and
+  skills are there, and every report has the same look, from a template and
+  stylesheet in `~/.diptych/templates/pdf-report` that can be edited.

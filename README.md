@@ -4153,14 +4153,48 @@ greyed, when scripts are off or none of them suits what is selected.
 
 **File ▸ Get Scripts…** -- also a button under the setting -- lists the scripts
 that come with Diptych: making a zip, showing every detail `ls` knows, the two
-that make a script editable and read-only again, and one that shows what a
-script sees. Tick the ones you want; **Show Source** shows one in full, and
+that make a script editable and read-only again, one that shows what a
+script sees, and **Explain with an Agent**, below. Tick the ones you want; **Show Source** shows one in full, and
 **Compare with Yours** opens the two-file comparison when something of that name
 is already installed. They are inside the application, signed with it, so
 **nothing is downloaded**. Installing writes each as `r--------`, owned by you,
 so it passes every rule below; a file already there under that name goes to the
 Trash first. Each still asks before it first runs. How scripts could also come
 from GitHub, signed, is designed in [script-distribution.md](script-distribution.md).
+
+### Explain with an Agent
+
+`explain-pdf.sh`, one of the scripts in Get Scripts: select one or more PDFs,
+**Right-click ▸ Scripts ▸ Explain with an Agent**, and an AI agent reads each
+one and writes a report about it beside it, under the same name with `.html`
+-- `Invoice 2026-0412.pdf` gets `Invoice 2026-0412.html`. The report has the
+document at a glance, its key points, an explanation section by section in
+plain language, the terms a reader may not know, what is worth checking
+(deadlines, amounts, actions asked), and links to the original PDF and to the
+**related documents in the same folder** -- the agent looks at the folder's
+other files and links the ones that are about the same thing, saying how.
+
+- **Which agent:** the first of `claude`, `codex`, `copilot`, `gemini` and
+  `cursor-agent` that is installed, the one set in Settings ▸ Agents first;
+  `DIPTYCH_REPORT_AGENT` names one outright. It is started headless, in the
+  agent terminal's folder (`~/.diptych/agentic`, or whatever Settings ▸ Agents
+  says), so the MCP servers, skills and instructions it has there apply.
+  Open the agent terminal once first, so that folder is set up.
+- **Every report looks the same:** the page is filled into
+  `~/.diptych/templates/pdf-report/template.html` and styled by `report.css`
+  beside it, both written there on the first run. Edit them to change every
+  later report. The stylesheet is put into the report itself, so it is one
+  file that looks the same wherever it is moved or mailed. Light and dark
+  follow the system; it prints cleanly.
+- **The agent writes nothing of yours.** It writes the report into a scratch
+  folder, as the agent folder's rules allow, and the script puts it beside
+  the PDF. An earlier report of that name goes to the Trash first. If no
+  report comes back, the run says so and leaves the prompt and the extracted
+  text in the scratch folder to look at.
+- An agent that cannot read PDFs itself gets the text, extracted with the
+  system's PDFKit. The report is always in English, whatever the
+  document's language, with the original wording quoted where it matters;
+  `DIPTYCH_REPORT_LANGUAGE` sets another ("German", "Hungarian"…).
 
 This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
 you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,
