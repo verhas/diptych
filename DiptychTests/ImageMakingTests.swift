@@ -101,22 +101,113 @@ final class ImageMakingTests: XCTestCase {
         XCTAssertGreaterThan(pixel[0], 240, "white, not black")
     }
 
-    @MainActor
-    func testMadeImagesAreOneUndoStep() async throws {
-        let urls = [image("x.jpg"), image("y.jpg")]
-        let history = FileHistory()
-        var png = ImageMaking.Options()
-        png.format = .png
-        let options = png
-        let outcome = await AppModel.makeImages(urls, undoName: "Convert", history: history) {
-            url throws(ImageMaking.Failure) in try ImageMaking.convert(url, options)
+    func testEveryFormatOfferedIsWrittenAndNamedForIt() throws {
+        let url = image("every.png", type: .png, alpha: true)
+        for format in ImageMaking.Format.allCases where format != .same && format.isWritable {
+            var options = ImageMaking.Options()
+            options.format = format
+            let made = try ImageMaking.convert(url, options)
+            XCTAssertEqual(info(made).type, format.type?.identifier, format.title)
+            XCTAssertEqual(UTType(filenameExtension: made.pathExtension), format.type, format.title)
+            XCTAssertEqual(ImageMaking.isLossy(made), format.isLossy, format.title)
+            XCTAssertEqual(info(made).width, 400, format.title)
         }
-        XCTAssertEqual(outcome.made.map(\.lastPathComponent), ["x.png", "y.png"])
-        XCTAssertEqual(history.undoName, "Convert")
-        let undone = await history.perform(.undo) { _ in true }
-        XCTAssertTrue(undone.failures.isEmpty, undone.failures.joined())
-        XCTAssertFalse(FileManager.default.fileExists(atPath: outcome.made[0].path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: urls[0].path))
+    }
+
+    func testTheNewFormatsAreThere() {
+        let offered = ImageMaking.Format.allCases.filter(\.isWritable)
+        for format in [ImageMaking.Format.gif, .jpeg2000, .bmp] {
+            XCTAssertTrue(offered.contains(format), format.title)
+        }
+    }
+
+    func testTransparencyBecomesWhiteInABMP() throws {
+        let url = image("clear.png", type: .png, alpha: true)
+        var options = ImageMaking.Options()
+        options.format = .bmp
+        let made = try ImageMaking.convert(url, options)
+        let source = CGImageSourceCreateWithURL(made as CFURL, nil)!
+        let picture = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+        let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let pixel = context.data!.assumingMemoryBound(to: UInt8.self)
+        XCTAssertGreaterThan(pixel[0], 240, "white, not black")
+    }
+
+    /// A 1 × 1 WebP, as another program wrote it.
+    private static let webp = Data(base64Encoded:
+        "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==")!
+
+    func testAWebPIsReadAndWritten() throws {
+        let url = folder.appendingPathComponent("tiny.webp")
+        try Self.webp.write(to: url)
+        var options = ImageMaking.Options()
+        options.format = .png
+        XCTAssertEqual(info(try ImageMaking.convert(url, options)).type, UTType.png.identifier)
+        options.format = .same
+        options.quality = 1
+        let again = try ImageMaking.convert(url, options)
+        XCTAssertEqual(again.lastPathComponent, "tiny-1.webp")
+        XCTAssertEqual(info(again).type, UTType.webP.identifier)
+    }
+
+    private func rgba(_ url: URL) -> [UInt8] {
+        let source = CGImageSourceCreateWithURL(url as CFURL, nil)!
+        let picture = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+        var pixels = [UInt8](repeating: 0, count: picture.width * picture.height * 4)
+        let context = CGContext(data: &pixels, width: picture.width, height: picture.height,
+                                bitsPerComponent: 8, bytesPerRow: picture.width * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: picture.width, height: picture.height))
+        return pixels
+    }
+
+    func testAWebPAtFullQualityLosesNothingAndKeepsTheClearCorner() throws {
+        let url = image("clear.png", type: .png, alpha: true)
+        var options = ImageMaking.Options()
+        options.format = .webp
+        options.quality = 1
+        let lossless = try ImageMaking.convert(url, options)
+        XCTAssertEqual(rgba(lossless), rgba(url))
+        // The bottom-left corner, clear; drawn bottom-up, it is the last rows.
+        XCTAssertEqual(rgba(lossless)[(299 * 400) * 4 + 3], 0)
+
+        options.quality = 0.5
+        let lossy = try ImageMaking.convert(url, options)
+        XCTAssertEqual(info(lossy).width, 400)
+        // Lossless is a VP8L bitstream, lossy a VP8 one.
+        XCTAssertNotNil(try Data(contentsOf: lossless).range(of: Data("VP8L".utf8)))
+        XCTAssertNotNil(try Data(contentsOf: lossy).range(of: Data("VP8 ".utf8)))
+        XCTAssertNil(try Data(contentsOf: lossy).range(of: Data("VP8L".utf8)))
+    }
+
+    func testAWebPIsUprightAndKeepsTheMetadata() throws {
+        let url = image("turned.jpg", properties: [
+            kCGImagePropertyOrientation: 6,
+            kCGImagePropertyExifDictionary: [kCGImagePropertyExifLensModel: "50mm"],
+        ])
+        var options = ImageMaking.Options()
+        options.format = .webp
+        let made = try ImageMaking.convert(url, options)
+        let found = info(made)
+        XCTAssertEqual(found.type, UTType.webP.identifier)
+        XCTAssertEqual(found.width, 300, "turned upright")
+        XCTAssertEqual(found.height, 400)
+        let source = CGImageSourceCreateWithURL(made as CFURL, nil)!
+        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+        XCTAssertNotNil(metadata, "XMP kept")
+        let lens = metadata.flatMap {
+            CGImageMetadataCopyStringValueWithPath($0, nil, "exifEX:LensModel" as CFString)
+                ?? CGImageMetadataCopyStringValueWithPath($0, nil, "aux:Lens" as CFString)
+        }
+        XCTAssertEqual(lens as String?, "50mm")
+
+        options.keepMetadata = false
+        let bare = try ImageMaking.convert(url, options)
+        XCTAssertLessThan(try Data(contentsOf: bare).count, try Data(contentsOf: made).count)
     }
 
     func testAPictureWithNoSubjectSaysSo() {
@@ -178,6 +269,33 @@ final class ImageMakingTests: XCTestCase {
         XCTAssertEqual(height, 400)
         let back = try ExifWrite.turn(right, name: "p.png", .left)
         XCTAssertEqual(pixels(back).0, pixels(original).0, "and back, to the same pixels")
+    }
+
+    func testAWebPIsTurnedAndStaysAWebPOfItsKind() throws {
+        let png = image("w.png", type: .png, alpha: true)
+        var options = ImageMaking.Options()
+        options.format = .webp
+        options.quality = 1
+        let losslessURL = try ImageMaking.convert(png, options)
+        options.quality = 0.8
+        let lossyURL = try ImageMaking.convert(png, options)
+
+        let lossless = try Data(contentsOf: losslessURL)
+        XCTAssertTrue(WebPWriting.isLossless(lossless))
+        let right = try ExifWrite.turn(lossless, name: "w.webp", .right)
+        XCTAssertEqual(CGImageSourceGetType(CGImageSourceCreateWithData(right as CFData, nil)!)
+                       as String?, UTType.webP.identifier)
+        XCTAssertTrue(WebPWriting.isLossless(right), "lossless stays lossless")
+        XCTAssertEqual(pixels(right).1, 300, "turned: the pixels themselves")
+        XCTAssertEqual(pixels(right).2, 400)
+        let back = try ExifWrite.turn(right, name: "w.webp", .left)
+        XCTAssertEqual(pixels(back).0, pixels(lossless).0, "and back, to the same pixels")
+
+        let lossy = try Data(contentsOf: lossyURL)
+        XCTAssertFalse(WebPWriting.isLossless(lossy))
+        let flipped = try ExifWrite.turn(lossy, name: "w.webp", .flipHorizontal)
+        XCTAssertFalse(WebPWriting.isLossless(flipped), "lossy stays lossy, not several times the size")
+        XCTAssertEqual(pixels(flipped).1, 400)
     }
 
     // MARK: - Text

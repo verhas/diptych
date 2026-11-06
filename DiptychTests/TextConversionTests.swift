@@ -343,4 +343,68 @@ final class TextConversionTests: XCTestCase {
         let parts = try differences(Data("héllo\n".utf8), Data([0xEF, 0xBB, 0xBF]) + Data("héllo\n".utf8))
         XCTAssertEqual(parts, ["the byte-order mark (only the right file has one)"])
     }
+
+    // MARK: - Offered only for text
+
+    func testTheConversionsAreOfferedForTextFilesOnly() throws {
+        func file(_ name: String, _ data: Data) throws -> URL {
+            let url = folder.appendingPathComponent(name)
+            try data.write(to: url)
+            return url
+        }
+        // A real PNG's first bytes: the signature and the IHDR chunk.
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D,
+                        0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0])
+        XCTAssertTrue(AppModel.convertsAsText(try file("a.txt", Data("one\r\ntwo\n".utf8))))
+        XCTAssertTrue(AppModel.convertsAsText(try file("Makefile", Data("all:\n".utf8))))
+        XCTAssertTrue(AppModel.convertsAsText(try file("latin.txt", Data([0x63, 0x61, 0x66, 0xE9]))))
+        var utf16 = Data([0xFF, 0xFE])
+        utf16.append("text".data(using: .utf16LittleEndian)!)
+        XCTAssertTrue(AppModel.convertsAsText(try file("wide.txt", utf16)), "UTF-16 with its mark")
+
+        XCTAssertFalse(AppModel.convertsAsText(try file("a.png", png)))
+        XCTAssertFalse(AppModel.convertsAsText(try file("photo.jpg", Data("looks like text".utf8))),
+                       "a picture by its type, without reading it")
+        XCTAssertFalse(AppModel.convertsAsText(try file("png-named.txt", png)), "by its bytes")
+        XCTAssertFalse(AppModel.convertsAsText(try file("data.bin", Data([1, 0, 2, 0, 0, 0, 3]))))
+        XCTAssertFalse(AppModel.convertsAsText(try file("a.zip", Data("PK\u{03}\u{04}".utf8))))
+        XCTAssertFalse(AppModel.convertsAsText(try file("doc.pdf", Data("%PDF-1.7\n".utf8))))
+    }
+
+    func testTheConversionsAreOfferedWhenAnyFileIsText() throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+        let pictures = try (0..<300).map { try file("p\($0).png", png) }
+        let blobs = try (0..<10).map { try file("b\($0).bin", Data([1, 0, 2, 0])) }
+        let source = try file("main.c", Data("int main(void) { return 0; }\n".utf8))
+        XCTAssertFalse(AppModel.offersConversion(pictures + blobs), "nothing that is text")
+        XCTAssertTrue(AppModel.offersConversion(pictures + blobs + [source]),
+                      "a text file among many that are not")
+        XCTAssertTrue(AppModel.offersConversion(blobs + [source], reads: 5),
+                      "more left than the menu reads: offered, the window sorts them out")
+        XCTAssertFalse(AppModel.offersConversion([]))
+    }
+
+    @MainActor
+    func testWhatIsNotTextIsLeftOutOfTheList() async throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+        let files = [
+            try file("a.txt", Data("one\r\n".utf8)),
+            try file("p.png", png),
+            try file("data.bin", Data([1, 0, 2, 0])),
+            try file("b.txt", Data("two\n".utf8)),
+        ]
+        let endings = LineEndingsModel(jobId: UUID(), files: files)
+        await endings.load()
+        XCTAssertEqual(endings.rows.map(\.name), ["a.txt", "b.txt"])
+        XCTAssertEqual(endings.leftOut, 2)
+        XCTAssertEqual(endings.convertible, 1, "a.txt to LF; b.txt is already")
+
+        let encodings = EncodingsModel(jobId: UUID(), files: files)
+        await encodings.load()
+        XCTAssertEqual(encodings.rows.map(\.name), ["a.txt", "b.txt"])
+        XCTAssertEqual(encodings.leftOut, 2)
+        XCTAssertEqual(TextConversion.leftOutNote(2), "; 2 files that are not text are left out")
+        XCTAssertEqual(TextConversion.leftOutNote(1), "; 1 file that is not text is left out")
+        XCTAssertEqual(TextConversion.leftOutNote(0), "")
+    }
 }

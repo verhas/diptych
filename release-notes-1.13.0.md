@@ -11,7 +11,8 @@ opens a file in Text Edit or Bin Edit, whichever fits it. A disk image made
 to install from **installs its app** in one click. Text Edit, comparisons and
 Quick Look **guess the encoding** of text that is not UTF-8. Two PDFs or
 pictures whose bytes differ are **compared by what they show**, with a
-**Visual Preview** that flips one over the other.
+**Visual Preview** that flips one over the other. A new script,
+**Explain with an Agent**, has an AI agent write an HTML report beside a PDF.
 
 ---
 
@@ -92,6 +93,10 @@ pictures whose bytes differ are **compared by what they show**, with a
 
 ## Also
 
+- Move to Trash works on the Dropbox files it failed on with "couldn't be
+  moved to the trash because the volume “Macintosh HD” doesn't have one":
+  such an item is moved into the Trash directly. Undo puts it back; Finder's
+  Put Back does not know where it came from.
 - Reopening a file already open in Text Edit no longer reads it again over
   changes not yet saved.
 - Option-Tab no longer brings back windows that were closed.
@@ -129,6 +134,10 @@ pictures whose bytes differ are **compared by what they show**, with a
   shown to check it by.
 - Both refuse a file they cannot convert without loss, and say why. Both are one
   Undo step.
+- Both are offered when any selected file is text, and convert the text ones,
+  however many: the pictures, archives and other binary files among them are
+  left out of the list and counted under it. A selection of nothing but
+  binary files is not offered them.
 
 ## Installing from a disk image
 
@@ -155,6 +164,21 @@ pictures whose bytes differ are **compared by what they show**, with a
 - DOS code pages (437, 850, 852, 866), EBCDIC, KOI8-R and ISO-2022-JP are
   recognised. A guess is taken only when the file is valid in it and its text
   reads like text.
+
+## Image formats
+
+- **Image ▸ Convert…** also makes **WebP**, **AVIF**, **GIF**, **JPEG 2000**
+  and **BMP**, besides JPEG, HEIC, PNG and TIFF; a quality is asked for WebP,
+  AVIF and JPEG 2000 as for JPEG and HEIC. A transparent picture goes onto
+  white for BMP, as for JPEG.
+- WebP, which macOS reads but does not write, is written with Google's
+  libwebp, now part of Diptych: at 100% losslessly, upright, with its colour
+  profile and the metadata as XMP. A WebP can be resized in its own format,
+  and **Rotate** and **Flip** work on one: a lossless WebP stays lossless, a
+  lossy one is written again at 90%.
+- JPEG XL and camera raw files convert to any of them. macOS cannot write
+  those, and resizing one keeping its format now says so, rather than that the
+  Mac cannot write "Keep the format" images.
 
 ## Comparing PDFs and pictures by what they show
 
@@ -191,11 +215,6 @@ pictures whose bytes differ are **compared by what they show**, with a
   at another size is drawn at the size of the other first. A page takes
   about a second.
 
-## Upgrading
-
-Nothing to do. The Cached column is on in server listings; Settings ▸ Columns
-turns it off.
-
 ## Explain with an Agent
 
 - A new script in **File ▸ Get Scripts**: select PDFs, **Scripts ▸ Explain
@@ -206,3 +225,23 @@ turns it off.
   It runs headless in the agent terminal's folder, so its MCP servers and
   skills are there, and every report has the same look, from a template and
   stylesheet in `~/.diptych/templates/pdf-report` that can be edited.
+
+## A folder, as a tree
+
+- **Space on a folder** shows a panel of Diptych's own, in place of Quick
+  Look's page: the same look -- name, what is in it, path, sizes, dates -- and
+  every folder in it opens in place, read when it is opened.
+- **Right-click ▸ Jump Here** takes the pane there: into a folder, or to a
+  file's folder with the file selected.
+- It follows the pane's cursor, as Quick Look does, and Space closes it.
+
+## Acknowledgements
+
+- **Diptych ▸ Acknowledgements…** lists the open-source packages Diptych is
+  built with -- SwiftNIO, Citadel, SwiftTerm, libwebp and the rest -- with
+  each one's version and licence in full.
+
+## Upgrading
+
+Nothing to do. The Cached column is on in server listings; Settings ▸ Columns
+turns it off.

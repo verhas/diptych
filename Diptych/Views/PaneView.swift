@@ -900,7 +900,10 @@ struct PaneView: View {
         let join = config.menuItemShown(.splitJoin) && FileSplitting.joinSource(for: urls) != nil
         let split = config.menuItemShown(.splitJoin) && !join && urls.count == 1
             && !FileSplitting.isPart(urls[0]) && !FileSplitting.isManifest(urls[0])
-        let convert = config.menuItemShown(.textConversion) && !files.isEmpty
+        // When any of them is text: the text ones are converted, the rest
+        // left out -- a project with a picture or two among its sources.
+        let convert = config.menuItemShown(.textConversion)
+            && AppModel.offersConversion(files.map(\.url))
         if duplicates || archive || checksum || join || split || convert {
             Menu("Tools") {
                 if duplicates {

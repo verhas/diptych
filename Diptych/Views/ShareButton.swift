@@ -27,6 +27,7 @@ struct ShareButton: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    @MainActor
     final class Coordinator: NSObject, NSSharingServicePickerDelegate {
         var items: [URL] = []
 

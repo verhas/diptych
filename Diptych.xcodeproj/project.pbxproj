@@ -12,6 +12,7 @@
 		1A0000000000000000000032 /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000031 /* NIOPosix */; };
 		1A0000000000000000000034 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000033 /* NIOHTTP1 */; };
 		1A0000000000000000000038 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000039 /* Citadel */; };
+		1A000000000000000000003B /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = 1A000000000000000000003C /* libwebp */; };
 		1A0000000000000000000037 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0000000000000000000036 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
@@ -45,6 +46,7 @@
 				1A0000000000000000000034 /* NIOHTTP1 in Frameworks */,
 				1A0000000000000000000038 /* Citadel in Frameworks */,
 				1A0000000000000000000037 /* SwiftTerm in Frameworks */,
+				1A000000000000000000003B /* libwebp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -103,6 +105,7 @@
 				1A0000000000000000000033 /* NIOHTTP1 */,
 				1A0000000000000000000039 /* Citadel */,
 				1A0000000000000000000036 /* SwiftTerm */,
+				1A000000000000000000003C /* libwebp */,
 			);
 			productName = Diptych;
 			productReference = 1A0000000000000000000004 /* Diptych.app */;
@@ -180,6 +183,7 @@
 				1A000000000000000000002E /* XCRemoteSwiftPackageReference "swift-nio" */,
 				1A0000000000000000000035 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				1A000000000000000000003A /* XCRemoteSwiftPackageReference "Citadel" */,
+				1A000000000000000000003D /* XCRemoteSwiftPackageReference "libwebp-Xcode" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1A0000000000000000000003 /* Products */;
@@ -415,6 +419,14 @@
 				minimumVersion = 0.12.1;
 			};
 		};
+		1A000000000000000000003D /* XCRemoteSwiftPackageReference "libwebp-Xcode" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/libwebp-Xcode";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -447,6 +459,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1A000000000000000000003A /* XCRemoteSwiftPackageReference "Citadel" */;
 			productName = Citadel;
+		};
+		1A000000000000000000003C /* libwebp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A000000000000000000003D /* XCRemoteSwiftPackageReference "libwebp-Xcode" */;
+			productName = libwebp;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

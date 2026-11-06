@@ -998,6 +998,23 @@ showing goes away, and `reloadData` alone does not bring it back — the source
 has to be asserted again and the *item* refreshed, not only the list. With
 nothing left to show, the panel closes rather than sitting there looking broken.
 
+### A folder, as a tree
+
+**Space on a folder** -- `..` too -- shows Diptych's own panel instead of Quick
+Look's, looking as the folder page did: the name, what is in it, the path, and
+the files and folders with their sizes and dates, folders first. Each folder
+in it opens in place, with its disclosure triangle, and is read only then, so
+a whole project can be walked down without leaving the pane; a folder is
+listed up to its first thousand, the rest counted. **Right-click ▸ Jump Here**
+takes the pane that opened it there: a folder is opened in the pane, a file's
+folder is opened with the file selected, and the panel closes.
+
+The panel floats and never takes the keyboard: the pane's arrows move the
+cursor and the panel follows it -- to another folder, or back to Quick Look's
+panel for a file -- and Space or Escape closes it. Its size and place are kept.
+A package, an app or a link is shown by Quick Look as before, and so is an
+archive, which is still listed as a page; several items selected are too.
+
 ## Undo and Redo
 
 **Edit ▸ Undo** (⌘Z) and **Redo** (⇧⌘Z) in a pane window reverse what Diptych
@@ -1163,7 +1180,9 @@ Undo:
 - **Rotate Left, Rotate Right, Flip Horizontally, Flip Vertically**: a JPEG or
   HEIC is turned by its orientation alone -- nothing is decoded or compressed
   again, so nothing of the quality is lost -- and any other picture by its
-  pixels, which PNG and TIFF keep exactly. The rest of the metadata stays. An
+  pixels, which PNG and TIFF keep exactly. A WebP is written by libwebp as it
+  was: a lossless one losslessly, a lossy one again at 90%, since losslessly
+  it would come out several times the size. The rest of the metadata stays. An
   open Quick Look shows the picture turned.
 - **Set as Desktop Picture**, for one image, on every screen. It changes no
   file, so it is not in Undo.
@@ -1172,10 +1191,17 @@ And three that make **new images**, next to the originals -- or into the other
 pane's folder -- never touching them; one Undo step moves what was made to the
 Trash:
 
-- **Convert…** to JPEG, HEIC (where this Mac can write it), PNG or TIFF, with
-  a quality for JPEG and HEIC, the metadata kept or left out. `IMG_1.heic`
-  becomes `IMG_1.jpg`; a name already taken gets a number, `IMG_1-1.jpg`. A
-  transparent picture goes onto white for JPEG.
+- **Convert…** to JPEG, HEIC, AVIF (these two where this Mac can write them),
+  WebP, PNG, TIFF, GIF, JPEG 2000 or BMP, with a quality for JPEG, HEIC, AVIF,
+  WebP and JPEG 2000, the metadata kept or left out. `IMG_1.heic` becomes
+  `IMG_1.jpg`; a name already taken gets a number, `IMG_1-1.jpg`. A transparent
+  picture goes onto white for JPEG and BMP. WebP, which macOS reads but does not
+  write, is written with Google's libwebp: at 100% losslessly, every pixel
+  kept; upright, since few programs turn a WebP by its metadata; with the
+  colour profile, and the metadata as XMP. Anything else macOS reads converts
+  too -- JPEG XL, camera raw -- but is not offered as the format to make, and
+  resizing one keeping its format asks for another. A GIF that moves becomes
+  its first frame.
 - **Resize…** to a longest side -- 4096 down to 640 pixels -- in the same
   format or another: `IMG_1 (2048).jpg`. The picture is turned upright on the
   way, and an image already smaller is not made larger. Convert and Resize are
@@ -1647,6 +1673,13 @@ window, the close button or ⌘W closes it without. Nothing is ever changed
 lossily: a file that cannot take the change is marked in red with the reason
 and left as it is, and the others are converted. On a read-only volume the
 items are greyed out; a server's files are fetched first and sent back after.
+They are offered when any selected file is text, and convert the text ones:
+select everything in a downloaded project, in the flat view, and the pictures
+and binaries among its sources are left out of the list, counted in one line
+under it. Text is told by the test Edit uses to choose Text Edit: a picture, a
+movie, an archive, a PDF or a program by its type, unread -- nor fetched from
+a server -- and anything else by its first bytes; UTF-16 with its byte-order
+mark is text. The menu reads files only until it finds one that is text.
 
 **Line endings.** Each file shows what its lines end in now -- LF, CRLF, CR,
 LF CR, NEL, LS, PS, or *mixed* with how many of each -- and whether its last
@@ -4337,6 +4370,40 @@ Diptych/
 The Xcode project uses a *synchronized folder group*: the `Diptych/` directory
 is the target's source list. Add a `.swift` file anywhere under it and it is in
 the build -- no need to touch `project.pbxproj`.
+
+## Acknowledgements
+
+Diptych is built with these open-source packages. **Diptych ▸
+Acknowledgements…** shows each one's licence in full, with its notices --
+libwebp's patent grant, SwiftNIO's bundled llhttp -- as the licences ask of
+anything that ships them.
+
+| Package | Version | Licence | Used for |
+|---|---|---|---|
+| [BigInt](https://github.com/attaswift/BigInt) | 5.7.0 | MIT | Arbitrary-precision arithmetic, for SSH keys |
+| [Citadel](https://github.com/orlandos-nl/Citadel) | 0.12.1 | MIT | SSH and SFTP client |
+| [EventSource](https://github.com/mattt/eventsource) | 1.5.1 | MIT | Server-sent events, for the MCP server |
+| [libwebp](https://github.com/SDWebImage/libwebp-Xcode) | 1.6.0 | BSD 3-Clause | Writing WebP images |
+| [MCP Swift SDK](https://github.com/modelcontextprotocol/swift-sdk) | 0.12.1 | Apache 2.0 | The Model Context Protocol server |
+| [Swift Atomics](https://github.com/apple/swift-atomics) | 1.3.1 | Apache 2.0 | Atomic operations, for SwiftNIO |
+| [Swift Collections](https://github.com/apple/swift-collections) | 1.7.1 | Apache 2.0 | Data structures, for SwiftNIO |
+| [Swift Crypto](https://github.com/apple/swift-crypto) | 3.15.1 | Apache 2.0 | Cryptography, including BoringSSL, for SSH |
+| [Swift System](https://github.com/apple/swift-system) | 1.8.1 | Apache 2.0 | System calls, for the MCP SDK |
+| [SwiftASN1](https://github.com/apple/swift-asn1) | 1.7.3 | Apache 2.0 | ASN.1 and DER, for keys and certificates |
+| [SwiftLog](https://github.com/apple/swift-log) | 1.15.1 | Apache 2.0 | Logging, for SwiftNIO and the MCP SDK |
+| [SwiftNIO](https://github.com/apple/swift-nio) | 2.103.0 | Apache 2.0 | Networking: the MCP server and SSH |
+| [SwiftNIO SSH](https://github.com/Wellz26/swift-nio-ssh) | 0.3.7 | Apache 2.0 | The SSH protocol, for SFTP |
+| [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) | 1.20.0 | MIT | The terminal panel |
+
+Swift Argument Parser is resolved too, but only SwiftTerm's build plugin uses
+it; nothing of it is in the app.
+
+The window reads `Diptych/Licenses.json`, which `./make-licenses.sh` makes
+from the package checkouts Xcode resolved. `build.sh` makes it again whenever
+`Package.resolved` changes, and `AcknowledgementsTests` fails when the two
+disagree -- a package added or updated without its licence. A new package
+gets its name and use in the script's `NAMES` and `USE`, and any licence it
+bundles beside its own in `EXTRA`.
 
 ## Sandbox
 

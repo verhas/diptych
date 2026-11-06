@@ -91,10 +91,8 @@ struct ConvertImagesView: View {
     private var qualityMatters: Bool {
         let format = model.convertOptions.format
         if format.isLossy { return true }
-        // Keeping the format: only where the images are JPEG or HEIC.
-        return format == .same && model.convertingImages.contains {
-            ["jpg", "jpeg", "heic", "heif"].contains($0.pathExtension.lowercased())
-        }
+        // Keeping the format: only where the images are in a lossy one.
+        return format == .same && model.convertingImages.contains(where: ImageMaking.isLossy)
     }
 
     /// What the first new image will be called.
