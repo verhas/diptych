@@ -116,6 +116,16 @@ refresh_places() {
     fi
 }
 
+# Diptych/Licenses.json, the Acknowledgements window's, made again whenever
+# the packages resolved change.
+refresh_licenses() {
+    local resolved="$PROJECT/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    [ "$resolved" -nt Diptych/Licenses.json ] || return 0
+    info "Making Diptych/Licenses.json (the packages changed)..."
+    ./make-licenses.sh | sed 's/^/    /' \
+        || die "could not make Diptych/Licenses.json"
+}
+
 build() {
     local log
     log=$(mktemp -t twopane-build)
@@ -125,6 +135,7 @@ build() {
 
     generate_release_notes
     refresh_places
+    refresh_licenses
 
     # A Release build is stripped of its symbol table. Xcode only strips as
     # part of an archive or install, never on a plain `build`, so every

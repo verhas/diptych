@@ -16,6 +16,7 @@ struct DiptychApp: App {
     static let visualPreviewWindowID = "diptych.visualPreview"
     static let directoryDiffWindowID = "diptych.directoryDiff"
     static let releaseNotesWindowID = "diptych.releaseNotes"
+    static let acknowledgementsWindowID = "diptych.acknowledgements"
     static let mcpConsoleWindowID = "diptych.mcpConsole"
     static let batchOperationsWindowID = "diptych.batchOperations"
     static let runWindowID = "diptych.run"
@@ -217,6 +218,13 @@ struct DiptychApp: App {
         .defaultSize(width: 700, height: 600)
         .restorationBehavior(.disabled)
 
+        // The open-source packages Diptych is built with, and their licences.
+        Window("Acknowledgements", id: DiptychApp.acknowledgementsWindowID) {
+            AcknowledgementsView()
+        }
+        .defaultSize(width: 860, height: 620)
+        .restorationBehavior(.disabled)
+
         // One console, showing MCP activity for the whole process -- not
         // per-window, since the server itself is one process-wide listener.
         Window("MCP Activity", id: DiptychApp.mcpConsoleWindowID) {
@@ -412,6 +420,7 @@ struct FileCommands: Commands {
     /// Text Edit in front: View's text sizes are its, and the panes' menu
     /// items are greyed out.
     @FocusedValue(\.textEditor) private var editor: TextEditorTarget?
+    @Environment(\.openWindow) private var openWindow
 
     /// Run the pane command when a pane is focused, otherwise let AppKit send
     /// the standard action to whatever text view has focus.
@@ -431,6 +440,9 @@ struct FileCommands: Commands {
         // Under About, above Settings, where macOS apps keep it.
         CommandGroup(after: .appInfo) {
             Button("Check for Updates\u{2026}") { UpdateChecker.shared.checkNow(on: model) }
+            Button("Acknowledgements\u{2026}") {
+                openWindow(id: DiptychApp.acknowledgementsWindowID)
+            }
         }
 
         // `after:` rather than `replacing:` -- SwiftUI puts its own "New Window"

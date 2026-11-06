@@ -27,13 +27,19 @@ final class QuickLookController: NSObject {
     func toggle(_ urls: [URL], owner: AppModel?) {
         guard let panel = QLPreviewPanel.shared() else { return }
 
-        if panel.isVisible {
-            panel.orderOut(nil)
-            shownURLs = []
-            clearScratch()
+        if isVisible {
+            close()
             return
         }
         guard !urls.isEmpty else { return }
+
+        // One folder: Diptych's own panel, a tree of what is in it.
+        if urls.count == 1, FolderPreview.shows(urls[0]) {
+            self.owner = owner
+            shownURLs = urls
+            FolderPreview.shared.show(urls[0], owner: owner, pane: owner?.active)
+            return
+        }
 
         items = urls.map(previewable)
         shownURLs = urls
@@ -75,13 +81,17 @@ final class QuickLookController: NSObject {
         window.makeKey()
     }
 
-    var isVisible: Bool {
+    /// Quick Look's panel, or the folder preview standing in for it.
+    var isVisible: Bool { panelIsVisible || FolderPreview.shared.isVisible }
+
+    private var panelIsVisible: Bool {
         QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared().isVisible
     }
 
     func close() {
         guard isVisible else { return }
-        QLPreviewPanel.shared().orderOut(nil)
+        FolderPreview.shared.close()
+        if panelIsVisible { QLPreviewPanel.shared().orderOut(nil) }
         shownURLs = []
         clearScratch()
     }
@@ -111,10 +121,25 @@ final class QuickLookController: NSObject {
             return
         }
 
+        // The cursor on a folder: the folder preview, in place of the panel.
+        if urls.count == 1, FolderPreview.shows(urls[0]) {
+            if panelIsVisible {
+                panel.orderOut(nil)
+                owner?.window?.makeKey()
+            }
+            FolderPreview.shared.show(urls[0], owner: owner, pane: owner?.active)
+            return
+        }
+
         items = urls.map(previewable)
         panel.dataSource = self
         panel.delegate = self
         panel.reloadData()
+        if FolderPreview.shared.isVisible {
+            // From a folder to a file: Quick Look's panel again.
+            FolderPreview.shared.close()
+            panel.orderFront(nil)
+        }
         panel.refreshCurrentPreviewItem()
         keepAbove(panel)
     }
@@ -122,7 +147,7 @@ final class QuickLookController: NSObject {
     /// The same files, changed in place -- turned, their location removed:
     /// drawn again rather than from what the panel kept of them.
     func refresh() {
-        guard isVisible, let panel = QLPreviewPanel.shared() else { return }
+        guard panelIsVisible, let panel = QLPreviewPanel.shared() else { return }
         panel.reloadData()
         panel.refreshCurrentPreviewItem()
     }

@@ -143,7 +143,7 @@ final class FileVersionsTests: XCTestCase {
         let file = root.appendingPathComponent("notes.txt")
         try Data("new contents".utf8).write(to: file)
         XCTAssertEqual(chmod(file.path, 0o640), 0)
-        try file.withUnsafeFileSystemRepresentation { path in
+        file.withUnsafeFileSystemRepresentation { path in
             let value = Data("green".utf8)
             _ = value.withUnsafeBytes { setxattr(path, "com.apple.metadata:kColour", $0.baseAddress, $0.count, 0, 0) }
         }

@@ -36,6 +36,16 @@ final class ToolWindows {
 /// Reading a file to convert, and writing it back in place.
 enum TextConversion {
 
+    /// Why a file read is not converted: it is not text. Such a file is left
+    /// out of the list rather than shown as refused.
+    nonisolated static let notText = "not a text file"
+
+    /// "; 3 files that are not text are left out", or nothing.
+    nonisolated static func leftOutNote(_ count: Int) -> String {
+        count == 0 ? "" : "; \(count) file\(count == 1 ? "" : "s") that \(count == 1 ? "is" : "are") "
+            + "not text \(count == 1 ? "is" : "are") left out"
+    }
+
     /// Larger than this is not read into memory to convert.
     static let sizeLimit = 64 << 20
 
@@ -130,6 +140,8 @@ final class LineEndingsModel {
     }
 
     private(set) var rows: [Row]
+    /// Selected, but not text: not in the list, and not converted.
+    private(set) var leftOut = 0
     private(set) var loaded = false
     var target: LineEnding = .lf {
         // LS and PS separate lines: none after the last is what they expect.
@@ -144,12 +156,18 @@ final class LineEndingsModel {
 
     init(jobId: UUID, files: [URL]) {
         self.jobId = jobId
-        rows = files.map { Row(url: $0) }
+        let text = files.filter { !AppModel.isNeverText($0) }
+        rows = text.map { Row(url: $0) }
+        leftOut = files.count - text.count
     }
 
     func load() async {
         let files = rows.map(\.url)
-        rows = await BlockingWork.run { files.map(Self.read) }
+        let read = await BlockingWork.run { files.map(Self.read) }
+        // A file that is not text is left out, not listed as refused: among
+        // a project's thousands of sources, its pictures are no news.
+        rows = read.filter { $0.problem != TextConversion.notText }
+        leftOut += read.count - rows.count
         loaded = true
     }
 
@@ -161,7 +179,7 @@ final class LineEndingsModel {
             guard let reading = TextEncodings.reading(of: data, at: url, fallback: .windowsCP1252),
                   let text = TextEncodings.decode(data, reading)
                       ?? (reading.hasBOM ? nil : String(data: data, encoding: .isoLatin1)) else {
-                row.problem = "not a text file"
+                row.problem = TextConversion.notText
                 return row
             }
             row.data = data
@@ -246,6 +264,8 @@ final class EncodingsModel {
     }
 
     private(set) var rows: [Row]
+    /// Selected, but not text: not in the list, and not converted.
+    private(set) var leftOut = 0
     private(set) var loaded = false
     var target: String.Encoding = .utf8 {
         // A mark is the only way to tell UTF-16 or UTF-32 by its bytes; UTF-8
@@ -261,14 +281,20 @@ final class EncodingsModel {
 
     init(jobId: UUID, files: [URL]) {
         self.jobId = jobId
-        rows = files.map { Row(url: $0) }
+        let text = files.filter { !AppModel.isNeverText($0) }
+        rows = text.map { Row(url: $0) }
+        leftOut = files.count - text.count
     }
 
     var targetIsUnicode: Bool { TextEncodings.isUnicode(target) }
 
     func load() async {
         let files = rows.map(\.url)
-        rows = await BlockingWork.run { files.map(Self.read) }
+        let read = await BlockingWork.run { files.map(Self.read) }
+        // A file that is not text is left out, not listed as refused: among
+        // a project's thousands of sources, its pictures are no news.
+        rows = read.filter { $0.problem != TextConversion.notText }
+        leftOut += read.count - rows.count
         loaded = true
     }
 
@@ -278,7 +304,7 @@ final class EncodingsModel {
         case .failure(let problem): row.problem = problem.text
         case .success(let data):
             guard let reading = TextEncodings.reading(of: data, at: url, fallback: .windowsCP1252) else {
-                row.problem = "not a text file"
+                row.problem = TextConversion.notText
                 return row
             }
             row.data = data

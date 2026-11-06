@@ -14,7 +14,7 @@ nonisolated enum ImageMaking {
     }
 
     enum Format: String, CaseIterable, Sendable, Identifiable {
-        case same, jpeg, heic, png, tiff
+        case same, jpeg, heic, avif, webp, png, tiff, gif, jpeg2000, bmp
 
         var id: String { rawValue }
 
@@ -23,8 +23,13 @@ nonisolated enum ImageMaking {
             case .same: "Keep the format"
             case .jpeg: "JPEG"
             case .heic: "HEIC"
+            case .avif: "AVIF"
+            case .webp: "WebP"
             case .png:  "PNG"
             case .tiff: "TIFF"
+            case .gif:  "GIF"
+            case .jpeg2000: "JPEG 2000"
+            case .bmp:  "BMP"
             }
         }
 
@@ -33,19 +38,28 @@ nonisolated enum ImageMaking {
             case .same: nil
             case .jpeg: .jpeg
             case .heic: .heic
+            case .avif: UTType("public.avif")
+            case .webp: .webP
             case .png:  .png
             case .tiff: .tiff
+            case .gif:  .gif
+            case .jpeg2000: UTType("public.jpeg-2000")
+            case .bmp:  .bmp
             }
         }
 
-        /// Whether a quality is asked for: JPEG and HEIC lose some.
-        var isLossy: Bool { self == .jpeg || self == .heic }
+        /// Whether a quality is asked for: JPEG, HEIC, AVIF, WebP and JPEG
+        /// 2000 lose some. A WebP at 100% loses nothing.
+        var isLossy: Bool { [.jpeg, .heic, .avif, .webp, .jpeg2000].contains(self) }
 
-        /// This Mac can write it: HEIC needs the hardware for it.
+        /// No transparency to keep: drawn on white instead. A GIF keeps its
+        /// transparent pixels; a BMP's alpha most programs ignore.
+        var isOpaque: Bool { self == .jpeg || self == .bmp }
+
+        /// This Mac can write it: HEIC and AVIF need a newer Mac or macOS.
         var isWritable: Bool {
             guard let type else { return true }
-            let writable = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
-            return writable.contains(type.identifier)
+            return ImageMaking.canWrite(type.identifier)
         }
     }
 
@@ -77,13 +91,25 @@ nonisolated enum ImageMaking {
             for: place.appendingPathComponent(name).appendingPathExtension(ext))
     }
 
+    /// What this Mac writes: what ImageIO does, and WebP through libwebp.
+    /// JPEG XL and camera raw files it only reads.
+    static func canWrite(_ type: String) -> Bool {
+        type == UTType.webP.identifier
+            || (CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []).contains(type)
+    }
+
     static func fileExtension(of url: URL, format: Format) -> String {
         switch format {
         case .same: url.pathExtension.isEmpty ? "png" : url.pathExtension
         case .jpeg: "jpg"
         case .heic: "heic"
+        case .avif: "avif"
+        case .webp: "webp"
         case .png:  "png"
         case .tiff: "tiff"
+        case .gif:  "gif"
+        case .jpeg2000: "jp2"
+        case .bmp:  "bmp"
         }
     }
 
@@ -97,6 +123,11 @@ nonisolated enum ImageMaking {
               let sourceType = CGImageSourceGetType(source) else {
             throw Failure(message: "\u{201C}\(name)\u{201D} could not be read as an image.")
         }
+        if options.format == .same, !canWrite(sourceType as String) {
+            let kind = UTType(sourceType as String)?.localizedDescription ?? "this kind of image"
+            throw Failure(message: "\u{201C}\(name)\u{201D} is \(kind), which this Mac reads "
+                          + "but cannot write: choose a format to convert it to.")
+        }
         let type = options.format.type?.identifier as CFString? ?? sourceType
         let original = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
             ?? [:]
@@ -105,9 +136,17 @@ nonisolated enum ImageMaking {
         let width = original[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = original[kCGImagePropertyPixelHeight] as? Int ?? 0
 
+        // WebP is written upright: it has no turn most programs honour.
+        let webp = (type as String) == UTType.webP.identifier
         var image: CGImage?
         var label: String?
-        if let side = options.longestSide, max(width, height) > side {
+        if webp, options.longestSide.map({ max(width, height) <= $0 }) ?? true {
+            image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceThumbnailMaxPixelSize: max(width, height, 1),
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+            ] as CFDictionary)
+        } else if let side = options.longestSide, max(width, height) > side {
             // Smaller, and turned upright on the way: the thumbnail is drawn
             // as it is shown, so the new image has no turn to keep.
             image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -137,12 +176,23 @@ nonisolated enum ImageMaking {
             exif[kCGImagePropertyExifPixelYDimension] = image.height
             properties[kCGImagePropertyExifDictionary] = exif
         }
-        if options.format == .jpeg, image.alphaInfo.hasAlpha, let flat = flattened(image) {
+        if options.format.isOpaque, image.alphaInfo.hasAlpha, let flat = flattened(image) {
             // JPEG has no transparency: on white, as a page would show it.
             image = flat
         }
         if options.format.isLossy || (options.format == .same && isLossy(sourceType)) {
             properties[kCGImageDestinationLossyCompressionQuality] = options.quality
+        }
+
+        if webp {
+            guard let data = WebPWriting.encode(
+                image, quality: options.quality, xmp: options.keepMetadata ? WebPWriting.xmp(source, image) : nil)
+            else {
+                throw Failure(message: "\u{201C}\(name)\u{201D} could not be written as WebP.")
+            }
+            let target = target(for: url, extension: fileExtension(of: url, format: options.format),
+                                label: label, folder: options.folder)
+            return try write(data, to: target)
         }
 
         let output = NSMutableData()
@@ -160,8 +210,18 @@ nonisolated enum ImageMaking {
     }
 
     private static func isLossy(_ type: CFString) -> Bool {
-        [UTType.jpeg.identifier, UTType.heic.identifier, UTType.heif.identifier]
-            .contains(type as String)
+        lossyTypes.contains(type as String)
+    }
+
+    static let lossyTypes: Set<String> = [
+        UTType.jpeg.identifier, UTType.heic.identifier, UTType.heif.identifier,
+        "public.avif", "public.jpeg-2000", UTType.webP.identifier,
+    ]
+
+    /// Whether the file is in a format a quality applies to.
+    static func isLossy(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return lossyTypes.contains(type.identifier)
     }
 
     /// On white, without transparency.

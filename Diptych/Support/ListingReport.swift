@@ -46,7 +46,7 @@ enum ListingReport {
         case folder, archive
     }
 
-    private static func summary(_ result: Listing.Result, kind: Kind,
+    static func summary(_ result: Listing.Result, kind: Kind,
                                 stillReading: Bool) -> String {
         guard !stillReading else {
             return kind == .folder ? "Looking inside the folder" : "Looking inside the archive"

@@ -11,7 +11,7 @@ final class ArchiveBrowsingTests: XCTestCase {
     private var savedCacheRoot: URL!
     private let fm = FileManager.default
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychBrowsing-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -19,7 +19,7 @@ final class ArchiveBrowsingTests: XCTestCase {
         ArchiveBrowsing.cacheRoot = root.appendingPathComponent("cache")
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         ArchiveBrowsing.removeAll()
         ArchiveBrowsing.cacheRoot = savedCacheRoot
         try? fm.removeItem(at: root)

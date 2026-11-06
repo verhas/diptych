@@ -176,7 +176,8 @@ struct LineEndingsView: View {
     private var summary: String {
         guard model.loaded else { return "Reading\u{2026}" }
         let count = model.convertible
-        return count == 0 ? "Nothing to change" : "\(count) file\(count == 1 ? "" : "s") will change"
+        return (count == 0 ? "Nothing to change" : "\(count) file\(count == 1 ? "" : "s") will change")
+            + TextConversion.leftOutNote(model.leftOut)
     }
 
     private var table: some View {
@@ -305,7 +306,8 @@ struct EncodingsView: View {
     private var summary: String {
         guard model.loaded else { return "Reading\u{2026}" }
         let count = model.convertible
-        return count == 0 ? "Nothing to change" : "\(count) file\(count == 1 ? "" : "s") will change"
+        return (count == 0 ? "Nothing to change" : "\(count) file\(count == 1 ? "" : "s") will change")
+            + TextConversion.leftOutNote(model.leftOut)
     }
 
     private var table: some View {

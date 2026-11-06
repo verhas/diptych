@@ -6,8 +6,8 @@ import XCTest
 @MainActor
 final class FavouriteTests: XCTestCase {
 
-    override func setUp() { LiveSettings.protect() }
-    override func tearDown() { LiveSettings.putBack() }
+    override func setUp() async throws { LiveSettings.protect() }
+    override func tearDown() async throws { LiveSettings.putBack() }
 
     func testADiskImageIsEligibleButAPlainFileIsNot() {
         let model = AppModel()

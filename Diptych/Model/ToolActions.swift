@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// Edit, and the conversions of Tools.
 extension AppModel {
@@ -33,6 +34,36 @@ extension AppModel {
 
     // MARK: - Line endings and encodings
 
+    /// A file the conversions work on: one Text Edit would open as text. A
+    /// picture, a movie, an archive, a PDF or a program is told by its type
+    /// without being read; anything else by its first bytes.
+    nonisolated static func convertsAsText(_ url: URL) -> Bool {
+        !isNeverText(url) && editsAsText(url)
+    }
+
+    /// Not text by its type alone, nothing read.
+    nonisolated static func isNeverText(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return [.image, .audiovisualContent, .archive, .pdf, .executable, .font, .diskImage]
+            .contains(where: { type.conforms(to: $0) })
+    }
+
+    /// Whether the conversions are offered for these files: when any of them
+    /// is text -- they then convert the text ones and leave the rest out. The
+    /// menu cannot afford to read thousands of files, so it reads until it
+    /// finds one that is text, at most `reads` of them; past that, with more
+    /// left that may be, they are offered and the window sorts them out.
+    nonisolated static func offersConversion(_ urls: [URL], reads: Int = 50) -> Bool {
+        let candidates = urls.lazy.filter { !isNeverText($0) }
+        var read = 0
+        for url in candidates {
+            if read == reads { return true }
+            if editsAsText(url) { return true }
+            read += 1
+        }
+        return false
+    }
+
     /// The selected ordinary files: what the conversions work on.
     var conversionTargets: [URL] {
         active.selectedItems.filter { !$0.isDirectory && !$0.isParent }.map(\.url)
@@ -53,7 +84,9 @@ extension AppModel {
             flash("This folder is read-only: its files cannot be converted in place")
             return
         }
-        whenFetched(targets) { [weak self] in
+        // Only what may be text is fetched: the pictures among a server's
+        // sources are left out unread.
+        whenFetched(targets.filter { !Self.isNeverText($0) }) { [weak self] in
             guard let self else { return }
             let id = ToolWindows.shared.register(.init(model: self, kind: kind, files: targets))
             openToolWindow?(kind, id)

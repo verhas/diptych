@@ -417,12 +417,12 @@ actor FileOperations {
             } catch {
                 // A cloud provider can refuse its part of a trash -- Dropbox
                 // does, for some items it has long had, reported as no
-                // permission. The file system has no objection to the move
-                // itself, so it is made directly. Finder's Put Back will not
-                // know where the item came from; Diptych's own Undo does.
-                let refused = (error as NSError).domain == NSCocoaErrorDomain
-                    && (error as NSError).code == NSFileWriteNoPermissionError
-                if refused, Self.isCloudItem(url), let trashed = Self.moveIntoTrash(url) {
+                // permission, or as the volume having no Trash. The file
+                // system has no objection to the move itself, so it is made
+                // directly. Finder's Put Back will not know where the item
+                // came from; Diptych's own Undo does.
+                if Self.trashMovesDirectly(after: error, url),
+                   let trashed = Self.moveIntoTrash(url) {
                     outcome.succeeded.append(url)
                     moved.append((url, trashed))
                     continue
@@ -518,6 +518,21 @@ actor FileOperations {
 
     /// In a folder a cloud provider keeps -- Dropbox, iCloud Drive, Google
     /// Drive -- where moves go through the provider.
+    /// Whether a trash `trashItem` refused is made by moving the item into
+    /// the Trash directly. "No permission" from a cloud provider; and "the
+    /// volume has no Trash" for anything on the home folder's volume, which
+    /// has one -- Dropbox's folder in `~/Library/CloudStorage` says so of
+    /// some of its files. `moveIntoTrash` itself moves only on that volume.
+    nonisolated static func trashMovesDirectly(after error: Error, _ url: URL) -> Bool {
+        let error = error as NSError
+        guard error.domain == NSCocoaErrorDomain else { return false }
+        switch error.code {
+        case NSFileWriteNoPermissionError: return isCloudItem(url)
+        case NSFeatureUnsupportedError: return true
+        default: return false
+        }
+    }
+
     nonisolated static func isCloudItem(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true
     }

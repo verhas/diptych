@@ -134,7 +134,9 @@ enum ExifWrite {
         }
         let byOrientation = [UTType.jpeg, .heic, .heif].map(\.identifier).contains(type as String)
         guard byOrientation else {
-            return try turnPixels(source, type: type, to: next, name: name)
+            return try turnPixels(source, type: type, to: next, name: name,
+                                  lossless: (type as String) != UTType.webP.identifier
+                                      || WebPWriting.isLossless(data))
         }
         // The orientation option alone, not new metadata: HEIC keeps its
         // turn in the container rather than in EXIF, and only this option
@@ -162,9 +164,12 @@ enum ExifWrite {
 
     /// A format that keeps no turn of its own, or that viewers ignore:
     /// the pixels drawn as `orientation` says, and the image upright.
+    /// A WebP is written by libwebp, as it was: a lossless one losslessly,
+    /// a lossy one again at a high quality -- losslessly it would come out
+    /// several times the size.
     private nonisolated static func turnPixels(_ source: CGImageSource, type: CFString,
-                                               to orientation: Int,
-                                               name: String) throws(Failure) -> Data {
+                                               to orientation: Int, name: String,
+                                               lossless: Bool) throws(Failure) -> Data {
         guard CGImageSourceGetCount(source) == 1 else {
             throw Failure(message: "\u{201C}\(name)\u{201D} has several frames, which are not "
                           + "turned.")
@@ -188,6 +193,13 @@ enum ExifWrite {
         if var tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
             tiff[kCGImagePropertyTIFFOrientation] = 1
             properties[kCGImagePropertyTIFFDictionary] = tiff
+        }
+        if (type as String) == UTType.webP.identifier {
+            guard let data = WebPWriting.encode(pixels, quality: lossless ? 1 : 0.9,
+                                                xmp: WebPWriting.xmp(source, pixels)) else {
+                throw Failure(message: "\u{201C}\(name)\u{201D} could not be written turned.")
+            }
+            return data
         }
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else {

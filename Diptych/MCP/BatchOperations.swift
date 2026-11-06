@@ -389,8 +389,6 @@ final class BatchOperationRow: Identifiable {
         case .createSymlink:
             if targetPath == nil { problems.append("target (new link path) is required.") }
             if linkTarget == nil { problems.append("linkTarget (what it points to) is required.") }
-        case .createDirectory:
-            if targetPath == nil { problems.append("target (new directory path) is required.") }
         case .setXattr, .removeXattr:
             if source == nil { problems.append("source is required.") }
             if (xattrName ?? "").isEmpty {
