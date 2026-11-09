@@ -1,13 +1,21 @@
 import Citadel
 import Foundation
+import NIOPosix
 import NIOSSH
 
 /// One attempt to connect to an SFTP server, kept while the person answers
 /// a question about it. The password is kept only for that time.
 nonisolated struct SFTPConnectRequest: Sendable {
     let url: URL
-    let username: String
-    let password: String?
+    var username: String
+    var password: String?
+    /// A passphrase just typed, and the key file it is for. Used once.
+    var unlocking: (key: URL, passphrase: String)?
+    /// Keys the person chose not to unlock for this connection.
+    var skippedKeys: Set<URL> = []
+    /// Keys already tried for this connection, so that answering a question
+    /// does not offer the server the same refused keys again.
+    var tried: Set<String> = []
 }
 
 /// What the trust dialog shows about a host whose key Diptych does not trust.
@@ -28,6 +36,18 @@ struct SFTPLoginPrompt: Equatable {
     let host: String
     let username: String
     let wasWrong: Bool
+    /// Keys were tried first, and none of them signed in.
+    let keysFailed: Bool
+}
+
+/// What the passphrase dialog shows: the key, and whether the passphrase just
+/// tried was wrong.
+struct SFTPPassphrasePrompt: Equatable {
+    let host: String
+    let key: URL
+    let wasWrong: Bool
+    /// `UseKeychain`: a passphrase that works is saved in the Keychain.
+    let savedInKeychain: Bool
 }
 
 /// The outcome of one connection attempt.
@@ -37,9 +57,10 @@ private enum SFTPAttempt {
     case refused(Error)
 }
 
-/// Connect to Server, for an `sftp://` address: the keys in `~/.ssh` are tried
-/// first, then a password the person types. An unknown host is put to the
-/// person before anything is sent to it.
+/// Connect to Server, for an `sftp://` address, going through the steps `ssh`
+/// goes through: the agent's keys, then the keys the configuration names, added
+/// to the agent, then a passphrase, then a password if the server takes one.
+/// An unknown host is put to the person before anything is sent to it.
 extension AppModel {
 
     /// Connects to the server at `url`, as the user named in it or the one
@@ -51,10 +72,33 @@ extension AppModel {
 
     /// The login dialog's answer: a user name and a password.
     func answerSFTPLogin(username: String, password: String) {
-        guard let request = sftpRequest else { return }
+        guard var request = sftpRequest else { return }
         dialog = nil
         sftpLogin = nil
-        attemptSFTP(SFTPConnectRequest(url: request.url, username: username, password: password))
+        // A key refused for one user may be right for another.
+        if username != request.username { request.tried = [] }
+        request.username = username
+        request.password = password
+        attemptSFTP(request)
+    }
+
+    /// The passphrase dialog's answer: the key goes to the agent with it.
+    func answerSFTPPassphrase(_ passphrase: String) {
+        guard var request = sftpRequest, let prompt = sftpPassphrase else { return }
+        dialog = nil
+        sftpPassphrase = nil
+        request.unlocking = (key: prompt.key, passphrase: passphrase)
+        attemptSFTP(request)
+    }
+
+    /// The person does not want to unlock this key: on to whatever is left to
+    /// try, as `ssh` does when a passphrase is left empty.
+    func skipSFTPKey() {
+        guard var request = sftpRequest, let prompt = sftpPassphrase else { return }
+        dialog = nil
+        sftpPassphrase = nil
+        request.skippedKeys.insert(prompt.key)
+        attemptSFTP(request)
     }
 
     /// Asks how often the server at a sidebar entry is checked.
@@ -142,32 +186,70 @@ extension AppModel {
         sftpRequest = request
 
         Task {
-            // The agent's keys first: they are the ones the person keeps unlocked.
-            // Then the key files, then the password.
-            var keyLogins: [SFTPLogin] = []
-            if let agent = await BlockingWork.run({ SSHAgent.usable() }) {
-                keyLogins.append(.agent(agent))
+            var request = request
+            let host = request.url.host(percentEncoded: false) ?? ""
+            let port = request.url.port ?? 22
+            let username = request.username
+            let settings = await BlockingWork.run {
+                SSHHostSettings.resolve(host: host, port: port, username: username)
             }
-            keyLogins += SFTPLogin.keyFilesInSSHFolder.map { SFTPLogin.keyFile($0) }
+            let agent = await BlockingWork.run { SSHAgent.discovered() }
 
-            for login in keyLogins {
-                // Any failure moves on to the next key: a key can fail to load,
-                // be refused, or be encrypted, and the password is still to come.
-                switch await trySFTP(request, login) {
-                case .connected(let session):
-                    await finishSFTP(session, request, login: login)
+            // A passphrase just typed unlocks its key before anything else.
+            if let unlocking = request.unlocking {
+                request.unlocking = nil
+                sftpRequest = request
+                switch await BlockingWork.run({
+                    agent?.load(unlocking.key, useKeychain: settings.useKeychain,
+                                passphrase: unlocking.passphrase) ?? .failed("no agent")
+                }) {
+                case .added:
+                    break
+                case .needsPassphrase:
+                    finishConnecting()
+                    askForPassphrase(request, key: unlocking.key, settings: settings, wasWrong: true)
                     return
-                case .hostKey(let problem):
-                    askAboutHost(problem, request)
-                    return
-                case .refused:
-                    continue
+                case .failed:
+                    request.skippedKeys.insert(unlocking.key)
                 }
             }
 
-            guard let password = request.password else {
+            // The keys the agent already holds: the ones the person keeps unlocked.
+            if await offerAgentKeys(agent, settings, &request) { return }
+
+            // Then the configured keys it does not hold yet, as `ssh` adds them.
+            // Those that need typing wait until everything else has been tried,
+            // so nobody is asked to unlock a key that was not needed.
+            var locked: [URL] = []
+            if let agent, settings.addKeysToAgent, request.password == nil {
+                for key in settings.identityFiles where !request.skippedKeys.contains(key) {
+                    let useKeychain = settings.useKeychain
+                    let outcome = await BlockingWork.run { () -> SSHKeyLoad? in
+                        agent.holds(key) ? nil : agent.load(key, useKeychain: useKeychain)
+                    }
+                    switch outcome {
+                    case .added:
+                        if await offerAgentKeys(agent, settings, &request) { return }
+                    case .needsPassphrase:
+                        locked.append(key)
+                    case .failed, nil:
+                        continue
+                    }
+                }
+            }
+
+            // The key files themselves. One that cannot be read here, being
+            // encrypted, is simply passed over.
+            if await offer(settings.identityFiles.map { .keyFile($0) }, &request) { return }
+
+            if let key = locked.first {
                 finishConnecting()
-                askForSFTPLogin(request, wasWrong: false)
+                askForPassphrase(request, key: key, settings: settings, wasWrong: false)
+                return
+            }
+
+            guard let password = request.password else {
+                await askForPasswordIfTaken(request)
                 return
             }
             switch await trySFTP(request, .password(password)) {
@@ -185,6 +267,73 @@ extension AppModel {
                 }
             }
         }
+    }
+
+    /// Offers the agent's keys the request has not tried, in `ssh`'s order.
+    /// True when the attempt is over, however it ended.
+    private func offerAgentKeys(_ agent: SSHAgent?, _ settings: SSHHostSettings,
+                                _ request: inout SFTPConnectRequest) async -> Bool {
+        guard let agent else { return false }
+        let identities = await BlockingWork.run { () -> [SSHAgent.Identity] in
+            settings.offerOrder((try? agent.identities()) ?? [],
+                                named: settings.identityFiles.compactMap(SSHAgent.publicBlob(of:)))
+        }
+        return await offer(identities.map { .agent(agent, $0) }, &request)
+    }
+
+    /// Tries each login not tried yet, and notes the ones that fail. A key can
+    /// fail to load, be refused or be encrypted, and the next is still worth
+    /// trying; a server that cannot be reached ends it, since no key would help.
+    /// True when the attempt is over, however it ended.
+    private func offer(_ logins: [SFTPLogin], _ request: inout SFTPConnectRequest) async -> Bool {
+        for login in logins {
+            if let name = login.attemptName, request.tried.contains(name) { continue }
+            switch await trySFTP(request, login) {
+            case .connected(let session):
+                await finishSFTP(session, request, login: login)
+                return true
+            case .hostKey(let problem):
+                askAboutHost(problem, request)
+                return true
+            case .refused(let error):
+                if error is NIOConnectionError {
+                    finishConnecting()
+                    reportNoConnection(request, error)
+                    return true
+                }
+                if let name = login.attemptName { request.tried.insert(name) }
+            }
+        }
+        return false
+    }
+
+    /// Every key has been tried. A password is asked for only when the server
+    /// would take one; otherwise the person is told what actually went wrong.
+    private func askForPasswordIfTaken(_ request: SFTPConnectRequest) async {
+        do {
+            let methods = try await SFTPSession.offeredMethods(
+                host: request.url.host(percentEncoded: false) ?? "",
+                port: request.url.port ?? 22,
+                username: request.username)
+            finishConnecting()
+            if methods.contains(.password) {
+                askForSFTPLogin(request, wasWrong: false)
+            } else {
+                report("\(ServerAddress.title(of: request.url)) signs in with keys only, and did not "
+                       + "accept any key Diptych could offer as \(request.username). Diptych offers the "
+                       + "keys in the ssh-agent and those IdentityFile names in ~/.ssh/config.")
+            }
+        } catch let problem as SFTPHostKeyProblem {
+            askAboutHost(problem, request)
+        } catch {
+            finishConnecting()
+            reportNoConnection(request, error)
+        }
+    }
+
+    private func reportNoConnection(_ request: SFTPConnectRequest, _ error: Error) {
+        report("Could not connect to \(ServerAddress.title(of: request.url)): "
+               + error.localizedDescription)
     }
 
     private func trySFTP(_ request: SFTPConnectRequest, _ login: SFTPLogin) async -> SFTPAttempt {
@@ -339,7 +488,17 @@ extension AppModel {
     private func askForSFTPLogin(_ request: SFTPConnectRequest, wasWrong: Bool) {
         sftpRequest = request
         sftpLogin = SFTPLoginPrompt(host: request.url.host(percentEncoded: false) ?? "",
-                                    username: request.username, wasWrong: wasWrong)
+                                    username: request.username, wasWrong: wasWrong,
+                                    keysFailed: !request.tried.isEmpty)
         dialog = .sftpLogin
+    }
+
+    private func askForPassphrase(_ request: SFTPConnectRequest, key: URL,
+                                  settings: SSHHostSettings, wasWrong: Bool) {
+        sftpRequest = request
+        sftpPassphrase = SFTPPassphrasePrompt(host: request.url.host(percentEncoded: false) ?? "",
+                                              key: key, wasWrong: wasWrong,
+                                              savedInKeychain: settings.useKeychain)
+        dialog = .sftpPassphrase
     }
 }

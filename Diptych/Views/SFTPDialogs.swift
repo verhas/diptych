@@ -100,9 +100,9 @@ struct SFTPLoginView: View {
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            Text(SFTPLogin.keyFilesInSSHFolder.isEmpty
-                 ? "Type the password for this account."
-                 : "The keys in ~/.ssh did not sign you in. Type the password for this account.")
+            Text(prompt.keysFailed
+                 ? "Your SSH keys did not sign you in. Type the password for this account."
+                 : "Type the password for this account.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -128,6 +128,51 @@ struct SFTPLoginView: View {
 
     private var canConnect: Bool {
         !username.isEmpty && !password.isEmpty
+    }
+}
+
+/// The passphrase of an SSH key that the ssh-agent does not hold yet and the
+/// Keychain has no passphrase for. It goes to `ssh-add`; Diptych does not keep it.
+struct SFTPPassphraseView: View {
+
+    let prompt: SFTPPassphrasePrompt
+    let unlock: (_ passphrase: String) -> Void
+    let skip: () -> Void
+
+    @State private var passphrase = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Text("Unlock Your SSH Key").font(.headline)
+
+        Text("Signing in to \(prompt.host) needs the key "
+             + "\((prompt.key.path as NSString).abbreviatingWithTildeInPath). "
+             + "It is added to the ssh-agent, as ssh does."
+             + (prompt.savedInKeychain ? " The passphrase is saved in your Keychain." : ""))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if prompt.wasWrong {
+            Text("That passphrase did not unlock the key. Try again.")
+                .font(.subheadline)
+                .foregroundStyle(.red)
+        }
+
+        SecureField("Passphrase", text: $passphrase)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onSubmit { if !passphrase.isEmpty { unlock(passphrase) } }
+            .onAppear { focused = true }
+
+        HStack {
+            Spacer()
+            Button("Skip This Key") { skip() }
+                .keyboardShortcut(.cancelAction)
+            Button("Unlock") { unlock(passphrase) }
+                .keyboardShortcut(.defaultAction)
+                .disabled(passphrase.isEmpty)
+        }
     }
 }
 

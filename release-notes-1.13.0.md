@@ -19,8 +19,10 @@ pictures whose bytes differ are **compared by what they show**, with a
 ## Connecting
 
 - **Go ▸ Connect to Server…** takes `sftp://user@host/path`. Diptych signs in
-  with the keys in the ssh-agent, then the key files in `~/.ssh`, then asks for
-  a password, which it forgets at eject and at quit.
+  the way `ssh` does: the keys in the ssh-agent, then the `IdentityFile` keys
+  from `~/.ssh/config`, added to the agent with a passphrase from the Keychain,
+  or asked for. A password is asked for only when the server takes one, and is
+  forgotten at eject and at quit.
 - The first connection shows the server's key, and whether
   `~/.ssh/known_hosts` already trusts it. Diptych keeps its own list in
   `~/.diptych/sftp_known_hosts` and never changes `~/.ssh/known_hosts`. A key

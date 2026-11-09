@@ -420,9 +420,13 @@ server with Diptych's own SFTP client. The server appears in the sidebar as a
 volume named after the host, and stays connected until it is ejected or
 Diptych quits.
 
-- **Signing in** tries the keys in the ssh-agent first, then the key files in
-  `~/.ssh`, then asks for a password. A password is kept only while the server
-  is connected, so a dropped connection is made again without asking; it is
+- **Signing in** goes through the steps `ssh` does, with the settings `ssh -G`
+  reports for the host. It tries the keys in the ssh-agent, then adds the
+  `IdentityFile` keys to the agent when `AddKeysToAgent` is on, with a passphrase
+  saved in the Keychain under `UseKeychain`. A key whose passphrase is not saved
+  is asked about; **Skip This Key** moves on to the next way. A password is asked
+  for only when the server takes one. It is kept only while the server is
+  connected, so a dropped connection is made again without asking; it is
   forgotten at eject and at quit.
 - **Trusting the server.** The first time, Diptych shows the key's fingerprint
   and says whether `~/.ssh/known_hosts` already knows the host. What you trust

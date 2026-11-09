@@ -3,7 +3,7 @@ import Crypto
 import Foundation
 import NIOCore
 import NIOPosix
-import NIOSSH
+@preconcurrency import NIOSSH
 
 // SFTP: a file server reached over SSH and browsed without mounting it.
 //
@@ -194,10 +194,22 @@ nonisolated enum SFTPLogin: Sendable {
     /// An OpenSSH private key file. Encrypted keys are refused: there is no
     /// passphrase prompt yet, so they are skipped like a missing key.
     case keyFile(URL)
-    /// The keys an ssh-agent holds. The agent signs; no private key is read here.
-    case agent(SSHAgent)
+    /// One key an ssh-agent holds. The agent signs; no private key is read here.
+    /// One key a connection: Citadel asks a custom login only once, so a second
+    /// key on the same connection would never be offered.
+    case agent(SSHAgent, SSHAgent.Identity)
 
-    /// The keys in `~/.ssh` that can be tried, in the order OpenSSH tries them.
+    /// What this login is, to try it only once for one connection request.
+    /// Not for a password, which is tried each time one is typed.
+    var attemptName: String? {
+        switch self {
+        case .password: return nil
+        case .keyFile(let file): return file.path
+        case .agent(_, let identity): return identity.blob.base64EncodedString()
+        }
+    }
+
+    /// The usual key files, for when `ssh` cannot say which to use.
     static var keyFilesInSSHFolder: [URL] {
         let ssh = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
         return ["id_ed25519", "id_rsa"]
@@ -209,8 +221,8 @@ nonisolated enum SFTPLogin: Sendable {
         switch self {
         case .password(let password):
             return .passwordBased(username: username, password: password)
-        case .agent(let agent):
-            let login = SSHAgentLogin(username: username, identities: try agent.identities(), agent: agent)
+        case .agent(let agent, let identity):
+            let login = SSHAgentLogin(username: username, identities: [identity], agent: agent)
             guard login.count > 0 else { throw SFTPLoginError.noUsableAgentKeys }
             return .custom(login)
         case .keyFile(let file):
@@ -316,6 +328,62 @@ final class SFTPSessionGate: @unchecked Sendable {
     }
 }
 
+/// Learns which ways of signing in a server takes. The first request is for no
+/// sign-in; the server's refusal lists what it would take.
+///
+/// NIOSSH directly, not Citadel: Citadel asks a custom login only once, and the
+/// list arrives on the second asking. Everything here runs on the connection's
+/// event loop.
+nonisolated final class SSHMethodsProbe: NIOSSHClientUserAuthenticationDelegate, ChannelInboundHandler,
+                                         @unchecked Sendable {
+
+    typealias InboundIn = NIOAny
+
+    let answer: EventLoopPromise<NIOSSHAvailableUserAuthenticationMethods>
+    private let username: String
+    private var asked = false
+    private var finished = false
+
+    init(username: String, answer: EventLoopPromise<NIOSSHAvailableUserAuthenticationMethods>) {
+        self.username = username
+        self.answer = answer
+    }
+
+    func finish(_ result: Result<NIOSSHAvailableUserAuthenticationMethods, Error>) {
+        guard !finished else { return }
+        finished = true
+        answer.completeWith(result)
+    }
+
+    func nextAuthenticationType(availableMethods: NIOSSHAvailableUserAuthenticationMethods,
+                                nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>) {
+        guard !asked else {
+            finish(.success(availableMethods))
+            nextChallengePromise.succeed(nil)
+            return
+        }
+        asked = true
+        nextChallengePromise.succeed(NIOSSHUserAuthenticationOffer(
+            username: username, serviceName: "ssh-connection", offer: .none))
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        finish(.failure(error))
+        context.close(promise: nil)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        finish(.failure(ChannelError.eof))
+        context.fireChannelInactive()
+    }
+
+    /// A server that lets anyone in has no list to give, and no use for a password.
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is UserAuthSuccessEvent { finish(.success([])) }
+        context.fireUserInboundEventTriggered(event)
+    }
+}
+
 /// A connected SFTP session, shared by whatever asks for a listing.
 ///
 /// Every request goes through `SFTPClient`, which is `Sendable`. The
@@ -364,6 +432,47 @@ final class SFTPSession: @unchecked Sendable {
         } catch {
             try? await ssh.close()
             try? await group.shutdownGracefully()
+            throw error
+        }
+    }
+
+    /// The ways of signing in the server takes for `username`, asked as OpenSSH
+    /// asks: by trying no sign-in at all, which sends nothing secret. The host
+    /// key is checked first, as for a real connection.
+    static func offeredMethods(host: String, port: Int = 22, username: String,
+                               keys: SFTPHostKeys = .standard) async throws
+        -> NIOSSHAvailableUserAuthenticationMethods {
+        let check = SFTPHostKeyCheck(
+            filing: SFTPHostKeys.filing(host: host, port: port), keys: keys)
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let probe = SSHMethodsProbe(username: username, answer: group.next().makePromise())
+        do {
+            let channel = try await ClientBootstrap(group: group)
+                .connectTimeout(.seconds(15))
+                .channelInitializer { channel in
+                    channel.eventLoop.makeCompletedFuture {
+                        let ssh = NIOSSHHandler(
+                            role: .client(.init(userAuthDelegate: probe, serverAuthDelegate: check)),
+                            allocator: channel.allocator,
+                            inboundChildChannelInitializer: nil)
+                        try channel.pipeline.syncOperations.addHandlers(ssh, probe)
+                    }
+                }
+                .connect(host: host, port: port).get()
+            let limit = channel.eventLoop.scheduleTask(in: .seconds(20)) {
+                probe.finish(.failure(ChannelError.connectTimeout(.seconds(20))))
+            }
+            defer { limit.cancel() }
+            let methods = try await probe.answer.futureResult.get()
+            try? await channel.close()
+            try? await group.shutdownGracefully()
+            return methods
+        } catch {
+            // A connection that never came up leaves the answer unmade, and an
+            // unmade promise stops a debug build.
+            probe.answer.fail(error)
+            try? await group.shutdownGracefully()
+            if let problem = check.problem { throw problem }
             throw error
         }
     }
