@@ -980,6 +980,13 @@ struct DialogSheet: View {
                                   cancel: { model.cancelSFTPLogin() })
                 }
 
+            case .sftpPassphrase:
+                if let prompt = model.sftpPassphrase {
+                    SFTPPassphraseView(prompt: prompt,
+                                       unlock: { model.answerSFTPPassphrase($0) },
+                                       skip: { model.skipSFTPKey() })
+                }
+
             case .clipboardFormat:
                 Text("Save the picture as\u{2026}").font(.headline)
                 Text("You can choose a format once and for all in Settings.")

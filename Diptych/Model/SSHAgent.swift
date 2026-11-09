@@ -58,12 +58,6 @@ nonisolated struct SSHAgent: Sendable {
         return fromLaunchd()
     }
 
-    /// The discovered agent, when it holds keys: the one worth offering.
-    static func usable() -> SSHAgent? {
-        guard let agent = discovered(), (try? agent.identities())?.isEmpty == false else { return nil }
-        return agent
-    }
-
     /// The socket of the ssh-agent launchd runs for this user, as `launchctl
     /// print` reports it under the job's environment.
     private static func fromLaunchd() -> SSHAgent? {

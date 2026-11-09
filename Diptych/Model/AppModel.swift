@@ -46,6 +46,7 @@ final class AppModel {
         case connectServer
         case sftpTrust
         case sftpLogin
+        case sftpPassphrase
         case keepAlive
         /// Deleting items on a server: final, with no Trash to take them back from.
         case serverDelete
@@ -88,6 +89,7 @@ final class AppModel {
             case .connectServer:  return "connectServer"
             case .sftpTrust:      return "sftpTrust"
             case .sftpLogin:      return "sftpLogin"
+            case .sftpPassphrase: return "sftpPassphrase"
             case .keepAlive:      return "keepAlive"
             case .serverDelete:   return "serverDelete"
             case .sudoPassword:   return "sudoPassword"
@@ -188,6 +190,7 @@ final class AppModel {
     @ObservationIgnored var sftpRequest: SFTPConnectRequest?
     var sftpTrust: SFTPTrustPrompt?
     var sftpLogin: SFTPLoginPrompt?
+    var sftpPassphrase: SFTPPassphrasePrompt?
     /// The server root whose keep-alive interval the dialog is about.
     @ObservationIgnored var keepAliveServer: URL?
     /// The fetch an open Quick Look panel is waiting for, cancelled by a later move.
