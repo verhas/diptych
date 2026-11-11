@@ -1329,6 +1329,17 @@ that is not there.
 There is find, jumping between differences, *only what differs*, *ignore
 spacing*, and wrapping that applies to both sides or to neither.
 
+**Apple Intelligence explains the difference**, in a box under the line with
+find and the count of differences, with Settings ▸ **Use Apple Intelligence**
+on. It is asked in the background as soon as the two files are compared, and
+again when the comparison changes -- *ignore spacing*, a file changed
+elsewhere, or a pause in typing on the unlocked side. What the model reads is
+the diff itself: each change with two lines around it, long lines cut at 200
+characters, about 6,000 characters in all, and asked once more with half as
+much if that is still too long. It is the model on this Mac, never Private
+Cloud Compute, so the files do not leave it. Two identical files have nothing
+to explain, and the box is not there.
+
 - **A padlock on each side, and only one opens.** To edit the other file, save,
   close and compare again -- editing both halves at once makes it easy to lose
   track of which is which. Return splits a line, Backspace at its start joins
@@ -1557,6 +1568,18 @@ are dot-folders themselves, they are opened by default.
 *RegEx* a regular expression, with *Hide* to leave out what does not match --
 plus **Only differences** and **Ignore missing** (what exists on one side
 only).
+
+**A summary from Apple Intelligence** sits between the checkboxes and the
+list, with Settings ▸ **Use Apple Intelligence** on: a few sentences on how the
+two folders differ -- what was added, removed or changed, and a pattern if
+there is one, such as one side being a newer copy. It is asked in the
+background each time a comparison finishes, and the list can be used while it
+comes. The model is told the folders' names, what was compared, the counts, and
+each pair that is not the same: its path, the letters above in words, the two
+sizes and which side is newer. A folder found on one side only is one line, not
+a line per file in it. Only file names and these facts are sent, never what is
+in the files, and only to the model on this Mac. Two folders that are the same
+get no summary.
 
 - **⌘D**, or a double-click on a pair of folders, compares just those two.
   On a pair of files it opens the two-file comparison above.
@@ -3742,6 +3765,15 @@ anything else writes to the pasteboard, the cut lapses and a paste copies.
 With no files on the pasteboard but text or a picture, `⌘V` (and Paste in the
 menus) makes a file of it, exactly as **New from Clipboard** does.
 
+**What the new file is saved as.** A picture is saved in the format chosen in
+Settings ▸ *Save a picture as*. With **Ask each time**, the dialog offers
+first -- Return chooses it -- whichever of PNG, JPEG and PDF most pictures in
+the folder already are; PNG when there are none, and PNG, then JPEG, on a tie.
+Text gets the extension of what Apple Intelligence says it is -- Markdown,
+JSON, YAML, CSV, a shell script, Python, Swift and twenty more -- and `.txt`
+when it is none of those, or Apple Intelligence is off. A picture never takes
+its extension from the model: the format is the one chosen.
+
 Right-click **Copy** does the same as `⌘C`; its submenu copies *text* instead:
 
 - **File Name** -- the selected names (`⌥⌘C`)
@@ -4191,7 +4223,8 @@ greyed, when scripts are off or none of them suits what is selected.
 **File ▸ Get Scripts…** -- also a button under the setting -- lists the scripts
 that come with Diptych: making a zip, showing every detail `ls` knows, the two
 that make a script editable and read-only again, one that shows what a
-script sees, and **Explain with an Agent**, below. Tick the ones you want; **Show Source** shows one in full, and
+script sees, **Explain with an Agent**, and four that use **Apple
+Intelligence** instead of an agent, both below. Tick the ones you want; **Show Source** shows one in full, and
 **Compare with Yours** opens the two-file comparison when something of that name
 is already installed. They are inside the application, signed with it, so
 **nothing is downloaded**. Installing writes each as `r--------`, owned by you,
@@ -4232,6 +4265,33 @@ other files and links the ones that are about the same thing, saying how.
   system's PDFKit. The report is always in English, whatever the
   document's language, with the original wording quoted where it matters;
   `DIPTYCH_REPORT_LANGUAGE` sets another ("German", "Hungarian"…).
+
+### With Apple Intelligence
+
+Four scripts in Get Scripts ask the model **on this Mac** through `fm`, the
+Foundation Models command line that comes with macOS 27 -- always the on-device
+system model, never Private Cloud Compute, so nothing read leaves the Mac and
+nothing has to be installed. `fm` asks once that its terms are agreed to, for
+every user of the Mac: run `sudo fm license` in Terminal; until then each
+script says so and stops.
+
+| Script | Selected | What it does |
+| --- | --- | --- |
+| `apple-ai-explain-pdf.sh` -- **Explain with Apple Intelligence** | PDFs | the report Explain with an Agent writes, beside the PDF, from the same `report.css` |
+| `apple-ai-summarize.sh` -- **Summarize with Apple Intelligence** | text, PDF, Word, RTF, HTML | a few sentences and the key points, in the Runs window |
+| `apple-ai-suggest-name.sh` -- **Suggest a Name with Apple Intelligence** | any file | a name from what is in it, listed, not applied |
+| `apple-ai-describe-image.sh` -- **Describe with Apple Intelligence** | pictures | what it shows, any text in it, and tags |
+
+The model is a small one and reads about four thousand tokens at once -- a few
+pages. A longer document is read **in parts**, each explained or summarised on
+its own and the whole written from those; at most 12 parts for a report and
+10 for a summary, which `DIPTYCH_AI_MAX_PARTS` changes. The report is laid out
+by the script from the model's answers, so every report has the same shape,
+and since the model cannot open files, related documents are judged by their
+names alone -- and only files that are in the folder are linked. A scanned PDF
+with no text in it is left out. `DIPTYCH_REPORT_LANGUAGE` sets the report's
+language and `DIPTYCH_AI_LANGUAGE` the summary's and description's. The
+instructions to the model are at the top of each script, to rewrite.
 
 This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
 you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,

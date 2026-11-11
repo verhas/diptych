@@ -103,6 +103,9 @@ final class DiffDocument {
     private var asRead: [Side: [String]] = [:]
 
     private(set) var diff = TextDiff(left: [], right: [])
+    /// What Apple Intelligence says the difference is, asked in the
+    /// background each time the comparison changes.
+    let explanation = DifferenceExplanation()
     /// The longest line in either file, in characters. Needed to know how wide
     /// the columns have to be before they can be scrolled sideways, and worked
     /// out here rather than in the view so it is not recomputed on every
@@ -883,5 +886,11 @@ final class DiffDocument {
         recomputeEdits()
         longestLine = max(lines[.left]?.reduce(0) { max($0, $1.count) } ?? 0,
                           lines[.right]?.reduce(0) { max($0, $1.count) } ?? 0)
+        // A pause first while one side is being edited, so the question is
+        // asked once typing stops rather than at every keystroke.
+        explanation.explain(DifferenceExplainer.files(leftName: pair.left.lastPathComponent,
+                                                      rightName: pair.right.lastPathComponent,
+                                                      diff: diff),
+                            after: editable == nil ? .zero : .seconds(1.5))
     }
 }

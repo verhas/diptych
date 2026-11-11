@@ -356,6 +356,35 @@ struct Configuration: Codable, Equatable {
             case .ask, .off: ""
             }
         }
+
+        /// The format most of the pictures among `names` are already in: PNG,
+        /// JPEG or PDF, whichever has the most files.
+        ///
+        /// PNG when there are none of them, and on a tie PNG first, then JPEG:
+        /// the folder gives no reason then to leave the safe default.
+        static func mostCommon(among names: [String]) -> ClipboardImageFormat {
+            var counts: [ClipboardImageFormat: Int] = [:]
+            for name in names {
+                switch (name as NSString).pathExtension.lowercased() {
+                case "png":         counts[.png, default: 0] += 1
+                case "jpg", "jpeg": counts[.jpeg, default: 0] += 1
+                case "pdf":         counts[.pdf, default: 0] += 1
+                default:            break
+                }
+            }
+            var best = ClipboardImageFormat.png
+            for format in [ClipboardImageFormat.jpeg, .pdf]
+            where counts[format, default: 0] > counts[best, default: 0] {
+                best = format
+            }
+            return best
+        }
+
+        /// ``mostCommon(among:)`` for the files directly in `directory`.
+        static func mostCommon(in directory: URL) -> ClipboardImageFormat {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            return mostCommon(among: names.filter { !$0.hasPrefix(".") })
+        }
     }
 
     /// PNG by default: it is lossless, every program reads it, and a

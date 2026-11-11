@@ -114,17 +114,19 @@ final class ClipboardNamePrefetcher {
             guess = Task {
                 var style = key.style
                 style.template = await Self.template(for: folder)
-                return await NameSuggester.suggest(forText: text, details: details, style: style)
+                return await NameSuggester.suggest(forText: text, details: details,
+                                                   style: style, describing: true)
             }
 
         case .image(let image, let pdf):
             guard let picture = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
             else { return }
             let sendable = NameSuggester.SendableImage(picture)
-            // Still to be asked, "ask" is guessed as PNG: the format changes
-            // the file's extension and size, which barely move a name.
+            // Still to be asked, "ask" is guessed as what the dialog will
+            // offer first: the format most pictures in the folder are in.
             let chosen = ConfigStore.shared.configuration.clipboardImageFormat
-            let format: Configuration.ClipboardImageFormat = chosen == .ask ? .png : chosen
+            let format: Configuration.ClipboardImageFormat =
+                chosen == .ask ? .mostCommon(in: folder) : chosen
             let name = AppModel.numberedName("untitled.\(format.fileExtension)", in: folder)
             guess = Task {
                 var style = key.style
@@ -139,7 +141,8 @@ final class ClipboardNamePrefetcher {
                 let details = NameSuggester.details(name: name, folder: folder,
                                                     bytes: bytes, kind: "picture")
                 return await NameSuggester.suggest(forPictureDescribedAs: said,
-                                                   details: details, style: style)
+                                                   details: details, style: style,
+                                                   describing: true)
             }
         }
         self.key = key

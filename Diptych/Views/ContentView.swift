@@ -995,10 +995,11 @@ struct DialogSheet: View {
                     Spacer()
                     Button("Cancel") { model.dialog = nil }
                         .keyboardShortcut(.cancelAction)
-                    Button("JPEG") { model.saveClipboardImage(as: .jpeg) }
-                    Button("PDF") { model.saveClipboardImage(as: .pdf) }
-                    Button("PNG") { model.saveClipboardImage(as: .png) }
-                        .keyboardShortcut(.defaultAction)
+                    ForEach([Configuration.ClipboardImageFormat.jpeg, .pdf, .png]) { format in
+                        Button(format.title) { model.saveClipboardImage(as: format) }
+                            .keyboardShortcut(format == model.suggestedClipboardFormat
+                                              ? .defaultAction : nil)
+                    }
                 }
 
             case .conflict:

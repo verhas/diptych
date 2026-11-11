@@ -294,6 +294,58 @@ final class NameSuggesterTests: XCTestCase {
         XCTAssertNil(NameSuggester.Outcome.name("x").explanation)
     }
 
+    // MARK: - More than a name
+
+    func testADescriptionIsANameWithNothingToExplain() {
+        let outcome = NameSuggester.Outcome.described(.init(name: "Budget notes"))
+        XCTAssertEqual(outcome.name, "Budget notes")
+        XCTAssertNil(outcome.explanation)
+        XCTAssertNil(NameSuggester.Outcome.name("x").described)
+    }
+
+    func testTheContentTypeDecidesTheExtension() {
+        XCTAssertEqual(NameSuggester.Description(name: "a", contentType: "JSON").fileExtension, "json")
+        XCTAssertEqual(NameSuggester.Description(name: "a", contentType: "python").fileExtension, "py")
+        XCTAssertEqual(NameSuggester.Description(name: "a", contentType: "plain text").fileExtension, "txt")
+        XCTAssertNil(NameSuggester.Description(name: "a", contentType: "picture").fileExtension)
+        XCTAssertNil(NameSuggester.Description(name: "a", contentType: "command").fileExtension)
+        XCTAssertNil(NameSuggester.Description(name: "a").fileExtension)
+    }
+
+    func testNoContentTypeOpensAsAnApplication() {
+        let risky: Set<String> = ["app", "command", "terminal", "tool", "webloc", "inetloc",
+                                  "fileloc", "scpt", "workflow", "pkg", "dmg"]
+        for type in NameSuggester.contentTypes {
+            XCTAssertFalse(risky.contains(type.fileExtension ?? ""), type.name)
+        }
+    }
+
+    func testTagsAreTidied() {
+        XCTAssertEqual(NameSuggester.tidyTags(["Invoice", " invoice ", "#Bank_Transfer",
+                                               "../etc", "--", "a\nb"]),
+                       ["invoice", "bank transfer", "etc", "a b"])
+        XCTAssertEqual(NameSuggester.tidyTags((1...9).map { "tag \($0)" }).count,
+                       NameSuggester.mostTags)
+        XCTAssertLessThanOrEqual(
+            NameSuggester.tidyTags([String(repeating: "x", count: 100)]).first?.count ?? 0,
+            NameSuggester.longestTag)
+    }
+
+    func testTheModelSaysWhatKindOfContentItIs() async throws {
+        let status = NameSuggester.status
+        try XCTSkipUnless(status == .ready, status.explanation)
+
+        let outcome = await NameSuggester.suggest(
+            forText: "{\"invoice\": 2024117, \"amount\": 240, \"currency\": \"EUR\", "
+                   + "\"payee\": \"Garden Services Ltd\"}",
+            describing: true)
+
+        let described = try XCTUnwrap(outcome.described, "\(outcome)")
+        XCTAssertNotNil(described.contentType, "\(described)")
+        XCTAssertFalse(described.tags.isEmpty, "\(described)")
+        XCTAssertNotNil(described.summary, "\(described)")
+    }
+
     func testTooMuchSaysWhereToChangeIt() {
         XCTAssertTrue(NameSuggester.Outcome.tooLong.explanation?.contains("Settings") ?? false)
     }

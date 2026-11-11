@@ -1497,6 +1497,10 @@ final class AppModel {
     /// asked.
     private var pendingImage: (image: NSImage, pdf: Data?, changeCount: Int)?
 
+    /// The format the "Save the picture as" dialog offers first, Return
+    /// choosing it: the one most pictures already in the folder are in.
+    private(set) var suggestedClipboardFormat: Configuration.ClipboardImageFormat = .png
+
     /// Whether the command exists at all, which the setting can decide.
     var clipboardCommandIsOffered: Bool {
         ConfigStore.shared.configuration.clipboardImageFormat != .off
@@ -1522,15 +1526,19 @@ final class AppModel {
             }
             let early = ClipboardNamePrefetcher.shared.take(in: active.directory,
                                                             changeCount: changeCount)
-            nameThenWrite(data, extension: "txt", kind: "text") { style, details in
+            // "txt" until the model says what kind of text it is.
+            nameThenWrite(data, extension: "txt", kind: "text",
+                          extensionFromContent: true) { style, details in
                 if let early { return await ClipboardNamePrefetcher.wait(for: early) }
-                return await NameSuggester.suggest(forText: string, details: details, style: style)
+                return await NameSuggester.suggest(forText: string, details: details,
+                                                   style: style, describing: true)
             }
 
         case .image(let image, let pdf):
             let format = ConfigStore.shared.configuration.clipboardImageFormat
             guard format != .ask else {
                 pendingImage = (image, pdf, changeCount)
+                suggestedClipboardFormat = .mostCommon(in: active.directory)
                 dialog = .clipboardFormat
                 return
             }
@@ -1570,7 +1578,8 @@ final class AppModel {
                     for: sendable, changeCount: changeCount, length: style.excerptLength).value
                 : ""
             return await NameSuggester.suggest(forPictureDescribedAs: said,
-                                               details: details, style: style)
+                                               details: details, style: style,
+                                               describing: true)
         }
     }
 
@@ -1580,8 +1589,12 @@ final class AppModel {
     /// afterwards, so that a file which is kept as it comes has a good name from
     /// the start -- and the rename field opens straight away, so the suggestion
     /// is something to accept, not something that simply happened.
+    ///
+    /// With `extensionFromContent`, `suffix` is only the fallback: the content
+    /// type the model names decides the extension when it names one.
     private func nameThenWrite(
         _ data: Data, extension suffix: String, kind: String,
+        extensionFromContent: Bool = false,
         asking: @escaping (NameSuggester.Style, [String: String]) async -> NameSuggester.Outcome
     ) {
         let pane = active
@@ -1608,7 +1621,9 @@ final class AppModel {
                 stopShowingThinking()
             }
             let stem = stopped ? "untitled" : (answer.name ?? "untitled")
-            let name = suggestedName("\(stem).\(suffix)", in: pane.directory)
+            let chosen = !stopped && extensionFromContent
+                ? (answer.described?.fileExtension ?? suffix) : suffix
+            let name = suggestedName("\(stem).\(chosen)", in: pane.directory)
             let url = pane.directory.appendingPathComponent(name)
             do {
                 try await writeNewFile(data, to: url)

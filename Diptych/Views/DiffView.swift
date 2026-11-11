@@ -365,6 +365,9 @@ struct DiffView: View {
                         .monospacedDigit()
                 }
             }
+            if document.explanation.state != .idle {
+                DifferenceExplanationView(explanation: document.explanation)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
