@@ -182,6 +182,10 @@ final class QuickLookController: NSObject {
         if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
             return rendered
         }
+        if KeyStoreReport.extensions.contains(url.pathExtension.lowercased()),
+           let rendered = keyStoreReport(for: url) {
+            return rendered
+        }
         if url.pathExtension.lowercased() == "class", let rendered = classFileReport(for: url) {
             return rendered
         }
@@ -254,6 +258,24 @@ final class QuickLookController: NSObject {
         // Info.plist files do not overwrite each other.
         let folder = scratch.appendingPathComponent(
             "plist" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A key store -- JKS, JCEKS or PKCS#12 -- as its aliases and their
+    /// certificates. Only read: no password is asked for, no key decrypted.
+    private func keyStoreReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= KeyStore.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let html = KeyStoreReport.html(for: data, name: url.lastPathComponent,
+                                       path: url.deletingLastPathComponent().path)
+        let folder = scratch.appendingPathComponent(
+            "keystore" + url.path.replacingOccurrences(of: "/", with: "_"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {

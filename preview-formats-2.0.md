@@ -25,9 +25,9 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | # | Format | Tier | Status | Version | Notes |
 |---|--------|------|--------|---------|-------|
 | 1 | Java `.class` | 1 | done | 2.0.0 | `ClassFile`, `JavaSignature`, `ClassFileReport` |
-| 2 | `.jar` / `.war` header | 1 | planned | | on top of the archive listing |
-| 3 | Key stores `.jks` `.keystore` `.p12` `.pfx` | 1 | planned | | |
-| 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr`, SSH `.pub` | 1 | planned | | |
+| 2 | `.jar` / `.war` / `.ear` header | 1 | planned | | `.ear` now gets the archive listing too |
+| 3 | Key stores `.jks` `.jceks` `.keystore` `.ks` `.truststore` `.p12` `.pfx` | 1 | done | 2.0.0 | `KeyStore`, `PKCS12`, `X509`, `DER`, `KeyStoreReport` |
+| 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr`, SSH `.pub` | 1 | planned | | `X509` and `DER` from #3 do the reading |
 | 5 | Unix executables: Mach-O, ELF, scripts | 1 | planned | | |
 | 6 | `.app` bundles | 1 | planned | | |
 | 7 | SQLite databases | 2 | planned | | |
@@ -83,15 +83,24 @@ Shown above the existing archive listing.
 
 ## 3. Key stores
 
-Recognised by: JKS magic `FE ED FE ED`, JCEKS `CE CE CE CE`, PKCS#12 DER
-`30 …` with the PKCS#12 structure.
+Recognised by: JKS magic `FE ED FE ED`, JCEKS `CE CE CE CE`, PKCS#12 a DER
+SEQUENCE with version 3 -- from the bytes, whatever the extension says.
 
-- [ ] Each alias: entry type (private key, trusted certificate, secret key), date added
-- [ ] For each certificate: subject, issuer, validity, expired / expiring within 30 days highlighted, SHA-256 fingerprint
-- [ ] Certificate chains under private-key entries
-- [ ] JKS/JCEKS: certificates read without a password; integrity not checked (needs the password) — say so
-- [ ] PKCS#12 fully encrypted: "encrypted, N bytes, needs a password", no prompt
-- [ ] Never show key material
+- [x] Each alias: entry type (private key, trusted certificate, secret key, certificate), date added (JKS/JCEKS)
+- [x] For each certificate: subject, issuer, validity, expired / expiring within 30 days / not valid yet marked, key type and size, signature algorithm, CA or not, alternative names, serial, SHA-256 and SHA-1 fingerprints
+- [x] Certificate chains under private-key entries (PKCS#12: by local key ID, then up by issuer)
+- [x] Default passwords tried, never asked for: empty and `changeit`; the page says when one opens the store
+- [x] JKS/JCEKS: certificates read without a password; integrity checked when a default password fits
+- [x] JCEKS secret keys: the serialized Java object stepped over (`JavaSerialization`), its sealing algorithm named
+- [x] PKCS#12: MAC verified (HMAC-SHA1…SHA512, RFC 7292 key derivation); encrypted parts opened with a confirmed default password -- PBES2/PBKDF2/AES/3DES and the legacy SHA-1 3DES/RC2 -- otherwise named and left shut
+- [x] PKCS#12 with no MAC (JDK `cacerts`, `-J-Dkeystore.pkcs12.macAlgorithm=NONE`): said to have no integrity check
+- [x] Never shows key material; an unencrypted key bag is flagged in red
+- [ ] Not done: PBMAC1 MACs (RFC 9579) are named, not verified; public-key-enveloped PKCS#12 parts are named, not read
+
+Code: `Diptych/Support/DER.swift`, `X509.swift`, `KeyStore.swift` (model, JKS/JCEKS,
+Java serialization), `PKCS12.swift`, `KeyStoreReport.swift`, dispatch in `QuickLook.swift`.
+Tests: `DiptychTests/KeyStoreReportTests.swift`, fixtures in `KeyStoreFixtures.swift`.
+Samples: `make-java-samples.sh` (also writes a `.ear` and compiled classes).
 
 ## 4. Certificates and keys
 
@@ -222,5 +231,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-13 | 3 | Key store preview: JKS, JCEKS, PKCS#12 with default-password check; 13 tests; `make-java-samples.sh` |
+| 2026-11-13 | 2 | `.ear` gets the archive listing and Extract, like `.jar` and `.war` |
 | 2026-11-13 | 1 | Java `.class` preview: reader, generic signatures, page, 18 tests |
 | 2026-11-13 | — | Document started |

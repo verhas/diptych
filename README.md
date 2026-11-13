@@ -943,6 +943,38 @@ what is in it, the way the source would write it:
 The file is only read, never loaded, and no JDK is needed. A file that is
 damaged or is not a class file gets a page that says what is wrong with it.
 
+## Previewing a key store
+
+Space on a `.jks`, `.jceks`, `.keystore`, `.ks`, `.truststore`, `.p12` or
+`.pfx` shows what is in it rather than a name and a size: each alias, whether
+it is a private key, a secret key or a trusted certificate, and its
+certificates down the chain -- subject, issuer, validity (expired and
+expiring-within-30-days marked), key type and size, signature algorithm,
+alternative names, serial and fingerprints. The format is recognised from the
+bytes, whatever the extension: JKS, JCEKS and PKCS#12.
+
+**The password is never asked for.** Two are tried because they are the
+defaults -- none at all, and Java's `changeit` -- and when one fits, the page
+says so plainly: a store anybody can open is worth knowing about.
+
+- **JKS and JCEKS** keep certificates in the clear, so they are always shown.
+  With a default password the store's integrity check is made as well.
+- **PKCS#12** usually encrypts its certificates. They are shown when a default
+  password opens them -- confirmed by the store's own MAC, or, in a store
+  without one, by decrypting to well-formed certificates. Otherwise the page
+  lists what is kept unencrypted (often the keys' aliases) and says which part
+  stayed shut and with what algorithm.
+- **Keys are never decrypted**, only described: how they are protected, and
+  in red when a PKCS#12 keeps one unencrypted.
+
+PBES2 (AES, PBKDF2 with HMAC-SHA1/256/384/512), the older PKCS#12
+algorithms (Triple DES, RC2), MACs with SHA-1 to SHA-512, and BER as some
+Windows exports write it are read; a JCEKS secret key, a serialized Java
+object, is stepped over by reading the class descriptions the stream carries.
+
+`make-java-samples.sh` makes one of each kind -- and a `.ear`, and compiled
+classes -- from a made-up certificate authority, for trying this by hand.
+
 ## The Rename menu
 
 On the right-click menu **Rename** is a submenu, like Copy: clicking the word

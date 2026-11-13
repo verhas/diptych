@@ -81,7 +81,7 @@ enum Listing {
     /// would otherwise be five decompressors, three of which Foundation does
     /// not have.
     static let archiveExtensions: Set<String> = [
-        "zip", "tar", "tgz", "tbz", "tbz2", "txz", "taz", "jar", "war", "ipa",
+        "zip", "tar", "tgz", "tbz", "tbz2", "txz", "taz", "jar", "war", "ear", "ipa",
         "gz", "bz2", "xz", "z",
     ]
 

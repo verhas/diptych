@@ -328,6 +328,8 @@ enum DiptychTips {
         "a .DS_Store file previews as a readable page describing the Finder window state it actually"
             + " stores -- icon positions, window arrangement, visible columns -- instead of showing nothing"
             + " useful at all.",
+        "a .jks, .p12 or .pfx key store previews as its aliases and their certificates -- who for, issued"
+            + " by whom, until when -- and says when it opens with no password or Java's default changeit.",
         "a Java .class file previews as the outline of its source -- declaration, fields, methods with"
             + " their generic types, and the Java release it was compiled for -- with no JDK needed.",
         "Quick Look's preview updates live as the selected row changes, and closes itself outright if"
