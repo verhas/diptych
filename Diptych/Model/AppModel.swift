@@ -121,11 +121,33 @@ final class AppModel {
     // tabs -- travels with the swap for free, with no code change here.
     private(set) var left: PaneModel
     private(set) var right: PaneModel
-    var activeSide: Side = .left { didSet { persist() } }
+    var activeSide: Side = .left {
+        didSet {
+            persist()
+            guard restored, activeSide != oldValue else { return }
+            JournalActivity.navigated(
+                "Switch Pane", "The keyboard went to \(JournalActivity.describe(active)).",
+                folder: JournalActivity.folder(of: active), settleKey: "side-\(ObjectIdentifier(self))")
+        }
+    }
 
     /// Toolbar state.
-    var isSinglePane = false { didSet { persist() } }
-    var sidebarVisible = false { didSet { persist() } }
+    var isSinglePane = false {
+        didSet {
+            persist()
+            guard restored, isSinglePane != oldValue else { return }
+            JournalActivity.navigated(isSinglePane ? "One Pane" : "Two Panes",
+                                      isSinglePane ? "The window was made one pane." : "The window was made two panes.")
+        }
+    }
+    var sidebarVisible = false {
+        didSet {
+            persist()
+            guard restored, sidebarVisible != oldValue else { return }
+            JournalActivity.navigated(sidebarVisible ? "Show Sidebar" : "Hide Sidebar",
+                                      "The sidebar was \(sidebarVisible ? "shown" : "hidden").")
+        }
+    }
 
     /// Which sidebar row the active pane is standing in, if any.
     ///
@@ -163,6 +185,10 @@ final class AppModel {
             left.showHidden = showHidden
             right.showHidden = showHidden
             persist()
+            if restored, showHidden != oldValue {
+                JournalActivity.navigated(showHidden ? "Show Hidden Files" : "Hide Hidden Files",
+                                          "Hidden files were \(showHidden ? "shown" : "hidden").")
+            }
         }
     }
 
@@ -623,6 +649,12 @@ final class AppModel {
     /// the first of several silently would be a guess.
     func showInfo() {
         guard let item = singleSelection("show info for", includingParent: false) else { return }
+        if Journal.isRecording(.attributes) {
+            let path = RemoteBrowsing.journalPath(item.url)
+            Journal.shared.record(kind: "Info", category: .attributes,
+                                  told: "The details of \u{201C}\(item.name)\u{201D} were shown.",
+                                  files: [Journal.File(before: path, after: path)])
+        }
         openInfoWindow?(item.url)
     }
 
@@ -1509,6 +1541,7 @@ final class AppModel {
     func newFromClipboard() {
         guard clipboardCommandIsOffered else { return }
         guard !refusedAsTarget(active, "made in", serverWritable: true) else { return }
+        expectArrivals(in: active, pointerOnly: false)
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
@@ -2971,7 +3004,7 @@ final class AppModel {
     /// sidebar is. Used instead of a second drop destination: SwiftUI gives
     /// each one a window-sized platform view, and two of them overlap.
     func pointerIsOverSidebar() -> Bool {
-        guard sidebarVisible, let window, let first = TableFinder.tables(in: window).first
+        guard sidebarVisible, let window, let first = visiblePanes.first.flatMap(surface(of:))
         else { return false }
         let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         return point.x < first.convert(first.bounds, to: nil).minX
@@ -3004,6 +3037,8 @@ final class AppModel {
     /// SwiftUI orders it in.
     func newTab() {
         guard let window, let openNewWindow else { return }
+        JournalActivity.navigated("New Tab", "A tab was opened beside \(JournalActivity.describe(active)).",
+                                  folder: JournalActivity.folder(of: active))
         Self.pendingTabHost = window
         Self.pendingTabLayout = (isSinglePane, sidebarVisible, showHidden)
         Self.tabRequests += 1
@@ -3578,6 +3613,7 @@ final class AppModel {
             flash("The clipboard holds no files", error: true)
             return
         }
+        expectArrivals(in: active, pointerOnly: false)
 
         let destination = active.directory
         Task {
@@ -3598,6 +3634,7 @@ final class AppModel {
     func pasteIntoActivePane() {
         guard !forwardToTextEditor(#selector(NSText.paste(_:))) else { return }
         guard !refusedAsTarget(active, "pasted into", serverWritable: true) else { return }
+        expectArrivals(in: active, pointerOnly: false)
 
         let urls = Clipboard.fileURLs()
         // No files, but text or a picture: Paste makes a file of it, the way
@@ -3679,6 +3716,13 @@ final class AppModel {
         whenFetched(urls) { [weak self] in self?.copyContents(of: urls, name: name) }
     }
 
+    private func journalCopied(_ urls: [URL], _ what: String) {
+        Journal.shared.record(
+            kind: "Copy Contents", category: .content,
+            told: "The \(what) of \(FileHistory.Plan.names(urls)) was copied to the clipboard.",
+            files: urls.map { Journal.File(before: $0.path, after: $0.path) })
+    }
+
     private func copyContents(of urls: [URL], name: String) {
         Task {
             let contents = await Task.detached { Clipboard.readContents(of: urls) }.value
@@ -3686,9 +3730,11 @@ final class AppModel {
             case .text(let text):
                 Clipboard.copyText(text)
                 flash("Copied the text of \(name)", error: false)
+                journalCopied(urls, "text")
             case .image(let data, let type):
                 Clipboard.copyImage(data, type: type)
                 flash("Copied the picture in \(name)", error: false)
+                journalCopied(urls, "picture")
             case .refused(let why):
                 flash(why, error: true)
             }
@@ -3926,6 +3972,15 @@ final class AppModel {
         let pane = paneUnderPointer() ?? active
         let destination = dropDestination(in: pane)
         cancelSpringLoad()
+        // Icons moved about within their own icon view, and not onto a
+        // folder: put down where they were dropped, as in Finder.
+        if pane.viewStyle == .icons, destination == pane.directory, dragOrigin?.pane === pane,
+           urls.allSatisfy({ Self.isDirectlyInside($0, pane.directory) }) {
+            return placeDraggedIcons(urls, in: pane)
+        }
+        // Into this folder among icons placed by hand: they land where they
+        // were dropped.
+        if destination == pane.directory { expectArrivals(in: pane, pointerOnly: true) }
         // Onto a folder's row it is that folder; onto the flat view itself
         // there is no one folder for it to go in.
         if pane.isFlat, destination == pane.directory {
@@ -3992,13 +4047,22 @@ final class AppModel {
         return onSameVolume(urls, as: destination)
     }
 
+    /// The panes on screen, left to right.
+    var visiblePanes: [PaneModel] { isSinglePane ? [active] : [left, right] }
+
+    /// What a pane's listing is drawn in: its table, or its icon view.
+    func surface(of pane: PaneModel) -> NSView? {
+        guard let window else { return nil }
+        return pane.viewStyle == .icons ? pane.iconSurface : TableFinder.table(of: pane, in: window)
+    }
+
     private func paneUnderPointer() -> PaneModel? {
         guard let window else { return nil }
-        let tables = TableFinder.tables(in: window)
-        guard tables.count > 1 else { return active }
+        let panes = visiblePanes
+        guard panes.count > 1 else { return active }
 
         let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-        for (index, table) in tables.enumerated() {
+        for pane in panes {
             // `visibleRect`, not `bounds`: a table's bounds are the size of
             // all its rows and columns, which for a scrolled table -- one
             // with more columns than fit, or simply more rows than the pane
@@ -4006,14 +4070,17 @@ final class AppModel {
             // oversized rect, converted to window coordinates, reached clean
             // across the divider and into the other pane's half of the
             // window, so a drop meant for the right pane was tested against
-            // the left one first and matched it by sheer size.
-            if table.convert(table.visibleRect, to: nil).contains(point) {
-                return index == 0 ? left : right
+            // the left one first and matched it by sheer size. An icon view's
+            // surface is as big as all its icons, for the same reason.
+            if let view = surface(of: pane),
+               view.convert(view.visibleRect, to: nil).contains(point) {
+                return pane
             }
         }
         // Dropped on a pane's chrome rather than its list: fall back to which
         // side of the divider the pointer is on.
-        let divider = tables[1].convert(tables[1].visibleRect, to: nil).minX
+        guard let view = surface(of: right) else { return nil }
+        let divider = view.convert(view.visibleRect, to: nil).minX
         return point.x < divider ? left : right
     }
 
@@ -4116,29 +4183,205 @@ final class AppModel {
     private func dropDestination(in pane: PaneModel) -> URL {
         guard let (rowPane, item) = rowUnderPointer(), rowPane === pane,
               item.isParent || (item.isDirectory && !item.isPackage) else { return pane.directory }
+        // In an icon view a folder nudged a little lands on its own icon:
+        // that is putting it down, not dropping it into itself.
+        if pane.viewStyle == .icons,
+           dragPasteboardURLs().contains(where: { $0.standardizedFileURL == item.url.standardizedFileURL }) {
+            return pane.directory
+        }
         return item.isSymlink ? item.url.resolvingSymlinksInPath() : item.url
+    }
+
+    nonisolated static func isDirectlyInside(_ url: URL, _ folder: URL) -> Bool {
+        url.standardizedFileURL.deletingLastPathComponent().path == folder.standardizedFileURL.path
+    }
+
+    /// Icons dragged within their icon view, put down: each moved by as much
+    /// as the pointer moved, and every other icon where it was placed.
+    ///
+    /// Icons in name order are switched to the placed icons by the drag
+    /// itself -- moving one is a plain request -- and the rest go back to
+    /// where they were placed, not to where name order happened to draw
+    /// them: a placement someone made with care is not undone by nudging one
+    /// icon while looking at the folder sorted.
+    private func placeDraggedIcons(_ urls: [URL], in pane: PaneModel) -> Bool {
+        defer { dragOrigin = nil }
+        guard let origin = dragOrigin, let shown = pane.iconLayout else { return false }
+        let now = NSEvent.mouseLocation
+        // The screen's y grows upwards; the icon view's downwards.
+        let dx = now.x - origin.point.x, dy = origin.point.y - now.y
+        guard hypot(dx, dy) > 2 else { return false }
+        let wasInNameOrder = pane.iconArrangement != .finder
+        let placed = wasInNameOrder ? pane.placedIconLayout(width: shown.contentSize.width) : shown
+
+        let moved = Set(urls.map(\.standardizedFileURL))
+        var centres: [URL: CGPoint] = [:]
+        for item in pane.rows where !item.isParent {
+            if moved.contains(item.url.standardizedFileURL), let rect = shown.iconRect(of: item.id) {
+                // Where it was dropped -- never off the top or left edge,
+                // where it could not be reached.
+                centres[item.id] = CGPoint(x: max(placed.metrics.cellWidth / 2, rect.midX + dx),
+                                           y: max(placed.metrics.iconSize / 2 + 4, rect.midY + dy))
+            } else if let rect = placed.iconRect(of: item.id) {
+                centres[item.id] = CGPoint(x: rect.midX, y: rect.midY)
+            }
+        }
+        let dragged = pane.rows.filter { moved.contains($0.url.standardizedFileURL) }
+        // Not on top of another icon: one dropped there goes to the nearest
+        // free point of the grid.
+        centres = IconLayout.clearingOverlaps(centres, moving: Set(dragged.map(\.id)),
+                                              width: shown.contentSize.width,
+                                              metrics: placed.metrics)
+        let names = dragged.map(\.name)
+        placeIcons(centres, before: placed, in: pane,
+                   name: names.count == 1 ? "Move Icon" : "Move Icons",
+                   told: names.count == 1
+                       ? "The icon of \u{201C}\(names[0])\u{201D} was moved in "
+                         + "\(FileHistory.quoted(NamingTemplate.tilde(pane.directory.path)))."
+                       : "\(names.count) icons were moved in "
+                         + "\(FileHistory.quoted(NamingTemplate.tilde(pane.directory.path))).")
+        if wasInNameOrder {
+            pane.iconArrangement = .finder
+            flash("Showing the icons as placed. View \u{25B8} as Icons shows them in name order again.")
+        }
+        return true
+    }
+
+    /// The icon view of the active pane can be cleaned up: its icons are
+    /// placed, not in name order, in one folder.
+    var canCleanUpIcons: Bool {
+        active.viewStyle == .icons && active.iconArrangement == .finder && !active.isFlat
+    }
+
+    /// View > Clean Up, as in Finder: every icon to the nearest free point of
+    /// the grid, in no new order.
+    func cleanUpIcons() {
+        let pane = active
+        guard canCleanUpIcons, let layout = pane.iconLayout else { return }
+        placeIcons(layout.cleanedUp(width: layout.contentSize.width), before: layout, in: pane,
+                   name: "Clean Up",
+                   told: "The icons in \(FileHistory.quoted(NamingTemplate.tilde(pane.directory.path))) "
+                       + "were cleaned up.")
+    }
+
+    /// Things about to arrive in `pane`'s folder, to be put where the
+    /// pointer is over its icon view -- or, for a paste, failing that, where
+    /// empty space in it was last clicked.
+    private func expectArrivals(in pane: PaneModel, pointerOnly: Bool) {
+        guard pane.placesArrivals, let surface = pane.iconSurface, let window else { return }
+        let pointer = surface.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        if surface.visibleRect.contains(pointer) {
+            pane.expectArrivals(at: pointer)
+        } else if !pointerOnly, let click = pane.lastIconClick {
+            pane.expectArrivals(at: click)
+        }
+    }
+
+    /// What has arrived in `pane`'s folder since something was dropped or
+    /// pasted there, put where it was: the first on the point, the rest on
+    /// the nearest free points of the grid around it. Saved for Finder as
+    /// any placed icon is; not a step of its own in the history -- undoing
+    /// the copy takes the files away, and their places with them.
+    func settleArrivals(in pane: PaneModel) {
+        guard var arrival = pane.arrival else { return }
+        guard arrival.folder == pane.directory, Date() < arrival.until, pane.placesArrivals,
+              let layout = pane.iconLayout else {
+            if Date() >= arrival.until || arrival.folder != pane.directory { pane.arrival = nil }
+            return
+        }
+        let new = pane.rows.filter { !$0.isParent && !arrival.known.contains($0.id) }
+        guard !new.isEmpty else { return }
+        let ids = Set(new.map(\.id))
+
+        var centres: [URL: CGPoint] = [:]
+        for id in layout.order where !ids.contains(id) {
+            if let rect = layout.iconRect(of: id) { centres[id] = CGPoint(x: rect.midX, y: rect.midY) }
+        }
+        for item in new { centres[item.id] = arrival.point }
+        centres = IconLayout.clearingOverlaps(centres, moving: ids, width: layout.contentSize.width,
+                                              metrics: layout.metrics)
+        var positions: [String: CGPoint] = [:]
+        for item in new { if let point = centres[item.id] { positions[item.name] = point } }
+        pane.placeByHand(positions)
+
+        arrival.known.formUnion(ids)
+        if !arrival.started {
+            arrival.started = true
+            arrival.until = Date().addingTimeInterval(5)
+        }
+        pane.arrival = arrival
+
+        let saved = positions.filter { !$0.key.hasPrefix(".") }
+        guard pane.canSaveIconPositions, !saved.isEmpty else { return }
+        do {
+            try FinderIconPositions.write(saved, iconSize: Double(layout.metrics.iconSize),
+                                          in: pane.directory)
+        } catch {
+            flash(error.localizedDescription)
+        }
+    }
+
+    /// The icons at these centres, from now on -- here, and in Finder's
+    /// `.DS_Store`: every icon, not only the ones moved, so Finder shows the
+    /// folder as it is here. A step of the history, as moving a file is:
+    /// undoing it puts every icon back where `before` had it.
+    private func placeIcons(_ centres: [URL: CGPoint], before: IconLayout, in pane: PaneModel,
+                            name: String, told: String) {
+        let iconSize = before.metrics.iconSize
+        var positions: [String: CGPoint] = [:]
+        var previous: [String: CGPoint] = [:]
+        for item in pane.rows where !item.isParent {
+            guard let point = centres[item.id] else { continue }
+            positions[item.name] = point
+            if let rect = before.iconRect(of: item.id) {
+                previous[item.name] = CGPoint(x: rect.midX, y: rect.midY)
+            }
+        }
+        guard positions != previous else { return }
+        if pane.finderLayout.iconSize == nil { pane.finderLayout.iconSize = Double(iconSize) }
+        pane.placeByHand(positions)
+        // What undoing it does, as every step of the history holds: back from
+        // where they are now to where they were. Hidden files are left out of
+        // the file: Finder never shows them.
+        FileHistory.shared.record(name, told: told, .icons(FileHistory.IconPlacement(
+            folder: pane.directory,
+            from: positions.filter { !$0.key.hasPrefix(".") },
+            to: previous.filter { !$0.key.hasPrefix(".") },
+            iconSize: Double(iconSize), saved: pane.canSaveIconPositions)))
+
+        guard pane.canSaveIconPositions else {
+            flash("Placed here only: Finder's positions cannot be saved in this folder.")
+            return
+        }
+        // Hidden files are left out: Finder never shows them.
+        let saved = positions.filter { !$0.key.hasPrefix(".") }
+        // Written now, not in the background: the file is a few kilobytes,
+        // and an undo pressed straight after must find it already written,
+        // not have this land on top of its own write.
+        do {
+            try FinderIconPositions.write(saved, iconSize: Double(iconSize), in: pane.directory)
+        } catch {
+            flash(error.localizedDescription)
+        }
     }
 
     /// The specific row under the pointer, in whichever pane's table it falls
     /// over -- not just which pane, the way `paneUnderPointer` answers, but
     /// which of its rows, for spring-loading to open.
     private func rowUnderPointer() -> (pane: PaneModel, item: FileItem)? {
-        guard let window else { return nil }
-        let tables = TableFinder.tables(in: window)
-        guard !tables.isEmpty else { return nil }
+        guard let window, let pane = paneUnderPointer() else { return nil }
+        let inWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
 
-        let pane: PaneModel
-        let table: NSTableView
-        if tables.count > 1 {
-            guard let matched = paneUnderPointer() else { return nil }
-            pane = matched
-            table = matched === left ? tables[0] : tables[1]
-        } else {
-            pane = active
-            table = tables[0]
+        // An icon view: the icon whose picture or name is under the pointer.
+        if pane.viewStyle == .icons {
+            guard let surface = pane.iconSurface, let layout = pane.iconLayout,
+                  let id = layout.item(at: surface.convert(inWindow, from: nil)),
+                  let item = pane.rows.first(where: { $0.id == id }) else { return nil }
+            return (pane, item)
         }
 
-        let point = table.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        guard let table = TableFinder.table(of: pane, in: window) else { return nil }
+        let point = table.convert(inWindow, from: nil)
         let row = table.row(at: point)
         guard row >= 0, pane.rows.indices.contains(row) else { return nil }
         return (pane, pane.rows[row])
@@ -5361,6 +5604,7 @@ final class AppModel {
     }
 
     func swapPanes() {
+        JournalActivity.navigated("Swap Panes", "The two panes were swapped.")
         swap(&left, &right)
         persist()
         // Follow the content, not the position: the pane you were working in is
@@ -5449,6 +5693,11 @@ final class AppModel {
     }
 
     func scrollSelectionIntoView() {
+        // An icon view scrolls itself, when asked.
+        if active.viewStyle == .icons {
+            active.iconScrollRequest &+= 1
+            return
+        }
         guard let table = currentTable else { return }
         let rows = active.rows
         guard let index = rows.firstIndex(where: { active.selection.contains($0.id) }) else { return }
@@ -5458,6 +5707,65 @@ final class AppModel {
     }
 
     // MARK: - Keyboard
+
+    // MARK: - View style
+
+    /// The three ways a pane shows its folder, as the toolbar offers them.
+    enum PaneDisplay { case icons, placedIcons, list }
+
+    var activeDisplay: PaneDisplay {
+        guard active.viewStyle == .icons else { return .list }
+        return active.iconArrangement == .finder ? .placedIcons : .icons
+    }
+
+    /// The active pane as icons in name order, icons where they were placed,
+    /// or a list -- that pane only, in this tab.
+    func show(_ display: PaneDisplay) {
+        switch display {
+        case .icons:
+            setIconArrangement(.byName)
+            setViewStyle(.icons)
+        case .placedIcons:
+            setIconArrangement(.finder)
+            setViewStyle(.icons)
+        case .list:
+            setViewStyle(.list)
+        }
+    }
+
+    /// The active pane as a list or as icons -- that pane only, in this tab.
+    func setViewStyle(_ style: PaneModel.ViewStyle) {
+        guard active.viewStyle != style else { return }
+        clickedAwayFromTable()
+        active.viewStyle = style
+        // The selection stays; the new view shows it.
+        DispatchQueue.main.async { [weak self] in self?.scrollSelectionIntoView() }
+    }
+
+    /// The active pane's icons in name order, or as Finder placed them.
+    func setIconArrangement(_ arrangement: PaneModel.IconArrangement) {
+        active.iconArrangement = arrangement
+        DispatchQueue.main.async { [weak self] in self?.scrollSelectionIntoView() }
+    }
+
+    /// An arrow key in the icon view: to the nearest icon that way. With
+    /// Shift, that icon is added to the selection rather than replacing it.
+    func moveIconCursor(_ direction: IconLayout.Direction, extending: Bool) {
+        let pane = active
+        guard let layout = pane.iconLayout, !layout.order.isEmpty else { return }
+        let current = pane.iconCursor.flatMap { id in pane.selection.contains(id) ? id : nil }
+            ?? layout.order.first { pane.selection.contains($0) }
+        guard let from = current else {
+            pane.selection = [layout.order[0]]
+            pane.iconCursor = layout.order[0]
+            scrollSelectionIntoView()
+            return
+        }
+        guard let to = layout.neighbour(of: from, direction) else { return }
+        pane.selection = extending ? pane.selection.union([to]) : [to]
+        pane.iconCursor = to
+        scrollSelectionIntoView()
+    }
 
     /// Called by `KeyRouter` for the window that owns this model.
     /// Returns true when the key was consumed.
@@ -5534,12 +5842,23 @@ final class AppModel {
         case .f7:             requestNewFolder()
         case .f8, .delete, .forwardDelete: requestTrash()
         // Only taken over while rows are greyed out; otherwise the table's own
-        // arrow handling is better than anything we would write.
+        // arrow handling is better than anything we would write. An icon view
+        // has none of its own, and moves in two directions.
         case .upArrow, .downArrow:
+            if active.viewStyle == .icons {
+                moveIconCursor(key == .upArrow ? .up : .down,
+                               extending: modifiers.contains(.shift))
+                return true
+            }
             guard active.hasFilter, active.filterIsValid, !active.filterHidesOthers else {
                 return false
             }
             moveCursorSkippingFiltered(by: key == .downArrow ? 1 : -1)
+        case .leftArrow, .rightArrow:
+            guard active.viewStyle == .icons, !modifiers.contains(.command),
+                  !modifiers.contains(.option), !modifiers.contains(.control) else { return false }
+            moveIconCursor(key == .leftArrow ? .left : .right,
+                           extending: modifiers.contains(.shift))
 
         case .home:           moveCursor(to: 0)
         case .end:            moveCursor(to: Int.max)

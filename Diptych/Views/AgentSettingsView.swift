@@ -47,6 +47,21 @@ struct AgentSettingsView: View {
 
             Divider()
 
+            Text("Siri and Shortcuts").font(.headline)
+
+            Toggle("Allow Siri, Shortcuts and Spotlight to use Diptych",
+                   isOn: $store.configuration.appIntentsEnabled)
+                .toggleStyle(.checkbox)
+            explanation("The same things an agent can do over MCP, by the same rules: ask what "
+                        + "a pane shows or what is selected, show a folder, open a comparison, "
+                        + "read a run's output. Files are never changed from there -- copying, "
+                        + "moving or deleting is only proposed, in a window for you to look over "
+                        + "and run. Changing a setting or closing a window asks first. Every "
+                        + "request shows in the activity console, under Siri/Shortcuts. Neither "
+                        + "this switch nor agent access can be changed from there.")
+
+            Divider()
+
             Text("Agent Terminal").font(.headline)
             explanation("View \u{25B8} Show Agent Terminal (\u{2303}`) opens a terminal under the "
                         + "window with your agent already running in it, and Diptych already in "

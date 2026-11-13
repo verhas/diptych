@@ -142,6 +142,25 @@ final class FileHistoryTests: XCTestCase {
         XCTAssertTrue(exists(elsewhere))
     }
 
+    func testUndoingAnIconMovePutsItBackInFindersFileAndRedoMovesItAgain() async throws {
+        try file("a.txt")
+        let before = CGPoint(x: 60, y: 50), after = CGPoint(x: 300, y: 200)
+        try FinderIconPositions.write(["a.txt": after], iconSize: 64, in: folder)
+        history.record("Move Icon", told: "The icon of \u{201C}a.txt\u{201D} was moved.",
+                       // What undoing does: back from after to before.
+                       .icons(FileHistory.IconPlacement(folder: folder, from: ["a.txt": after],
+                                                        to: ["a.txt": before], iconSize: 64,
+                                                        saved: true)))
+        XCTAssertEqual(history.undoName, "Move Icon")
+
+        await step(.undo)
+        XCTAssertEqual(FinderIconPositions.read(folder).positions["a.txt"], before)
+        XCTAssertEqual(history.redoName, "Move Icon")
+
+        await step(.redo)
+        XCTAssertEqual(FinderIconPositions.read(folder).positions["a.txt"], after)
+    }
+
     func testUndoingARenameRenamesItBack() async throws {
         let old = try file("draft.txt")
         let new = folder.appendingPathComponent("final.txt")

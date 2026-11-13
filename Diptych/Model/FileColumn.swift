@@ -258,6 +258,12 @@ struct Configuration: Codable, Equatable {
     /// `gitEnabled`: it opens a local network listener Diptych did not need
     /// before, so switching it on is a decision the user makes.
     var mcpServerEnabled = false
+    /// Lets Siri, Shortcuts and Spotlight use Diptych's App Intents -- the
+    /// same commands an agent has over MCP. Off by default, for the same
+    /// reason: it opens a way in that was not there, and that is the
+    /// person's decision. Like MCP's own switch, nothing from outside can
+    /// change it.
+    var appIntentsEnabled = false
     /// Bound to 127.0.0.1 only; not itself configurable yet.
     var mcpServerPort = 8787
 
@@ -296,6 +302,24 @@ struct Configuration: Codable, Equatable {
     /// How long a run -- its record and all it printed -- is kept after it
     /// ended, in hours. 0 keeps them until deleted.
     var runKeepHours = 24
+
+    /// The journal: everything Diptych does to files, and the runs it
+    /// starts, in `~/.diptych/journal.sqlite`, for searching later. On by
+    /// default -- it is a private file in the person's own folder.
+    var journalEnabled = true
+    /// How long a journal entry is kept, in days. 0 keeps them until deleted.
+    var journalKeepDays = 90
+    /// The journal's categories left out of it, by `Journal.Category`
+    /// raw value. Nothing by default: everything is recorded.
+    var journalLeftOut: [String] = []
+    /// The journal's entries in Spotlight too. Off by default: Spotlight is
+    /// read by anyone at the Mac and by Siri, a different decision from a
+    /// private file.
+    var journalInSpotlight = false
+    /// Every file a pane shows, as a Diptych record in Spotlight -- with the
+    /// town it was taken near, the camera, the date taken: what Spotlight
+    /// does not know by itself. Off by default, for the same reason.
+    var spotlightFileRecords = false
 
     /// Option as the terminal's Meta key -- Option+B is Escape B, for word
     /// movement in a shell -- rather than as the keyboard layout's Option:
@@ -464,6 +488,12 @@ struct Configuration: Codable, Equatable {
     /// size or date is more useful when the two kinds are not separated.
     var foldersFirst = true
 
+    /// What a colour tag does to the listing: the row's background, and a
+    /// plain folder's icon, each switched on or off by itself. Both on by
+    /// default; both off, a tag changes nothing on screen.
+    var tagColourRows = true
+    var tagColourFolderIcons = true
+
     /// The window's light or dark appearance. `.system` follows the Mac's
     /// setting; the other two override it, so a dark Diptych can sit on a light
     /// desktop and the other way round.
@@ -561,9 +591,12 @@ struct Configuration: Codable, Equatable {
     /// columns".
     var columns: [FileColumn] { columns(inTrash: false) }
 
+    private enum LegacyKeys: String, CodingKey { case journalViewing }
+
     enum CodingKeys: String, CodingKey {
         case columnOrder, enabledColumns, columnWidths, favourites
         case soundsEnabled, copySound, moveSound, trashSound
+        case tagColourRows, tagColourFolderIcons
         case fontName, fontSize, foldersFirst, appearanceTheme, gitEnabled, gitPath, gitCheckOnOpen, gitUpdateWhenSending, toolbar
         case clipboardImageFormat, confirmQuit, scriptsEnabled, scriptsDeveloperMode
         case openArchivesAsFolders
@@ -576,10 +609,12 @@ struct Configuration: Codable, Equatable {
         case showTipsAtStartup
         case renameOnClick
         case updateCheckPreference, lastUpdateCheckAttempt
-        case mcpServerEnabled, mcpServerPort, agentCommand, agentDirectory
+        case mcpServerEnabled, mcpServerPort, agentCommand, agentDirectory, appIntentsEnabled
         case terminalFontName, terminalFontSize, terminalColours, terminalForeground
         case terminalBackground, terminalHeight, showFilesInDiptych
         case runHistoryLimit, runHistoryUnlimited, terminalOptionAsMeta, runKeepHours
+        case journalEnabled, journalKeepDays, journalInSpotlight, spotlightFileRecords
+        case journalLeftOut
         case textFormatExtensions, textLineNumbers, textStyle
         case serverRefreshSeconds, copying
         case showOriginalLocationInTrash
@@ -618,6 +653,9 @@ struct Configuration: Codable, Equatable {
             (try? container.decode(Int.self, forKey: .splitPartWarningThreshold)) ?? 20
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
+        tagColourRows = (try? container.decode(Bool.self, forKey: .tagColourRows)) ?? true
+        tagColourFolderIcons =
+            (try? container.decode(Bool.self, forKey: .tagColourFolderIcons)) ?? true
         toolbar = (try? container.decode([ToolbarSlot].self, forKey: .toolbar))
             ?? Configuration.defaultToolbar
         gitEnabled = (try? container.decode(Bool.self, forKey: .gitEnabled)) ?? false
@@ -678,9 +716,24 @@ struct Configuration: Codable, Equatable {
             UpdateCheckPreference.self, forKey: .updateCheckPreference)) ?? .ask
         lastUpdateCheckAttempt = try? container.decode(Date.self, forKey: .lastUpdateCheckAttempt)
         mcpServerEnabled = (try? container.decode(Bool.self, forKey: .mcpServerEnabled)) ?? false
+        appIntentsEnabled = (try? container.decode(Bool.self, forKey: .appIntentsEnabled)) ?? false
         mcpServerPort = (try? container.decode(Int.self, forKey: .mcpServerPort)) ?? 8787
         agentCommand = (try? container.decode(String.self, forKey: .agentCommand)) ?? "claude"
         runKeepHours = max(0, (try? container.decode(Int.self, forKey: .runKeepHours)) ?? 24)
+        journalEnabled = (try? container.decode(Bool.self, forKey: .journalEnabled)) ?? true
+        journalKeepDays = max(0, (try? container.decode(Int.self, forKey: .journalKeepDays)) ?? 90)
+        journalInSpotlight =
+            (try? container.decode(Bool.self, forKey: .journalInSpotlight)) ?? false
+        if let leftOut = try? container.decode([String].self, forKey: .journalLeftOut) {
+            journalLeftOut = leftOut
+        } else if let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+                  (try? legacy.decode(Bool.self, forKey: .journalViewing)) == false {
+            // Before categories, one switch said whether what was looked at
+            // was recorded.
+            journalLeftOut = ["content", "attributes"]
+        }
+        spotlightFileRecords =
+            (try? container.decode(Bool.self, forKey: .spotlightFileRecords)) ?? false
         textFormatExtensions = (try? container.decode([String: [String]].self,
                                                       forKey: .textFormatExtensions))
             ?? Self.defaultTextFormatExtensions

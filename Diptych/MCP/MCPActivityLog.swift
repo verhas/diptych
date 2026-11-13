@@ -39,6 +39,9 @@ final class MCPActivityLog {
             entries.removeFirst(entries.count - Self.capacity)
         }
         activityToken += 1
+        if kind != .error {
+            JournalActivity.requested(summary, detail: detail, refused: kind == .rejected)
+        }
     }
 
     func clear() {

@@ -18,15 +18,21 @@ struct PaneState: Codable, Equatable {
     /// The expression of the flat view the pane is showing; nil when it is
     /// an ordinary folder.
     var flatExpression: String?
+    /// "list" or "icons", and in the icon view "byName" or "finder".
+    var viewStyle: String = "list"
+    var iconArrangement: String = "byName"
 
     init(directory: String, sortField: String = "name", sortAscending: Bool = true,
-         recent: [String] = [], flatDraft: String = "", flatExpression: String? = nil) {
+         recent: [String] = [], flatDraft: String = "", flatExpression: String? = nil,
+         viewStyle: String = "list", iconArrangement: String = "byName") {
         self.directory = directory
         self.sortField = sortField
         self.sortAscending = sortAscending
         self.recent = recent
         self.flatDraft = flatDraft
         self.flatExpression = flatExpression
+        self.viewStyle = viewStyle
+        self.iconArrangement = iconArrangement
     }
 
     /// Tolerant, like Configuration's: the synthesized decoder throws on a
@@ -39,6 +45,8 @@ struct PaneState: Codable, Equatable {
         recent = (try? container.decode([String].self, forKey: .recent)) ?? []
         flatDraft = (try? container.decode(String.self, forKey: .flatDraft)) ?? ""
         flatExpression = try? container.decode(String.self, forKey: .flatExpression)
+        viewStyle = (try? container.decode(String.self, forKey: .viewStyle)) ?? "list"
+        iconArrangement = (try? container.decode(String.self, forKey: .iconArrangement)) ?? "byName"
     }
 }
 

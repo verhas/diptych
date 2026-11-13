@@ -380,6 +380,45 @@ extension MCPServer {
                         ],
                         "required": ["side"],
                      ])),
+                Tool(name: "show_folder",
+                     description: "Shows a folder in a pane, as typing its path in the path bar "
+                        + "would -- leaving a flat view first if the pane is one.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "side": [
+                                "type": "string",
+                                "enum": ["left", "right", "active"],
+                                "description": "Defaults to \"active\".",
+                            ],
+                            "path": ["type": "string", "description": "Absolute path of a folder on this Mac; ~ is the home folder."],
+                        ],
+                        "required": ["path"],
+                     ])),
+                Tool(name: "set_pane_view",
+                     description: "How a pane shows its folder: icons (big icons in name order), "
+                        + "placedIcons (icons where they were placed, as Finder keeps them) or "
+                        + "list (every column). That pane only; each pane of each tab has its own.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "windowId": [
+                                "type": "string",
+                                "description": "From list_windows. Defaults to the frontmost Diptych window.",
+                            ],
+                            "side": [
+                                "type": "string",
+                                "enum": ["left", "right", "active"],
+                                "description": "Defaults to \"active\".",
+                            ],
+                            "view": ["type": "string", "enum": ["icons", "placedIcons", "list"]],
+                        ],
+                        "required": ["view"],
+                     ])),
                 Tool(name: "show_flat_view",
                      description: "Turns a pane into a flat view: one list of a folder and "
                         + "everything under it, filtered by an expression, shown to the person "
@@ -730,6 +769,47 @@ extension MCPServer {
                             "to": ["type": "integer", "description": "Last, counting back. Default from + 9."],
                         ],
                      ])),
+                Tool(name: "search_journal",
+                     description: "Diptych's journal: what it did to files -- copies, moves, "
+                        + "renames, trashing, permission, tag, date and content changes, on this "
+                        + "Mac and on servers -- every undo and redo, every run, and what was "
+                        + "opened, looked at, selected and shown, settings changed, windows, "
+                        + "starts and quits, and agents' and Shortcuts' requests, kept for "
+                        + "months (Settings say how long). category narrows it to one of these: "
+                        + "change, content (contents read), attributes (names and details read), "
+                        + "navigation, settings, window, run, app or request. Newest first. text finds words of the "
+                        + "description, the kind or any path touched, each as the start of a "
+                        + "word. from/to are dates (2026-11-01) or moments (2026-11-01T14:30). "
+                        + "folder finds what happened in or under it. origin is you, agent, "
+                        + "shortcuts, undo, redo or run. withFiles adds each entry's files, where "
+                        + "each was (before) and is (after). Answers \"what did I do to the tax "
+                        + "folder last week?\" Read-only: the journal cannot be changed from here, "
+                        + "and nothing is undone from it.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "text": ["type": "string", "description": "Words to find."],
+                            "from": ["type": "string", "description": "From this date or moment."],
+                            "to": ["type": "string", "description": "Before this date or moment."],
+                            "kind": ["type": "string", "description": "Copy, Move, Rename, Move to Trash, Run, Undo Move..."],
+                            "category": ["type": "string", "enum": ["change", "content", "attributes", "navigation", "settings", "window", "run", "app", "request"]],
+                            "origin": ["type": "string", "enum": ["you", "agent", "shortcuts", "undo", "redo", "run"]],
+                            "folder": ["type": "string", "description": "A folder path; ~ allowed."],
+                            "limit": ["type": "integer", "description": "Default 50, at most 500."],
+                            "withFiles": ["type": "boolean", "description": "Include each entry's files (at most 100 each)."],
+                        ],
+                     ])),
+                Tool(name: "journal_stats",
+                     description: "What the journal adds up to between from and to (default: "
+                        + "all of it): entries and files touched, by kind, by category, by who did it, per "
+                        + "day, and the busiest folders.",
+                     inputSchema: .object([
+                        "type": "object",
+                        "properties": [
+                            "from": ["type": "string", "description": "From this date or moment."],
+                            "to": ["type": "string", "description": "Before this date or moment."],
+                        ],
+                     ])),
                 Tool(name: "get_run_output",
                      description: "What a run from list_runs printed, as plain text (the "
                         + "terminal's colours removed), with its state, exit code and timing -- "
@@ -774,7 +854,7 @@ extension MCPServer {
             switch params.name {
             case "get_text_diff":
                 guard let snapshot = await MainActor.run(body: {
-                    MCPToolSupport.textDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
+                    DiptychCommands.textDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
                 }) else {
                     return .init(content: [.text(text: "No matching Compare window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)
@@ -783,7 +863,7 @@ extension MCPServer {
 
             case "get_directory_diff":
                 guard let snapshot = await MainActor.run(body: {
-                    MCPToolSupport.directoryDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
+                    DiptychCommands.directoryDiff(windowNumber: params.arguments?["windowNumber"]?.intValue)
                 }) else {
                     return .init(content: [.text(text: "No matching Compare Folders window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)
@@ -822,7 +902,7 @@ extension MCPServer {
                         wraps: params.arguments?["wraps"]?.boolValue ?? true)
                     : nil
                 let result = await MainActor.run {
-                    MCPToolSupport.openDiff(windowId: windowId, left: left, right: right,
+                    DiptychCommands.openDiff(windowId: windowId, left: left, right: right,
                                             directoryOptions: directoryOptions,
                                             textOptions: textOptions)
                 }
@@ -846,7 +926,7 @@ extension MCPServer {
                                  isError: true)
                 }
                 let exifResult = await MainActor.run {
-                    MCPToolSupport.openExifEditor(windowId: windowId, paths: paths)
+                    DiptychCommands.openExifEditor(windowId: windowId, paths: paths)
                 }
                 switch exifResult {
                 case .windowNotFound:
@@ -866,7 +946,7 @@ extension MCPServer {
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
                 let infoResult = await MainActor.run {
-                    MCPToolSupport.openInfoWindow(windowId: windowId, path: path)
+                    DiptychCommands.openInfoWindow(windowId: windowId, path: path)
                 }
                 switch infoResult {
                 case .windowNotFound:
@@ -882,10 +962,11 @@ extension MCPServer {
 
             case "list_settings":
                 let summaries = await MainActor.run {
-                    MCPSettings.items.map { item in
+                    DiptychSettings.items.map { item in
                         MCPModels.SettingSummary(key: item.key, kind: item.kind,
                                                  description: item.description,
-                                                 allowedValues: item.allowedValues, value: item.get())
+                                                 allowedValues: item.allowedValues,
+                                                 value: MCPModels.value(item.get()))
                     }
                 }
                 return try MCPModels.result(for: MCPModels.SettingsList(settings: summaries))
@@ -897,10 +978,12 @@ extension MCPServer {
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
                 let settingError: String? = await MainActor.run {
-                    guard let item = MCPSettings.item(for: key) else {
+                    guard let item = DiptychSettings.item(for: key) else {
                         return "No such setting: \(key). Call list_settings for the exact keys."
                     }
-                    return item.set(value)
+                    // Neither a boolean nor text: the setting's own message
+                    // says what it takes.
+                    return item.set(MCPModels.setting(value) ?? .string(""))
                 }
                 if let settingError {
                     return .init(content: [.text(text: settingError, annotations: nil, _meta: nil)],
@@ -914,9 +997,9 @@ extension MCPServer {
                     return .init(content: [.text(text: "operations is required and must be non-empty.",
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
-                let rawOps = opsValue.map { value -> MCPToolSupport.RawOperation in
+                let rawOps = opsValue.map { value -> DiptychCommands.RawOperation in
                     let object = value.objectValue ?? [:]
-                    return MCPToolSupport.RawOperation(
+                    return DiptychCommands.RawOperation(
                         op: object["op"]?.stringValue ?? "",
                         source: object["source"]?.stringValue,
                         target: object["target"]?.stringValue,
@@ -928,7 +1011,7 @@ extension MCPServer {
                         tags: object["tags"]?.arrayValue?.compactMap(\.stringValue))
                 }
                 let proposeResult = await MainActor.run {
-                    MCPToolSupport.proposeFileOperations(windowId: windowId, operations: rawOps)
+                    DiptychCommands.proposeFileOperations(windowId: windowId, operations: rawOps)
                 }
                 switch proposeResult {
                 case .unknownOp(let name):
@@ -938,17 +1021,38 @@ extension MCPServer {
                     return .init(content: [.text(text: "No matching Diptych window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)
                 case .proposed(let batchId):
-                    return try MCPModels.result(for: MCPModels.ProposedBatch(batchId: batchId.uuidString))
+                    return try MCPModels.result(for: DiptychData.ProposedBatch(batchId: batchId.uuidString))
                 }
 
             case "get_diptych_info":
-                return try MCPModels.result(for: await MainActor.run { MCPToolSupport.diptychInfo() })
+                return try MCPModels.result(for: await MainActor.run { DiptychCommands.diptychInfo() })
 
             case "list_runs":
                 let from = params.arguments?["from"]?.intValue
                 let to = params.arguments?["to"]?.intValue
                 return try MCPModels.result(for: await MainActor.run {
-                    MCPToolSupport.runList(from: from, to: to)
+                    DiptychCommands.runList(from: from, to: to)
+                })
+
+            case "search_journal":
+                let args = params.arguments
+                return try MCPModels.result(for: await MainActor.run {
+                    DiptychCommands.searchJournal(
+                        text: args?["text"]?.stringValue,
+                        from: DiptychCommands.journalDate(args?["from"]?.stringValue),
+                        to: DiptychCommands.journalDate(args?["to"]?.stringValue),
+                        kind: args?["kind"]?.stringValue, category: args?["category"]?.stringValue,
+                        origin: args?["origin"]?.stringValue,
+                        folder: args?["folder"]?.stringValue, limit: args?["limit"]?.intValue,
+                        withFiles: args?["withFiles"]?.boolValue ?? false)
+                })
+
+            case "journal_stats":
+                let args = params.arguments
+                return try MCPModels.result(for: await MainActor.run {
+                    DiptychCommands.journalStats(
+                        from: DiptychCommands.journalDate(args?["from"]?.stringValue),
+                        to: DiptychCommands.journalDate(args?["to"]?.stringValue))
                 })
 
             case "get_run_output":
@@ -959,7 +1063,7 @@ extension MCPServer {
                 }
                 let tail = params.arguments?["tailLines"]?.intValue
                 guard let output = await MainActor.run(body: {
-                    MCPToolSupport.runOutput(runId: runId, tailLines: tail)
+                    DiptychCommands.runOutput(runId: runId, tailLines: tail)
                 }) else {
                     return .init(content: [.text(text: "No such run. list_runs gives the ids.",
                                                  annotations: nil, _meta: nil)], isError: true)
@@ -972,7 +1076,7 @@ extension MCPServer {
                     return .init(content: [.text(text: "batchId is required and must be a UUID.",
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
-                guard let status = await MainActor.run(body: { MCPToolSupport.batchStatus(batchId: batchId) })
+                guard let status = await MainActor.run(body: { DiptychCommands.batchStatus(batchId: batchId) })
                 else {
                     return .init(content: [.text(text: "No such batch.",
                                                  annotations: nil, _meta: nil)], isError: true)
@@ -982,7 +1086,7 @@ extension MCPServer {
             case "select_items":
                 let paths = params.arguments?["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 let found = await MainActor.run {
-                    MCPToolSupport.selectItems(windowId: windowId, side: side, paths: paths)
+                    DiptychCommands.selectItems(windowId: windowId, side: side, paths: paths)
                 }
                 return .init(content: [.text(
                     text: found ? "Selected \(paths.count) path(s) (any not present in the pane were ignored)."
@@ -996,19 +1100,54 @@ extension MCPServer {
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
                 let found = await MainActor.run {
-                    MCPToolSupport.setActivePane(windowId: windowId, side: activeSide)
+                    DiptychCommands.setActivePane(windowId: windowId, side: activeSide)
                 }
                 return .init(content: [.text(
                     text: found ? "Active pane set to \(activeSide)."
                                 : "No matching Diptych window is open.",
                     annotations: nil, _meta: nil)], isError: !found)
 
+            case "show_folder":
+                guard let path = params.arguments?["path"]?.stringValue else {
+                    return .init(content: [.text(text: "path is required.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                let shown = await MainActor.run {
+                    DiptychCommands.showFolder(windowId: windowId, side: side, path: path)
+                }
+                switch shown {
+                case .noWindow:
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .notAFolder(let path):
+                    return .init(content: [.text(text: "Not a folder: \(path)",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                case .shown(let shownSide):
+                    return .init(content: [.text(text: "The \(shownSide) pane shows \(path).",
+                                                 annotations: nil, _meta: nil)], isError: false)
+                }
+
+            case "set_pane_view":
+                guard let raw = params.arguments?["view"]?.stringValue,
+                      let view = DiptychCommands.PaneView(rawValue: raw) else {
+                    return .init(content: [.text(text: "view must be icons, placedIcons or list.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                guard let viewSide = await MainActor.run(body: {
+                    DiptychCommands.setPaneView(windowId: windowId, side: side, view: view)
+                }) else {
+                    return .init(content: [.text(text: "No matching Diptych window is open.",
+                                                 annotations: nil, _meta: nil)], isError: true)
+                }
+                return .init(content: [.text(text: "The \(viewSide) pane shows \(raw).",
+                                             annotations: nil, _meta: nil)], isError: false)
+
             case "show_flat_view":
                 let expression = params.arguments?["expression"]?.stringValue ?? ""
                 let directory = params.arguments?["directory"]?.stringValue
                 let off = params.arguments?["off"]?.boolValue ?? false
                 let start = await MainActor.run {
-                    MCPToolSupport.showFlatView(windowId: windowId, side: side,
+                    DiptychCommands.showFlatView(windowId: windowId, side: side,
                                                 directory: directory, expression: expression,
                                                 off: off)
                 }
@@ -1032,7 +1171,7 @@ extension MCPServer {
                     // Not waited for: a big tree takes minutes, and get_pane
                     // says how the walk is going.
                     let result = await MainActor.run {
-                        MCPModels.FlatViewResult(
+                        DiptychData.FlatViewResult(
                             windowId: window, side: resolvedSide,
                             directory: RemoteBrowsing.reportedPath(pane.directory), expression: expression,
                             warnings: warnings, collecting: pane.flatProgress != nil)
@@ -1045,7 +1184,7 @@ extension MCPServer {
                     return .init(content: [.text(text: "windowNumber is required.",
                                                  annotations: nil, _meta: nil)], isError: true)
                 }
-                let found = await MainActor.run { MCPToolSupport.closeWindow(windowNumber: windowNumber) }
+                let found = await MainActor.run { DiptychCommands.closeWindow(windowNumber: windowNumber) }
                 return .init(content: [.text(
                     text: found ? "Closed (or asked to close) window \(windowNumber)."
                                 : "No open window has number \(windowNumber).",
@@ -1053,14 +1192,14 @@ extension MCPServer {
 
             case "list_windows":
                 let list = await MainActor.run {
-                    MCPModels.WindowList(windows: MCPToolSupport.listWindows(),
-                                         toolWindows: MCPToolSupport.listToolWindows())
+                    DiptychData.WindowList(windows: DiptychCommands.listWindows(),
+                                         toolWindows: DiptychCommands.listToolWindows())
                 }
                 return try MCPModels.result(for: list)
 
             case "get_pane":
                 guard let snapshot = await MainActor.run(body: {
-                    MCPToolSupport.pane(windowId: windowId, side: side)
+                    DiptychCommands.pane(windowId: windowId, side: side)
                 }) else {
                     return .init(content: [.text(text: "No matching Diptych window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)
@@ -1069,7 +1208,7 @@ extension MCPServer {
 
             case "get_selection":
                 guard let snapshot = await MainActor.run(body: {
-                    MCPToolSupport.selection(windowId: windowId, side: side)
+                    DiptychCommands.selection(windowId: windowId, side: side)
                 }) else {
                     return .init(content: [.text(text: "No matching Diptych window is open.",
                                                  annotations: nil, _meta: nil)], isError: true)

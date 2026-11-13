@@ -38,7 +38,28 @@ enum TableFinder {
         else { return nil }
         let panes = tables(in: window)
         guard let index = panes.firstIndex(of: table) else { return nil }
+        // Only the panes showing a list have a table -- one showing icons has
+        // none -- so the tables are matched to those, in order, rather than
+        // to left and right.
+        let listing = listPanes(of: model)
+        if listing.count == panes.count { return listing[index] }
         return panes.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+    }
+
+    /// The table of this pane, when it shows one.
+    static func table(of pane: PaneModel, in window: NSWindow) -> NSTableView? {
+        guard let model = KeyRouter.shared.allModels.first(where: { $0.window === window })
+        else { return nil }
+        let panes = tables(in: window)
+        let listing = listPanes(of: model)
+        guard listing.count == panes.count, let index = listing.firstIndex(where: { $0 === pane })
+        else { return nil }
+        return panes[index]
+    }
+
+    /// The panes on screen that show a list, left to right.
+    static func listPanes(of model: AppModel) -> [PaneModel] {
+        model.visiblePanes.filter { $0.viewStyle == .list }
     }
 
     private static func walk(_ view: NSView) -> [NSTableView] {

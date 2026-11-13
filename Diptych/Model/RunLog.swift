@@ -82,6 +82,14 @@ final class RunLog {
         }
         write(record)
         writePrivately(Data(run.outputText.utf8), to: logURL(run.id))
+        let how = record.exitCode.map { "\(record.state), exit code \($0)" } ?? record.state
+        Journal.shared.record(
+            kind: "Run", category: .run,
+            told: "\(record.commandLine) ran in \(NamingTemplate.tilde(record.directory)): \(how)"
+                + (record.timing.map { ", \($0)" } ?? "") + ".",
+            files: [Journal.File(before: record.program, after: record.program)],
+            origin: .run, outcome: record.state == "finished" ? "done" : "failed",
+            folder: record.directory, at: record.endedAt ?? Date())
     }
 
     private static func record(of run: CommandRun) -> Record {

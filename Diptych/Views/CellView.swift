@@ -17,7 +17,8 @@ struct CellView: View {
     /// Table has no per-row background, so each cell paints its own; together
     /// they read as one band.
     private var tagTint: Color? {
-        item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
+        guard ConfigStore.shared.configuration.tagColourRows else { return nil }
+        return item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
     }
 
     /// True while a drag is spring-loading this exact row: hovering here is

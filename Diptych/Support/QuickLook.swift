@@ -37,12 +37,14 @@ final class QuickLookController: NSObject {
         if urls.count == 1, FolderPreview.shows(urls[0]) {
             self.owner = owner
             shownURLs = urls
+            JournalViewing.previewing(urls)
             FolderPreview.shared.show(urls[0], owner: owner, pane: owner?.active)
             return
         }
 
         items = urls.map(previewable)
         shownURLs = urls
+        JournalViewing.previewing(urls)
         self.owner = owner
         panel.dataSource = self
         panel.delegate = self
@@ -93,6 +95,7 @@ final class QuickLookController: NSObject {
         FolderPreview.shared.close()
         if panelIsVisible { QLPreviewPanel.shared().orderOut(nil) }
         shownURLs = []
+        JournalViewing.previewClosed()
         clearScratch()
     }
 
@@ -112,6 +115,7 @@ final class QuickLookController: NSObject {
         // `force` is for files changed in place, which must be read again.
         if !force, urls == shownURLs { return }
         shownURLs = urls
+        JournalViewing.previewing(urls)
 
         // Nothing left to show -- the last file in the folder was just
         // deleted. Closing is honest; a panel reading "No items selected"
@@ -176,6 +180,9 @@ final class QuickLookController: NSObject {
             return rendered
         }
         if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
+            return rendered
+        }
+        if url.pathExtension.lowercased() == "class", let rendered = classFileReport(for: url) {
             return rendered
         }
         if ["tif", "tiff"].contains(url.pathExtension.lowercased()),
@@ -247,6 +254,26 @@ final class QuickLookController: NSObject {
         // Info.plist files do not overwrite each other.
         let folder = scratch.appendingPathComponent(
             "plist" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A Java class file -- a name and a size to Quick Look -- as the outline
+    /// of its source: declaration, fields, methods, and the Java release.
+    private func classFileReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= ClassFile.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let html = ClassFileReport.html(for: data, name: url.lastPathComponent,
+                                        path: url.deletingLastPathComponent().path)
+        // Named after the class file, in a folder of its own per path: two
+        // Main.class files in one session do not overwrite each other.
+        let folder = scratch.appendingPathComponent(
+            "class" + url.path.replacingOccurrences(of: "/", with: "_"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {

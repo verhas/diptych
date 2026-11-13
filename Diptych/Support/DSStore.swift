@@ -19,7 +19,15 @@ struct DSStore {
         /// The four-character structure id: `Iloc`, `bwsp`, `moDD`, ...
         let key: String
         let value: Value
+        /// The type code the value was stored with -- `long` or `shor`, `comp`
+        /// or `dutc` read the same, but are written back as they came. Empty
+        /// for a record made here, which then takes the usual one.
+        var valueType: String = ""
     }
+
+    /// Every record the file declares was read: none past the limit, none
+    /// lost. Only then may it be written back, or records would vanish.
+    var isComplete: Bool { records.count == Int(declaredRecords) }
 
     enum Value {
         case flag(Bool)
@@ -246,6 +254,6 @@ struct DSStore {
             // its type, so once one is missed the rest of the node is garbage.
             throw Failure.malformed("unknown value type \(type)")
         }
-        return Record(entry: entry, key: key, value: value)
+        return Record(entry: entry, key: key, value: value, valueType: type)
     }
 }

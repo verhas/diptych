@@ -131,6 +131,11 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Text("Journal").font(.headline)
+            JournalSettings()
+
+            Divider()
+
             Text("Run").font(.headline)
             HStack(spacing: 10) {
                 Text("Remember")
@@ -602,6 +607,24 @@ struct AppearanceSettingsView: View {
             Text("Off, everything is in one sequence in whatever order the column "
                  + "header says \u{2014} which is what you want when sorting by size or "
                  + "date. \u{201C}..\u{201D} stays on top either way.")
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .foregroundStyle(.secondary)
+
+            Divider()
+
+            Text("Tag colours")
+                .font(.headline)
+            Toggle("Colour the row of a file or folder with a colour tag",
+                   isOn: $store.configuration.tagColourRows)
+                .toggleStyle(.checkbox)
+            Toggle("Colour the icon of a folder with a colour tag",
+                   isOn: $store.configuration.tagColourFolderIcons)
+                .toggleStyle(.checkbox)
+            Text("With several colour tags the first one is used. A folder customised in "
+                 + "Finder keeps the icon macOS gives it, and an app keeps its own. With "
+                 + "both off, tags change nothing in the listing; they are still there, "
+                 + "and still in the Tags column.")
                 .font(.caption)
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
@@ -1439,6 +1462,102 @@ struct CopySettingsView: View {
             caption("EXIF data and a picture\u{2019}s location are not set here: they are part "
                     + "of the file\u{2019}s contents, so a copy always has them. Edit \u{25B8} "
                     + "Paste Special and the EXIF editor change them on a file.")
+        }
+    }
+}
+
+/// Settings ▸ Behaviour ▸ Journal: whether Diptych keeps one, for how long,
+/// and deleting it.
+private struct JournalSettings: View {
+    @Bindable private var store = ConfigStore.shared
+    @Environment(\.openWindow) private var openWindow
+    @State private var confirmingDelete = false
+
+    private func recording(_ category: Journal.Category) -> Binding<Bool> {
+        Binding(
+            get: { !store.configuration.journalLeftOut.contains(category.rawValue) },
+            set: { on in
+                store.configuration.journalLeftOut.removeAll { $0 == category.rawValue }
+                if !on { store.configuration.journalLeftOut.append(category.rawValue) }
+            })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Keep a journal of what Diptych does", isOn: $store.configuration.journalEnabled)
+                .toggleStyle(.checkbox)
+                .onChange(of: store.configuration.journalEnabled) { _, _ in
+                    SpotlightRecords.shared.settingsChanged()
+                }
+            HStack(spacing: 10) {
+                Picker("Keep entries for", selection: $store.configuration.journalKeepDays) {
+                    Text("7 days").tag(7)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                    Text("180 days").tag(180)
+                    Text("1 year").tag(365)
+                    Text("Until deleted").tag(0)
+                }
+                .fixedSize()
+                .disabled(!store.configuration.journalEnabled)
+                .onChange(of: store.configuration.journalKeepDays) { _, _ in
+                    Journal.shared.purge()
+                    SpotlightRecords.shared.settingsChanged()
+                }
+                Button("Open Journal") { openWindow(id: DiptychApp.journalWindowID) }
+                Button("Delete Journal\u{2026}") { confirmingDelete = true }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Record:")
+                LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading),
+                                    GridItem(.flexible(), alignment: .leading)],
+                          alignment: .leading, spacing: 4) {
+                    ForEach(Journal.Category.allCases, id: \.self) { category in
+                        Toggle(category.title, isOn: recording(category))
+                            .toggleStyle(.checkbox)
+                    }
+                }
+            }
+            .disabled(!store.configuration.journalEnabled)
+            Toggle("Show journal entries in Spotlight", isOn: $store.configuration.journalInSpotlight)
+                .toggleStyle(.checkbox)
+                .disabled(!store.configuration.journalEnabled)
+                .onChange(of: store.configuration.journalInSpotlight) { _, _ in
+                    SpotlightRecords.shared.settingsChanged()
+                }
+            Toggle("Add the files Diptych shows to Spotlight, with where and how they were taken",
+                   isOn: $store.configuration.spotlightFileRecords)
+                .toggleStyle(.checkbox)
+                .onChange(of: store.configuration.spotlightFileRecords) { _, _ in
+                    SpotlightRecords.shared.settingsChanged()
+                }
+            HStack {
+                Button("Remove File Records from Spotlight") {
+                    SpotlightRecords.shared.removeFileRecords()
+                }
+                .controlSize(.small)
+            }
+            Text("Everything Diptych does and is asked to do: every copy, move, rename, change and "
+                 + "deletion, every undo and every run -- on this Mac and on servers -- and what was "
+                 + "opened, looked at, selected and shown, settings and windows, with the files each "
+                 + "touched, in "
+                 + "~/.diptych/journal.sqlite, readable only by you. Window \u{25B8} Journal "
+                 + "(\u{2325}\u{2318}J) searches it. It only remembers: nothing is undone from it.\n"
+                 + "In Spotlight, a file record carries what Spotlight does not know by itself: "
+                 + "the town a picture or video was taken near, from Diptych's own list of towns, "
+                 + "with its region and country; the camera, lens and date taken; the tags. "
+                 + "Typing \u{201C}Budapest\u{201D} then finds the pictures taken there. Never "
+                 + "a server's files, an archive's or the Trash's. Spotlight is read by anyone at "
+                 + "this Mac and by Siri, so both are off until switched on; switching one off "
+                 + "takes its records out.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .confirmationDialog("Delete the whole journal?", isPresented: $confirmingDelete) {
+            Button("Delete Journal", role: .destructive) { Journal.shared.deleteAll() }
+        } message: {
+            Text("Every entry goes, and cannot be brought back.")
         }
     }
 }

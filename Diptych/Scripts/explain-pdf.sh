@@ -5,7 +5,7 @@
 # args: 1,
 # call: $0 $@
 # source: diptych
-# version: 1
+# version: 2
 set -eu
 
 # Which agent: the first of these that is installed -- the one named in
@@ -22,6 +22,13 @@ templates="$HOME/.diptych/templates/pdf-report"
 # The language the report is written in, whatever the document's own:
 # English, unless DIPTYCH_REPORT_LANGUAGE names another.
 language="${DIPTYCH_REPORT_LANGUAGE:-English}"
+
+# The pages are also made into pictures the agent can look at -- every page of
+# a scan, which has no text to read, and of any PDF this short or shorter --
+# and a scanned page's text is recognised on this Mac (Vision, as Live Text
+# does). At most this many pages: DIPTYCH_REPORT_MAX_PAGES.
+max_pages="${DIPTYCH_REPORT_MAX_PAGES:-60}"
+picture_pages=30
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -290,6 +297,54 @@ pdf_text() {
         }' "$1" 2>/dev/null || true
 }
 
+# Each page as a JPEG in a folder, page-001.jpg and on, and beside each its
+# text, page-001.txt: the PDF's own, or -- on a page with next to none, a
+# scanned one -- the text Vision recognises in the picture, in whatever
+# language. Prints how many pages were recognised that way.
+pdf_pictures() {
+    mkdir -p "$2"
+    /usr/bin/osascript -l JavaScript - "$1" "$2" "$3" <<'JXA' 2>/dev/null || printf '0'
+ObjC.import("PDFKit"); ObjC.import("AppKit"); ObjC.import("Vision");
+function run(argv) {
+    var doc = $.PDFDocument.alloc.initWithURL($.NSURL.fileURLWithPath(argv[0]));
+    if (!doc || doc.isNil()) return "0";
+    var count = Math.min(doc.pageCount, parseInt(argv[2])), recognised = 0;
+    for (var i = 0; i < count; i++) {
+        var page = doc.pageAtIndex(i);
+        var box = page.boundsForBox($.kPDFDisplayBoxMediaBox);
+        var scale = 1600 / Math.max(box.size.width, box.size.height, 1);
+        var image = page.thumbnailOfSizeForBox(
+            $.NSMakeSize(box.size.width * scale, box.size.height * scale), $.kPDFDisplayBoxMediaBox);
+        var bitmap = $.NSBitmapImageRep.imageRepWithData(image.TIFFRepresentation);
+        var base = argv[1] + "/page-" + ("00" + (i + 1)).slice(-3);
+        bitmap.representationUsingTypeProperties($.NSBitmapImageFileTypeJPEG,
+            $({ NSImageCompressionFactor: 0.8 })).writeToFileAtomically(base + ".jpg", true);
+        var text = page.string;
+        text = (text && !text.isNil()) ? text.js : "";
+        if (text.trim().length < 40) {
+            var request = $.VNRecognizeTextRequest.alloc.init;
+            request.recognitionLevel = 0;
+            request.usesLanguageCorrection = true;
+            try { request.automaticallyDetectsLanguage = true; } catch (e) {}
+            $.VNImageRequestHandler.alloc.initWithCGImageOptions(bitmap.CGImage, $())
+                .performRequestsError($([request]), null);
+            var lines = [], results = request.results;
+            for (var j = 0; results && j < results.count; j++) {
+                var best = results.objectAtIndex(j).topCandidates(1);
+                if (best.count > 0) lines.push(best.objectAtIndex(0).string.js);
+            }
+            if (lines.length > 0) {
+                text = lines.join("\n");
+                recognised++;
+            }
+        }
+        $(text).writeToFileAtomicallyEncodingError(base + ".txt", true, $.NSUTF8StringEncoding, null);
+    }
+    return String(recognised);
+}
+JXA
+}
+
 pdf_pages() {
     /usr/bin/osascript -l JavaScript -e '
         function run(argv) {
@@ -349,7 +404,7 @@ inline_css() {
 
 # -- The prompt --------------------------------------------------------------
 prompt_for() {
-    _pdf=$1 _folder=$2 _work=$3 _others=$4
+    _pdf=$1 _folder=$2 _work=$3 _others=$4 _pictures=${5:-} _recognised=${6:-0}
     cat <<PROMPT
 You are writing a report about one PDF document, for the person who selected it in Diptych. Work on your own: nobody will answer questions while you run.
 
@@ -357,6 +412,18 @@ THE DOCUMENT
 $_pdf
 
 Read it in full -- every page, including tables, figures and small print. If you cannot read PDF files directly, its text has been extracted for you to $_work/text.txt (layout and pictures are lost there, so prefer the PDF where you can).
+PROMPT
+    if [ -n "$_pictures" ]; then
+        cat <<PROMPT
+Every page is also a picture, in $_pictures: page-001.jpg, page-002.jpg and so on. Look at them -- they show what the text cannot: handwriting, stamps, signatures, tables, forms, photographs.
+PROMPT
+    fi
+    if [ "$_recognised" -gt 0 ] 2>/dev/null; then
+        cat <<PROMPT
+This PDF is a scan: $_recognised of its pages had no text of their own, and their text in $_work/text.txt was recognised from the pictures on this Mac. Recognised text has mistakes -- misread letters, names and numbers, lost accents, columns run together -- so check every name, date and number you report against the page pictures, and say so where a page cannot be read.
+PROMPT
+    fi
+    cat <<PROMPT
 
 THE REPORT
 Write the whole report in $language -- every heading, sentence and list item -- whatever language the document itself is in. A German, French or Italian document gets a report in $language, not in its own language. Where the original wording matters (names, titles, terms of art, a key sentence), give it in the original once, in quotation marks, followed by its $language meaning. Set the template's lang attribute to the code of $language.
@@ -398,6 +465,34 @@ for pdf in "$@"; do
     say ""
     say "== $name"
     pdf_text "$pdf" > "$work/text.txt"
+    pages=$(pdf_pages "$pdf")
+
+    # A scan has pictures and no text: next to nothing per page. Then, and for
+    # a short PDF, the pages are made into pictures; a scan's text is
+    # recognised, and text.txt is made of it, page by page.
+    pictures=""
+    recognised=0
+    case "$pages" in
+        ''|*[!0-9]*) ;;
+        *)
+            chars=$(wc -c < "$work/text.txt" | tr -d ' ')
+            if [ "$pages" -gt 0 ] && { [ "$chars" -lt $((pages * 200)) ] || [ "$pages" -le "$picture_pages" ]; }; then
+                say "Making pictures of the pages$( [ "$chars" -lt $((pages * 200)) ] && printf ' and reading the scanned text') ..."
+                recognised=$(pdf_pictures "$pdf" "$work/pages" "$max_pages")
+                pictures="$work/pages"
+                if [ "${recognised:-0}" -gt 0 ]; then
+                    : > "$work/text.txt"
+                    for page_text in "$work/pages"/page-*.txt; do
+                        number=$(basename "$page_text" .txt)
+                        number=$(printf '%s' "${number#page-}" | sed 's/^0*//')
+                        printf '\n--- Page %s ---\n' "$number" >> "$work/text.txt"
+                        cat "$page_text" >> "$work/text.txt"
+                    done
+                    say "Text recognised on $recognised page(s) of the scan."
+                fi
+            fi
+            ;;
+    esac
 
     R_SOURCE_NAME=$name R_SOURCE_HREF=$(href "$name") R_PAGES=$(pdf_pages "$pdf") \
     R_GENERATED=$(date '+%Y-%m-%d %H:%M') R_AGENT=$agent \
@@ -410,7 +505,7 @@ for pdf in "$@"; do
             [ "$other" = "$pdf" ] || others="$others $(basename "$other");"
         done
     fi
-    prompt=$(prompt_for "$pdf" "$folder" "$work" "$others")
+    prompt=$(prompt_for "$pdf" "$folder" "$work" "$others" "$pictures" "$recognised")
     printf '%s\n' "$prompt" > "$work/prompt.txt"
 
     say "Reading and writing -- this takes a minute or more..."

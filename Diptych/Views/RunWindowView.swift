@@ -238,6 +238,10 @@ private struct RunPanel: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let script = run.script {
+                ScriptTimingsRow(script: script.file)
+                Divider()
+            }
             RunTerminal(view: run.view)
             Divider()
             footer
@@ -280,8 +284,16 @@ private struct RunPanel: View {
                     ProgressView().controlSize(.small)
                     // Ticking, so a long build shows it is alive.
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
-                        Text("Running \(CommandRun.formatted(run.realTime))")
-                            .monospacedDigit().foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Text("Running \(CommandRun.formatted(run.realTime))")
+                                .monospacedDigit().foregroundStyle(.secondary)
+                            if let estimate = run.estimate, estimate > 0 {
+                                EstimateBar(elapsed: run.realTime, estimate: estimate)
+                                    .frame(width: 140, height: 8)
+                                    .help("About " + ScriptTimings.duration(estimate)
+                                          + " expected, from earlier runs")
+                            }
+                        }
                     }
                 }
             case "finished":
@@ -334,6 +346,83 @@ private struct RunPanel: View {
     }
 }
 
+/// How far a run is through the time it is expected to take, in blue. Once it
+/// runs longer than that, the bar stands for the whole time so far: the blue
+/// part for what was expected, and a red part to its right for the overrun.
+struct EstimateBar: View {
+    let elapsed: TimeInterval
+    let estimate: TimeInterval
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let span = max(elapsed, estimate)
+            let blue = width * min(elapsed, estimate) / span
+            let red = elapsed > estimate ? width * (elapsed - estimate) / span : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.2))
+                HStack(spacing: 0) {
+                    Rectangle().fill(Color.blue).frame(width: blue)
+                    Rectangle().fill(Color.red).frame(width: red)
+                }
+                .clipShape(Capsule())
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Expected time")
+        .accessibilityValue(elapsed > estimate
+            ? "Over by " + ScriptTimings.duration(elapsed - estimate)
+            : "\(Int(elapsed / estimate * 100)) percent")
+    }
+}
+
+/// A script's figures from its earlier runs, all versions of it together:
+/// how many finished, the shortest, average and longest, and the same per
+/// file it was given -- with a button that forgets them, at once.
+private struct ScriptTimingsRow: View {
+    let script: String
+    private var timings = ScriptTimings.shared
+
+    init(script: String) { self.script = script }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let entry = timings.entry(for: script) {
+                Text(summary(entry))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+                    .textSelection(.enabled)
+            } else {
+                Text("No finished runs of this script yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                timings.reset(script)
+            } label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .disabled(timings.entry(for: script) == nil)
+            .help("Forget how long this script has taken")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 4)
+    }
+
+    private func summary(_ entry: ScriptTimings.Entry) -> String {
+        let d = ScriptTimings.duration
+        var text = "\(entry.runs) run\(entry.runs == 1 ? "" : "s")"
+            + "  min \(d(entry.shortest))  avg \(d(entry.average ?? 0))  max \(d(entry.longest))"
+        if let perFile = entry.averagePerFile {
+            text += "   per file: min \(d(entry.shortestPerFile))  avg \(d(perFile))"
+                + "  max \(d(entry.longestPerFile))"
+        }
+        return text
+    }
+}
+
 /// The run's terminal view, put in the window -- and given the keyboard, so
 /// a program that asks a question can be answered at once.
 private struct RunTerminal: NSViewRepresentable {
@@ -374,9 +463,16 @@ enum RunLauncher {
     /// A run already started, as a tab of the Runs window, logged.
     /// `then` is called once it has ended, after the log has it.
     static func show(_ run: CommandRun, then: ((CommandRun) -> Void)? = nil) {
+        if let script = run.script {
+            run.estimate = ScriptTimings.shared.estimate(for: script.file, files: script.fileCount)
+        }
         CommandRuns.shared.add(run)
         RunLog.shared.started(run)
         run.onFinish = { finished in
+            if let script = finished.script, finished.state == "finished" {
+                ScriptTimings.shared.record(script.file, seconds: finished.realTime,
+                                            files: script.fileCount)
+            }
             RunLog.shared.finished(finished)
             CommandRuns.shared.finished(finished)
             then?(finished)

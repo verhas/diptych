@@ -56,6 +56,8 @@ developer account.
 | `⇧⌘.` | show/hide hidden files (as in Finder; plain `⌘.` is the system's "cancel") |
 | `⇧⌘F` | flat view: the active pane's folder and everything under it as one list, filtered by an expression -- see [Flat view](#flat-view) |
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
+| `⌥⇥` | the next of Diptych's windows: the smaller ones first -- Info, Compare, Text Edit, Runs, the Journal -- brought in front together, so several stay side by side; the two-pane windows last, taking the keyboard from behind them rather than covering them. With one two-pane window and nothing else open, it swaps the panes |
+| `⌘Q` | in a two-pane window: quit Diptych, asking first if Settings ▸ Behaviour says to. In any other window -- a comparison, Runs, Text Edit, Settings -- close that window, as if it were an application of its own; the menu then says *Close Window*, with *Quit Diptych* under it, without a key. Quitting from the Dock or at logout is unchanged |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways); `⌘V` with text or a picture makes a new file of it |
 | `⌘[` `⌘]` | back / forward through the active pane's directory history |
@@ -543,6 +545,17 @@ row, not just a dot. With several colour tags the first one wins -- a row has
 one background. Tags are read for every listing, not only when the Tags column
 is switched on, since the colour is part of drawing the row.
 
+A folder's icon takes the colour too. macOS colours a folder by its tag only
+once Finder's *Customize Folder* has switched its custom icon on, so a plain
+tagged folder would stay blue beside a red row; Diptych draws it in the tag's
+colour. A customised folder is shown as macOS draws it, and an app or other
+package keeps its own icon.
+
+Settings ▸ Appearance ▸ *Tag colours* switches each off by itself: the row's
+colour, and the folder icon's. Both are on by default; with both off, tags
+change nothing in the listing -- they are still on the files, and in the Tags
+column.
+
 ## History and filtering
 
 Each pane has its own bar above the path: back and forward arrows on the left,
@@ -908,6 +921,27 @@ format found in the wild, and a file manager that crashed on a file it merely
 tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
+
+## Previewing a Java class file
+
+Quick Look shows a `.class` file as a name and a size. Space in Diptych shows
+what is in it, the way the source would write it:
+
+- **What it was compiled for**: the Java release -- class-file version 52 is
+  Java 8, 65 is Java 21 -- and whether it uses preview features.
+- **The declaration**: package, annotations, modifiers, generics, what it
+  extends, implements and permits. A record shows its components, an enum its
+  constants, a nested class the modifiers it has inside its outer class.
+- **Fields, constructors and methods** with their generic types, constant
+  values (`= 4`, `= 'q'`, `= "text"`), varargs and `throws`. Parameter names
+  appear when the class was compiled with them (`-g`, which Maven and Gradle
+  use by default, or `-parameters`).
+- **`module-info.class`** as the module declaration it came from.
+- Folded away: what the compiler made (lambda bodies, bridges, `$VALUES`),
+  the classes it uses, and the string literals in its code.
+
+The file is only read, never loaded, and no JDK is needed. A file that is
+damaged or is not a class file gets a page that says what is wrong with it.
 
 ## The Rename menu
 
@@ -3436,6 +3470,8 @@ window go to "the" Diptych, which only means something if there is one.
 | `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
 | `select_items` | Replaces a pane's selection with given paths, visibly, in the GUI |
 | `set_active_pane` | Makes a window's left or right pane the focused one |
+| `show_folder` | Shows a folder in a pane, as typing its path would -- leaving a flat view first |
+| `set_pane_view` | Shows a pane as `icons` (name order), `placedIcons` (where they were placed) or `list`; that pane only |
 | `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly, and for two files, so can `ignoreWhitespace`/`wraps` -- reopening a pair already open updates that window instead of refusing |
 | `open_info_window` | Opens the Info window for one explicit path |
 | `open_exif_editor` | Opens the EXIF editor on explicit JPEG/HEIC paths, which may be in different folders -- something a right-click on one pane's selection cannot do. Nothing is written by the tool: you edit, tick and save (or cancel) in the window, and a save is one EXIF Change in Undo. A path that is missing, a folder, or another kind of file is reported, and then nothing is opened |
@@ -3448,6 +3484,8 @@ window go to "the" Diptych, which only means something if there is one.
 | `list_runs` | The kept runs (Run ▸), counted back from the latest -- 1 is the last run; `from`/`to` choose a range, 1-10 by default: run id, command line, folder, running / finished / failed / stopped / interrupted, exit code, start, timing (`real`, `user`, `sys`), whether its tab is open, and which tab is in front (`focused`). Starting a run is deliberately not offered |
 | `get_run_output` | What a run printed, as plain text without the terminal's colours, with its state and timing -- also after its tab is closed; the last 400 lines by default, up to 5000 -- so "why did that build fail?" needs no copy and paste |
 | `get_batch_status` | Where a proposed batch stands -- reviewing, executing, finished or cancelled -- and, once it has run, each row's outcome and whether it failed |
+| `search_journal` | The journal (see [The journal](#the-journal)), newest first: words of what was done or of any path, `from`/`to` dates, `kind`, `category` (change, content, attributes, navigation, settings, window, run, app, request), `origin` (you, agent, shortcuts, undo, redo, run), `folder`, and `withFiles` for each entry's files -- "what did I do to the tax folder last week?". Read-only |
+| `journal_stats` | What the journal adds up to between `from` and `to`: entries and files, by kind, by who, per day, the busiest folders |
 
 None of these read or write file *contents*, and none return diff content
 either -- deliberately: a shell already does `diff`/`cmp` better than an MCP
@@ -3457,6 +3495,53 @@ terminal has no way to see: what is selected, what a pane is browsing, what
 window is open showing what and with which options, whether an edit is
 unsaved, plus diptych's own rename-detection -- and being able to act back
 into the window the person is actually looking at.
+
+### Siri, Shortcuts and Spotlight
+
+The same commands are offered as **App Intents**, so Siri, the Shortcuts app
+and Spotlight can use them -- off until **Settings ▸ Agents ▸ Allow Siri,
+Shortcuts and Spotlight to use Diptych** is ticked. Both ways in go through
+one layer, `DiptychCommands`, so they do the same thing by the same rules:
+
+- **Files are never changed** from there. Copying, moving, trashing, deleting,
+  renaming and new folders are only *proposed*, in the review window an
+  agent's batch opens in, with the same extra question for anything written
+  over or deleted for good.
+- **Nothing is run** and no file is read; runs can be listed and their output
+  read, as an agent can.
+- **Settings** are the same curated list an agent may change -- not this
+  switch, nor agent access. Changing one, or closing a window, asks first.
+- **Every request** shows in the activity console, as *Siri/Shortcuts:* and
+  the command; a refused one too, while the switch is off.
+- There is no token: macOS itself decides who may call an app's intents --
+  you, through Siri, Shortcuts or Spotlight.
+
+What a shortcut gets back is usable: the files a pane lists or has selected
+come as files to pass on, and everything else as the same JSON an agent gets.
+
+| Intent | Does |
+| --- | --- |
+| Get Diptych Info, List Diptych Windows | As `get_diptych_info`, `list_windows` |
+| Get Files in Diptych Pane, Get Folder Shown, Get Files Selected | The pane's files, its folder, the selection -- as files |
+| Get Diptych File / Folder Comparison | As `get_text_diff`, `get_directory_diff` |
+| List Diptych Runs, Get Diptych Run Output | As `list_runs`, `get_run_output`; run 1 is the latest |
+| List Diptych Settings, Change Diptych Setting | As `list_settings`, `set_setting`; changing asks first |
+| Show Folder, Make Pane Active, Set Pane View | As `show_folder`, `set_active_pane`, `set_pane_view` |
+| Select Files, Show / Leave Flat View | As `select_items`, `show_flat_view` |
+| Compare, Show Info, Edit EXIF | As `open_diff`, `open_info_window`, `open_exif_editor` |
+| Close Diptych Window | As `close_window`, after asking |
+| Propose File Operation | Copy, move, trash, delete, rename or a new folder, proposed for review |
+| Propose File Operations | Any batch, as JSON with the fields `propose_file_operations` takes |
+| Get Diptych Batch Status | As `get_batch_status` |
+| Search Diptych Journal, Get Diptych Journal Statistics | As `search_journal`, `journal_stats` |
+| Open Diptych Journal | Opens the Journal window, searching for the words given |
+
+Siri knows ten of them by phrase, with *Diptych* in each: *"What's selected in
+Diptych"*, *"Which folder is Diptych showing"*, *"What's in the Diptych
+pane"*, *"Did my last Diptych run finish"*, *"What did my last Diptych run
+print"*, *"What windows are open in Diptych"*, *"Show Diptych as icons"*,
+*"Switch to the left pane in Diptych"*, *"What is Diptych comparing"* and
+*"Which version of Diptych is running"*. Every other intent is in Shortcuts.
 
 ### The agent terminal
 
@@ -3581,6 +3666,68 @@ The design document this was built from, `DIPTYCH_MCP_PROPOSAL.md` -- the
 reasoning behind what is and is not exposed -- is in the git history and in
 the 1.4.x source archives; it is no longer kept up to date. Not built yet:
 bind-address configurability.
+
+## The journal
+
+Diptych remembers what it did, for months: every copy, move, rename, trashing,
+deletion and change -- permissions, tags, dates, contents, icon positions -- on
+this Mac and on servers, every undo and redo, every run, and every batch an
+agent or a shortcut proposed and you executed. One entry per operation, with
+the files it touched: where each was, and where it went.
+
+- **Everything else, too.** Each entry has a category, and Settings ▸
+  Behaviour ▸ Journal can leave any of them out; none is left out by default:
+
+  | Category | What |
+  |---|---|
+  | File Changes | copies, moves, renames, trashing, deletions, changes, undo, redo |
+  | Contents Read | files opened (and with which app), Quick Look, contents copied to the clipboard |
+  | Names and Details Read | folders opened, selections, Info |
+  | Navigation | list or icons, icon arrangement, sort, filter, flat view, the keyboard going to the other pane, one or two panes, sidebar, hidden files, new tab, swapping panes |
+  | Settings | each setting changed, from what to what |
+  | Windows | every window opened and closed, by its title |
+  | Runs | scripts and commands run |
+  | Diptych Started or Quit | each start, with the version, and each quit |
+  | Agent and Shortcuts Requests | every MCP tool call and Shortcuts action, and those refused |
+
+  Only what was settled on: a selection is recorded once it has stood for
+  three seconds, a preview once it has been on screen for a second and a
+  half, a filter, a sort, a setting or the pane with the keyboard once it
+  has stood still for a moment -- running the arrow keys down a folder is
+  not two hundred entries, and typing a filter of ten letters is one.
+  Only file changes and runs go to Spotlight.
+- **Window ▸ Journal** (`⌥⌘J`) searches it: any word of what was done, of a
+  name or of a path, each word as the start of one. Narrow it to a period, a
+  category, a kind, or who did it -- you, an agent, Siri/Shortcuts, an undo,
+  a run. **Statistics** sums it up: per day, by category, by kind, by who,
+  the busiest folders.
+- **It only remembers.** A row offers *Where It Was* and *Where It Is*, shown
+  in a pane; nothing is undone from the journal -- weeks later the files have
+  moved on. Undo stays the history of the session.
+- **Kept in `~/.diptych/journal.sqlite`**, readable only by you, for 90 days
+  unless Settings ▸ Behaviour ▸ Journal says otherwise; *Delete Journal…*
+  empties it. A server's paths are kept whole: `user@host:/path`.
+- **Agents and shortcuts can read it, never change it**: MCP's
+  `search_journal` and `journal_stats`, and the matching Shortcuts actions.
+
+### In Spotlight
+
+Two switches under the journal's settings, both off until you turn them on --
+Spotlight is read by anyone at the Mac, and by Siri:
+
+- **Show journal entries in Spotlight.** Typing *moved tax* finds the entry;
+  opening it opens the Journal on it. Each expires when the journal would
+  purge it.
+- **Add the files Diptych shows to Spotlight.** Every file a pane lists
+  becomes a Diptych record carrying what Spotlight does not know by itself:
+  the town a picture or video was taken near -- from Diptych's own list of
+  towns, with region and country, the same as the flat view's `city` --
+  the camera, lens and date taken, and the tags. Typing *Budapest* then finds
+  the pictures taken there, as Diptych records next to the files themselves;
+  opening one shows the file in a pane. A file is read again only when its
+  date or size changes; a file gone from a listing loses its record. Never a
+  server's files, an archive's, or the Trash's. *Remove File Records from
+  Spotlight* takes them all out.
 
 ## Copying, with progress
 
@@ -4286,12 +4433,29 @@ The model is a small one and reads about four thousand tokens at once -- a few
 pages. A longer document is read **in parts**, each explained or summarised on
 its own and the whole written from those; at most 12 parts for a report and
 10 for a summary, which `DIPTYCH_AI_MAX_PARTS` changes. The report is laid out
-by the script from the model's answers, so every report has the same shape,
-and since the model cannot open files, related documents are judged by their
-names alone -- and only files that are in the folder are linked. A scanned PDF
+by the script from the model's answers, so every report has the same shape.
+The model cannot open files, so for **related documents** the script reads the
+other PDFs of the folder itself, picks the 10 most like the report's PDF in
+words -- counted in three-letter pieces, which survive a poor scan's misread
+letters -- and shows the model each one beside it: how both begin, and the
+uncommon words they share. A file is linked only when the model says the two
+are about the same matter and what it says they share is in both.
+`DIPTYCH_AI_MAX_COMPARED` sets how many are compared, a few seconds each; 0
+compares none. A small model misses links a larger one would draw from what
+the documents mean; Explain with an Agent finds those. A scanned PDF
 with no text in it is left out. `DIPTYCH_REPORT_LANGUAGE` sets the report's
 language and `DIPTYCH_AI_LANGUAGE` the summary's and description's. The
 instructions to the model are at the top of each script, to rewrite.
+
+**How long a script takes** is kept, every version of it together, in
+`~/.diptych/script-timings.json`: a script's tab in the Runs window shows how
+many runs finished, the shortest, average and longest, and the same per file
+it was given -- assuming, boldly, that the time grows with the number of files.
+Only runs that finished count; one that failed or was stopped would make the
+figures say less. While a script runs, a bar beside its timer fills in blue
+towards the time expected for this many files; past it, the bar stands for
+the whole run so far, with the overrun in red on the right. **Reset** beside
+the figures forgets them, without asking.
 
 This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
 you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,

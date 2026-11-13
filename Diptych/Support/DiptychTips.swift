@@ -10,7 +10,8 @@ enum DiptychTips {
             + " tell at a glance which side a command like Copy to Other Pane will act from.",
         "plain Tab switches which of the two panes has keyboard focus.",
         "Option-Tab cycles through every window Diptych has open -- Get Info, Compare, Text Edit, Bin"
-            + " Edit, Rename Many, all of them -- not only the two-pane browser windows.",
+            + " Edit, Rename Many, all of them -- the smaller ones first, kept in front of the"
+            + " two-pane windows, which come last and take the keyboard from behind them.",
         "with only one Diptych window open, Option-Tab instead swaps that window's own left and right"
             + " panes, so the key still does something.",
         "the pane filter box takes either a shell pattern like *.txt or, with the RegEx checkbox"
@@ -327,6 +328,8 @@ enum DiptychTips {
         "a .DS_Store file previews as a readable page describing the Finder window state it actually"
             + " stores -- icon positions, window arrangement, visible columns -- instead of showing nothing"
             + " useful at all.",
+        "a Java .class file previews as the outline of its source -- declaration, fields, methods with"
+            + " their generic types, and the Java release it was compiled for -- with no JDK needed.",
         "Quick Look's preview updates live as the selected row changes, and closes itself outright if"
             + " the file it was showing gets deleted out from under it.",
         "the toolbar's buttons, their order, and which of the toolbar's three sections they sit in"

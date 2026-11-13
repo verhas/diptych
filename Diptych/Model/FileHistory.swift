@@ -156,11 +156,30 @@ final class FileHistory {
         case savedExpressions([SavedExpressionChange])
         case dates([DateChange])
         case acls([ACLChange])
+        case icons(IconPlacement)
         /// Several kinds of change made as one step -- Paste Special ▸ All of
         /// the Above. Done in the order listed, both ways: a file's bytes put
         /// back first, its dates last, so putting the bytes back does not
         /// leave the modification date of that moment.
         case several([Action])
+    }
+
+    /// Icons placed in a folder's icon view, by dragging or Clean Up: where
+    /// each is to be once the step is done, and where it is before it. As
+    /// with every action here, the one recorded is what undoing does; redo is
+    /// the same placement with the two swapped.
+    struct IconPlacement: Sendable {
+        let folder: URL
+        let from: [String: CGPoint]
+        let to: [String: CGPoint]
+        let iconSize: Double
+        /// Written to Finder's `.DS_Store` too -- not in a folder where it
+        /// cannot be, where the placement lives in the panes alone.
+        let saved: Bool
+
+        var reversed: IconPlacement {
+            IconPlacement(folder: folder, from: to, to: from, iconSize: iconSize, saved: saved)
+        }
     }
 
     /// A flat view expression saved under a name: what its file is to hold
@@ -196,6 +215,7 @@ final class FileHistory {
     /// A new operation. What could be redone no longer follows from here.
     func record(_ name: String, told: String, _ action: Action) {
         guard !action.isEmpty else { return }
+        Journal.shared.record(kind: name, told: told, files: Journal.files(of: action))
         undoable.append(Entry(name: name, told: told, action: action))
         if undoable.count > Self.depth { undoable.removeFirst(undoable.count - Self.depth) }
         redoable.removeAll()
@@ -554,6 +574,14 @@ final class FileHistory {
             let done = await Self.run(plan.doable)
             result.touched += done.touched
             result.failures += done.failures + plan.problems
+            let failed = done.failures + plan.problems
+            Journal.shared.record(
+                kind: "\(direction == .undo ? "Undo" : "Redo") \(entry.name)",
+                // What is carried out is the step itself, not its
+                // reversal, which is what `files(of:)` reads.
+                told: entry.told, files: Journal.reversed(Journal.files(of: plan.doable)),
+                origin: direction == .undo ? .undo : .redo,
+                outcome: failed.isEmpty ? "done" : done.inverse.isEmpty ? "failed" : "partly")
             if !done.inverse.isEmpty {
                 result.carriedOut.append(entry.name)
                 let back = Entry(name: entry.name, told: entry.told, action: done.inverse)
@@ -761,6 +789,15 @@ final class FileHistory {
             }
             doable = .acls(ok)
 
+        case .icons(let placement):
+            if exists(placement.folder) {
+                doable = .icons(placement)
+            } else {
+                problems.append("\(quoted(placement.folder.lastPathComponent)) no longer exists.")
+                doable = .icons(IconPlacement(folder: placement.folder, from: [:], to: [:],
+                                              iconSize: placement.iconSize, saved: false))
+            }
+
         case .several(let actions):
             var parts: [Action] = []
             for action in actions {
@@ -826,6 +863,23 @@ final class FileHistory {
             done.inverse = .several(inverses)
             done.touched = Array(NSOrderedSet(array: done.touched)) as? [URL] ?? done.touched
             return done
+
+        case .icons(let placement):
+            var failures: [String] = []
+            if placement.saved {
+                let failure = await BlockingWork.run { () -> String? in
+                    do {
+                        try FinderIconPositions.write(placement.to, iconSize: placement.iconSize,
+                                                      in: placement.folder)
+                        return nil
+                    } catch {
+                        return error.localizedDescription
+                    }
+                }
+                if let failure { failures.append(failure) }
+            }
+            await MainActor.run { PaneModel.iconsPlaced(placement.to, in: placement.folder) }
+            return Done(inverse: .icons(placement.reversed), touched: [], failures: failures)
 
         case .acls(let changes):
             let outcome = await BlockingWork.run { () -> ([ACLChange], [String]) in
@@ -1103,6 +1157,7 @@ extension FileHistory.Action {
         case .savedExpressions(let changes): changes.count
         case .dates(let changes): changes.count
         case .acls(let changes): changes.count
+        case .icons(let placement): placement.to.count
         // The files, near enough: each kind of change counts each file once.
         case .several(let actions): actions.map(\.count).max() ?? 0
         }

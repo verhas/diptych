@@ -19,8 +19,8 @@ final class PaneModel {
     private(set) var directory: URL {
         didSet { manualOrder = nil }
     }
-    private(set) var items: [FileItem] = []
-    private(set) var isLoading = false
+    private(set) var items: [FileItem] = [] { didSet { offerToSpotlight() } }
+    private(set) var isLoading = false { didSet { if !isLoading { offerToSpotlight() } } }
     /// Set while a *different* directory is being read, as opposed to the
     /// current one being refreshed in place.
     ///
@@ -63,6 +63,7 @@ final class PaneModel {
 
     var selection: Set<FileItem.ID> = [] {
         didSet {
+            if selection != oldValue { JournalViewing.selected(selection, in: self) }
             // A greyed-out row is not selectable. Correcting here catches every
             // route into the selection -- clicking, arrow keys, Select All.
             //
@@ -106,12 +107,180 @@ final class PaneModel {
         }
     }
     var sortOrder: [FileComparator] = [FileComparator(column: .name)] {
-        didSet { owner?.persist() }
+        didSet {
+            owner?.persist()
+            if !restoring, sortOrder != oldValue, let first = sortOrder.first {
+                JournalActivity.navigated(
+                    "Sort", "\(JournalActivity.describe(self).capitalizedFirst) was sorted by "
+                        + "\(first.column.title), \(first.order == .forward ? "ascending" : "descending").",
+                    folder: JournalActivity.folder(of: self), settleKey: "sort-\(ObjectIdentifier(self))")
+            }
+        }
     }
+    /// Set while a saved state is put back, which is not something done.
+    @ObservationIgnored private var restoring = false
     /// The order made with Shift-Command-Up and -Down, in place of the sort
     /// until a column header is clicked or the pane goes to another folder.
     /// Not saved: it is for the moment, not for the folder.
     private(set) var manualOrder: ManualOrder<FileItem.ID>?
+    // MARK: View style
+
+    /// How this pane shows its folder: the table of columns, or big icons
+    /// with their names, as Finder's icon view. Each pane of each tab has
+    /// its own, unlike the columns, which every pane shares.
+    enum ViewStyle: String, Codable, Sendable { case list, icons }
+
+    /// In the icon view: a grid in name order, or where Finder last put each
+    /// icon in that folder.
+    enum IconArrangement: String, Codable, Sendable { case byName, finder }
+
+    var viewStyle: ViewStyle = .list {
+        didSet {
+            guard viewStyle != oldValue else { return }
+            renamingID = nil
+            valueEdit = nil
+            owner?.persist()
+            if !restoring {
+                JournalActivity.navigated(
+                    "View", "\(JournalActivity.describe(self).capitalizedFirst) was shown as "
+                        + (viewStyle == .icons ? "icons." : "a list."),
+                    folder: JournalActivity.folder(of: self))
+            }
+        }
+    }
+
+    var iconArrangement: IconArrangement = .byName {
+        didSet {
+            guard iconArrangement != oldValue else { return }
+            owner?.persist()
+            if !restoring {
+                JournalActivity.navigated(
+                    "Arrange Icons", "The icons of \(JournalActivity.describe(self)) were arranged "
+                        + (iconArrangement == .finder ? "where Finder put them." : "by name."),
+                    folder: JournalActivity.folder(of: self))
+            }
+        }
+    }
+
+    /// What Finder's `.DS_Store` says about this folder: where it put each
+    /// icon, how big. Read by the icon view when the folder or the listing
+    /// changes; icons placed by hand here are added to it as they are put down.
+    var finderLayout = FinderIconPositions.Layout()
+
+    /// Icons placed by hand in this folder, this session. Laid over what is
+    /// read from `.DS_Store`, so a read that overtakes the write -- or a
+    /// folder where it cannot be written -- does not put them back.
+    @ObservationIgnored private var handPlaced: (folder: URL, positions: [String: CGPoint])?
+
+    func placeByHand(_ positions: [String: CGPoint]) {
+        if handPlaced?.folder != directory { handPlaced = (directory, [:]) }
+        handPlaced?.positions.merge(positions) { $1 }
+        finderLayout.positions.merge(positions) { $1 }
+        finderLayout.arrangeBy = "none"
+    }
+
+    /// Whether things arriving in this folder are put where they were
+    /// dropped or pasted: only among icons placed by hand -- in name order,
+    /// or a list, there is no "where".
+    var placesArrivals: Bool { viewStyle == .icons && iconArrangement == .finder && !isFlat }
+
+    /// Things on their way into the folder -- dropped, pasted -- and the
+    /// point in the icon view they are to land on. Whatever is new in the
+    /// listing from then on is put there: a copy shows up only when it is
+    /// done, and maybe under another name ("notes 2.txt"), so it is told by
+    /// being new rather than by its name. Waited for a couple of minutes at
+    /// most, and for a few seconds once the first has come.
+    struct Arrival {
+        let folder: URL
+        let point: CGPoint
+        var known: Set<FileItem.ID>
+        var until: Date
+        var started = false
+    }
+    @ObservationIgnored var arrival: Arrival?
+
+    /// The last point clicked on empty space in the icon view: where a paste
+    /// lands when the pointer is not over the view.
+    @ObservationIgnored var lastIconClick: CGPoint?
+
+    func expectArrivals(at point: CGPoint) {
+        guard placesArrivals else { return }
+        arrival = Arrival(folder: directory, point: point, known: Set(items.map(\.id)),
+                          until: Date().addingTimeInterval(120))
+    }
+
+    /// Icons placed in `folder` by an undo or a redo: every pane showing it,
+    /// in every window, puts them there.
+    static func iconsPlaced(_ positions: [String: CGPoint], in folder: URL) {
+        for model in KeyRouter.shared.allModels {
+            for pane in [model.left, model.right]
+            where pane.directory.standardizedFileURL == folder.standardizedFileURL {
+                pane.placeByHand(positions)
+            }
+        }
+    }
+
+    /// The icon view's name order, as Finder sorts by name -- folders first
+    /// when Settings say so, and ".." before everything. A flat view sorts by
+    /// the whole path, so a folder's files stay together.
+    static func iconOrder(_ rows: [FileItem]) -> [FileItem] {
+        let foldersFirst = ConfigStore.shared.configuration.foldersFirst
+        return rows.sorted { a, b in
+            if a.isParent != b.isParent { return a.isParent }
+            if foldersFirst, a.isEnterable != b.isEnterable { return a.isEnterable }
+            let x = a.folderPrefix + a.name, y = b.folderPrefix + b.name
+            return x.localizedStandardCompare(y) == .orderedAscending
+        }
+    }
+
+    /// The sizes the icon view draws at: Finder's own for the folder when its
+    /// places are used -- they were placed for that size -- otherwise
+    /// Finder's default, 64.
+    func iconMetrics(placed: Bool) -> IconLayout.Metrics {
+        let size = placed ? CGFloat(finderLayout.iconSize ?? 64) : 64
+        return IconLayout.Metrics(iconSize: min(max(size, 16), 512), fontSize: PaneFont.size,
+                                  gridSpacing: placed ? finderLayout.gridSpacing.map { CGFloat($0) } : nil)
+    }
+
+    /// The icons where they were placed -- Finder's places, and what was put
+    /// down here -- with the rest in the grid's free cells.
+    func placedIconLayout(width: CGFloat) -> IconLayout {
+        IconLayout.saved(Self.iconOrder(rows).map { ($0.id, $0.name) },
+                         positions: finderLayout.positions, width: width,
+                         metrics: iconMetrics(placed: true))
+    }
+
+    /// What Finder's `.DS_Store` says, with what was placed here on top.
+    func adoptFinderLayout(_ read: FinderIconPositions.Layout) {
+        var layout = read
+        if let placed = handPlaced, placed.folder == directory {
+            layout.positions.merge(placed.positions) { $1 }
+            layout.arrangeBy = "none"
+            // The size the hand-placed icons were placed at, until the file
+            // says the same.
+            layout.iconSize = finderLayout.iconSize ?? layout.iconSize
+        }
+        finderLayout = layout
+    }
+
+    /// The icon view's layout as last drawn -- for the keyboard to move by,
+    /// and for a drop to find the icon under the pointer.
+    @ObservationIgnored var iconLayout: IconLayout?
+    /// The icon view's drawing surface: as big as the whole layout and
+    /// scrolled with it, so a point in it is a point of the layout.
+    @ObservationIgnored weak var iconSurface: NSView?
+    /// Bumped to have the icon view scroll the selection into sight.
+    var iconScrollRequest = 0
+    /// Where the arrow keys move from, in the icon view.
+    @ObservationIgnored var iconCursor: FileItem.ID?
+
+    /// Whether icons placed by hand here can be written to Finder's
+    /// `.DS_Store`: a folder on this Mac, not a server's, an archive's or a
+    /// flat view, which is no one folder.
+    var canSaveIconPositions: Bool {
+        !isFlat && !isServerListing && !ArchiveBrowsing.isInside(directory) && isWritable
+    }
+
     var showHidden = false {
         didSet {
             // In a flat view, hidden folders change what is walked: the tree
@@ -154,7 +323,18 @@ final class PaneModel {
     /// Typing two stars around every word was the common case and the fiddly
     /// one, which is the wrong way round: the plain thing people type should be
     /// the thing they mean.
-    var filterText = "" { didSet { rebuildFilter() } }
+    var filterText = "" {
+        didSet {
+            rebuildFilter()
+            guard filterText != oldValue else { return }
+            let text = filterText.trimmingCharacters(in: .whitespaces)
+            JournalActivity.navigated(
+                "Filter", text.isEmpty
+                    ? "The filter of \(JournalActivity.describe(self)) was cleared."
+                    : "\(JournalActivity.describe(self).capitalizedFirst) was filtered by \u{201C}\(text)\u{201D}.",
+                folder: JournalActivity.folder(of: self), settleKey: "filter-\(ObjectIdentifier(self))")
+        }
+    }
     var filterIsRegex = false { didSet { rebuildFilter() } }
     /// Off: non-matching rows are greyed out and cannot be selected.
     /// On: they are not listed at all.
@@ -536,7 +716,10 @@ final class PaneModel {
         // is going to a folder.
         let wasFlat = flat != nil
         if wasFlat { leaveFlatState() }
-        if url != directory { awaitingServer = nil }
+        if url != directory {
+            awaitingServer = nil
+            JournalViewing.openedFolder(url)
+        }
         directory = url
         selection = []
         renamingID = nil
@@ -600,10 +783,14 @@ final class PaneModel {
                   sortAscending: (sortOrder.first?.order ?? .forward) == .forward,
                   recent: recent.filter { !ArchiveBrowsing.isInside($0) }.map(\.path),
                   flatDraft: flatDraft,
-                  flatExpression: ArchiveBrowsing.isInside(directory) ? nil : flat?.expression)
+                  flatExpression: ArchiveBrowsing.isInside(directory) ? nil : flat?.expression,
+                  viewStyle: viewStyle.rawValue,
+                  iconArrangement: iconArrangement.rawValue)
     }
 
     func restore(_ state: PaneState) {
+        restoring = true
+        defer { restoring = false }
         directory = URL(fileURLWithPath: state.directory)
         flatDraft = state.flatDraft
         // A flat view comes back flat; the next reload walks the tree again.
@@ -617,6 +804,8 @@ final class PaneModel {
         recent = Self.remembering(directory, in: state.recent.map { URL(fileURLWithPath: $0) })
         sortOrder = [FileComparator(column: FileColumn(rawValue: state.sortField) ?? .name,
                                     order: state.sortAscending ? .forward : .reverse)]
+        viewStyle = ViewStyle(rawValue: state.viewStyle) ?? .list
+        iconArrangement = IconArrangement(rawValue: state.iconArrangement) ?? .byName
     }
 
     func goUp() {
@@ -697,6 +886,15 @@ final class PaneModel {
     }
     @ObservationIgnored private var flatQuery: FlatQuery?
     var isFlat: Bool { flat != nil }
+
+    /// What the pane lists, to Spotlight as Diptych's records -- when that
+    /// is switched on, and once it has finished loading: a listing emptied
+    /// for a moment on the way to another folder must not take a folder's
+    /// records out.
+    private func offerToSpotlight() {
+        guard !isLoading, ConfigStore.shared.configuration.spotlightFileRecords else { return }
+        SpotlightRecords.shared.paneShowed(folder: directory, items: items, complete: !isFlat)
+    }
 
     /// Showing a Trash folder -- where the Original Location column belongs.
     var isTrashListing: Bool { !isFlat && Trash.isTrash(directory) }
@@ -808,7 +1006,15 @@ final class PaneModel {
         flatStopped = false
         flatUnreadable = []
         flatStale = false
-        if recordingHistory { record(.flat(view)) } else { updateHistoryFlags() }
+        if recordingHistory {
+            record(.flat(view))
+            JournalActivity.navigated(
+                "Flat View", "\(JournalActivity.describe(self).capitalizedFirst) was made a flat view: "
+                    + "\u{201C}\(view.expression)\u{201D}.",
+                folder: JournalActivity.folder(of: self))
+        } else {
+            updateHistoryFlags()
+        }
 
         let key = FlatCacheKey(view: view, showHidden: showHidden)
         if !rescan, let cached = flatCache.first(where: { $0.key == key }) {

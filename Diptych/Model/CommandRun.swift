@@ -55,7 +55,17 @@ final class CommandRun: NSObject, Identifiable {
         /// What is shown: the command with the script's own path in place of
         /// the copy's.
         let shownCommand: String
+        /// The script's file name, which its timings are kept by: a new
+        /// version of it keeps the name, and so its history.
+        let file: String
+        /// How many items it was run on.
+        let fileCount: Int
     }
+
+    /// How long this run will likely take, from the script's earlier runs;
+    /// nil for a program, and for a script that has never finished. Taken
+    /// when it starts, so the bar does not jump if the figures are reset.
+    var estimate: TimeInterval?
 
     @ObservationIgnored let view: DiptychTerminalView
     @ObservationIgnored private var stopTask: Task<Void, Never>?
@@ -98,7 +108,8 @@ final class CommandRun: NSObject, Identifiable {
                         // where it really lives.
                         "DIPTYCH_SCRIPT": definition.url.path],
             copyFolder: copy?.deletingLastPathComponent(),
-            shownCommand: shown.map(Shell.argument).joined(separator: " "))
+            shownCommand: shown.map(Shell.argument).joined(separator: " "),
+            file: definition.url.lastPathComponent, fileCount: targets.count)
         self.init(program: definition.url,
                   arguments: shown.dropFirst().map(Shell.argument).joined(separator: " "),
                   environment: [], directory: FileManager.default.homeDirectoryForCurrentUser,

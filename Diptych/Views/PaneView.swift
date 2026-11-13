@@ -41,7 +41,7 @@ struct PaneView: View {
             if pane.isFlat { flatStatus }
             pathBar
             Divider()
-            table
+            if pane.viewStyle == .icons { icons } else { table }
             Divider()
             statusBar
         }
@@ -719,6 +719,17 @@ struct PaneView: View {
         // -- entering or leaving a Trash listing. Changing a Table's column
         // *count* in place is what AppKit crashes on; rebuilding sidesteps it.
         .id([columns.contains(.originalLocation), columns.contains(.cache)])
+    }
+
+    /// The folder as big icons; the same menus, notices and rules as the table.
+    private var icons: some View {
+        IconPaneView(pane: pane, model: model, side: side, activate: activate,
+                     focusedSide: $focusedSide,
+                     menu: { ids in AnyView(rowMenu(for: ids)) })
+            .overlay { unreadableNotice }
+            .disabled(pane.isNavigating || pane.openingArchive != nil)
+            .overlay { loadingNotice }
+            .overlay { openingArchiveNotice }
     }
 
     /// An archive being unpacked to be shown: how far, and Stop.

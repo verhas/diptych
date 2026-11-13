@@ -27,6 +27,8 @@ final class KeyRouter {
         case delete = 51, forwardDelete = 117
         case home = 115, end = 119, pageUp = 116, pageDown = 121
         case upArrow = 126, downArrow = 125
+        // Only the icon view takes these; a table moves along its own rows.
+        case leftArrow = 123, rightArrow = 124
         case f1 = 122, f2 = 120, f3 = 99, f4 = 118
         case f5 = 96, f6 = 97, f7 = 98, f8 = 100, f9 = 101
     }
@@ -195,6 +197,13 @@ final class KeyRouter {
     /// per-window `AppModel` tracks. With only one window open, and that one
     /// a browser window, it falls back to swapping that window's own panes
     /// instead, so the key still does something.
+    ///
+    /// The smaller windows first -- Info, Compare, Text Edit, Runs and the
+    /// rest -- and the two-pane windows last. A two-pane window is large and
+    /// a click away; brought to the front on the way round it covered the
+    /// small ones, often several meant to be seen side by side. So it comes
+    /// last, and when its turn comes it takes the keyboard from behind them,
+    /// and a small window's turn puts all of them back in front of it.
     private func cycleWindows() -> Bool {
         let live = AppWindows.shared.live
         guard live.count > 1 else {
@@ -205,6 +214,8 @@ final class KeyRouter {
             return true
         }
 
+        let browsers = Set(models.compactMap { $0.model?.window }.map(ObjectIdentifier.init))
+        func isBrowser(_ window: NSWindow) -> Bool { browsers.contains(ObjectIdentifier(window)) }
         // `AppWindows.live`, not `NSApp.orderedWindows`: the latter is
         // front-to-back order, which changes every time a window comes
         // forward -- so "the next one" kept meaning "the window that was in
@@ -212,11 +223,32 @@ final class KeyRouter {
         // straight back where it started instead of on to a third window.
         // Advancing through a list that does not reshuffle itself is what
         // makes this an actual round trip through all of them.
-        guard let current = NSApp.keyWindow, let index = live.firstIndex(of: current) else {
-            live[0].makeKeyAndOrderFront(nil)
-            return true
+        let rotation = live.filter { !isBrowser($0) } + live.filter(isBrowser)
+        let next: NSWindow
+        if let current = NSApp.keyWindow, let index = rotation.firstIndex(of: current) {
+            next = rotation[(index + 1) % rotation.count]
+        } else {
+            next = rotation[0]
         }
-        live[(index + 1) % live.count].makeKeyAndOrderFront(nil)
+        if next.isMiniaturized { next.deminiaturize(nil) }
+
+        // The small windows on screen, front to back.
+        let small = NSApp.orderedWindows.filter { window in
+            !isBrowser(window) && !window.isMiniaturized && window.isVisible
+                && rotation.contains(where: { $0 === window })
+        }
+        if isBrowser(next) {
+            next.makeKey()
+            if let lowest = small.last {
+                next.order(.below, relativeTo: lowest.windowNumber)
+            } else {
+                next.orderFront(nil)
+            }
+        } else {
+            // Back to front, so each keeps its place among the others.
+            for window in small.reversed() where window !== next { window.orderFront(nil) }
+            next.makeKeyAndOrderFront(nil)
+        }
         return true
     }
 }
