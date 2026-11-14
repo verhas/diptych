@@ -36,7 +36,7 @@ nonisolated struct BinaryReader {
 
     /// A NUL-terminated string, at most `limit` bytes long.
     func string(_ at: Int, limit: Int = 4096) -> String {
-        guard at >= 0, at < data.count else { return "" }
+        guard at >= 0, at < data.count, limit > 0 else { return "" }
         let start = data.startIndex + at
         let end = min(data.endIndex, start + limit)
         let stop = data[start..<end].firstIndex(of: 0) ?? end

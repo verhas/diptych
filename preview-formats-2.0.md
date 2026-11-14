@@ -31,15 +31,15 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | 5 | Executables: Mach-O, ELF, Windows PE, libraries, scripts, batch files | 1 | done | 2.0.0 | `MachOFile`, `ELF`, `PEFile`, `ArArchive`, `Script`, `ExecutableReport` |
 | 6 | `.app` and other code bundles | 1 | done | 2.0.0 | `AppBundle`, `BundleReport` |
 | 7 | SQLite databases | 2 | planned | | |
-| 8 | Installer packages `.pkg` | 2 | planned | | |
-| 9 | Disk images `.dmg` | 2 | planned | | |
+| 8 | Installer packages `.pkg` | 2 | done | 2.0.0 | `XarArchive`, `Bom`, `CPIO`, `InstallerPackage`, `PackageReport` |
+| 9 | Disk images `.dmg` | 2 | done | 2.0.0 | `DiskImage` (UDIF, raw, sparse, HFS+, APFS), `DiskImageReport` |
 | 10 | Crash reports `.ips` | 2 | planned | | |
 | 11 | `.mobileprovision` | 2 | planned | | |
 | 12 | `.webloc` `.inetloc` `.url` | 2 | planned | | |
 | 13 | JSON, `.jsonl`, YAML, TOML | 3 | planned | | |
 | 14 | Git repository folders | 3 | planned | | in the folder report |
 | 15 | `.properties` | 3 | planned | | |
-| 16 | `.eml` / `.mbox` | 3 | planned | | |
+| 16 | `.eml` / `.mbox` | 3 | done | 2.0.0 | `MailMessage`, `Mailbox`, `MailReport` |
 | 17 | Where it came from (any file) | 3 | planned | | a section, not a format |
 
 Suggested first five for 2.0.0: 1–2, 3–4, 5–6, 7, 8.
@@ -206,19 +206,23 @@ Recognised by: `SQLite format 3\0` header (many app databases have other extensi
 
 Recognised by: xar magic `78 61 72 21` (flat packages), or bundle packages.
 
-- [ ] Title, identifier, version, signature and notarization
-- [ ] Components and where each installs
-- [ ] Files installed (from the Bom), totals
-- [ ] Pre- and post-install scripts, shown in full — the safety question before installing
-- [ ] Distribution: requirements, choices
+- [x] Title, identifier, version, signature and notarization (RSA signature over the table's checksum verified; CMS signing time; stapled ticket)
+- [x] Components and where each installs
+- [x] Files installed (from the Bom), totals; launch daemons, helpers, extensions and setuid files called out
+- [x] Pre- and post-install scripts, shown in full — the safety question before installing
+- [x] Distribution: requirements, choices, Installer JavaScript, restart afterwards
+- [x] Old bundle packages (folders)
+- [ ] Not done: the certificate chain's trust; bzip2-encoded xar entries; the payload itself
 
 ## 9. Disk images `.dmg`
 
-- [ ] Format (UDZO, UDBZ, ULFO, ULMO, sparse …), compressed and full size
-- [ ] Encrypted or not
-- [ ] Code signature and notarization of the image
-- [ ] Partition scheme / file system if readable without mounting
-- [ ] No mounting
+- [x] Format (UDZO, UDBZ, ULFO, ULMO, UDRO, raw, sparse, sparse bundle, ASIF), compressed and full size
+- [x] Encrypted or not
+- [x] Code signature and notarization of the image (whole-image hash and trailer checked, in the background)
+- [x] Partition scheme (GPT, Apple, MBR); APFS and HFS+ volume name, counts and top-level items; FAT, exFAT, NTFS, ISO 9660 named
+- [x] No mounting
+- [x] License agreement text
+- [ ] Not done: bzip2 and ADC chunks (named, not read); ASIF contents; the CRC32 checksum; old NDIF images
 
 ## 10. Crash reports `.ips`
 
@@ -267,8 +271,11 @@ In the existing folder report.
 
 ## 16. `.eml` / `.mbox`
 
-- [ ] `.eml`: headers (From, To, Date, Subject), body as text, attachments listed with sizes
-- [ ] `.mbox`: one row per message, opened from the list
+- [x] `.eml`: headers (From, To, Date, Subject), body as text, attachments listed with sizes
+- [x] `.mbox`: one row per message, opened from the list (the first 300 open in place)
+- [x] `.emlx`, Mail's exported `.mbox` folders, forwarded messages, pictures shown
+- [x] Warnings: SPF/DKIM/DMARC failures, Reply-To elsewhere, misleading links, attachments that run code
+- [x] S/MIME and OpenPGP signed or encrypted, named (signatures not verified)
 
 ## 17. Where it came from (any file)
 
@@ -286,6 +293,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-14 | 8, 9, 16 | Installer packages (xar, Bom, scripts, signature check), disk images (UDIF chunks, GPT/APM/MBR, HFS+ and APFS listing, signature check), e-mail and mailboxes; three sample scripts; 32 tests with damaged-file rounds |
 | 2026-11-14 | 6 | Bundle preview: Info.plist, signature, seal checked file by file, permissions, embedded code, origin; `make-bundle-samples.sh` |
 | 2026-11-14 | 5 | Windows PE with Authenticode check, ar libraries, COFF objects, batch files; script verdicts per system; Text Edit shows invisible characters, BOM kept in the text; 13 + 9 tests |
 | 2026-11-14 | 5 | Mach-O (signature checked page by page), ELF, scripts and executable text; 27 tests; `make-executable-samples.sh` |

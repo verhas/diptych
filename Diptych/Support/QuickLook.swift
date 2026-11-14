@@ -176,6 +176,9 @@ final class QuickLookController: NSObject {
     private func previewable(_ url: URL) -> URL {
         if let rendered = linkReport(for: url) { return rendered }
         if let rendered = bundleReport(for: url) { return rendered }
+        if let rendered = packageReport(for: url) { return rendered }
+        if let rendered = diskImageReport(for: url) { return rendered }
+        if let rendered = mailReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -429,6 +432,8 @@ final class QuickLookController: NSObject {
     private var listings: [String: URL] = [:]
     /// Bundles whose seal and size are worked out, by path.
     private var bundles: [String: URL] = [:]
+    /// Pages finished in the background -- disk images, mailboxes -- by kind and path.
+    private var finished: [String: URL] = [:]
     private var reading: Set<String> = []
 
     /// A folder or an archive, listed.
@@ -512,6 +517,129 @@ final class QuickLookController: NSObject {
             if isVisible, items.contains(target) { QLPreviewPanel.shared().reloadData() }
         }
         return target
+    }
+
+    /// An installer package: what it installs, where, who signed it, and the
+    /// scripts it runs. Read from the archive; nothing is extracted or run.
+    private func packageReport(for url: URL) -> URL? {
+        guard InstallerPackage.extensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        let html: String
+        if values.isDirectory == true {
+            guard let package = try? InstallerPackage(bundle: url) else { return nil }
+            html = PackageReport.html(for: package, size: AppBundle.size(of: url).bytes)
+        } else {
+            guard let size = values.fileSize, size > 0, size <= InstallerPackage.maximumSize,
+                  let data = try? Data(contentsOf: url, options: .alwaysMapped),
+                  InstallerPackage.looksLikePackage(data) else { return nil }
+            do {
+                html = PackageReport.html(for: try InstallerPackage(url: url, data: data), size: Int64(size))
+            } catch {
+                html = PackageReport.html(failure: error, url: url, size: Int64(size))
+            }
+        }
+        return page(html, kind: "package", for: url)
+    }
+
+    /// A disk image, without attaching it: at once what its trailer says,
+    /// then -- its volumes read, its signed bytes hashed -- the rest.
+    private func diskImageReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard DiskImage.extensions.contains(ext),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        if let ready = finished["image" + url.path] { return ready }
+        let quick: DiskImage, full: @Sendable () -> String
+        if values.isDirectory == true {
+            guard ext == "sparsebundle", let image = try? DiskImage(bundle: url, listing: false) else { return nil }
+            quick = image
+            full = { (try? DiskImage(bundle: url)).map { DiskImageReport.html(for: $0, checking: false) } ?? "" }
+        } else {
+            guard let size = values.fileSize, size >= 512,
+                  let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+            // A raw image says what it is only in the partitions and volumes
+            // read in the background: an .img or .iso that turns out to be
+            // none is left to Quick Look.
+            guard DiskImage.looksLikeImage(data) || ["dmg", "cdr", "iso", "img", "toast"].contains(ext),
+                  let image = try? DiskImage(url: url, data: data, verify: false, listing: false) else {
+                return ext == "dmg" ? page(DiskImageReport.html(failure: DiskImage.Problem.damaged("It is not a disk image."),
+                                                                url: url, size: Int64(size)), kind: "image", for: url) : nil
+            }
+            if image.format == "UDRW" || image.format == "ISO" {
+                guard let read = try? DiskImage(url: url, data: data, verify: false) else { return nil }
+                return page(DiskImageReport.html(for: read, checking: false), kind: "image", for: url)
+            }
+            quick = image
+            full = {
+                do {
+                    let data = try Data(contentsOf: url, options: .alwaysMapped)
+                    return DiskImageReport.html(for: try DiskImage(url: url, data: data, verify: true), checking: false)
+                } catch {
+                    return DiskImageReport.html(failure: error, url: url, size: Int64(size))
+                }
+            }
+        }
+        let target = page(DiskImageReport.html(for: quick, checking: true), kind: "image", for: url)
+        if let target { finish(target, key: "image" + url.path, work: full) }
+        return target
+    }
+
+    /// An e-mail message, or a mailbox of them. A mailbox can be large: its
+    /// list is made in the background.
+    private func mailReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        if MailMessage.extensions.contains(ext), values.isDirectory != true {
+            guard let size = values.fileSize, size > 0, size <= MailMessage.maximumSize,
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            return page(MailReport.html(for: MailMessage(data: data), url: url), kind: "mail", for: url)
+        }
+        // Mail exports a mailbox as a folder with the messages in "mbox".
+        var file = url
+        if values.isDirectory == true {
+            guard ext == "mbox" else { return nil }
+            file = url.appendingPathComponent("mbox")
+        } else if !Mailbox.extensions.contains(ext) {
+            guard ext.isEmpty, let size = values.fileSize, size > 0,
+                  let handle = try? FileHandle(forReadingFrom: url),
+                  let head = try? handle.read(upToCount: 1024), Mailbox.looksLikeMailbox(head) else { return nil }
+            try? handle.close()
+        }
+        guard FileManager.default.isReadableFile(atPath: file.path) else { return nil }
+        if let ready = finished["mail" + url.path] { return ready }
+        let mailbox = file
+        let target = page(MailReport.html(reading: url), kind: "mail", for: url)
+        if let target {
+            finish(target, key: "mail" + url.path) {
+                guard let data = try? Data(contentsOf: mailbox, options: .alwaysMapped) else { return "" }
+                return MailReport.html(for: Mailbox(data: data), url: url)
+            }
+        }
+        return target
+    }
+
+    /// A page named after the file, in a folder of its own per path.
+    private func page(_ html: String, kind: String, for url: URL) -> URL? {
+        let folder = scratch.appendingPathComponent(kind + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return target
+    }
+
+    /// The finished page, made in the background, written over the quick
+    /// one -- and shown, if the panel still shows it.
+    private func finish(_ target: URL, key: String, work: @escaping @Sendable () -> String) {
+        guard !reading.contains(key) else { return }
+        reading.insert(key)
+        Task { [weak self] in
+            let html = await BlockingWork.run(work)
+            guard let self else { return }
+            reading.remove(key)
+            guard !html.isEmpty else { return }
+            write(html, to: target)
+            finished[key] = target
+            if isVisible, items.contains(target) { QLPreviewPanel.shared().reloadData() }
+        }
     }
 
     /// The icon Finder shows, as a 128-point PNG for the page.
@@ -623,6 +751,8 @@ final class QuickLookController: NSObject {
         // The pages went with it, so a folder looked at again is read again
         // rather than served from a file that is no longer there.
         listings.removeAll()
+        bundles.removeAll()
+        finished.removeAll()
     }
 }
 

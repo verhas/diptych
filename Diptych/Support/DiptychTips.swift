@@ -339,6 +339,12 @@ enum DiptychTips {
             + " where it was downloaded from -- and whether every file in it is still as signed.",
         "a Windows .exe or .dll previews with its version, the DLLs it uses, and who signed it -- and"
             + " whether the file still matches that signature.",
+        "an installer package previews with the scripts it runs, in full, where it installs what --"
+            + " launch daemons and setuid programs called out -- and whether it is still as signed.",
+        "a disk image previews without being attached: its format, its signature, and the app and"
+            + " the link to Applications at the top of its volume.",
+        "an e-mail previews as text, nothing loaded from the web -- with a warning for a link that"
+            + " shows one address and goes to another, or a sender the server could not confirm.",
         "Text Edit shows invisible characters -- a byte-order mark, zero-width spaces, right-to-left"
             + " overrides -- as framed names you can see and delete; the \u{00B6} button hides them.",
         "a Java .class file previews as the outline of its source -- declaration, fields, methods with"

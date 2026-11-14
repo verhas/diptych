@@ -1037,6 +1037,62 @@ Nothing is opened, launched or registered, and nothing is asked online.
 `make-bundle-samples.sh` makes sample apps -- one changed after signing, one
 unsigned, one marked as downloaded -- for trying it by hand.
 
+## Previewing installer packages
+
+Space on a `.pkg` shows what it would do before you run it:
+
+- **What it is**: title, identifier, version, the macOS and processors it
+  needs, whether it installs only on the startup disk, what it checks first,
+  and whether the Mac restarts or logs out afterwards.
+- **Who signed it**: the certificate chain, the signing time, and whether the
+  table of contents still hashes as signed and the signature verifies with the
+  signer's key; whether a notarization ticket is stapled.
+- **The scripts it runs**: preinstall, postinstall and the helpers beside
+  them, in full, with a note when they run as root -- and the Installer
+  JavaScript of a product package.
+- **What it installs, and where**: the places it writes to, with file counts
+  and sizes; launch daemons and agents, privileged helpers, kernel and system
+  extensions and setuid programs called out; every file from its bill of
+  materials, with mode and owner.
+- **Components and choices** of a product package; the apps and bundles it
+  carries, with their versions.
+
+Nothing is extracted or installed. Old bundle packages (folders) are read
+too. `make-package-samples.sh` makes a component package, a product package
+and a scripts-only package for trying it by hand.
+
+## Previewing disk images
+
+Space on a `.dmg` -- or a `.sparseimage`, `.sparsebundle`, `.asif`, `.iso`,
+`.cdr` -- shows it without attaching it:
+
+- **What kind**: UDZO, ULFO, ULMO, UDRO, raw, sparse, ASIF; its disk size and
+  what it takes on disk; encrypted or not (no password is asked for).
+- **Its signature**: who signed it, and -- a moment after the page opens --
+  whether the image is still as signed; whether a notarization ticket is
+  stapled.
+- **What is on it**: the partitions, and for APFS and Mac OS Extended
+  volumes the volume's name, how many files and folders it holds, and what is
+  at its top -- the app, the link to Applications, the background folder.
+- **The license agreement** it shows before it opens, when it has one.
+
+`make-disk-image-samples.sh` makes images in each format, one signed and one
+changed after signing, and an encrypted one.
+
+## Previewing e-mail
+
+Space on an `.eml` or `.emlx` shows the message: its headers decoded, its
+text (HTML read as text -- no picture or anything else is loaded from the
+web), its attachments with sizes and pictures shown, and messages attached to
+it. It points out what is worth a second look: a sender the receiving server
+could not confirm (SPF, DKIM, DMARC), answers going to another domain, links
+that show one address and go to another, attachments that run code when
+opened. S/MIME and OpenPGP signatures and encryption are named.
+
+Space on a mailbox -- an `.mbox` file, or the folder Mail exports -- lists its
+messages by date, sender and subject; each opens in place.
+`make-mail-samples.sh` makes sample messages and mailboxes.
+
 ## Previewing programs, libraries and scripts
 
 Finder calls four different things a "Unix executable file", and Quick Look
