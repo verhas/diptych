@@ -96,7 +96,7 @@ nonisolated enum KeyStoreReport {
         return out + "</section>"
     }
 
-    private static func certificateRows(_ certificate: X509, now: Date) -> String {
+    static func certificateRows(_ certificate: X509, now: Date) -> String {
         func row(_ label: String, _ value: String) -> String {
             "<div class=row><span>\(escape(label))</span><span>\(value)</span></div>"
         }
@@ -111,13 +111,16 @@ nonisolated enum KeyStoreReport {
         if !certificate.alternativeNames.isEmpty {
             out += row("Also for", escape(certificate.alternativeNames.joined(separator: ", ")))
         }
+        if !certificate.usage.isEmpty {
+            out += row("Usage", escape(certificate.usage.joined(separator: ", ")))
+        }
         out += row("Serial", "<code>\(escape(certificate.serial))</code>")
         out += row("SHA-256", "<code>\(escape(certificate.sha256))</code>")
         out += row("SHA-1", "<code>\(escape(certificate.sha1))</code>")
         return out + "</div>"
     }
 
-    private static func validity(_ certificate: X509, now: Date, short: Bool) -> String {
+    static func validity(_ certificate: X509, now: Date, short: Bool) -> String {
         let until = escape(certificate.notAfter.formatted(date: .abbreviated, time: .omitted))
         let from = escape(certificate.notBefore.formatted(date: .abbreviated, time: .omitted))
         var text = short ? until : "\(from) to \(until)"
@@ -134,7 +137,7 @@ nonisolated enum KeyStoreReport {
 
     static func escape(_ text: String) -> String { PlistReport.escape(text) }
 
-    private static func page(title: String, body: String) -> String {
+    static func page(title: String, body: String) -> String {
         """
         <!doctype html><html><head><meta charset="utf-8"><title>\(escape(title))</title><style>
         :root { color-scheme: light dark;
@@ -166,6 +169,7 @@ nonisolated enum KeyStoreReport {
         .cert { padding: 4px 0; }
         .issued { color: var(--dim); font-size: 11px; padding: 2px 10px; border-top: 1px dashed var(--rule); }
         code { font: 11px ui-monospace, Menlo, monospace; }
+        .good { color: var(--kind); }
         </style></head><body>\(body)</body></html>
         """
     }

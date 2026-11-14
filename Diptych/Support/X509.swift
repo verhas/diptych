@@ -15,6 +15,8 @@ nonisolated struct X509: Sendable {
     var signatureAlgorithm: String
     var alternativeNames: [String] = []
     var isAuthority = false
+    /// What the key may be used for: "digital signature", "TLS server".
+    var usage: [String] = []
     var sha256: String
     var sha1: String
     /// The subject and issuer are the same name: nobody else vouches for it.
@@ -22,6 +24,8 @@ nonisolated struct X509: Sendable {
     let encoded: [UInt8]
     let subjectBytes: [UInt8]
     let issuerBytes: [UInt8]
+    /// The public key's bits: what a private key is matched against.
+    let publicKey: [UInt8]
 
     init(der bytes: [UInt8]) throws {
         let certificate = try DER(bytes).children(of: DER.sequence)
@@ -41,6 +45,7 @@ nonisolated struct X509: Sendable {
         subjectBytes = tbs[4].encoded
         subject = try X509.name(tbs[4])
         key = (try? X509.keyDescription(tbs[5])) ?? "unknown key"
+        publicKey = (try? X509.publicKeyBits(tbs[5])) ?? []
         signatureAlgorithm = X509.algorithmName((try? certificate[1].algorithm().oid) ?? "")
         isSelfIssued = subjectBytes == issuerBytes
 
@@ -52,6 +57,9 @@ nonisolated struct X509: Sendable {
                 case "2.5.29.17": alternativeNames = X509.readAlternativeNames(inner)
                 case "2.5.29.19":
                     isAuthority = (try? inner.children().first)?.map { $0.identifier == DER.boolean && $0.content.first != 0 } ?? false
+                case "2.5.29.15": usage += X509.keyUsage(inner)
+                case "2.5.29.37":
+                    usage += ((try? inner.children()) ?? []).compactMap { try? $0.oid() }.map { X509.extendedUsageNames[$0] ?? $0 }
                 default: break
                 }
             }
@@ -83,7 +91,7 @@ nonisolated struct X509: Sendable {
         "0.9.2342.19200300.100.1.1": "UID",
     ]
 
-    private static func name(_ node: DER) throws -> [(String, String)] {
+    static func name(_ node: DER) throws -> [(String, String)] {
         try node.children(of: DER.sequence).flatMap { relative in
             try relative.children(of: DER.set).map { pair in
                 let parts = try pair.children(of: DER.sequence)
@@ -101,7 +109,10 @@ nonisolated struct X509: Sendable {
         "1.3.36.3.3.2.8.1.1.7": "brainpoolP256r1", "1.3.36.3.3.2.8.1.1.11": "brainpoolP384r1",
     ]
 
-    private static func keyDescription(_ node: DER) throws -> String {
+    /// "P-256" for the curve's OID, or the OID when it has no common name.
+    static func curveName(_ oid: String) -> String { curves[oid] ?? oid }
+
+    static func keyDescription(_ node: DER) throws -> String {
         let parts = try node.children(of: DER.sequence)
         guard parts.count == 2 else { throw DER.Bad() }
         let (oid, parameters) = try parts[0].algorithm()
@@ -124,9 +135,56 @@ nonisolated struct X509: Sendable {
         }
     }
 
-    private static func bitLength(_ integer: [UInt8]) -> Int {
+    static func bitLength(_ integer: [UInt8]) -> Int {
         guard let first = integer.firstIndex(where: { $0 != 0 }) else { return 0 }
         return (integer.count - first) * 8 - integer[first].leadingZeroBitCount
+    }
+
+    /// The BIT STRING of a SubjectPublicKeyInfo.
+    static func publicKeyBits(_ node: DER) throws -> [UInt8] {
+        let parts = try node.children(of: DER.sequence)
+        guard parts.count == 2 else { throw DER.Bad() }
+        return try parts[1].bits()
+    }
+
+    private static let keyUsageNames = [
+        "digital signature", "non-repudiation", "key encipherment", "data encipherment",
+        "key agreement", "certificate signing", "CRL signing", "encipher only", "decipher only",
+    ]
+
+    static let extendedUsageNames: [String: String] = [
+        "1.3.6.1.5.5.7.3.1": "TLS server", "1.3.6.1.5.5.7.3.2": "TLS client",
+        "1.3.6.1.5.5.7.3.3": "code signing", "1.3.6.1.5.5.7.3.4": "email",
+        "1.3.6.1.5.5.7.3.8": "time stamping", "1.3.6.1.5.5.7.3.9": "OCSP signing",
+        "2.5.29.37.0": "any purpose",
+    ]
+
+    /// The bits set in a keyUsage BIT STRING, first bit the highest of the first byte.
+    private static func keyUsage(_ node: DER) -> [String] {
+        guard let bits = try? node.bits() else { return [] }
+        return keyUsageNames.indices.compactMap { index in
+            let byte = index / 8
+            guard byte < bits.count, bits[byte] & (0x80 >> UInt8(index % 8)) != 0 else { return nil }
+            return keyUsageNames[index]
+        }
+    }
+
+    /// RFC 5952's form: lower-case hex, the longest run of two or more zero
+    /// groups written `::`.
+    static func ipv6(_ groups: [UInt16]) -> String {
+        var best = (start: -1, length: 0)
+        var index = 0
+        while index < groups.count {
+            guard groups[index] == 0 else { index += 1; continue }
+            let start = index
+            while index < groups.count, groups[index] == 0 { index += 1 }
+            if index - start > best.length { best = (start, index - start) }
+        }
+        let text = groups.map { String($0, radix: 16) }
+        guard best.length >= 2 else { return text.joined(separator: ":") }
+        let head = text[..<best.start].joined(separator: ":")
+        let tail = text[(best.start + best.length)...].joined(separator: ":")
+        return head + "::" + tail
     }
 
     static func algorithmName(_ oid: String) -> String {
@@ -142,7 +200,7 @@ nonisolated struct X509: Sendable {
         return names[oid] ?? oid
     }
 
-    private static func readAlternativeNames(_ node: DER) -> [String] {
+    static func readAlternativeNames(_ node: DER) -> [String] {
         ((try? node.children()) ?? []).compactMap { name in
             switch name.identifier {
             case 0x82: return "DNS:" + String(decoding: name.content, as: UTF8.self)
@@ -151,9 +209,8 @@ nonisolated struct X509: Sendable {
             case 0x87 where name.content.count == 4:
                 return "IP:" + name.content.map(String.init).joined(separator: ".")
             case 0x87 where name.content.count == 16:
-                return "IP:" + stride(from: 0, to: 16, by: 2).map {
-                    String(UInt16(name.content[$0]) << 8 | UInt16(name.content[$0 + 1]), radix: 16)
-                }.joined(separator: ":")
+                let groups = stride(from: 0, to: 16, by: 2).map { UInt16(name.content[$0]) << 8 | UInt16(name.content[$0 + 1]) }
+                return "IP:" + ipv6(groups)
             default: return nil
             }
         }

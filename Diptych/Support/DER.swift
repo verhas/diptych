@@ -44,6 +44,13 @@ nonisolated struct DER: Sendable {
 
     init(_ data: Data) throws { try self.init([UInt8](data)) }
 
+    /// The first element, whatever follows it: OpenSSL's TRUSTED CERTIFICATE
+    /// is a certificate with its trust settings after it.
+    static func leading(_ bytes: [UInt8]) throws -> DER {
+        var at = 0
+        return try element(bytes, &at, depth: 0)
+    }
+
     private init(identifier: UInt8, content: [UInt8], encoded: [UInt8]) {
         self.identifier = identifier
         self.content = content

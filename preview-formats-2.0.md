@@ -27,7 +27,7 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | 1 | Java `.class` | 1 | done | 2.0.0 | `ClassFile`, `JavaSignature`, `ClassFileReport` |
 | 2 | `.jar` / `.war` / `.ear` header | 1 | planned | | `.ear` now gets the archive listing too |
 | 3 | Key stores `.jks` `.jceks` `.keystore` `.ks` `.truststore` `.p12` `.pfx` | 1 | done | 2.0.0 | `KeyStore`, `PKCS12`, `X509`, `DER`, `KeyStoreReport` |
-| 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr`, SSH `.pub` | 1 | planned | | `X509` and `DER` from #3 do the reading |
+| 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr` `.crl` `.p7b`, SSH keys | 1 | done | 2.0.0 | `CertificateFile`, `SSHKey`, `CertificateReport` |
 | 5 | Unix executables: Mach-O, ELF, scripts | 1 | planned | | |
 | 6 | `.app` bundles | 1 | planned | | |
 | 7 | SQLite databases | 2 | planned | | |
@@ -104,14 +104,31 @@ Samples: `make-java-samples.sh` (also writes a `.ear` and compiled classes).
 
 ## 4. Certificates and keys
 
-Recognised by: PEM `-----BEGIN …-----` headers; DER by structure; SSH by
-`ssh-ed25519` / `ssh-rsa` / `ecdsa-sha2-…` prefix.
+Recognised by: PEM `-----BEGIN …-----` labels; DER by structure (certificate,
+request, CRL, PKCS#7, PKCS#8, SubjectPublicKeyInfo, PKCS#1); SSH by key-type
+prefix, `openssh-key-v1`, RFC 4716 markers, and SSH-1's decimal form.
+Extensions `.cer .crt .pem .der .cert .csr .req .crl .p7b .p7c .key .pub`, and
+`id_*` / `authorized_keys`. A `.key`/`.pub` that holds no key falls back to
+Quick Look (Keynote, Publisher).
 
-- [ ] Certificates: subject, SANs, issuer, validity, key type and size, signature algorithm, fingerprints, CA / not CA
-- [ ] PEM bundles: every certificate, shown as a chain where they link
-- [ ] Certificate requests (`.csr`): subject, SANs, key type and size
-- [ ] SSH public keys: type, bits, SHA-256 fingerprint, comment (as `ssh-keygen -l`)
-- [ ] Private keys: type and whether passphrase-protected — nothing else
+- [x] Certificates: subject, SANs (IPv6 per RFC 5952), issuer, validity, key type and size, signature algorithm, key usage and extended key usage, CA / not CA, serial, fingerprints
+- [x] PEM bundles and PKCS#7 (`.p7b` DER, `.p7c` PEM): every certificate, each linked to its issuer in the file; in chain order / out of order / a bundle, said
+- [x] Certificate requests: subject, SANs, key, signature algorithm, challenge password present (never shown)
+- [x] Revocation lists: issuer, issued, next update (overdue marked), number, revoked serials with dates and reasons; a certificate in the same file that is revoked is marked
+- [x] Private keys: PKCS#8, encrypted PKCS#8, PKCS#1, SEC1, OpenSSL's encrypted PEM (Proc-Type/DEK-Info), DER -- type, size, protection, never the key
+- [x] Private key ↔ certificate in the same file: matched by RSA modulus or public point (EC and Ed25519 public halves derived when not written)
+- [x] Public keys: SubjectPublicKeyInfo and PKCS#1, with the certificate they belong to
+- [x] EC and DH parameters named
+- [x] SSH public keys: type, bits, SHA-256 fingerprint identical to `ssh-keygen -l`, comment; `authorized_keys` options; RFC 4716
+- [x] OpenSSH private keys: passphrase cipher and KDF rounds, public half and fingerprint, comment when unencrypted
+- [x] SSH certificates: user/host, key ID, serial, principals, validity, critical options, extensions, signing CA fingerprint (as `ssh-keygen -L`)
+- [x] SSH protocol 1 RSA keys recognised and called obsolete
+- [ ] Not done: PuTTY `.ppk` (no puttygen here to make samples); `known_hosts`; signature verification of certificates, requests and CRLs
+
+Code: `Diptych/Support/CertificateFile.swift`, `SSHKey.swift`, `CertificateReport.swift`,
+with `X509.swift` and `DER.swift` from #3; dispatch in `QuickLook.swift`.
+Tests: `DiptychTests/CertificateReportTests.swift`, fixtures in `CertificateFixtures.swift`.
+Samples: `make-certificate-samples.sh` (into `test_folder/18-certificates`).
 
 ## 5. Unix executables
 
@@ -231,6 +248,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-13 | 4 | Certificates, requests, CRLs, keys and SSH keys; chain and key matching; 23 tests; `make-certificate-samples.sh` |
 | 2026-11-13 | 3 | Key store preview: JKS, JCEKS, PKCS#12 with default-password check; 13 tests; `make-java-samples.sh` |
 | 2026-11-13 | 2 | `.ear` gets the archive listing and Extract, like `.jar` and `.war` |
 | 2026-11-13 | 1 | Java `.class` preview: reader, generic signatures, page, 18 tests |

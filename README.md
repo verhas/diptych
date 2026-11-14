@@ -975,6 +975,38 @@ object, is stepped over by reading the class descriptions the stream carries.
 `make-java-samples.sh` makes one of each kind -- and a `.ear`, and compiled
 classes -- from a made-up certificate authority, for trying this by hand.
 
+## Previewing certificates and keys
+
+Space on a `.crt`, `.cer`, `.pem`, `.der`, `.cert`, `.csr`, `.req`, `.crl`,
+`.p7b`, `.p7c`, `.key` or `.pub` file -- or on `id_ed25519`, `id_rsa` and the
+other `id_*` files, or `authorized_keys` -- shows what is in it, item by item,
+whether the file is PEM, DER, PKCS#7 or one of SSH's own forms:
+
+- **Certificates**: subject, issuer, validity (expired, not yet valid and
+  expiring within 30 days marked), key, signature algorithm, alternative names
+  (IPv6 written short), key usage, whether it is a CA, serial and fingerprints.
+- **Chains**: in a file of several certificates each says which one issued it
+  and which it issued; the page says whether they form one chain in order --
+  what a server should send -- are out of order, or are a bundle of unrelated
+  certificates. A certificate revoked by a CRL in the same file is marked.
+- **Private keys**: the container (PKCS#8, PKCS#1, SEC1, OpenSSH), type and
+  size, and whether a password protects it and how -- **never the key**. When
+  the file also holds certificates, the page says which one the key belongs
+  to, or that none does: the usual mistake of a certificate paired with the
+  wrong key shows at a glance. The public half is worked out for that alone.
+- **Requests, revocation lists, public keys, EC and DH parameters**: what each
+  is for -- a request's subject and names, a CRL's revoked serials with dates
+  and reasons, and whether its next update is overdue.
+- **SSH**: public keys with type, size, comment and the SHA-256 fingerprint
+  exactly as `ssh-keygen -l` prints it; `authorized_keys` with each key's
+  options; RFC 4716 files; private keys with their passphrase protection and
+  -- when there is none -- their comment; SSH certificates with key ID,
+  principals, validity, permissions and the signing CA's fingerprint.
+
+A `.key` or `.pub` that is not a key -- Keynote and Publisher use those
+extensions -- previews as it always did. `make-certificate-samples.sh` makes
+one of everything from a made-up CA, for trying this by hand.
+
 ## The Rename menu
 
 On the right-click menu **Rename** is a submenu, like Copy: clicking the word

@@ -135,6 +135,34 @@ final class CommandRunTests: XCTestCase {
         XCTAssertEqual(run.state, "failed")
     }
 
+    /// The status comes from the wrapper's file, not from SwiftTerm, whose
+    /// `waitpid(…, WNOHANG)` can run before the process is reapable and read 0.
+    func testTheStatusIsReadFromTheWrapper() {
+        let text = "exit 3\n0m0.001s 0m0.002s\n0m0.010s 0m0.020s\n"
+        XCTAssertEqual(CommandRun.exitStatus(fromTimesOutput: text), 3)
+        XCTAssertEqual(CommandRun.childTimes(fromTimesOutput: text)?.user ?? 0, 0.01, accuracy: 0.0005)
+        XCTAssertNil(CommandRun.exitStatus(fromTimesOutput: "0m0.001s 0m0.002s\n"))
+    }
+
+    /// Many fast-failing runs at once, as the full test suite makes them: every
+    /// one must say it failed, with its own code.
+    func testFastFailingRunsAllReportTheirStatus() async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CommandRunTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let script = folder.appendingPathComponent("fail.sh")
+        try "#!/bin/sh\nexit $1\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        let runs = (1...20).map { CommandRun(program: script, arguments: "\($0)", directory: folder) }
+        for run in runs { await finished(run) }
+        for (index, run) in runs.enumerated() {
+            XCTAssertEqual(run.exitCode, Int32(index + 1), "run \(index + 1)")
+            XCTAssertEqual(run.state, "failed")
+        }
+    }
+
     func testTimesOutputIsReadLikeTimeReportsIt() {
         let parsed = CommandRun.childTimes(fromTimesOutput: "0m0.001s 0m0.002s\n1m12.403s 0m8.102s\n")
         XCTAssertEqual(parsed?.user ?? 0, 72.403, accuracy: 0.0005)

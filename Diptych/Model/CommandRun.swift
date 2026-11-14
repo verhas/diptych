@@ -173,9 +173,15 @@ final class CommandRun: NSObject, Identifiable {
     /// included, as `time` reports them -- to a file, then exits with the
     /// program's own status. A shell can only time what it waits for, and the
     /// login shell may be fish, which has no `times`.
+    ///
+    /// The status goes into the file too, first. SwiftTerm learns it with a
+    /// `waitpid(…, WNOHANG)` the moment it hears the process has exited -- and
+    /// the process is not always ready to be reaped yet, so the call returns
+    /// nothing and the status reads 0: a failed program reported as finished.
+    /// The file is written before the wrapper exits, so it is always there.
     private func start() {
         let shell = TerminalSession.loginShell
-        let wrapper = #"out=$1; shift; "$@"; status=$?; times > "$out"; exit $status"#
+        let wrapper = #"out=$1; shift; "$@"; status=$?; { echo "exit $status"; times; } > "$out"; exit $status"#
         if let script {
             startScript(script, wrapper: wrapper)
             return
@@ -250,6 +256,8 @@ extension CommandRun: @preconcurrency LocalProcessTerminalViewDelegate {
         self.exitCode = exitCode.flatMap(Self.exitCode(fromWaitStatus:))
         if let text = try? String(contentsOf: timesFile, encoding: .utf8) {
             cpu = Self.childTimes(fromTimesOutput: text)
+            // What the wrapper wrote outranks what SwiftTerm read (see start()).
+            if let status = Self.exitStatus(fromTimesOutput: text) { self.exitCode = status }
         }
         try? FileManager.default.removeItem(at: timesFile)
         if let folder = script?.copyFolder { try? FileManager.default.removeItem(at: folder) }
@@ -267,6 +275,12 @@ extension CommandRun: @preconcurrency LocalProcessTerminalViewDelegate {
         let values = children.split(separator: " ").compactMap { seconds(String($0)) }
         guard values.count == 2 else { return nil }
         return (values[0], values[1])
+    }
+
+    /// The wrapper's first line, "exit 3": the program's own status.
+    nonisolated static func exitStatus(fromTimesOutput text: String) -> Int32? {
+        guard let first = text.split(separator: "\n").first, first.hasPrefix("exit ") else { return nil }
+        return Int32(first.dropFirst(5).trimmingCharacters(in: .whitespaces))
     }
 
     /// "1m12.403s" as seconds.

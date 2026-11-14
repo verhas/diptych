@@ -182,6 +182,9 @@ final class QuickLookController: NSObject {
         if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
             return rendered
         }
+        if CertificateReport.handles(url), let rendered = certificateReport(for: url) {
+            return rendered
+        }
         if KeyStoreReport.extensions.contains(url.pathExtension.lowercased()),
            let rendered = keyStoreReport(for: url) {
             return rendered
@@ -258,6 +261,24 @@ final class QuickLookController: NSObject {
         // Info.plist files do not overwrite each other.
         let folder = scratch.appendingPathComponent(
             "plist" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// Certificates, requests, revocation lists and keys -- PEM, DER, PKCS#7,
+    /// SSH -- as what each is for and how they fit together. A `.key` or `.pub`
+    /// that holds no key is left to Quick Look: Keynote and Publisher use them.
+    private func certificateReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= CertificateFile.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let html = CertificateReport.html(for: data, url: url) else { return nil }
+        let folder = scratch.appendingPathComponent(
+            "certificate" + url.path.replacingOccurrences(of: "/", with: "_"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
         guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
