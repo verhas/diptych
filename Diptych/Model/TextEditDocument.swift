@@ -81,10 +81,15 @@ final class TextEditDocument {
     /// unsaved and the file holds something else than what is shown.
     func readAgainIfChanged() {
         guard waitingFor == nil, !hasUnsavedChanges else { return }
-        let onDisk = (try? TextDiff.load(url)).map {
-            $0.lines.joined(separator: "\n") + ($0.hasFinalNewline && !$0.lines.isEmpty ? "\n" : "")
-        }
+        let onDisk = (try? TextDiff.load(url)).map(Self.text(of:))
         if onDisk != saved || plistEncoding == .binary { load() } else { isUnsent = false }
+    }
+
+    /// The file as the editor shows it: lines joined by "\n", and a
+    /// byte-order mark as the character U+FEFF it stands for, first.
+    static func text(of file: SourceFile) -> String {
+        (file.bom.isEmpty ? "" : "\u{FEFF}") + file.lines.joined(separator: "\n")
+            + (file.hasFinalNewline && !file.lines.isEmpty ? "\n" : "")
     }
 
     /// The window is closing.
@@ -124,8 +129,7 @@ final class TextEditDocument {
         do {
             let file = try TextDiff.load(url)
             source = file
-            saved = file.lines.joined(separator: "\n")
-                + (file.hasFinalNewline && !file.lines.isEmpty ? "\n" : "")
+            saved = Self.text(of: file)
             failure = nil
         } catch let failure as TextDiff.Failure {
             self.failure = failure.message
@@ -214,7 +218,9 @@ final class TextEditDocument {
                                + "(\(String.localizedName(of: file.encoding))). Take out the "
                                + "characters that were typed in, or save a copy elsewhere.")
             }
-            data = file.bom + encoded
+            // The byte-order mark is in the text, where it can be seen and
+            // deleted: it is written when it is there, and only then.
+            data = encoded
         }
 
         do {

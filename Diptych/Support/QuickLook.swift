@@ -175,6 +175,7 @@ final class QuickLookController: NSObject {
 
     private func previewable(_ url: URL) -> URL {
         if let rendered = linkReport(for: url) { return rendered }
+        if let rendered = bundleReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -192,6 +193,7 @@ final class QuickLookController: NSObject {
         if url.pathExtension.lowercased() == "class", let rendered = classFileReport(for: url) {
             return rendered
         }
+        if let rendered = executableReport(for: url) { return rendered }
         if ["tif", "tiff"].contains(url.pathExtension.lowercased()),
            let rendered = oldJPEGTiffReport(for: url) {
             return rendered
@@ -325,6 +327,67 @@ final class QuickLookController: NSObject {
         return target
     }
 
+    /// A Mach-O or ELF binary, a script, or text marked executable -- all a
+    /// "Unix executable file" with a name and a size to Quick Look -- as what
+    /// it is, what it needs, and whether it would run. The contents decide;
+    /// the name only says whether to look: no extension, one binaries use, or
+    /// one no application claims (`libc.so.6`).
+    private func executableReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard ext.isEmpty || ExecutableReport.extensions.contains(ext)
+                || UTType(filenameExtension: ext)?.isDeclared != true else { return nil }
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+              values.isRegularFile == true, let size = values.fileSize, size > 0,
+              let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+        let name = url.lastPathComponent, path = url.deletingLastPathComponent().path
+        let html: String
+        if MachOFile.looksLikeMachO(data) {
+            do {
+                html = ExecutableReport.html(for: try MachOFile(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Mach-O file", name: name, path: path, size: size)
+            }
+        } else if ELF.looksLikeELF(data) {
+            do {
+                html = ExecutableReport.html(for: try ELF(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "ELF file", name: name, path: path, size: size)
+            }
+        } else if PEFile.looksLikePE(data) {
+            do {
+                html = ExecutableReport.html(for: try PEFile(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Windows program", name: name, path: path, size: size)
+            }
+        } else if ArArchive.looksLikeArchive(data) {
+            do {
+                html = ExecutableReport.html(for: try ArArchive(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Library", name: name, path: path, size: size)
+            }
+        } else if ext == "obj", let machine = COFFObject.machine(of: data) {
+            html = ExecutableReport.html(objectFile: data, machine: machine, name: name, path: path)
+        } else if BatchFile.extensions.contains(ext) {
+            guard let text = readableText(at: url) else { return nil }
+            html = ExecutableReport.html(for: BatchFile(data: data.prefix(4 * 1024 * 1024), text: text),
+                                         name: name, path: path, size: size)
+        } else {
+            // Text: a script by its #! line, or a plain file only when marked
+            // executable, and without an extension that says what it is.
+            let executable = FileManager.default.isExecutableFile(atPath: url.path)
+            guard Script.startsLikeScript(data) || (executable && ext.isEmpty),
+                  let text = readableText(at: url) else { return nil }
+            html = ExecutableReport.html(for: Script(data: data.prefix(4096), text: text, executable: executable),
+                                         name: name, path: path, size: size)
+        }
+        let folder = scratch.appendingPathComponent(
+            "executable" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(name + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return target
+    }
+
     /// A TIFF of old-style JPEG pages, which macOS shows only as a thumbnail:
     /// its pages, taken out of it.
     private func oldJPEGTiffReport(for url: URL) -> URL? {
@@ -364,6 +427,8 @@ final class QuickLookController: NSObject {
     /// Pages already built, so moving up and down a pane does not read the same
     /// folder again on every keystroke.
     private var listings: [String: URL] = [:]
+    /// Bundles whose seal and size are worked out, by path.
+    private var bundles: [String: URL] = [:]
     private var reading: Set<String> = []
 
     /// A folder or an archive, listed.
@@ -417,6 +482,50 @@ final class QuickLookController: NSObject {
                 QLPreviewPanel.shared().reloadData()
             }
         }
+    }
+
+    /// An application or another bundle of code: at once what its Info.plist
+    /// and signature say, then -- every file hashed and counted -- whether it
+    /// is still as signed, and how big it is.
+    private func bundleReport(for url: URL) -> URL? {
+        guard AppBundle.extensions.contains(url.pathExtension.lowercased()),
+              (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+              let bundle = try? AppBundle.read(url) else { return nil }
+        if let ready = bundles[url.path] { return ready }
+        let folder = scratch.appendingPathComponent("bundle" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        let icon = Self.iconPNG(for: url)
+        write(BundleReport.html(for: bundle, seal: nil, size: nil, icon: icon), to: target)
+        guard !reading.contains(url.path) else { return target }
+        reading.insert(url.path)
+        Task { [weak self] in
+            let html = await BlockingWork.run { () -> String? in
+                guard let checked = try? AppBundle.read(url, verify: true) else { return nil }
+                return BundleReport.html(for: checked, seal: checked.seal(), size: AppBundle.size(of: url), icon: icon)
+            }
+            guard let self else { return }
+            reading.remove(url.path)
+            guard let html else { return }
+            write(html, to: target)
+            bundles[url.path] = target
+            if isVisible, items.contains(target) { QLPreviewPanel.shared().reloadData() }
+        }
+        return target
+    }
+
+    /// The icon Finder shows, as a 128-point PNG for the page.
+    private static func iconPNG(for url: URL) -> Data? {
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        let size = NSSize(width: 128, height: 128)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 128, pixelsHigh: 128, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
     }
 
     private func write(_ html: String, to target: URL) {

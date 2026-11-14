@@ -28,8 +28,8 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | 2 | `.jar` / `.war` / `.ear` header | 1 | planned | | `.ear` now gets the archive listing too |
 | 3 | Key stores `.jks` `.jceks` `.keystore` `.ks` `.truststore` `.p12` `.pfx` | 1 | done | 2.0.0 | `KeyStore`, `PKCS12`, `X509`, `DER`, `KeyStoreReport` |
 | 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr` `.crl` `.p7b`, SSH keys | 1 | done | 2.0.0 | `CertificateFile`, `SSHKey`, `CertificateReport` |
-| 5 | Unix executables: Mach-O, ELF, scripts | 1 | planned | | |
-| 6 | `.app` bundles | 1 | planned | | |
+| 5 | Executables: Mach-O, ELF, Windows PE, libraries, scripts, batch files | 1 | done | 2.0.0 | `MachOFile`, `ELF`, `PEFile`, `ArArchive`, `Script`, `ExecutableReport` |
+| 6 | `.app` and other code bundles | 1 | done | 2.0.0 | `AppBundle`, `BundleReport` |
 | 7 | SQLite databases | 2 | planned | | |
 | 8 | Installer packages `.pkg` | 2 | planned | | |
 | 9 | Disk images `.dmg` | 2 | planned | | |
@@ -132,27 +132,65 @@ Samples: `make-certificate-samples.sh` (into `test_folder/18-certificates`).
 
 ## 5. Unix executables
 
-Finder's "Unix executable" is four things; decide by magic.
+Finder's "Unix executable" is four things; decide by magic. Looked at when
+the file has no extension, one binaries use (`dylib`, `so`, `o`, `bundle`,
+`node`, `command`, …), or one no application declares (`libc.so.6`).
 
-- [ ] **Mach-O** (`FE ED FA CF`, `CF FA ED FE`, universal `CA FE BA BE`):
-  - [ ] architectures (each slice of a universal binary), file type (executable, dylib, bundle)
-  - [ ] minimum macOS and SDK (`LC_BUILD_VERSION` / `LC_VERSION_MIN_*`)
-  - [ ] linked libraries (`LC_LOAD_DYLIB` and weak/re-export variants), rpaths
-  - [ ] UUIDs
-  - [ ] code signature: signed or not, ad hoc, Team ID, identifier, hardened runtime, notarization ticket, entitlements
-- [ ] **ELF** (`7F 45 4C 46`): class, architecture, static or dynamic, interpreter, needed libraries
-- [ ] **Scripts** (`#!`): the interpreter line, then the text
-- [ ] **Text with the execute bit**: shown as text, with a note that it is marked executable
+- [x] **Mach-O** (`FE ED FA CE/CF`, `CE/CF FA ED FE`, universal `CA FE BA BE/BF`):
+  - [x] architectures (each slice of a universal binary), file type (executable, dylib, bundle, object, …)
+  - [x] minimum OS and SDK (`LC_BUILD_VERSION` / `LC_VERSION_MIN_*`), build tools, source version
+  - [x] linked libraries (`LC_LOAD_DYLIB` and weak/re-export/lazy/upward), install name, rpaths
+  - [x] UUIDs, segments and sections (folded)
+  - [x] code signature: Apple / Developer ID / development / ad hoc / linker-signed, certificate chain, signing time, identifier, Team ID, hardened runtime, platform binary, entitlements (named in words)
+  - [x] every code page and the signed requirements and entitlements hashed and compared (up to 512 MB)
+  - [x] warnings: changed after signing, unsigned on Apple silicon, Intel only (Rosetta), 32-bit/PowerPC, newer macOS needed, FairPlay encrypted
+  - [ ] Not done: notarization (online; the Info window's Signature tab runs `spctl`), the CMS signature itself is not verified, requirements shown as text
+- [x] **ELF** (`7F 45 4C 46`): class, byte order, system, machine, kind, static or dynamic, interpreter, needed libraries, soname, rpath/runpath, glibc/libstdc++ versions needed, minimum kernel, build ID, stripped or not, executable stack, Go/Rust, segments and sections
+- [x] **Scripts** (`#!`): interpreter, `env` followed (also `-S`), found on this Mac or not; CR LF, byte-order mark, relative or missing interpreter, line over 512 bytes, Linux not splitting arguments, not marked executable; the text with line numbers (first 512 KB)
+- [x] **Text with the execute bit**: shown as text, with a note that it is marked executable
+- [x] Script verdicts: "On this Mac" runs (with what) / does not run (why) / runs only some way; "On Linux" when it differs
+- [x] **Windows PE** (`MZ` … `PE\0\0`): kind (console, windowed, DLL, driver, UEFI, .NET), processor, PE32/PE32+, subsystem, minimum Windows, version resource strings, manifest execution level, ASLR/DEP/CFG, linker and time stamp (not a hash from reproducible builds), PDB path, imports (and delay-loaded), exports, sections
+- [x] Authenticode: certificate chain, signing time (signed attribute, counter-signature or RFC 3161 token), PE image hash checked
+- [x] MS-DOS, 16-bit Windows (NE), OS/2 / VxD (LE, LX) named
+- [x] **ar archives** (`.lib`, `.a`): Windows import library and its DLLs, static library, members and their processors (COFF, ELF, Mach-O), symbol count; COFF `.obj` by its header
+- [x] **Batch files** (`.bat`, `.cmd`): byte-order mark, UTF-16, LF line endings with labels, non-ASCII without `chcp 65001`; the text
+- [ ] Not done: Authenticode's own CMS signature and trust; .NET metadata (types, references); MSI installers; `.ps1`
+
+Code: `Diptych/Support/BinaryReader.swift`, `MachOFile.swift`, `ELF.swift`,
+`PEFile.swift`, `ArArchive.swift`, `Script.swift` (scripts and batch files),
+`ExecutableReport.swift`; dispatch in `QuickLook.swift`. Samples:
+`make-executable-samples.sh`, Windows signatures by `sign-pe-sample.py`.
+Tests: `DiptychTests/ExecutableReportTests.swift` (40) with fixtures from
+`make-executable-samples.sh` in `ExecutableFixtures.swift`. Swept: 3,521
+Mach-O files in the system folders and Homebrew read without error and every
+signature matched; 2,116 Windows programs and DLLs (2,072 .NET) and 1,538
+libraries read without error, all 650 Authenticode hashes matched.
 
 ## 6. `.app` bundles
 
-Currently skipped on purpose (`isPackage`), so Quick Look shows the icon.
+Also `.appex`, `.xpc`, `.framework`, `.bundle`, `.plugin`, `.kext`,
+`.systemextension`, `.saver`, `.prefPane`, `.qlgenerator`, `.mdimporter`,
+Audio Units and VST plug-ins. Other packages (`.rtfd`, `.photoslibrary`, …)
+still show their icon. A page at once from the Info.plist and the
+signature; the seal check and the size follow, and the page reloads.
 
-- [ ] Name, version, build, bundle identifier, category, copyright (from `Info.plist`)
-- [ ] Main executable: architectures, minimum macOS (as Mach-O above)
-- [ ] Code signature and notarization, Team ID, entitlements
-- [ ] Size on disk; embedded frameworks, plug-ins, login items, helper tools
-- [ ] Quarantine / translocation status
+- [x] Icon, name, version, build, bundle identifier, category, copyright (from `Info.plist`); kind (app, menu bar app, background app, iPhone/iPad app, extension and what it extends, …)
+- [x] Main executable: architectures, minimum macOS, Xcode and SDK it was built with (as Mach-O above, with its warnings)
+- [x] Code signature: signer and chain, Team ID, hardened runtime, sandbox, entitlements; notarization ticket stapled or not (offline)
+- [x] The seal: Info.plist and `CodeResources` against the signature, every sealed file's hash, nested code by cdhash, symlinks; changed and missing files listed (up to 1 GB of sealed files)
+- [x] Permissions it will ask for, with its own reasons (`NS…UsageDescription`)
+- [x] Documents and URL schemes it opens; languages
+- [x] Embedded: frameworks, plug-ins and extensions, login items, privileged helpers, system extensions, XPC services, launch agents and daemons, other programs; each with version, identifier and signing team
+- [x] Made with: Electron, Chromium Embedded, Qt, Flutter, Python, Java, Mono, Sparkle, Mac Catalyst
+- [x] Size on disk and file count
+- [x] Where it came from: Mac App Store receipt, quarantine (agent, date, opened or not), download address; App Translocation
+- [ ] Not done: files added after signing (needs the seal's rules), the requirement text, notarization online
+
+Code: `Diptych/Support/AppBundle.swift`, `BundleReport.swift`; dispatch and
+icon in `QuickLook.swift`. Tests: `DiptychTests/BundleReportTests.swift`,
+bundles built from the executable fixtures and signed ad hoc with
+`codesign`, and Calculator as Apple signed it. Samples:
+`make-bundle-samples.sh` writes `../test_folder/20-bundles`.
 
 ## 7. SQLite databases
 
@@ -248,6 +286,9 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-14 | 6 | Bundle preview: Info.plist, signature, seal checked file by file, permissions, embedded code, origin; `make-bundle-samples.sh` |
+| 2026-11-14 | 5 | Windows PE with Authenticode check, ar libraries, COFF objects, batch files; script verdicts per system; Text Edit shows invisible characters, BOM kept in the text; 13 + 9 tests |
+| 2026-11-14 | 5 | Mach-O (signature checked page by page), ELF, scripts and executable text; 27 tests; `make-executable-samples.sh` |
 | 2026-11-13 | 4 | Certificates, requests, CRLs, keys and SSH keys; chain and key matching; 23 tests; `make-certificate-samples.sh` |
 | 2026-11-13 | 3 | Key store preview: JKS, JCEKS, PKCS#12 with default-password check; 13 tests; `make-java-samples.sh` |
 | 2026-11-13 | 2 | `.ear` gets the archive listing and Extract, like `.jar` and `.war` |

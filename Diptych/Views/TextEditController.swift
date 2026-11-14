@@ -32,6 +32,13 @@ final class TextEditController: NSObject {
             tree?.showLineNumbers(lineNumbers != .off)
         }
     }
+    /// Invisible characters shown as their names in frames, where they
+    /// neither act nor hide; and how many there are.
+    var showsInvisibles = false {
+        didSet { if showsInvisibles != oldValue { relayOutInvisibles() } }
+    }
+    private(set) var invisibleCount = 0
+    private var hasDirectionControls = false
     /// Which structure around the caret is shaded: 0 none, 1 the smallest.
     var emphasis = 0 {
         didSet { if emphasis != oldValue { textView.needsDisplay = true } }
@@ -79,6 +86,9 @@ final class TextEditController: NSObject {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
         storage.addLayoutManager(layout)
+        // Its own, not the shared one: bidi processing is turned off here
+        // while direction controls are shown (see `relayOutInvisibles`).
+        layout.typesetter = NSATSTypesetter()
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         layout.addTextContainer(container)
@@ -140,6 +150,16 @@ final class TextEditController: NSObject {
     func textChanged() {
         colouringIsCurrent = false
         lineIndex = LineIndex(nsText)
+        let invisible = InvisibleCharacters.summary(of: nsText)
+        let directional = invisible.directional
+        if invisible.count != invisibleCount {
+            invisibleCount = invisible.count
+            link?.invisibleCount = invisible.count
+        }
+        if directional != hasDirectionControls {
+            hasDirectionControls = directional
+            if showsInvisibles { relayOutInvisibles() }
+        }
         gutter.updateThickness()
         scheduleAnalysis()
         updateSuggestion()
@@ -664,6 +684,82 @@ extension TextEditController {
     }
 }
 
+// MARK: - Invisible characters
+
+extension TextEditController {
+
+    /// The label of the invisible character at `index`, if one starts there.
+    func invisible(at index: Int) -> String? {
+        let text = nsText
+        guard index < text.length else { return nil }
+        let unit = text.character(at: index)
+        var value = UInt32(unit)
+        if UTF16.isLeadSurrogate(unit), index + 1 < text.length {
+            let next = text.character(at: index + 1)
+            if UTF16.isTrailSurrogate(next) {
+                value = 0x10000 + ((UInt32(unit) - 0xD800) << 10) + (UInt32(next) - 0xDC00)
+            }
+        }
+        guard InvisibleCharacters.isInvisible(value) else { return nil }
+        return InvisibleCharacters.label(value, atStart: index == 0)
+    }
+
+    var invisibleFont: NSFont {
+        let size = (textView.font?.pointSize ?? NSFont.systemFontSize) * 0.72
+        return .monospacedSystemFont(ofSize: size, weight: .medium)
+    }
+
+    func invisibleAdvance(for label: String) -> CGFloat {
+        ceil((label as NSString).size(withAttributes: [.font: invisibleFont]).width) + 8
+    }
+
+    /// Every glyph made again: the invisible characters become labels or go
+    /// back to what they do. Bidi processing is what makes an override
+    /// reverse the text after it, so it is off while one is shown -- and
+    /// only then, so right-to-left text without one still reads right.
+    func relayOutInvisibles() {
+        guard let layout = textView.layoutManager else { return }
+        (layout.typesetter as? NSATSTypesetter)?.bidiProcessingEnabled = !(showsInvisibles && hasDirectionControls)
+        let all = NSRange(location: 0, length: nsText.length)
+        layout.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
+        layout.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
+        textView.needsDisplay = true
+        gutter?.needsDisplay = true
+    }
+
+    /// The frames and names, over the blanks the layout left for them.
+    func drawInvisibles(in rect: NSRect) {
+        guard showsInvisibles, invisibleCount > 0, let layout = textView.layoutManager,
+              let container = textView.textContainer else { return }
+        let origin = textView.textContainerOrigin
+        let shown = rect.offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = layout.glyphRange(forBoundingRect: shown, in: container)
+        let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let font = invisibleFont
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        for (location, value) in InvisibleCharacters.positions(in: nsText, range: characters)
+        where Self.range(containing: location, in: hiddenRanges) == nil {
+            let label = InvisibleCharacters.label(value, atStart: location == 0)
+            let glyph = layout.glyphIndexForCharacter(at: location)
+            let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let at = layout.location(forGlyphAt: glyph)
+            let width = invisibleAdvance(for: label)
+            let height = min(line.height - 2, font.ascender - font.descender + 4)
+            let box = NSRect(x: line.minX + at.x + origin.x + 1, y: line.minY + origin.y + (line.height - height) / 2,
+                             width: width - 2, height: height)
+            let frame = NSBezierPath(roundedRect: box, xRadius: 3, yRadius: 3)
+            NSColor.systemOrange.withAlphaComponent(0.12).setFill()
+            frame.fill()
+            NSColor.systemOrange.withAlphaComponent(0.7).setStroke()
+            frame.lineWidth = 1
+            frame.stroke()
+            let size = (label as NSString).size(withAttributes: attributes)
+            (label as NSString).draw(at: NSPoint(x: box.midX - size.width / 2, y: box.midY - size.height / 2),
+                                     withAttributes: attributes)
+        }
+    }
+}
+
 // MARK: - Layout: hiding folded glyphs
 
 extension TextEditController: @preconcurrency NSLayoutManagerDelegate {
@@ -674,16 +770,31 @@ extension TextEditController: @preconcurrency NSLayoutManagerDelegate {
                        characterIndexes: UnsafePointer<Int>,
                        font: NSFont,
                        forGlyphRange glyphRange: NSRange) -> Int {
-        guard !hiddenRanges.isEmpty else { return 0 }
+        guard !hiddenRanges.isEmpty || (showsInvisibles && invisibleCount > 0) else { return 0 }
         var adjusted: [NSLayoutManager.GlyphProperty]?
-        for i in 0..<glyphRange.length {
-            let index = characterIndexes[i]
-            guard let range = Self.range(containing: index, in: hiddenRanges) else { continue }
+        func set(_ i: Int, _ property: NSLayoutManager.GlyphProperty) {
             if adjusted == nil {
                 adjusted = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length))
             }
-            // The first folded character is the space the badge sits in.
-            adjusted![i] = index == range.location ? .controlCharacter : .null
+            adjusted![i] = property
+        }
+        let text = nsText
+        for i in 0..<glyphRange.length {
+            let index = characterIndexes[i]
+            if let range = Self.range(containing: index, in: hiddenRanges) {
+                // The first folded character is the space the badge sits in.
+                set(i, index == range.location ? .controlCharacter : .null)
+            } else if showsInvisibles, index < text.length {
+                // An invisible character is a blank as wide as its label; the
+                // second half of one outside the first plane makes no glyph.
+                let unit = text.character(at: index)
+                if UTF16.isTrailSurrogate(unit), index > 0, UTF16.isLeadSurrogate(text.character(at: index - 1)),
+                   invisible(at: index - 1) != nil {
+                    set(i, .null)
+                } else if invisible(at: index) != nil {
+                    set(i, .controlCharacter)
+                }
+            }
         }
         guard let adjusted else { return 0 }
         adjusted.withUnsafeBufferPointer { buffer in
@@ -697,14 +808,19 @@ extension TextEditController: @preconcurrency NSLayoutManagerDelegate {
     func layoutManager(_ layoutManager: NSLayoutManager,
                        shouldUse action: NSLayoutManager.ControlCharacterAction,
                        forControlCharacterAt charIndex: Int) -> NSLayoutManager.ControlCharacterAction {
-        guard let range = Self.range(containing: charIndex, in: hiddenRanges) else { return action }
+        guard let range = Self.range(containing: charIndex, in: hiddenRanges) else {
+            // Shown, it is a blank: a line separator breaks no line, a
+            // carriage return no paragraph.
+            return showsInvisibles && invisible(at: charIndex) != nil ? .whitespace : action
+        }
         return charIndex == range.location ? .whitespace : .zeroAdvancement
     }
 
     func layoutManager(_ layoutManager: NSLayoutManager, boundingBoxForControlGlyphAt glyphIndex: Int,
                        for textContainer: NSTextContainer, proposedLineFragment proposedRect: NSRect,
                        glyphPosition: NSPoint, characterIndex charIndex: Int) -> NSRect {
-        let width = badgeLabels[charIndex].map { badgeAdvance(for: $0) } ?? 0
+        let width = badgeLabels[charIndex].map { badgeAdvance(for: $0) }
+            ?? (showsInvisibles ? invisible(at: charIndex).map { invisibleAdvance(for: $0) } : nil) ?? 0
         return NSRect(x: glyphPosition.x, y: glyphPosition.y, width: width,
                       height: proposedRect.height)
     }
@@ -757,6 +873,7 @@ final class FoldingTextView: NSTextView {
         MainActor.assumeIsolated {
             controller?.drawEmphasis(in: rect)
             controller?.drawFoldBadges(in: rect)
+            controller?.drawInvisibles(in: rect)
         }
     }
 

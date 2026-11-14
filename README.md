@@ -1007,6 +1007,88 @@ A `.key` or `.pub` that is not a key -- Keynote and Publisher use those
 extensions -- previews as it always did. `make-certificate-samples.sh` makes
 one of everything from a made-up CA, for trying this by hand.
 
+## Previewing applications
+
+Quick Look shows an application as its icon. Space on an `.app` -- or an
+app extension, XPC service, framework, plug-in, kernel or system extension,
+screen saver, Audio Unit -- shows instead:
+
+- **What it is**: name, version and build, identifier, category, copyright,
+  the macOS and processors it needs, the Xcode and SDK it was built with, and
+  what it was made with when that is Electron, Qt, Flutter, Java, Python or
+  Mac Catalyst. A menu bar app, a background app and an iPhone app are named
+  as such.
+- **Who signed it**: the certificate chain or ad hoc, Team ID, hardened
+  runtime, sandbox, entitlements, and whether a notarization ticket is
+  stapled.
+- **Whether it is as signed**: the Info.plist, the main executable's pages and
+  every file the seal lists are hashed and compared, as macOS does when it
+  says an app "is damaged and can't be opened"; changed and missing files are
+  listed. This and the size follow a moment after the page opens.
+- **What it will ask for**: camera, microphone, Desktop folder, controlling
+  other apps, …, each with the reason the app gives.
+- **What is inside**: frameworks, extensions, login items, privileged helpers,
+  launch agents and daemons, XPC services, each with its version and its
+  signing team -- and a note when parts are signed by another team.
+- **Where it came from**: the Mac App Store, or downloaded with which browser,
+  when and from where, and whether it has been opened since.
+
+Nothing is opened, launched or registered, and nothing is asked online.
+`make-bundle-samples.sh` makes sample apps -- one changed after signing, one
+unsigned, one marked as downloaded -- for trying it by hand.
+
+## Previewing programs, libraries and scripts
+
+Finder calls four different things a "Unix executable file", and Quick Look
+shows a name and a size for all of them. Space on one -- or on a `.dylib`,
+`.so`, `.o`, `.a` or `.bundle` file, or a Windows `.exe`, `.dll`, `.sys`,
+`.efi`, `.lib`, `.obj`, `.bat` or `.cmd` -- shows which it is, from its
+contents:
+
+- **Mac programs and libraries (Mach-O)**: each architecture of a universal
+  binary (Apple silicon, Intel), what kind of file it is, the macOS it needs
+  and the SDK and tools it was built with, its UUID, the libraries it links
+  and where `@rpath` looks, and its segments. The code signature: who signed
+  it -- Apple, a Developer ID, a development certificate, ad hoc or the
+  linker -- with the certificate chain and the time of signing, the
+  identifier, Team ID, hardened runtime and entitlements, the well-known ones
+  in words. Every page of code is hashed and compared with the signature, as
+  the kernel does, so a program changed after signing is caught. The page
+  warns when the program will not run here: unsigned on Apple silicon, Intel
+  only (Rosetta), 32-bit, or needing a newer macOS.
+- **Linux and other ELF programs**: system, processor, executable or shared
+  library, static or dynamic and its loader, the libraries it needs, the
+  glibc version it needs, build ID, and whether its symbols were stripped.
+- **Scripts**: the interpreter, followed through `env` to where it is on this
+  Mac, and the mistakes behind a puzzling "command not found": Windows line
+  endings in the `#!` line, a byte-order mark before it, an interpreter that
+  is not installed or not a full path, a line Linux would not split. Then the
+  script itself, with line numbers.
+- **Text marked executable** without a `#!` line: the text, with a note.
+- **Windows programs and DLLs**: processor, console or windowed, the Windows
+  it needs, the version, product, company and description from its version
+  resource, whether its manifest asks for administrator rights, ASLR, DEP and
+  Control Flow Guard, the DLLs it uses and the functions it exports, a .NET
+  assembly's runtime, and the Authenticode signature: who signed it, the
+  certificate chain, the time, and whether the file still hashes as signed.
+  MS-DOS and 16-bit Windows programs are named as such.
+- **Libraries**: a Windows import library and the DLL it stands for, a
+  static library (`.lib`, `.a`) with its members and their processors, a
+  Windows object file.
+- **Batch files**: cmd.exe's pitfalls -- a byte-order mark it reads as part of
+  the first command, LF line endings that make GOTO and CALL miss their
+  labels, non-ASCII text without `chcp 65001` -- then the file.
+
+A script's page says what happens when it is started, on this Mac and, when
+that differs, on Linux: it runs, and with which program; it does not, and
+why; or it runs only in some way. Invisible characters in the text are named
+in frames, as Text Edit shows them.
+
+Nothing is run, and nothing is sent anywhere: notarization, which Apple
+checks online, is left to the Info window's Signature tab.
+`make-executable-samples.sh` makes one of each for trying it by hand; the
+Windows ones are signed by a made-up CA with `sign-pe-sample.py`.
+
 ## The Rename menu
 
 On the right-click menu **Rename** is a submenu, like Copy: clicking the word
@@ -1853,6 +1935,14 @@ where general editors are not:
   encoding is refused rather than mangled.
 * A file changed by something else since it was opened is not overwritten
   without asking. A file that cannot be written to opens read-only and says so.
+* **Invisible characters** -- control codes, a byte-order mark, zero-width
+  spaces and joiners, the marks and overrides that turn text right to left,
+  line separators -- are shown as their names in orange frames (`BOM`, `ZWSP`,
+  `RLO`, `ESC`, …) whenever the file has any; the ¶ button in the bar turns
+  this off and on, and the bar says how many there are. Shown, they do
+  nothing: a right-to-left override no longer reverses the text after it, a
+  line separator breaks no line. A byte-order mark is part of the text: it is
+  saved when it is there, and deleting it takes it out of the file.
 * A binary file is not opened; the window points to Bin Edit.
 * A file open in a comparison is refused, and the other way round, because two
   windows saving one file would each overwrite the other without a word.

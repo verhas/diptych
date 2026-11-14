@@ -332,6 +332,15 @@ enum DiptychTips {
             + " certificate a private key belongs to -- and an SSH key shows the fingerprint ssh-keygen gives.",
         "a .jks, .p12 or .pfx key store previews as its aliases and their certificates -- who for, issued"
             + " by whom, until when -- and says when it opens with no password or Java's default changeit.",
+        "a program or library previews as what it is -- Apple silicon or Intel, the macOS it needs, the"
+            + " libraries it links, who signed it -- and whether its code still matches the signature.",
+        "a script previews with what runs it and the #! mistakes that break it, like Windows line endings.",
+        "an app previews with who signed it, what it will ask permission for, what is inside it,"
+            + " where it was downloaded from -- and whether every file in it is still as signed.",
+        "a Windows .exe or .dll previews with its version, the DLLs it uses, and who signed it -- and"
+            + " whether the file still matches that signature.",
+        "Text Edit shows invisible characters -- a byte-order mark, zero-width spaces, right-to-left"
+            + " overrides -- as framed names you can see and delete; the \u{00B6} button hides them.",
         "a Java .class file previews as the outline of its source -- declaration, fields, methods with"
             + " their generic types, and the Java release it was compiled for -- with no JDK needed.",
         "Quick Look's preview updates live as the selected row changes, and closes itself outright if"
