@@ -399,11 +399,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !isRunningTests {
             // What a crash left of archives opened as folders.
+            // Copies the clipboard still holds from the last run are kept.
+            let onClipboard = MainActor.assumeIsolated { Clipboard.handedOutPaths() }
             Task.detached(priority: .utility) {
                 ArchiveBrowsing.removeAll()
                 // Copies handed to drags in the last run: not at quit, since
                 // whatever they were dropped on may still be reading them.
-                ArchiveBrowsing.removeHandedOut()
+                ArchiveBrowsing.removeHandedOut(keeping: onClipboard)
             }
             Task.detached(priority: .utility) { RemoteBrowsing.removeAll() }
             MainActor.assumeIsolated {
@@ -425,6 +427,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Archives opened as folders were unpacked for this run only.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            // Archive items on the clipboard get their copies first: a paste
+            // after this finds those, the unpacked archives being gone.
+            MainActor.assumeIsolated { Clipboard.settleArchiveItems() }
             ArchiveBrowsing.removeAll()
             RemoteBrowsing.removeAll()
         }

@@ -1,4 +1,4 @@
-commit and push chan# Previews for 2.0.0 — file formats
+# Previews for 2.0.0 — file formats
 
 Formats where Quick Look shows nothing useful — an icon or raw bytes — but
 the file has a structure worth showing. Each gets an HTML report like the

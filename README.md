@@ -3025,8 +3025,12 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
   An app copied out is the app as signed. A drag to Finder, or to any other
   app, gets the same: it is handed a copy made for it -- cloned, so instant
   for a folder of any size -- with the archive's permissions and quarantine,
-  never the locked cache itself. Those copies are cleared after a day, and
-  when Diptych starts.
+  never the locked cache itself. So does Copy (⌘C) and a paste in Finder:
+  the copy is made at the paste, however much later, and one still on the
+  clipboard when Diptych quits is made then, so it outlives the archive's
+  unpacked files. A paste back into Diptych copies from the archive itself.
+  The copies are cleared after a day, and when Diptych starts -- but never
+  one the clipboard still holds.
   Dropped elsewhere it is always a copy, never a move, whatever the volume:
   nothing can be taken out of an archive.
 - **The path bar names it inside the archive** --

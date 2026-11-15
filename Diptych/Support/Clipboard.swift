@@ -33,12 +33,55 @@ enum Clipboard {
     }
 
     /// File URLs on the pasteboard, whether they were put there by Diptych or
-    /// by Finder.
-    static func fileURLs() -> [URL] {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        let objects = NSPasteboard.general.readObjects(forClasses: [NSURL.self],
-                                                       options: options) as? [URL]
-        return objects ?? []
+    /// by Finder. An item of an archive Diptych copied is read back as that
+    /// item -- by its own type, so that no copy is made for a paste here.
+    static func fileURLs(on pasteboard: NSPasteboard = .general) -> [URL] {
+        let items = pasteboard.pasteboardItems ?? []
+        guard items.contains(where: { $0.types.contains(archiveItemType) }) else {
+            let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+            let objects = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]
+            return (objects ?? []).map(ArchiveBrowsing.original(of:))
+        }
+        return items.compactMap { item -> URL? in
+            // The archive's item while it is still unpacked; after a quit, the
+            // copy that was made for the clipboard as Diptych went.
+            if let text = item.string(forType: archiveItemType), let original = URL(string: text),
+               FileManager.default.fileExists(atPath: original.path) {
+                return original
+            }
+            guard let text = item.string(forType: .fileURL), let url = URL(string: text),
+                  url.isFileURL else { return nil }
+            return ArchiveBrowsing.original(of: (url as NSURL).filePathURL ?? url)
+        }
+    }
+
+    // MARK: - Items of an archive
+
+    /// Diptych's own record of an archive item on the clipboard: its path in
+    /// the unpacked archive.
+    private static let archiveItemType = NSPasteboard.PasteboardType("dev.verhas.diptych.archive-item")
+
+    /// The providers of the items written last; held here, since the
+    /// pasteboard item may not.
+    private static var providers: [ArchiveItemProvider] = []
+
+    /// Gives every archive item on the clipboard its copy now, while the
+    /// unpacked archives are still there: at quit, so that a paste after it
+    /// still finds something.
+    static func settleArchiveItems(on pasteboard: NSPasteboard = .general) {
+        for item in pasteboard.pasteboardItems ?? []
+        where item.types.contains(archiveItemType) {
+            _ = item.string(forType: .fileURL)
+        }
+    }
+
+    /// The copies made for the clipboard by an earlier run, still on it:
+    /// kept when the rest of that run's copies are removed.
+    static func handedOutPaths() -> Set<String> {
+        let root = ArchiveBrowsing.handOutRoot.standardizedFileURL.path + "/"
+        return Set((NSPasteboard.general.pasteboardItems ?? []).compactMap { item in
+            item.string(forType: .fileURL).flatMap(URL.init(string:))?.standardizedFileURL.path
+        }.filter { $0.hasPrefix(root) })
     }
 
     /// The plain-text flavour, if there is one -- what Check Checksum reads to
@@ -158,10 +201,26 @@ enum Clipboard {
         cutAtChangeCount = nil
     }
 
-    private static func write(_ urls: [URL]) {
-        let pasteboard = NSPasteboard.general
+    /// An item of an opened archive goes on as a promise of its file URL,
+    /// kept until something reads it: then -- at the paste -- a clean copy is
+    /// made, with the archive's permissions and quarantine, as a drag gets
+    /// (`ArchiveBrowsing.handOut`). Given the unpacked archive itself, Finder
+    /// copied its read-only lock. Made at the copy instead, it could be gone
+    /// by the paste. Anything else goes on as a plain URL, as Finder's does.
+    static func write(_ urls: [URL], to pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
-        pasteboard.writeObjects(urls as [NSURL])
+        ArchiveBrowsing.unpinHandedOut()
+        providers = []
+        let objects = urls.map { url -> NSPasteboardWriting in
+            guard ArchiveBrowsing.isInside(url) else { return url as NSURL }
+            let item = NSPasteboardItem()
+            item.setString(url.absoluteString, forType: archiveItemType)
+            let provider = ArchiveItemProvider(original: url)
+            providers.append(provider)
+            item.setDataProvider(provider, forTypes: [.fileURL, .URL])
+            return item
+        }
+        pasteboard.writeObjects(objects)
     }
 
     // MARK: - Making a file out of what is on the clipboard
@@ -277,5 +336,24 @@ final class ClipboardWatcher {
         if kind != .empty, NSApp.isActive {
             ClipboardNamePrefetcher.shared.anticipateInKeyWindow()
         }
+    }
+}
+
+/// Makes the clean copy of an archive item when the clipboard is read --
+/// once, whichever of its types is asked for first.
+final class ArchiveItemProvider: NSObject, NSPasteboardItemDataProvider {
+    let original: URL
+    private var copy: URL?
+
+    init(original: URL) {
+        self.original = original
+    }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem,
+                    provideDataForType type: NSPasteboard.PasteboardType) {
+        let made = copy ?? ArchiveBrowsing.handOut(original)
+        copy = made
+        if made != original { ArchiveBrowsing.pinHandedOut(made) }
+        item.setString(made.absoluteString, forType: type)
     }
 }

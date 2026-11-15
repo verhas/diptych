@@ -65,6 +65,9 @@ nonisolated enum ArchiveBrowsing {
         /// Clean copies handed to a drag, by the path of what they were
         /// copied from.
         var handedOut: [String: HandedOut] = [:]
+        /// The holders of copies the clipboard has handed out: kept whatever
+        /// their age, since a paste can come at any time.
+        var pinned: Set<String> = []
     }
 
     struct HandedOut {
@@ -389,7 +392,7 @@ nonisolated enum ArchiveBrowsing {
     /// within a minute -- the same drag, read once more -- the same copy is
     /// given. The copies are not removed when the drag ends: the receiver may
     /// go on reading them long after. They go when they are a day old, and
-    /// when Diptych starts.
+    /// when Diptych starts -- except the ones the clipboard holds.
     nonisolated static func handOut(_ url: URL) -> URL {
         guard isInside(url), url.standardizedFileURL != cacheRoot.standardizedFileURL else { return url }
         let key = url.standardizedFileURL.path
@@ -421,30 +424,48 @@ nonisolated enum ArchiveBrowsing {
 
     /// The archive item a copy handed to a drag was made from, so that a
     /// drop back into Diptych works on the item itself -- inside the archive,
-    /// and always a copy. Anything else as it is.
+    /// and always a copy -- while that item is still there. Once the archive
+    /// is gone, the copy is all there is. Anything else as it is.
     nonisolated static func original(of url: URL) -> URL {
         let path = url.standardizedFileURL.path
-        return registry.lock.withLock {
+        guard let original = registry.lock.withLock({
             registry.handedOut.values.first { $0.copy.standardizedFileURL.path == path }?.original
-        } ?? url
+        }), FileManager.default.fileExists(atPath: original.path), isCurrent(original) else { return url }
+        return original
     }
 
-    /// The handed-out copies older than `age`, or all of them.
-    nonisolated static func removeHandedOut(olderThan age: TimeInterval? = nil) {
+    /// Keeps the copy at `copy` whatever its age: the clipboard holds it.
+    nonisolated static func pinHandedOut(_ copy: URL) {
+        let holder = copy.deletingLastPathComponent().standardizedFileURL.path
+        registry.lock.withLock { _ = registry.pinned.insert(holder) }
+    }
+
+    /// The clipboard holds none of them any more.
+    nonisolated static func unpinHandedOut() {
+        registry.lock.withLock { registry.pinned.removeAll() }
+    }
+
+    /// The handed-out copies older than `age`, or all of them -- but never
+    /// one the clipboard holds, nor one of `keeping` (copies' paths).
+    nonisolated static func removeHandedOut(olderThan age: TimeInterval? = nil,
+                                            keeping: Set<String> = []) {
         let manager = FileManager()
         let holders = (try? manager.contentsOfDirectory(at: handOutRoot,
                                                         includingPropertiesForKeys: [.creationDateKey])) ?? []
-        for holder in holders {
+        let kept = registry.lock.withLock { registry.pinned }.union(keeping.map {
+            URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path
+        })
+        for holder in holders where !kept.contains(holder.standardizedFileURL.path) {
             if let age {
                 let made = (try? holder.resourceValues(forKeys: [.creationDateKey]))?.creationDate
                 guard let made, Date().timeIntervalSince(made) > age else { continue }
             }
             remove(holder)
         }
-        let kept = Set(((try? manager.contentsOfDirectory(atPath: handOutRoot.path)) ?? []))
+        let left = Set(((try? manager.contentsOfDirectory(atPath: handOutRoot.path)) ?? []))
         registry.lock.withLock {
             registry.handedOut = registry.handedOut.filter {
-                kept.contains($0.value.copy.deletingLastPathComponent().lastPathComponent)
+                left.contains($0.value.copy.deletingLastPathComponent().lastPathComponent)
             }
         }
     }
