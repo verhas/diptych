@@ -1,4 +1,4 @@
-# Previews for 2.0.0 — file formats
+commit and push chan# Previews for 2.0.0 — file formats
 
 Formats where Quick Look shows nothing useful — an icon or raw bytes — but
 the file has a structure worth showing. Each gets an HTML report like the
@@ -20,7 +20,8 @@ links and aliases (`LinkReport`), `.DS_Store` (`DSStoreReport`), plists
 
 ## Status
 
-Status values: `planned`, `in progress`, `done`, `dropped`.
+Status values: `planned`, `in progress`, `done`, `dropped`, `moved` (taken
+out of this plan, to the document named in its notes).
 
 | # | Format | Tier | Status | Version | Notes |
 |---|--------|------|--------|---------|-------|
@@ -30,17 +31,17 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | 4 | Certificates and keys `.cer` `.crt` `.pem` `.der` `.csr` `.crl` `.p7b`, SSH keys | 1 | done | 2.0.0 | `CertificateFile`, `SSHKey`, `CertificateReport` |
 | 5 | Executables: Mach-O, ELF, Windows PE, libraries, scripts, batch files | 1 | done | 2.0.0 | `MachOFile`, `ELF`, `PEFile`, `ArArchive`, `Script`, `ExecutableReport` |
 | 6 | `.app` and other code bundles | 1 | done | 2.0.0 | `AppBundle`, `BundleReport` |
-| 7 | SQLite databases | 2 | planned | | |
+| 7 | SQLite databases | 2 | planned | | a window of its own; Quick Look a static summary |
 | 8 | Installer packages `.pkg` | 2 | done | 2.0.0 | `XarArchive`, `Bom`, `CPIO`, `InstallerPackage`, `PackageReport` |
 | 9 | Disk images `.dmg` | 2 | done | 2.0.0 | `DiskImage` (UDIF, raw, sparse, HFS+, APFS), `DiskImageReport` |
 | 10 | Crash reports `.ips` | 2 | done | 2.0.0 | `CrashLog`, `CrashReport` |
 | 11 | `.mobileprovision` | 2 | done | 2.0.0 | `ProvisioningProfile`, `ProvisioningReport` |
 | 12 | `.webloc` `.inetloc` `.url` | 2 | done | 2.0.0 | `InternetLocation`, `Punycode`, `LocationReport` |
-| 13 | JSON, `.jsonl`, YAML, TOML | 3 | planned | | |
+| 13 | Syntax-formatted text: JSON, YAML, TOML, programming languages, CSS, HTML… | 3 | planned | | TextMate grammars, one engine for Quick Look and Text Edit |
 | 14 | Git repository folders | 3 | planned | | in the folder report |
 | 15 | `.properties` | 3 | done | 2.0.0 | `JavaProperties`, `PropertiesReport` |
 | 16 | `.eml` / `.mbox` | 3 | done | 2.0.0 | `MailMessage`, `Mailbox`, `MailReport` |
-| 17 | Where it came from (any file) | 3 | planned | | a section, not a format |
+| 17 | Where it came from (any file) | 3 | moved | | not a format: `where-it-came-from.md` |
 
 Suggested first five for 2.0.0: 1–2, 3–4, 5–6, 7, 8.
 
@@ -196,11 +197,36 @@ bundles built from the executable fixtures and signed ad hoc with
 
 Recognised by: `SQLite format 3\0` header (many app databases have other extensions).
 
-- [ ] Tables, views, indexes, triggers with their schema
-- [ ] Row count per table
-- [ ] First N rows of each table, long values shortened, blobs as size
-- [ ] Opened read-only (`SQLITE_OPEN_READONLY`, immutable URI) — never touches `-wal` / `-shm`
-- [ ] Encrypted / not a database: said plainly
+**Not an HTML report.** A database is to be looked through, not read once:
+more rows fetched as you scroll, sorted and filtered, a long value opened in
+full. A static page cannot do that, so the work is in a **Database window**
+of its own, native, opened like Text Edit or Compare. Quick Look keeps a
+short static summary and a way into the window.
+
+Quick Look (HTML, like the other reports):
+
+- [ ] Tables, views, indexes, triggers, with their schema
+- [ ] Row count per table (a very large table: counted up to a cap, said so)
+- [ ] A few rows of each table, long values shortened, blobs as their size
+- [ ] Encrypted, or not a database after all: said plainly
+- [ ] Opens the Database window
+
+Database window (native):
+
+- [ ] The tables and views in a sidebar, the schema of each on request
+- [ ] Rows fetched a page at a time as you scroll, never the whole table at once
+- [ ] Sort by a column, filter the rows (by column value, or a `WHERE` typed in)
+- [ ] A cell's whole value: long text, JSON in it formatted, a blob as hex and size, a picture shown
+- [ ] Copy cells, rows, a table as CSV
+- [ ] Optional: a `SELECT` of your own, run on the read-only connection (`PRAGMA query_only`)
+
+Rules for both:
+
+- [ ] Read-only, always: `SQLITE_OPEN_READONLY`; nothing is ever written to the file
+- [ ] A database another app is using (Mail, Photos, Safari): read without
+      disturbing it. Open question: `immutable=1` never touches `-wal`/`-shm`
+      but misses what is still in the WAL; a read-only open sees it but needs
+      the `-shm`. Possibly a snapshot copy of the three files, read instead.
 
 ## 8. Installer packages `.pkg`
 
@@ -254,12 +280,45 @@ Recognised by: CMS-signed plist.
 - [x] Warnings: user name before "@", punycode site names, programs at the end, files on other computers, remote icons
 - [x] `.fileloc`, `.ftploc`, `.afploc`; old locations kept only in the resource fork
 
-## 13. JSON, `.jsonl`, YAML, TOML
+## 13. Syntax-formatted text
 
-- [ ] Formatted, collapsible tree
-- [ ] Syntax error: line, column and the text around it
+JSON, YAML and TOML are a small part of a large family: every file whose
+reading is helped by colouring its syntax -- data formats (JSON, `.jsonl`,
+YAML, TOML, XML), markup and styles (HTML, CSS, Markdown source), the popular
+programming languages, shell, SQL, build and configuration files. They are
+one problem, solved once, not one format after another.
+
+**Engine: TextMate grammars.** The grammar files VS Code and many other
+editors use (`.tmLanguage`, JSON or plist): the widest language coverage
+there is, and maintained by each language's own community. One engine for
+both places a file is read:
+
+- Quick Look: a static HTML page, the text with coloured spans
+- Text Edit: the same scopes, drawn as temporary attributes, as
+  `SyntaxColouring` draws its colours today -- which it then replaces
+
+Design questions, the first task of this item:
+
+- [ ] The regular expressions: grammars are written for Oniguruma, which
+      `NSRegularExpression` (ICU) matches closely but not exactly (`\G`,
+      some look-behinds, `\h`, possessive forms). Bundle Oniguruma, or
+      translate and accept the few grammars that break
+- [ ] Which grammars ship, from where, under which licence (VS Code's are
+      MIT; check each); kept up to date how
+- [ ] Which language a file is: extension, then `#!` line, modelines, the
+      file's type; a choice in Text Edit when it guesses wrong
+- [ ] Scopes to colours: one theme, light and dark, matched to what Text Edit
+      already uses
+- [ ] Speed: a size cap for Quick Look ("first N KB shown"); Text Edit
+      colouring as you type, off the main thread, only what changed
+
+What colouring cannot give -- TextMate grammars know tokens, not structure
+-- the data formats keep from parsers of their own:
+
+- [ ] JSON, YAML, TOML: a formatted, collapsible tree
+- [ ] A syntax error: line, column and the text around it
 - [ ] `.jsonl`: one entry per line, counted
-- [ ] Size cap with "first N KB shown"
+- [ ] Brackets and tags that belong together (Text Edit's pairs, kept)
 
 ## 14. Git repository folders
 
@@ -288,11 +347,8 @@ In the existing folder report.
 
 ## 17. Where it came from (any file)
 
-A section added to every report, from extended attributes.
-
-- [ ] `com.apple.metadata:kMDItemWhereFroms`: download URL and referring page
-- [ ] `com.apple.quarantine`: quarantined, by which app, when
-- [ ] Other extended attributes listed by name and size
+Moved: not a format but something every file has, so it belongs to all of
+them at once. See `where-it-came-from.md`.
 
 ---
 
@@ -302,6 +358,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-15 | 7, 13, 17 | Replanned: SQLite gets a native Database window, Quick Look only a summary; JSON/YAML/TOML widened to all syntax-formatted text on TextMate grammars, shared with Text Edit; "where it came from" moved to `where-it-came-from.md` |
 | 2026-11-14 | 10, 11, 12, 15 | Crash reports, provisioning profiles (CMS signature and chain checked), web locations and Windows shortcuts (with warnings, resource-fork locations, punycode), Java properties; `make-small-samples.sh`; 9 tests with damaged-file rounds |
 | 2026-11-14 | 8, 9, 16 | Installer packages (xar, Bom, scripts, signature check), disk images (UDIF chunks, GPT/APM/MBR, HFS+ and APFS listing, signature check), e-mail and mailboxes; three sample scripts; 32 tests with damaged-file rounds |
 | 2026-11-14 | 6 | Bundle preview: Info.plist, signature, seal checked file by file, permissions, embedded code, origin; `make-bundle-samples.sh` |
