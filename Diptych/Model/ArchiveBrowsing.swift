@@ -62,6 +62,15 @@ nonisolated enum ArchiveBrowsing {
         var cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "Diptych")
             .appendingPathComponent("Opened Archives")
+        /// Clean copies handed to a drag, by the path of what they were
+        /// copied from.
+        var handedOut: [String: HandedOut] = [:]
+    }
+
+    struct HandedOut {
+        let original: URL
+        let copy: URL
+        let made: Date
     }
 
     private static let registry = Registry()
@@ -326,11 +335,6 @@ nonisolated enum ArchiveBrowsing {
     /// Gives a copy taken out of any manifest-backed source -- an opened archive,
     /// a server's shadow -- the modes its manifests record, item by item, rather
     /// than the read-only lock the copy it came from carries.
-    ///
-    /// And leaves our manifests behind. They sit beside the files in the source
-    /// tree, so copying a folder copied them too: one `__DIPTYCH.json` in every
-    /// folder of the copy. In an app that is fatal -- the files no longer match
-    /// what its signature seals, and macOS calls it damaged.
     nonisolated static func applyListedModes(at target: URL, from source: URL) {
         let manager = FileManager()
         // Every item copied, paired with where it came from.
@@ -341,23 +345,6 @@ nonisolated enum ArchiveBrowsing {
                               source.appendingPathComponent(relative)))
             }
         }
-        // Only the manifest each source folder really has -- found by its
-        // marker, as the listing finds it -- so an archive's own file that
-        // merely shares the name is kept. The copied folder is still locked
-        // as the cache was, so it is opened for writing first; its own mode
-        // is set below, after.
-        var removed = Set<String>()
-        for (target, source) in pairs {
-            var info = stat()
-            guard lstat(target.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
-                  let fileName = BrowserManifestStore.located(in: source)?.fileName else { continue }
-            let manifest = target.appendingPathComponent(fileName)
-            guard lstat(manifest.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { continue }
-            var folder = stat()
-            if lstat(target.path, &folder) == 0 { chmod(target.path, (folder.st_mode & 0o7777) | 0o700) }
-            if unlink(manifest.path) == 0 { removed.insert(manifest.path) }
-        }
-        pairs.removeAll { removed.contains($0.target.path) }
         // One manifest read per source directory, not per item.
         var modes: [String: [String: mode_t]] = [:]
         func mode(of item: URL) -> mode_t? {
@@ -379,6 +366,85 @@ nonisolated enum ArchiveBrowsing {
             } else {
                 var info = stat()
                 if lstat(target.path, &info) == 0 { chmod(target.path, (info.st_mode & 0o7777) | 0o600) }
+            }
+        }
+    }
+
+    // MARK: - Dragged out
+
+    /// Where the copies handed to drags are made: beside the unpacked
+    /// archives, on the same volume, so that a copy is a clone.
+    nonisolated static var handOutRoot: URL {
+        cacheRoot.deletingLastPathComponent().appendingPathComponent("Dragged Out")
+    }
+
+    /// What to give a drag for `url`: for an item of an opened archive, a
+    /// copy of it as Extract would give it -- the archive's own permissions,
+    /// not the cache's lock, and its quarantine. A drag hands over a path and
+    /// the receiver copies what is there: Finder, given the cache's own
+    /// files, copied their lock, and a folder of the copy could then not even
+    /// be deleted. Anything else is given as it is.
+    ///
+    /// Cloned, so a folder of any size costs next to nothing; asked for again
+    /// within a minute -- the same drag, read once more -- the same copy is
+    /// given. The copies are not removed when the drag ends: the receiver may
+    /// go on reading them long after. They go when they are a day old, and
+    /// when Diptych starts.
+    nonisolated static func handOut(_ url: URL) -> URL {
+        guard isInside(url), url.standardizedFileURL != cacheRoot.standardizedFileURL else { return url }
+        let key = url.standardizedFileURL.path
+        if let earlier = registry.lock.withLock({ registry.handedOut[key] }),
+           Date().timeIntervalSince(earlier.made) < 60,
+           FileManager.default.fileExists(atPath: earlier.copy.path) {
+            return earlier.copy
+        }
+        removeHandedOut(olderThan: 24 * 3600)
+        let holder = handOutRoot.appendingPathComponent(UUID().uuidString)
+        let copy = holder.appendingPathComponent(url.lastPathComponent)
+        do {
+            try FileManager().createDirectory(at: holder, withIntermediateDirectories: true)
+            // clonefile takes a whole tree at once, links and locked folders
+            // included; another volume, should the caches be on one, copies.
+            if clonefile(url.path, copy.path, UInt32(CLONE_NOFOLLOW)) != 0 {
+                try FileManager().copyItem(at: url, to: copy)
+            }
+        } catch {
+            remove(holder)
+            return url
+        }
+        unlockCopy(at: copy, from: url)
+        registry.lock.withLock {
+            registry.handedOut[key] = HandedOut(original: url, copy: copy, made: Date())
+        }
+        return copy
+    }
+
+    /// The archive item a copy handed to a drag was made from, so that a
+    /// drop back into Diptych works on the item itself -- inside the archive,
+    /// and always a copy. Anything else as it is.
+    nonisolated static func original(of url: URL) -> URL {
+        let path = url.standardizedFileURL.path
+        return registry.lock.withLock {
+            registry.handedOut.values.first { $0.copy.standardizedFileURL.path == path }?.original
+        } ?? url
+    }
+
+    /// The handed-out copies older than `age`, or all of them.
+    nonisolated static func removeHandedOut(olderThan age: TimeInterval? = nil) {
+        let manager = FileManager()
+        let holders = (try? manager.contentsOfDirectory(at: handOutRoot,
+                                                        includingPropertiesForKeys: [.creationDateKey])) ?? []
+        for holder in holders {
+            if let age {
+                let made = (try? holder.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+                guard let made, Date().timeIntervalSince(made) > age else { continue }
+            }
+            remove(holder)
+        }
+        let kept = Set(((try? manager.contentsOfDirectory(atPath: handOutRoot.path)) ?? []))
+        registry.lock.withLock {
+            registry.handedOut = registry.handedOut.filter {
+                kept.contains($0.value.copy.deletingLastPathComponent().lastPathComponent)
             }
         }
     }
@@ -412,6 +478,7 @@ nonisolated enum ArchiveBrowsing {
             }
         }
         try? manager.removeItem(at: url)
+        BrowserManifestStore.forget(under: url)
     }
 
     /// `/var` and `/tmp` as the kernel has them, so either spelling matches

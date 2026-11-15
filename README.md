@@ -3008,19 +3008,25 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
   are locked on disk too -- directories unwritable, files `r--` -- so not even
   another app can save over the copy. Extract it, or copy a file out, to
   change it.
-- **The listing is the archive's, not the copy's.** Beside the files in each
-  folder sits a small manifest -- `__DIPTYCH.json`, or `__1DIPTYCH.json` and
-  on up where the archive itself has a file of that name -- holding what the
-  archive recorded: the permissions, owner and group the extracted copy could
-  not keep, such as a setuid bit or a group you are not in. The pane shows
-  those, read from the manifest, over the real names and sizes on disk. The
-  manifest is hidden -- it is not listed, and Quick Look of a folder inside
-  the archive does not show it.
+- **The listing is the archive's, not the copy's.** For each folder Diptych
+  keeps a manifest of what the archive recorded -- the permissions, owner and
+  group the extracted copy could not keep, such as a setuid bit or a group
+  you are not in -- and the pane shows those over the real names and sizes on
+  disk. The manifests are in `~/.diptych/cache.sqlite` (readable only by
+  you), not in the unpacked tree: nothing of Diptych's is beside the files,
+  so whatever is copied or dragged out -- to Finder too -- holds exactly what
+  the archive does. A server's shadow folders are kept the same way. The
+  cache holds nothing that cannot be worked out again: removed, it is made
+  again.
 - **A copy out is an extract.** Copy or drag a file, or a whole folder, out of
   the archive and it lands with the archive's own permissions -- the write
   bits and any setuid, setgid or sticky bit restored, not the read-only lock
   -- and the archive's quarantine, owned by you, exactly as Extract gives it.
-  The manifests stay behind, so an app copied out is the app as signed.
+  An app copied out is the app as signed. A drag to Finder, or to any other
+  app, gets the same: it is handed a copy made for it -- cloned, so instant
+  for a folder of any size -- with the archive's permissions and quarantine,
+  never the locked cache itself. Those copies are cleared after a day, and
+  when Diptych starts.
   Dropped elsewhere it is always a copy, never a move, whatever the volume:
   nothing can be taken out of an archive.
 - **The path bar names it inside the archive** --

@@ -188,7 +188,9 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(note?.attribute(BrowserManifest.Attribute.size)?.intValue, 12)
         XCTAssertEqual(note?.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o644)
         XCTAssertEqual(note?.backing, BrowserManifest.Backing.none)
-        XCTAssertEqual(BrowserManifestStore.read(in: folder)?.origin["host"], "nas")
+        XCTAssertEqual(BrowserManifestStore.read(in: folder)?.origin["path"], "sftp://nas")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(),
+                       ["note.txt", "photos"], "nothing of Diptych's in the shadow")
     }
 
     /// Two files of one folder fetched at once, as before an archive is made of
@@ -327,32 +329,29 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.nodes.count, 1)
     }
 
-    func testAServerNamedLikeTheManifestGetsAnotherManifestName() async throws {
+    func testAServerFileNamedLikeTheOldManifestIsAnOrdinaryFile() async throws {
         let server = FakeServer(folders: ["/d": [SFTPEntry(name: "__DIPTYCH.json", kind: .file)]])
         let shadow = mirror(server)
         try await shadow.populate("/d")
         let folder = await shadow.localURL(for: "/d")
-        XCTAssertEqual(BrowserManifestStore.located(in: folder)?.fileName, "__1DIPTYCH.json")
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.nodes.map(\.name), ["__DIPTYCH.json"])
     }
 
-    /// An unchanged folder must not be written again: the pane reloads on any
-    /// change in its folder, so a rewrite would start a reload loop.
+    /// An unchanged folder must not be written again: a pane showing it lists
+    /// it again on every change, and that listing comes back here -- a loop.
     func testAnUnchangedFolderIsNotWrittenAgain() async throws {
         let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 1)]])
         let shadow = mirror(server)
         try await shadow.populate("/d")
         let folder = await shadow.localURL(for: "/d")
-        let manifest = BrowserManifestStore.located(in: folder)!.fileName
-        let before = try FileManager.default.attributesOfItem(
-            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
+        let manifest = try XCTUnwrap(BrowserManifestStore.read(in: folder))
+        XCTAssertFalse(try BrowserManifestStore.write(manifest, in: folder),
+                       "the same listing again is no change")
 
-        try await Task.sleep(for: .seconds(1.1))
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 2)]
         try await shadow.populate("/d")
-
-        let after = try FileManager.default.attributesOfItem(
-            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
-        XCTAssertEqual(before, after)
+        XCTAssertEqual(BrowserManifestStore.node(named: "a.txt", in: folder)?
+            .attribute(BrowserManifest.Attribute.size)?.intValue, 2)
     }
 
     // MARK: - Editing here, sending back

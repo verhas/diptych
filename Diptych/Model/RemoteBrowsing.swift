@@ -151,6 +151,7 @@ nonisolated enum RemoteBrowsing {
         SudoPasswords.shared.forget(server.key)
         Task.detached { await server.close() }
         try? FileManager.default.removeItem(at: server.root)
+        BrowserManifestStore.forget(under: server.root)
         return true
     }
 
@@ -167,6 +168,7 @@ nonisolated enum RemoteBrowsing {
         }
         SudoPasswords.shared.forgetAll()
         try? FileManager.default.removeItem(at: cacheRoot)
+        BrowserManifestStore.forget(under: cacheRoot)
     }
 
     // MARK: - Where things are
@@ -350,14 +352,14 @@ nonisolated enum RemoteBrowsing {
     }
 
     /// Whether a name in a shadow folder is Diptych's own and not the server's:
-    /// the manifest, or a file on its way in.
+    /// a file on its way in.
     static func isBookkeeping(_ name: String) -> Bool {
-        BrowserManifestStore.number(of: name) != nil || name.hasPrefix(".downloading-")
+        name.hasPrefix(".downloading-")
     }
 
     /// Copies of the server items among `urls` as the server has them, for a tool
-    /// that reads folders whole, such as an archiver: without the manifests and
-    /// downloads of Diptych's own, and with the server's permissions and dates in
+    /// that reads folders whole, such as an archiver: without the downloads of
+    /// Diptych's own, and with the server's permissions and dates in
     /// place of the cache's. Cloned, so cheap. Items not on a server are given as
     /// they are; `staging` holds the copies, for `removeCopies`. Fetched first.
     static func faithfulCopies(of urls: [URL]) throws -> (urls: [URL], staging: URL?) {
@@ -460,7 +462,7 @@ nonisolated enum RemoteBrowsing {
                 _ = try await server.mirror.populate(path)
                 let children = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
                 try await fetch(children
-                    .filter { BrowserManifestStore.number(of: $0) == nil }
+                    .filter { !isBookkeeping($0) }
                     .map { url.appendingPathComponent($0) })
             } else {
                 try Task.checkCancellation()

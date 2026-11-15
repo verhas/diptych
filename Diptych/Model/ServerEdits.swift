@@ -159,7 +159,6 @@ final class ServerEditing {
             let url = URL(fileURLWithPath: path)
             let name = url.lastPathComponent
             guard RemoteBrowsing.isInside(url), !name.hasPrefix(".downloading-"),
-                  BrowserManifestStore.number(of: name) == nil,
                   FileManager.default.fileExists(atPath: path), !SFTPMirror.isDirectory(url)
             else { continue }
             waiting[path]?.cancel()

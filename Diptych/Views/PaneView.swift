@@ -680,7 +680,10 @@ struct PaneView: View {
                         provider.registerDataRepresentation(
                             forTypeIdentifier: UTType.fileURL.identifier, visibility: .all
                         ) { completion in
-                            completion(item.url.absoluteString.data(using: .utf8), nil)
+                            // Out of an archive, a clean copy of the item:
+                            // whoever receives it copies what is at the path.
+                            let url = ArchiveBrowsing.handOut(item.url)
+                            completion(url.absoluteString.data(using: .utf8), nil)
                             return nil
                         }
                         // Without a suggested name Finder invents one from

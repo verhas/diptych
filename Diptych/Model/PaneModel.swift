@@ -608,6 +608,9 @@ final class PaneModel {
 
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var watchedPath: String?
+    /// Told when the cache's listing of a folder changes -- an archive's or
+    /// a server's: that is no change on disk, and the watch does not see it.
+    @ObservationIgnored nonisolated(unsafe) private var listingObserver: (any NSObjectProtocol)?
     /// On a server, a look every few seconds for what changed there.
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     /// On a server, pictures' details read after the rows are shown.
@@ -618,6 +621,11 @@ final class PaneModel {
         self.directory = directory
         history = [.folder(directory)]
         historyIndex = 0
+        listingObserver = NotificationCenter.default.addObserver(
+            forName: BrowserManifestStore.changed, object: nil, queue: .main) { [weak self] note in
+                guard let path = note.userInfo?["path"] as? String else { return }
+                MainActor.assumeIsolated { self?.listingChanged(at: path) }
+            }
     }
 
     /// Rows as displayed: sorted by the column the user clicked, but with `..`
@@ -1214,6 +1222,18 @@ final class PaneModel {
     deinit {
         watcher?.cancel()
         pollTask?.cancel()
+        if let listingObserver { NotificationCenter.default.removeObserver(listingObserver) }
+    }
+
+    /// The folder shown, or -- flat -- one under it, had its listing changed.
+    /// The name is compared first, so a pane elsewhere pays nothing.
+    private func listingChanged(at path: String) {
+        let shown = directory.path
+        guard isFlat || (path as NSString).lastPathComponent == directory.lastPathComponent,
+              path.hasPrefix("/") else { return }
+        let here = BrowserManifestStore.canonical(shown)
+        guard path == here || (isFlat && path.hasPrefix(here + "/")) else { return }
+        directoryChanged()
     }
 
     /// Watch `directory`, replacing any previous watch. Cheap to call often --
@@ -1382,8 +1402,14 @@ final class PaneModel {
                 // that was deleted, and the pane steps out. Off the main
                 // thread, since a large unpacked tree takes a while to remove.
                 if ArchiveBrowsing.isInside(target) {
-                    await BlockingWork.run { ArchiveBrowsing.retireStale() }
+                    let current = await BlockingWork.run { () -> Bool in
+                        ArchiveBrowsing.retireStale()
+                        return ArchiveBrowsing.isCurrent(target)
+                    }
                     guard !Task.isCancelled else { return }
+                    // Retired by the archive's own watch, perhaps, and still
+                    // being removed: what is left of it is not listed.
+                    if !current { throw CocoaError(.fileNoSuchFile) }
                 }
                 // Asked of the folder itself: the pane's facts are still
                 // those of where it came from, on arriving at a server.
@@ -1649,8 +1675,9 @@ final class PaneModel {
             return
         }
 
-        // The directory itself is gone -- deleted from under us, or renamed.
-        if !FileManager.default.fileExists(atPath: target.path) {
+        // The directory itself is gone -- deleted from under us, or renamed;
+        // or the archive it was unpacked from is, and the copy is going.
+        if !FileManager.default.fileExists(atPath: target.path) || !ArchiveBrowsing.isCurrent(target) {
             // ...but not while a path is being typed. Yanking the pane
             // elsewhere mid-edit throws away what the user was doing; this is
             // settled when they finish or press Escape.

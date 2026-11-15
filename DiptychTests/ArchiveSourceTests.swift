@@ -87,24 +87,24 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertEqual(info.st_mode & 0o777, 0o400, "the extracted bytes are read-only")
     }
 
-    func testEachDirectoryHasAManifestBesideTheRealFiles() throws {
+    func testEachDirectoryHasAManifestAndTheTreeHasNothingButTheFiles() throws {
         let source = try build(try makeZip())
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root))
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root.appendingPathComponent("top")))
         XCTAssertNotNil(BrowserManifestStore.read(in: source.root.appendingPathComponent("top/2024")))
-        // The real files are there (name-mirror), with the manifest beside them.
+        // The real files are there (name-mirror), and nothing of Diptych's:
+        // the manifests are in the cache.
         let topReal = try fm.contentsOfDirectory(atPath: source.root.appendingPathComponent("top").path)
-        XCTAssertEqual(Set(topReal), ["__DIPTYCH.json", "notes.txt", "run", "2024"])
+        XCTAssertEqual(Set(topReal), ["notes.txt", "run", "2024"])
         XCTAssertFalse(source.capabilities.writable)
     }
 
-    func testTheLoaderShowsArchivePermissionsAndHidesTheManifest() throws {
+    func testTheLoaderShowsArchivePermissions() throws {
         let source = try build(try makeZip())
         let rows = try DirectoryLoader.list(directory: source.root.appendingPathComponent("top"),
                                             showHidden: true,
                                             columns: [.name, .permissions, .owner])
             .filter { !$0.isParent }
-        XCTAssertFalse(rows.contains { $0.name == "__DIPTYCH.json" }, "the manifest is hidden")
         XCTAssertEqual(Set(rows.map(\.name)), ["notes.txt", "run", "2024"])
         // The archive's permissions, not the locked copy's 0400.
         XCTAssertEqual(rows.first { $0.name == "notes.txt" }?.permissions, "-rw-r-----")
@@ -117,9 +117,9 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertEqual(info.st_mode & 0o777, 0o400)
     }
 
-    func testAManifestNamedEntryDoesNotHideTheRealOne() throws {
+    func testAnEntryNamedLikeTheOldManifestIsAnOrdinaryFile() throws {
         // An archive whose folder contains a file literally called
-        // __DIPTYCH.json: it must still be listed.
+        // __DIPTYCH.json, the name manifests once had: listed like any other.
         let top = root.appendingPathComponent("odd")
         try fm.createDirectory(at: top, withIntermediateDirectories: true)
         try Data("x".utf8).write(to: top.appendingPathComponent("__DIPTYCH.json"))
@@ -134,13 +134,10 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertTrue(names.contains("b.txt"))
     }
 
-    func testQuickLookOfAFolderHidesTheManifest() throws {
+    func testQuickLookOfAFolderShowsTheArchivesFiles() throws {
         let source = try build(try makeZip())
         let listing = Listing.folder(at: source.root.appendingPathComponent("top"))
-        let names = Set(listing.entries.map(\.name))
-        XCTAssertFalse(names.contains { BrowserManifestStore.number(of: $0) != nil },
-                       "no manifest file in the Quick Look listing")
-        XCTAssertEqual(names, ["notes.txt", "run", "2024"])
+        XCTAssertEqual(Set(listing.entries.map(\.name)), ["notes.txt", "run", "2024"])
     }
 
     func testRemovalClearsTheLockedHolder() throws {
@@ -148,5 +145,6 @@ final class ArchiveSourceTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: source.holder.path))
         ArchiveSource.remove(source.holder)
         XCTAssertFalse(fm.fileExists(atPath: source.holder.path))
+        XCTAssertFalse(BrowserManifestStore.isManaged(source.root), "its listings go with it")
     }
 }

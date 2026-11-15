@@ -341,7 +341,10 @@ final class IconSurfaceView: NSView, NSDraggingSource {
             if RemoteBrowsing.isInside(entry.item.url) {
                 writer.setString(RemoteBrowsing.reportedPath(entry.item.url), forType: .string)
             } else {
-                writer.setString(entry.item.url.absoluteString, forType: .fileURL)
+                // Out of an archive, a clean copy of the item: whoever
+                // receives it copies what is at the path.
+                writer.setString(ArchiveBrowsing.handOut(entry.item.url).absoluteString,
+                                 forType: .fileURL)
             }
             let dragging = NSDraggingItem(pasteboardWriter: writer)
             dragging.setDraggingFrame(entry.frame, contents: entry.image)

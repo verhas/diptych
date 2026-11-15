@@ -7,10 +7,11 @@ import Darwin
 /// the caches -- so everything that works on files (Quick Look, Compare, copy
 /// and drag out, the flat view, Find Duplicates) works inside it -- and that
 /// tree is locked read-only so nothing, not even an external app, can quietly
-/// write over the copy. Beside the files, each directory carries a manifest
-/// recording the archive's own metadata: the directory loader lists the real
-/// folder for names and bytes and overlays the manifest for the permissions,
-/// owner and group the locked copy cannot show.
+/// write over the copy. For each directory the cache keeps a manifest
+/// recording the archive's own metadata (`BrowserManifestStore`): the
+/// directory loader lists the real folder for names and bytes and overlays
+/// the manifest for the permissions, owner and group the locked copy cannot
+/// show. Nothing of Diptych's is in the tree itself.
 ///
 /// This is the manifest-based replacement for the metadata-blind extraction in
 /// `ArchiveBrowsing`. The opaque indexed backing store in the design document
@@ -80,8 +81,7 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
         lock()
     }
 
-    /// One manifest per directory, from the archive's recorded metadata, with
-    /// a name that never overwrites a real entry of that directory.
+    /// One manifest per directory, from the archive's recorded metadata.
     private func writeManifests(entries: [Archiving.Entry]) throws(Failure) {
         let manager = FileManager()
         let byPath = Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
@@ -123,23 +123,14 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
             children[parent, default: []].append(node)
         }
 
-        for (directory, nodes) in children {
-            let folder = directory.isEmpty ? root : root.appendingPathComponent(directory)
-            let taken = Set((try? manager.contentsOfDirectory(atPath: folder.path)) ?? [])
-            let fileName = BrowserManifestStore.chooseName(avoiding: taken)
-            var manifest = BrowserManifest(source: "archive",
-                                           nodes: nodes.sorted { $0.name < $1.name })
-            manifest.origin = ["path": archive.path, "sha256": sha, "holder": holder.path]
-            // A folder the archive holds read-only is unpacked read-only, and
-            // its manifest could not be written: the whole archive failed to
-            // open. Writable for now; `lock` sets every folder's mode after.
-            var info = stat()
-            if lstat(folder.path, &info) == 0, info.st_mode & 0o200 == 0 {
-                chmod(folder.path, (info.st_mode & 0o7777) | 0o700)
-            }
-            do { try BrowserManifestStore.write(manifest, named: fileName, in: folder) }
-            catch { throw Failure(message: error.localizedDescription) }
+        BrowserManifestStore.register(root: root, kind: "archive", holder: holder,
+                                      originPath: archive.path, sha256: sha)
+        let listings = children.map { directory, nodes in
+            (directory: directory.isEmpty ? root : root.appendingPathComponent(directory),
+             manifest: BrowserManifest(source: "archive", nodes: nodes.sorted { $0.name < $1.name }))
         }
+        do { try BrowserManifestStore.write(listings) }
+        catch { throw Failure(message: "\(error)") }
     }
 
     // MARK: - Reading
@@ -189,5 +180,6 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
             }
         }
         try? manager.removeItem(at: holder)
+        BrowserManifestStore.forget(under: holder)
     }
 }

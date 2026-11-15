@@ -3942,8 +3942,11 @@ final class AppModel {
     /// drag -- measured, not assumed. The drag pasteboard has them all.
     func dragPasteboardURLs() -> [URL] {
         let pasteboard = NSPasteboard(name: .drag)
-        let files = pasteboard.readObjects(forClasses: [NSURL.self],
-                                           options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        // A copy handed out of an archive is read back as the archive's item,
+        // so a drop here is the drop it always was.
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self],
+                                            options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+            .map(ArchiveBrowsing.original(of:))
         // A file on a server is dragged as its sftp:// address; read back here
         // as its copy, while the server is connected.
         let texts = pasteboard.readObjects(forClasses: [NSString.self]) as? [String] ?? []

@@ -1,8 +1,8 @@
 import Foundation
 
 /// The shadow of one SFTP server: a real directory tree, one folder for each
-/// remote folder that has been listed, each holding a manifest of what the
-/// server listed there.
+/// remote folder that has been listed, with a manifest of what the server
+/// listed there kept in the cache (`BrowserManifestStore`).
 ///
 /// It is laid out as `ArchiveSource` lays out an opened archive, so the
 /// directory loader's manifest overlay shows the server's permissions, owner
@@ -29,6 +29,8 @@ actor SFTPMirror {
         self.host = host
         self.hashing = hashing
         self.learned = learned
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        BrowserManifestStore.register(root: root, kind: "sftp", originPath: "sftp://\(host)")
     }
 
     /// The local folder for a remote path such as `/home/peter/photos`.
@@ -101,34 +103,16 @@ actor SFTPMirror {
         // are one file here, and it is the new one now.
         let listedAnyCase = Set(listed.map { $0.lowercased() })
         for name in previous.map(\.name) where !listedAnyCase.contains(name.lowercased()) {
-            try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+            let gone = folder.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: gone)
+            BrowserManifestStore.forget(under: gone)
         }
 
-        let manifest = BrowserManifest(
-            source: "sftp",
-            origin: ["host": host, "path": path],
-            capabilities: BrowserManifest.Capabilities(),
-            nodes: nodes)
-        let fileName = BrowserManifestStore.chooseName(avoiding: Set(listed))
-        if let old = BrowserManifestStore.located(in: folder), old.fileName != fileName {
-            try? FileManager.default.removeItem(at: folder.appendingPathComponent(old.fileName))
-        }
-        try Self.writeIfChanged(manifest, named: fileName, in: folder)
+        // Written only when it differs, and only then are the panes showing
+        // the folder told: each of them lists it again, and that listing
+        // comes here again.
+        try BrowserManifestStore.write(BrowserManifest(source: "sftp", nodes: nodes), in: folder)
         return skipped
-    }
-
-    /// Writes the manifest only when its content differs. The pane watches its
-    /// folder and reloads on any change, and each reload lists the folder again:
-    /// a manifest rewritten with the same content would start that loop over,
-    /// and the pane would blink and jump back to the top all the time.
-    private static func writeIfChanged(_ manifest: BrowserManifest, named fileName: String,
-                                       in folder: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(manifest)
-        let url = folder.appendingPathComponent(fileName)
-        if (try? Data(contentsOf: url)) == data { return }
-        try data.write(to: url)
     }
 
     /// Makes sure the bytes of the file at `path` are local, fetching them if
@@ -354,18 +338,15 @@ actor SFTPMirror {
     private func keepSent(_ local: URL, as path: String) async throws {
         let file = localURL(for: path)
         let folder = file.deletingLastPathComponent()
-        guard let located = BrowserManifestStore.located(in: folder) else { return }
+        guard BrowserManifestStore.read(in: folder) != nil else { return }
         if local.standardizedFileURL != file.standardizedFileURL {
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
             try? FileManager.default.removeItem(at: file)
             try FileManager.default.copyItem(at: local, to: file)
         }
         let name = file.lastPathComponent
-        if !located.manifest.nodes.contains(where: { $0.name == name }) {
-            var manifest = located.manifest
-            manifest.nodes.append(BrowserManifest.Node(id: name, kind: .file, name: name))
-            try Self.writeIfChanged(manifest, named: located.fileName, in: folder)
-        }
+        BrowserManifestStore.update(in: folder, name: name,
+                                    creating: BrowserManifest.Node(id: name, kind: .file, name: name)) { _ in }
         try await recordSent(path, checksum: FileChecksum.sha256(of: file))
     }
 
@@ -407,21 +388,13 @@ actor SFTPMirror {
     }
 
     private func node(at file: URL) -> BrowserManifest.Node? {
-        BrowserManifestStore.read(in: file.deletingLastPathComponent())?.nodes
-            .first { $0.name == file.lastPathComponent }
+        BrowserManifestStore.node(at: file)
     }
 
+    /// One node changed in place, not the folder's listing read and written
+    /// whole: whatever else changed in the folder meanwhile stays.
     private func updateNode(at file: URL, _ change: (inout BrowserManifest.Node) -> Void) throws {
-        let folder = file.deletingLastPathComponent()
-        guard let located = BrowserManifestStore.located(in: folder) else { return }
-        var manifest = located.manifest
-        manifest.nodes = manifest.nodes.map { node in
-            guard node.name == file.lastPathComponent else { return node }
-            var changed = node
-            change(&changed)
-            return changed
-        }
-        try Self.writeIfChanged(manifest, named: located.fileName, in: folder)
+        BrowserManifestStore.update(in: file.deletingLastPathComponent(), name: file.lastPathComponent, change)
     }
 
     /// What the server lists in `path`, now.
@@ -467,7 +440,7 @@ actor SFTPMirror {
     }
 
     /// Copies a local file, or a local folder with everything in it, to `path`
-    /// on the server. The manifest a shadow folder carries is not copied. A file
+    /// on the server. A file
     /// of at most `keepingUpTo` bytes is kept here too, as if it had been fetched.
     func upload(_ local: URL, to path: String, isDirectory: Bool,
                 keepingUpTo limit: Int64 = 0) async throws {
@@ -482,7 +455,7 @@ actor SFTPMirror {
         }
         try await remote.makeDirectory(path)
         let names = try FileManager.default.contentsOfDirectory(atPath: local.path)
-            .filter { BrowserManifestStore.number(of: $0) == nil }
+            .filter { !RemoteBrowsing.isBookkeeping($0) }
         for name in names.sorted() {
             let child = local.appendingPathComponent(name)
             let target = path == "/" ? "/" + name : path + "/" + name

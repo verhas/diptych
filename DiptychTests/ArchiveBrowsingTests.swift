@@ -277,9 +277,52 @@ final class ArchiveBrowsingTests: XCTestCase {
                        "the setuid bit is restored on the copy")
     }
 
-    func testACopyOutLeavesTheManifestsBehind() throws {
-        // An app copied out of a zip came out "damaged": every folder of the
-        // copy held a __DIPTYCH.json the app's signature does not seal.
+    func testADragIsGivenACleanCopyNotTheLockedCache() throws {
+        // Finder copies what is at the path it is given: given the cache, it
+        // copied the lock, stopped at the first link, and left folders that
+        // could not be deleted.
+        let src = root.appendingPathComponent("kit")
+        try fm.createDirectory(at: src.appendingPathComponent("Inbox"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: src.appendingPathComponent("Projects"), withIntermediateDirectories: true)
+        try Data("w".utf8).write(to: src.appendingPathComponent("Projects/w.txt"))
+        try fm.createSymbolicLink(atPath: src.appendingPathComponent("Inbox/shortcut").path,
+                                  withDestinationPath: "../Projects")
+        let zip = root.appendingPathComponent("kit.zip")
+        do { try Archiving.create([src], at: zip, options: Archiving.Options()) }
+        catch { return XCTFail(error.message) }
+        let item = try open(zip).appendingPathComponent("kit")
+
+        let copy = ArchiveBrowsing.handOut(item)
+
+        XCTAssertNotEqual(copy, item)
+        XCTAssertFalse(ArchiveBrowsing.isInside(copy), "outside the unpacked archives")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: copy.appendingPathComponent("Inbox/shortcut").path),
+                       "../Projects")
+        XCTAssertEqual(text(copy.appendingPathComponent("Projects/w.txt")), "w")
+        func mode(_ url: URL) -> mode_t { var i = stat(); lstat(url.path, &i); return i.st_mode & 0o7777 }
+        XCTAssertEqual(mode(copy.appendingPathComponent("Inbox")) & 0o200, 0o200,
+                       "the archive's own mode, not the cache's lock")
+        XCTAssertEqual(mode(item.appendingPathComponent("Inbox")), 0o500, "the cache stays locked")
+
+        XCTAssertEqual(ArchiveBrowsing.handOut(item), copy, "the same drag, asked again")
+        XCTAssertEqual(ArchiveBrowsing.original(of: copy), item, "a drop back here is of the item")
+        let elsewhere = root.appendingPathComponent("kit")
+        XCTAssertEqual(ArchiveBrowsing.handOut(elsewhere), elsewhere, "an ordinary file is given as it is")
+
+        // What it is dropped on can do anything with it: delete it, too.
+        let landed = root.appendingPathComponent("landed")
+        try fm.copyItem(at: copy, to: landed)
+        XCTAssertNoThrow(try fm.removeItem(at: landed))
+
+        ArchiveBrowsing.removeHandedOut()
+        XCTAssertFalse(fm.fileExists(atPath: copy.path))
+        XCTAssertEqual(ArchiveBrowsing.original(of: copy), copy, "forgotten with it")
+    }
+
+    func testACopyOutHoldsNothingButTheArchivesFiles() throws {
+        // An app copied out of a zip came out "damaged" when every folder of
+        // the copy held a manifest the app's signature does not seal. The
+        // manifests are in the cache now, not in the tree.
         let src = root.appendingPathComponent("Tool.app")
         let locked = src.appendingPathComponent("Contents/Locked")
         try fm.createDirectory(at: locked, withIntermediateDirectories: true)
@@ -305,7 +348,7 @@ final class ArchiveBrowsingTests: XCTestCase {
         XCTAssertEqual(text(copied.appendingPathComponent("Contents/__DIPTYCH.json")), "mine")
         var info = stat()
         lstat(copied.appendingPathComponent("Contents/Locked").path, &info)
-        XCTAssertEqual(info.st_mode & 0o7777, 0o555, "the folder's own mode, once emptied of ours")
+        XCTAssertEqual(info.st_mode & 0o7777, 0o555, "the folder's own mode")
         chmod(copied.appendingPathComponent("Contents/Locked").path, 0o755)
     }
 

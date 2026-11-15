@@ -120,9 +120,7 @@ enum PathCompletion {
             Task.detached { try? await RemoteBrowsing.refresh(url) }
             return []
         }
-        guard var names = try? fm.contentsOfDirectory(atPath: folder) else { return [] }
-        // The listing kept for a server folder is Diptych's, not the server's.
-        if root != nil { names.removeAll { BrowserManifestStore.number(of: $0) != nil } }
+        guard let names = try? fm.contentsOfDirectory(atPath: folder) else { return [] }
 
         // Case-insensitively, because the file system usually is -- but the
         // completion carries the name's real spelling.

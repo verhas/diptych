@@ -399,7 +399,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !isRunningTests {
             // What a crash left of archives opened as folders.
-            Task.detached(priority: .utility) { ArchiveBrowsing.removeAll() }
+            Task.detached(priority: .utility) {
+                ArchiveBrowsing.removeAll()
+                // Copies handed to drags in the last run: not at quit, since
+                // whatever they were dropped on may still be reading them.
+                ArchiveBrowsing.removeHandedOut()
+            }
             Task.detached(priority: .utility) { RemoteBrowsing.removeAll() }
             MainActor.assumeIsolated {
                 StartupWarnings.start()
