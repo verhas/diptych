@@ -18,12 +18,17 @@ final class TextEditDocument {
     let url: URL
 
     /// The text as last read or saved, with "\n" between lines.
-    private(set) var saved = ""
+    private(set) var saved = "" {
+        didSet { savedText = Self.literal(saved) }
+    }
+    /// The same, as the text view holds its own: compared with it after
+    /// every edit, length first, so the check costs nothing while they differ.
+    @ObservationIgnored private var savedText: NSString = ""
     private(set) var source: SourceFile?
     /// Why the file could not be opened, in words for the window.
     private(set) var failure: String?
-    /// Something was typed since the last save. Cheap to keep; checked against
-    /// the real text before anything is asked about it.
+    /// The text differs from what was last read or saved: typed into and
+    /// not undone back to it. The close button's dot and Save follow it.
     private(set) var isEdited = false
     /// Bumped when the text is read from disk, so the view knows to replace
     /// what it shows -- and knows not to on any other update.
@@ -46,6 +51,8 @@ final class TextEditDocument {
 
     /// The text as it is in the editor. Set by the view.
     @ObservationIgnored var currentText: () -> String = { "" }
+    /// The editor's own storage, not copied. Set by the view.
+    @ObservationIgnored var currentStorage: () -> NSString? = { nil }
 
     init(url: URL) {
         self.url = url
@@ -57,7 +64,23 @@ final class TextEditDocument {
     private(set) var readOnlyVolume: String?
 
     /// Edited, and not merely edited and then undone back to what was saved.
-    var hasUnsavedChanges: Bool { isEdited && currentText() != saved }
+    var hasUnsavedChanges: Bool { isEdited && !matchesSaved(currentStorage() ?? Self.literal(currentText())) }
+
+    /// The same characters as saved, one for one: not Swift's `==`, which
+    /// calls "é" typed as one character and as two the same, though the
+    /// bytes written would differ.
+    private func matchesSaved(_ text: NSString) -> Bool {
+        text.length == savedText.length && text.isEqual(savedText)
+    }
+
+    /// A string as Foundation's own, every character kept: made with
+    /// `NSString(string:)`, or bridged with `as`, a leading byte-order mark
+    /// is dropped -- and deleting that mark would look like no change.
+    private static func literal(_ text: String) -> NSString {
+        let copy = NSMutableString()
+        copy.append(text)
+        return copy
+    }
 
     /// The server a file is being fetched from while the window waits for it.
     private(set) var waitingFor: String?
@@ -160,9 +183,12 @@ final class TextEditDocument {
         }
     }
 
+    /// Something was typed, pasted or undone: edited again, or back to
+    /// exactly what is on disk.
     func noteEdit() {
-        isEdited = true
-        hold(true)
+        let edited = !matchesSaved(currentStorage() ?? Self.literal(currentText()))
+        if edited != isEdited { isEdited = edited }
+        hold(edited)
     }
 
     enum SaveOutcome: Equatable {
@@ -181,7 +207,7 @@ final class TextEditDocument {
         guard let file = source, !isReadOnly else { return .nothingToDo }
         let text = currentText()
         let converting = wanted != nil && wanted != plistEncoding
-        guard text != saved || converting else {
+        guard !matchesSaved(Self.literal(text)) || converting else {
             isEdited = false
             if isUnsent {
                 isUnsent = false

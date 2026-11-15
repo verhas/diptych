@@ -33,12 +33,12 @@ Status values: `planned`, `in progress`, `done`, `dropped`.
 | 7 | SQLite databases | 2 | planned | | |
 | 8 | Installer packages `.pkg` | 2 | done | 2.0.0 | `XarArchive`, `Bom`, `CPIO`, `InstallerPackage`, `PackageReport` |
 | 9 | Disk images `.dmg` | 2 | done | 2.0.0 | `DiskImage` (UDIF, raw, sparse, HFS+, APFS), `DiskImageReport` |
-| 10 | Crash reports `.ips` | 2 | planned | | |
-| 11 | `.mobileprovision` | 2 | planned | | |
-| 12 | `.webloc` `.inetloc` `.url` | 2 | planned | | |
+| 10 | Crash reports `.ips` | 2 | done | 2.0.0 | `CrashLog`, `CrashReport` |
+| 11 | `.mobileprovision` | 2 | done | 2.0.0 | `ProvisioningProfile`, `ProvisioningReport` |
+| 12 | `.webloc` `.inetloc` `.url` | 2 | done | 2.0.0 | `InternetLocation`, `Punycode`, `LocationReport` |
 | 13 | JSON, `.jsonl`, YAML, TOML | 3 | planned | | |
 | 14 | Git repository folders | 3 | planned | | in the folder report |
-| 15 | `.properties` | 3 | planned | | |
+| 15 | `.properties` | 3 | done | 2.0.0 | `JavaProperties`, `PropertiesReport` |
 | 16 | `.eml` / `.mbox` | 3 | done | 2.0.0 | `MailMessage`, `Mailbox`, `MailReport` |
 | 17 | Where it came from (any file) | 3 | planned | | a section, not a format |
 
@@ -228,24 +228,31 @@ Recognised by: xar magic `78 61 72 21` (flat packages), or bundle packages.
 
 Recognised by: a JSON header line followed by a JSON body.
 
-- [ ] Process, version, OS, hardware, date
-- [ ] Exception type, codes, termination reason
-- [ ] Crashed thread's stack, readable; other threads collapsed
-- [ ] Binary images list (collapsed)
+- [x] Process, version, OS, hardware, date
+- [x] Exception type, codes, termination reason
+- [x] Crashed thread's stack, readable; other threads collapsed
+- [x] Binary images list (collapsed)
+- [x] What happened in words (Swift runtime failures, bad access, abort, guard, killed by the system), the program's own frames picked out, the last exception backtrace
+- [ ] Not done: reports that are not crashes (hangs, low memory) are shown as their JSON or text, not laid out
 
 ## 11. `.mobileprovision`
 
 Recognised by: CMS-signed plist.
 
-- [ ] Name, app identifier, team, creation and expiry (expired highlighted)
-- [ ] Entitlements
-- [ ] Devices (count, list collapsed), or "all devices" / App Store
-- [ ] Developer certificates: subject and expiry
+- [x] Name, app identifier, team, creation and expiry (expired highlighted)
+- [x] Entitlements
+- [x] Devices (count, list collapsed), or "all devices" / App Store
+- [x] Developer certificates: subject and expiry
+- [x] Kind: development, ad hoc, App Store, Developer ID, in-house
+- [x] Signature checked with the system's CMS decoder; the chain evaluated without the network, as of the signing time
 
 ## 12. `.webloc` `.inetloc` `.url`
 
-- [ ] The target URL, clickable
-- [ ] `.url` (Windows INI form) parsed as well as the plist forms
+- [x] The target URL, clickable (ordinary web addresses only)
+- [x] `.url` (Windows INI form) parsed as well as the plist forms
+- [x] The app that opens it; the address taken apart, tracking parameters named
+- [x] Warnings: user name before "@", punycode site names, programs at the end, files on other computers, remote icons
+- [x] `.fileloc`, `.ftploc`, `.afploc`; old locations kept only in the resource fork
 
 ## 13. JSON, `.jsonl`, YAML, TOML
 
@@ -265,9 +272,11 @@ In the existing folder report.
 
 ## 15. `.properties`
 
-- [ ] Keys and values as a table
-- [ ] `\uXXXX` escapes decoded, line continuations joined
-- [ ] Comments kept
+- [x] Keys and values as a table
+- [x] `\uXXXX` escapes decoded, line continuations joined
+- [x] Comments kept
+- [x] Keys set twice marked, invisible blanks and escaped line breaks shown, broken `\u` escapes pointed out
+- [x] UTF-8 or ISO 8859-1, said which; the locale of a resource bundle named
 
 ## 16. `.eml` / `.mbox`
 
@@ -293,6 +302,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-14 | 10, 11, 12, 15 | Crash reports, provisioning profiles (CMS signature and chain checked), web locations and Windows shortcuts (with warnings, resource-fork locations, punycode), Java properties; `make-small-samples.sh`; 9 tests with damaged-file rounds |
 | 2026-11-14 | 8, 9, 16 | Installer packages (xar, Bom, scripts, signature check), disk images (UDIF chunks, GPT/APM/MBR, HFS+ and APFS listing, signature check), e-mail and mailboxes; three sample scripts; 32 tests with damaged-file rounds |
 | 2026-11-14 | 6 | Bundle preview: Info.plist, signature, seal checked file by file, permissions, embedded code, origin; `make-bundle-samples.sh` |
 | 2026-11-14 | 5 | Windows PE with Authenticode check, ar libraries, COFF objects, batch files; script verdicts per system; Text Edit shows invisible characters, BOM kept in the text; 13 + 9 tests |

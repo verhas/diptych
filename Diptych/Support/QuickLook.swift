@@ -179,6 +179,10 @@ final class QuickLookController: NSObject {
         if let rendered = packageReport(for: url) { return rendered }
         if let rendered = diskImageReport(for: url) { return rendered }
         if let rendered = mailReport(for: url) { return rendered }
+        if let rendered = crashReport(for: url) { return rendered }
+        if let rendered = provisioningReport(for: url) { return rendered }
+        if let rendered = locationReport(for: url) { return rendered }
+        if let rendered = propertiesReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -618,6 +622,77 @@ final class QuickLookController: NSObject {
     }
 
     /// A page named after the file, in a folder of its own per path.
+    /// A file of a kind read in one go, its size checked first.
+    private func small(_ url: URL, extensions: Set<String>, limit: Int) -> (data: Data, size: Int)? {
+        guard extensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]), values.isDirectory != true,
+              let size = values.fileSize, size <= limit,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        return (data, size)
+    }
+
+    /// A diagnostic report: what crashed, why in words, and the stack.
+    private func crashReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: CrashLog.extensions, limit: CrashLog.maximumSize),
+              size > 0 else { return nil }
+        let html: String
+        do {
+            html = CrashReport.html(for: try CrashLog(data: data), url: url, size: size)
+        } catch {
+            html = CrashReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "crash", for: url)
+    }
+
+    /// A provisioning profile: app, team, expiry, devices, entitlements,
+    /// certificates, and whether Apple's signature on it holds.
+    private func provisioningReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: ProvisioningProfile.extensions, limit: ProvisioningProfile.maximumSize),
+              size > 0 else { return nil }
+        let html: String
+        do {
+            html = ProvisioningReport.html(for: try ProvisioningProfile(data: data), url: url, size: size)
+        } catch {
+            html = ProvisioningReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "profile", for: url)
+    }
+
+    /// A `.webloc`, `.inetloc` or Windows `.url`: where it goes, and with what.
+    private func locationReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: InternetLocation.extensions, limit: InternetLocation.maximumSize) else {
+            return nil
+        }
+        let html: String
+        do {
+            let location: InternetLocation
+            if url.pathExtension.lowercased() == "url" {
+                location = try InternetLocation(windows: data)
+            } else {
+                let fork = data.isEmpty ? try? Data(contentsOf: url.appendingPathComponent("..namedfork/rsrc")) : nil
+                location = try InternetLocation(finder: data, resourceFork: fork)
+            }
+            var opener: String?
+            if let target = URL(string: location.target.trimmingCharacters(in: .whitespaces)), target.scheme != nil,
+               let app = NSWorkspace.shared.urlForApplication(toOpen: target) {
+                opener = FileManager.default.displayName(atPath: app.path)
+            }
+            html = LocationReport.html(for: location, url: url, size: size, opener: opener)
+        } catch InternetLocation.Problem.notAShortcut {
+            return nil // a text file that happens to end in .url: shown as text
+        } catch {
+            html = LocationReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "location", for: url)
+    }
+
+    /// Java properties: keys and values as Java reads them, comments kept.
+    private func propertiesReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: JavaProperties.extensions, limit: JavaProperties.maximumSize),
+              JavaProperties.looksLikeText(data) else { return nil }
+        return page(PropertiesReport.html(for: JavaProperties(data: data), url: url, size: size), kind: "properties", for: url)
+    }
+
     private func page(_ html: String, kind: String, for url: URL) -> URL? {
         let folder = scratch.appendingPathComponent(kind + url.path.replacingOccurrences(of: "/", with: "_"))
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

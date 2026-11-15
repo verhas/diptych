@@ -345,6 +345,10 @@ enum DiptychTips {
             + " the link to Applications at the top of its volume.",
         "an e-mail previews as text, nothing loaded from the web -- with a warning for a link that"
             + " shows one address and goes to another, or a sender the server could not confirm.",
+        "a crash report (.ips) previews as what stopped the program, in words, and the stack of the"
+            + " thread that crashed with the program's own lines picked out.",
+        "a .webloc or Windows .url shortcut previews with the address it really opens -- and a warning"
+            + " when that is a program, a file on another computer, or a site that only looks familiar.",
         "Text Edit shows invisible characters -- a byte-order mark, zero-width spaces, right-to-left"
             + " overrides -- as framed names you can see and delete; the \u{00B6} button hides them.",
         "a Java .class file previews as the outline of its source -- declaration, fields, methods with"

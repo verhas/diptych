@@ -73,6 +73,20 @@ final class TextEditDocumentTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), latin1, "the file is untouched")
     }
 
+    /// The close button's dot and Save follow `isEdited`: back to exactly
+    /// what is on disk, it is not edited any more -- and only exactly.
+    func testEditingBackToTheSavedTextClearsTheEditedMark() throws {
+        let (document, _) = try open("a.txt", Data("caf\u{E9}\n".utf8))
+        type("caf\u{E9}!\n", into: document)
+        XCTAssertTrue(document.isEdited)
+        type("caf\u{E9}\n", into: document)
+        XCTAssertFalse(document.isEdited, "undone back to the file")
+        // The same letter written as e and a combining accent: other bytes.
+        type("cafe\u{301}\n", into: document)
+        XCTAssertTrue(document.isEdited)
+        XCTAssertTrue(document.hasUnsavedChanges)
+    }
+
     func testTypingAndUndoingIsNothingToSave() throws {
         let (document, _) = try open("a.txt", Data("same\n".utf8))
         type("same\n", into: document)

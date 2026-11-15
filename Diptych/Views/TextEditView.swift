@@ -384,6 +384,7 @@ struct PlainTextEditor: NSViewRepresentable {
         link.controller = controller
         controller.link = link
         document.currentText = { [weak text] in text?.string ?? "" }
+        document.currentStorage = { [weak text] in text?.textStorage?.mutableString }
         context.coordinator.shownRevision = -1
         controller.lineNumbers = lineNumbers
         apply(wraps: wraps, to: controller.scrollView, text: text)
