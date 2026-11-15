@@ -8,6 +8,8 @@ nonisolated struct SyntaxColouring: Sendable, Equatable {
 
     enum Role: Sendable, Equatable {
         case key, string, number, keyword, comment, tag, attribute, instruction, entity
+        /// From the TextMate grammars, for source code.
+        case function, type
 
         @MainActor var colour: NSColor {
             switch self {
@@ -20,6 +22,8 @@ nonisolated struct SyntaxColouring: Sendable, Equatable {
             case .attribute: .systemOrange
             case .instruction: .systemBrown
             case .entity: .systemTeal
+            case .function: .systemIndigo
+            case .type: .systemGreen
             }
         }
     }

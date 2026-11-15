@@ -77,6 +77,10 @@ final class TextEditController: NSObject {
     private(set) var colouringIsCurrent = false
     private var matched: SyntaxColouring.Pair?
 
+    /// Source code -- none of the structured formats -- coloured by its
+    /// language's TextMate grammar, again only where an edit changed it.
+    private let source = SourceColouringHolder()
+
     private var analysisTask: Task<Void, Never>?
     /// Bumped on every edit, so an analysis of older text is dropped.
     private var generation = 0
@@ -264,24 +268,34 @@ final class TextEditController: NSObject {
         let format = format
         let baseline = baseline
         let saved = document.saved
+        let source = source
+        let url = document.url
         analysisTask?.cancel()
         analysisTask = Task { [weak self] in
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard !Task.isCancelled else { return }
             let result = await BlockingWork.run {
-                () -> (StructureAnalysis, LineChanges, LineChanges, SyntaxColouring) in
+                () -> (StructureAnalysis, LineChanges, LineChanges, SyntaxColouring, Bool) in
                 let structure = format.map { StructuredText.analyse(text, as: $0) } ?? .none
                 let committed: LineChanges = switch baseline {
                 case .unavailable: .none
                 case .uncommitted: .allAdded(text)
                 case .committed(let base): .compute(base: base, current: text)
                 }
-                return (structure, committed, .compute(base: saved, current: text),
-                        SyntaxColouring.of(text, as: format))
+                var colouring = SyntaxColouring.of(text, as: format)
+                var unfinished = false
+                if format == nil, let colourer = source.colourer(for: url, text: text) {
+                    let coloured = colourer.colour(text, budget: 2)
+                    colouring = SyntaxColouring(spans: coloured.spans, pairs: [])
+                    unfinished = !coloured.complete
+                }
+                return (structure, committed, .compute(base: saved, current: text), colouring, unfinished)
             }
             guard let self, !Task.isCancelled, mine == self.generation else { return }
             self.apply(result.0, committed: result.1, saved: result.2)
             self.apply(result.3)
+            // A long file is coloured over several turns, each going on from the last.
+            if result.4 { self.scheduleAnalysis(after: .milliseconds(20)) }
         }
     }
 
@@ -1003,5 +1017,27 @@ final class FoldingTextView: NSTextView {
         if item.action == #selector(copy(_:)) { return string.isEmpty == false }
         if item.action == #selector(cut(_:)) { return isEditable && !string.isEmpty }
         return super.validateMenuItem(item)
+    }
+}
+
+
+/// The TextMate colourer of one Text Edit window, made the first time it is
+/// asked for -- in the background, since loading a grammar takes a moment --
+/// and kept, since what it remembers is what makes an edit cheap.
+nonisolated final class SourceColouringHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tried = false
+    private var made: SourceColourer?
+
+    func colourer(for url: URL, text: String) -> SourceColourer? {
+        lock.lock(); defer { lock.unlock() }
+        if tried { return made }
+        tried = true
+        guard (text as NSString).length <= SyntaxColouring.limit else { return nil }
+        let firstLine = text.prefix(200).split(separator: "\n", maxSplits: 1).first.map(String.init)
+        if let language = TextMateRegistry.shared.language(for: url, firstLine: firstLine) {
+            made = SourceColourer(language: language)
+        }
+        return made
     }
 }

@@ -1138,6 +1138,57 @@ which stops Java loading the file -- is pointed out. The language of a
 `Messages_de.properties` bundle is named.
 `make-small-samples.sh` makes a sample of each of these four kinds.
 
+## Previewing Java archives
+
+Space on a `.jar`, `.war` or `.ear` shows, above the list of what is in it,
+what the archive says about itself, read from the zip without unpacking it:
+the manifest -- the class `java -jar` starts, the module name, whether it is
+multi-release, its class path and version -- the Maven artifact it was built
+as, its `module-info` (what it requires and exports), and which Java its
+classes need, with the classes for newer releases in `META-INF/versions`
+counted apart. A signed archive says by whom, when (and whether a timestamp
+authority vouches for that), whether the signature still holds, and whether
+the manifest is the one that was signed: a jar changed after signing is
+caught. A web application lists its `web.xml` and libraries, an enterprise
+application its modules. `make-jar-samples.sh` makes a signed, a tampered
+and a web sample.
+
+## Previewing a folder in a Git repository
+
+When version tracking is on, Space on a folder inside a Git repository adds
+how it stands above the listing, in the panes' own words: the branch -- or
+that none is checked out -- whether it is linked to a shared copy, how many
+commits of yours are not sent and how many newer ones there are to get, what
+is changed and not committed (in that folder, for one below the top), and the
+last few commits.
+
+## Previewing a SQLite database
+
+Space on a SQLite database -- whatever it is called: Mail's, Photos', an
+app's `.db` -- shows its tables and views, how many rows each holds, the
+first few rows, and the statements that made them. Right-click ▸ **Edit**
+opens it in the **Database window**: the tables in a sidebar, the rows of the
+one chosen fetched as you scroll, sorted by clicking a column, filtered by
+text in any column or by a condition in SQL, a row's every value shown whole
+below -- JSON laid out, a picture shown, a blob as bytes -- ⌘C to copy rows
+and **Export CSV** for all of them. **Query** runs a `SELECT` of your own.
+
+Nothing is ever written: the database is not even opened. It and its write-
+ahead log are cloned into a private folder -- instant on APFS -- and the clone
+is read, so what an app has not yet folded into the file is seen, and the app
+using it is not disturbed.
+
+## Previewing source code
+
+Space on source code shows it coloured by its language -- some sixty of them,
+from Swift, Python, C and Java to shell scripts, SQL, Dockerfiles and
+Makefiles -- with line numbers, light or dark as the Mac is. The language is
+told by the file's name, its extension or its first line (`#!/usr/bin/env
+python3`). Text Edit colours the same files the same way, and an edit
+recolours only the lines it changed. The colouring comes from the TextMate
+grammars Visual Studio Code uses (`make-grammars.sh`); HTML is still shown as
+the page it is.
+
 ## Previewing programs, libraries and scripts
 
 Finder calls four different things a "Unix executable file", and Quick Look
@@ -2024,8 +2075,9 @@ in -- and any other file in Bin Edit. **Edit ▸ Binary Edit** opens a text file
 in Bin Edit too. A binary property list counts as text: Text Edit shows it as
 XML. Beyond typing, undo, find and replace (⌘F), wrapping and Save (⌘S) it
 edits by lines as IntelliJ does, and for JSON, XML and YAML it colours, pairs,
-indents, formats and shows the file as a tree -- see below. It is careful
-where general editors are not:
+indents, formats and shows the file as a tree -- see below. Source code in
+some sixty other languages is coloured by its TextMate grammar (see
+*Previewing source code*). It is careful where general editors are not:
 
 * Nothing rewrites what is typed: no curly quotes, no dashes from double
   hyphens, no spelling correction, no link detection. In a script or a CSV each

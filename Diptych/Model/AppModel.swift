@@ -341,6 +341,7 @@ final class AppModel {
     @ObservationIgnored var openExifWindow: (([URL]) -> Void)?
     @ObservationIgnored var openVideoWindow: (([URL]) -> Void)?
     @ObservationIgnored var openBinaryWindow: ((URL) -> Void)?
+    @ObservationIgnored var openDatabaseWindow: ((URL) -> Void)?
     @ObservationIgnored var openTextWindow: ((URL) -> Void)?
     @ObservationIgnored var openRenameWindow: ((RenameManyRequest) -> Void)?
     @ObservationIgnored var openRenameReplaceWindow: ((RenameReplaceRequest) -> Void)?

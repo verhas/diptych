@@ -180,6 +180,7 @@ struct ContentView: View {
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
+            model.openDatabaseWindow = { openWindow(id: DiptychApp.databaseWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
             model.openRenameReplaceWindow = {

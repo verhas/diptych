@@ -6,8 +6,9 @@ extension AppModel {
 
     // MARK: - Edit
 
-    /// Edit: Text Edit for a text file, Bin Edit for anything else. Bin Edit
-    /// can be asked for by itself; Text Edit refuses what is not text anyway.
+    /// Edit: the Database window for a SQLite database, Text Edit for a text
+    /// file, Bin Edit for anything else. Bin Edit can be asked for by itself;
+    /// Text Edit refuses what is not text anyway.
     func editSelection() {
         guard let item = singleSelection("edit", includingParent: false) else { return }
         guard !item.isDirectory else {
@@ -17,6 +18,10 @@ extension AppModel {
         // A server's file is looked at once it is here: a placeholder is empty.
         whenFetched([item.url]) { [weak self] in
             guard let self else { return }
+            if SQLiteDatabase.looksLikeSQLite(item.url) {
+                openDatabaseWindow?(item.url)
+                return
+            }
             // A binary property list too: Text Edit shows it as XML.
             let plist = TextFormat.of(item.url, extensions: ConfigStore.shared.configuration.textFormats) == .plist
             if plist || Self.editsAsText(item.url) { showTextEditor() } else { showBinaryView() }

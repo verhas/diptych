@@ -349,6 +349,14 @@ enum DiptychTips {
             + " thread that crashed with the program's own lines picked out.",
         "a .webloc or Windows .url shortcut previews with the address it really opens -- and a warning"
             + " when that is a program, a file on another computer, or a site that only looks familiar.",
+        "a .jar previews with the class it runs, its module, the Java its classes need, and whether"
+            + " its signature still holds -- a jar changed after it was signed is caught.",
+        "a SQLite database previews as its tables and row counts; right-click ▸ Edit opens it in the"
+            + " Database window, every row sorted and filtered, without ever writing to it.",
+        "source code previews coloured -- some sixty languages, told by name, extension or #! line --"
+            + " and Text Edit colours it the same way.",
+        "a folder in a Git repository previews with its branch, what is not sent, what is changed"
+            + " and the last commits.",
         "Text Edit shows invisible characters -- a byte-order mark, zero-width spaces, right-to-left"
             + " overrides -- as framed names you can see and delete; the \u{00B6} button hides them.",
         "a Java .class file previews as the outline of its source -- declaration, fields, methods with"

@@ -7,8 +7,10 @@ import Foundation
 /// ask, namely *what is in it*.
 enum ListingReport {
 
+    /// `extra` goes between the heading and the listing: a folder's Git
+    /// section.
     static func html(for result: Listing.Result, name: String, path: String,
-                     kind: Kind, stillReading: Bool = false) -> String {
+                     kind: Kind, stillReading: Bool = false, extra: String = "") -> String {
         var body = "<h1>\(escape(name))</h1>"
         body += "<p class=lead>\(summary(result, kind: kind, stillReading: stillReading))</p>"
         body += "<p class=meta>\(escape(path))</p>"
@@ -16,6 +18,7 @@ enum ListingReport {
         if let trouble = result.trouble {
             body += "<p class=trouble>\(escape(trouble))</p>"
         }
+        body += extra
 
         if stillReading {
             body += "<p class=empty>Reading\u{2026}</p>"
@@ -113,7 +116,7 @@ enum ListingReport {
         .when { width: 150px; color: var(--dim); font-size: 11px; white-space: nowrap; }
         .via { color: var(--dim); font: 11px ui-monospace, Menlo, monospace; word-break: break-all; }
         .bad { color: var(--warn); }
-        </style></head><body>\(body)</body></html>
+        </style>\(GitFolderReport.style)</head><body>\(body)</body></html>
         """
     }
 }

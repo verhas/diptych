@@ -20,8 +20,39 @@ struct Acknowledgements {
 
     static let packages: [Package] = {
         guard let url = Bundle.main.url(forResource: "Licenses", withExtension: "json"),
-              let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([Package].self, from: data)) ?? []
+              let data = try? Data(contentsOf: url) else { return grammars.map { [$0] } ?? [] }
+        let packages = (try? JSONDecoder().decode([Package].self, from: data)) ?? []
+        return (packages + (grammars.map { [$0] } ?? [])).sorted { $0.name.lowercased() < $1.name.lowercased() }
+    }()
+
+    /// The TextMate grammars source code is coloured with, as
+    /// `make-grammars.sh` took them from Visual Studio Code: VS Code's
+    /// licence, then each grammar's own, in full.
+    static let grammars: Package? = {
+        struct Manifest: Decodable {
+            struct Source: Decodable {
+                let name: String
+                let url: String
+                let license: String
+                let notice: String?
+            }
+            let vscode: String
+            let vscodeLicense: String
+            let sources: [String: [Source]]
+        }
+        guard let url = Bundle.main.url(forResource: "Grammars", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else { return nil }
+        var seen = Set<String>()
+        var files = [Package.File(name: "Visual Studio Code", text: manifest.vscodeLicense)]
+        for source in manifest.sources.values.flatMap({ $0 }).sorted(by: { $0.name.lowercased() < $1.name.lowercased() })
+        where seen.insert(source.name).inserted {
+            files.append(Package.File(name: source.name,
+                                      text: "\(source.url)\n\n\(source.notice?.isEmpty == false ? source.notice! : source.license)"))
+        }
+        return Package(id: "textmate-grammars", name: "TextMate grammars", use: "Colouring source code in Quick Look and Text Edit",
+                       version: "VS Code \(manifest.vscode)", url: "https://github.com/microsoft/vscode",
+                       license: "MIT and others", files: files)
     }()
 }
 

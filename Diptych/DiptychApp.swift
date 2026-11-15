@@ -10,6 +10,7 @@ struct DiptychApp: App {
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
+    static let databaseWindowID = "diptych.database"
     static let textWindowID = "diptych.text"
     static let renameWindowID = "diptych.rename"
     static let renameReplaceWindowID = "diptych.renameReplace"
@@ -68,6 +69,13 @@ struct DiptychApp: App {
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+        .restorationBehavior(.disabled)
+
+        // One Database window per file, for the same reason.
+        WindowGroup(id: DiptychApp.databaseWindowID, for: URL.self) { $url in
+            if let url { DatabaseView(url: url) }
+        }
+        .defaultSize(width: 1000, height: 640)
         .restorationBehavior(.disabled)
 
         // One Text Edit per file: asking again for the same file brings its

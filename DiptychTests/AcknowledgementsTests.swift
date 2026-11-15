@@ -41,5 +41,10 @@ final class AcknowledgementsTests: XCTestCase {
         let packages = Acknowledgements.packages
         XCTAssertGreaterThan(packages.count, 10)
         XCTAssertTrue(packages.contains { $0.id == "libwebp-xcode" && $0.license.hasPrefix("BSD") })
+        // The grammars source code is coloured with, each with its licence.
+        let grammars = packages.first { $0.id == "textmate-grammars" }
+        XCTAssertNotNil(grammars)
+        XCTAssertGreaterThan(grammars?.files.count ?? 0, 30)
+        XCTAssertTrue(grammars?.files.contains { $0.name.contains("better-cpp-syntax") && $0.text.contains("Permission is hereby granted") } == true)
     }
 }

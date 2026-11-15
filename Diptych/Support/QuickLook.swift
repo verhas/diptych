@@ -183,6 +183,7 @@ final class QuickLookController: NSObject {
         if let rendered = provisioningReport(for: url) { return rendered }
         if let rendered = locationReport(for: url) { return rendered }
         if let rendered = propertiesReport(for: url) { return rendered }
+        if let rendered = sqliteReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -209,6 +210,7 @@ final class QuickLookController: NSObject {
            let rendered = markdownReport(for: url) {
             return rendered
         }
+        if let rendered = sourceReport(for: url) { return rendered }
         if let type = UTType(filenameExtension: url.pathExtension), type.isDeclared,
            Self.renderable.contains(where: { type.conforms(to: $0) }) {
             // Quick Look reads plain text as UTF-8 or by its mark, and shows a
@@ -475,15 +477,25 @@ final class QuickLookController: NSObject {
         guard !reading.contains(url.path) else { return }
         reading.insert(url.path)
 
+        // A Java archive says what it is above what is in it: its manifest,
+        // signature, module and the Java its classes need.
+        let isJar = kind == .archive && JarArchive.extensions.contains(url.pathExtension.lowercased())
+        // A folder in a repository says how it stands, when Git is on.
+        let git = kind == .folder && GitService.shared.isEnabled ? GitService.shared.tool?.url : nil
         Task { [weak self] in
-            let result = await BlockingWork.run {
-                kind == .folder ? Listing.folder(at: url) : Listing.archive(at: url)
+            let html = await BlockingWork.run { () -> String in
+                let result = kind == .folder ? Listing.folder(at: url) : Listing.archive(at: url)
+                guard isJar else {
+                    let extra = git.flatMap { GitFolderReport.read(url, git: $0) }.map { GitFolderReport.section($0) } ?? ""
+                    return ListingReport.html(for: result, name: url.lastPathComponent, path: url.path,
+                                              kind: kind, extra: extra)
+                }
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+                return JarReport.html(for: JarArchive.read(url), listing: result, url: url, size: size)
             }
             guard let self else { return }
             reading.remove(url.path)
-            write(ListingReport.html(for: result, name: url.lastPathComponent,
-                                     path: url.path, kind: kind),
-                  to: target)
+            write(html, to: target)
             listings[url.path] = target
             // Only if the panel is still showing this very thing: by now the
             // cursor may have moved on, and redrawing then would drag it back.
@@ -687,6 +699,24 @@ final class QuickLookController: NSObject {
     }
 
     /// Java properties: keys and values as Java reads them, comments kept.
+    /// A SQLite database, whatever it is called: known by its first bytes.
+    /// Counting rows can take a while, so the summary is made in the
+    /// background; the Database window is where it is looked through.
+    private func sqliteReport(for url: URL) -> URL? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, (values.fileSize ?? 0) >= 100,
+              SQLiteDatabase.looksLikeSQLite(url) else { return nil }
+        let key = "sqlite" + url.path
+        if let ready = finished[key] { return ready }
+        let size = values.fileSize.map(Int64.init)
+        let quick = KeyStoreReport.page(title: url.lastPathComponent, body: ExecutableReport.style
+            + "<h1>\(ExecutableReport.escape(url.lastPathComponent))</h1><p class=lead>SQLite database</p>"
+            + "<p class=dim>Reading its tables\u{2026}</p>")
+        let target = page(quick, kind: "sqlite", for: url)
+        if let target { finish(target, key: key) { SQLiteReport.html(for: url, size: size) } }
+        return target
+    }
+
     private func propertiesReport(for url: URL) -> URL? {
         guard let (data, size) = small(url, extensions: JavaProperties.extensions, limit: JavaProperties.maximumSize),
               JavaProperties.looksLikeText(data) else { return nil }
@@ -770,6 +800,35 @@ final class QuickLookController: NSObject {
     }
 
     /// The bytes of a text file to preview, when it is small enough to copy.
+    /// Source text in a language Diptych has a grammar for, coloured. HTML
+    /// is left to Quick Look, which shows the page; a picture that is text
+    /// (SVG) too. The plain page at once, the coloured one when it is made.
+    private func sourceReport(for url: URL) -> URL? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, let size = values.fileSize, size > 0 else { return nil }
+        if let type = UTType(filenameExtension: url.pathExtension),
+           [.html, .image, .pdf, .propertyList].contains(where: { type.conforms(to: $0) }) { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        let data = (try? handle.read(upToCount: SourceReport.mostBytes)) ?? Data()
+        try? handle.close()
+        guard let reading = TextEncodings.reading(of: data.prefix(8000), at: url, fallback: .utf8) else { return nil }
+        let text = TextEncodings.decodeForShowing(data, reading)
+        let firstLine = text.prefix(200).split(separator: "\n", maxSplits: 1).first.map(String.init)
+        guard let language = SourceReport.language(for: url, firstLine: firstLine),
+              !["html", "markdown"].contains(language.id) else { return nil }
+        let key = "source" + url.path
+        if let ready = finished[key] { return ready }
+        let truncated = size > data.count
+        let target = page(SourceReport.html(text: text, url: url, language: language, size: size,
+                                            truncated: truncated, coloured: false), kind: "source", for: url)
+        if let target {
+            finish(target, key: key) {
+                SourceReport.html(text: text, url: url, language: language, size: size, truncated: truncated)
+            }
+        }
+        return target
+    }
+
     private func textData(at url: URL) -> Data? {
         let limit = 4 * 1024 * 1024
         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
