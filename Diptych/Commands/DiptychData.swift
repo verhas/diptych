@@ -59,6 +59,14 @@ enum DiptychData {
         var flatStopped: Bool? = nil
         /// Folders the walk could not read.
         var flatUnreadableFolders: [String]? = nil
+        /// Set while the listing is being read: a refresh, or going somewhere.
+        var loading: Bool? = nil
+        /// Set while going to another folder. Until it is there the list is
+        /// switched off, and clicks on it do nothing.
+        var navigatingTo: String? = nil
+        /// Set while an archive is being unpacked to be shown here; the list
+        /// is switched off meanwhile too.
+        var openingArchive: String? = nil
         var entries: [FileEntry]
     }
 

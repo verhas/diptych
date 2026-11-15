@@ -336,7 +336,10 @@ extension MCPServer {
                         + "(show_flat_view), also its expression; flatProgress while its walk "
                         + "is still collecting (the entries are then what was found so far); "
                         + "flatStopped if it was stopped before the end; flatStale if rows "
-                        + "were changed so some no longer pass; flatUnreadableFolders.",
+                        + "were changed so some no longer pass; flatUnreadableFolders. "
+                        + "loading while the listing is read; navigatingTo or openingArchive "
+                        + "while the pane is on its way somewhere -- its list then takes no "
+                        + "clicks.",
                      inputSchema: .object([
                         "type": "object",
                         "properties": [

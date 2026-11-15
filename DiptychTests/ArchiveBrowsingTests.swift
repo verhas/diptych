@@ -130,6 +130,68 @@ final class ArchiveBrowsingTests: XCTestCase {
         XCTAssertEqual(replacement, archive)
         XCTAssertNil(ArchiveBrowsing.existing(for: archive))
         XCTAssertNotEqual(try open(archive), first)
+        XCTAssertFalse(fm.fileExists(atPath: first.path),
+                       "the copy of what the archive used to hold is gone")
+    }
+
+    // MARK: - When the archive goes
+
+    /// Waits for the watch on the archive to throw its copy away.
+    private func waitUntilGone(_ url: URL) async {
+        for _ in 0..<100 where fm.fileExists(atPath: url.path) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    func testDeletingTheArchiveTakesThePaneOutToWhereItWas() async throws {
+        let archive = try archive(.zip)
+        let folder = try open(archive)
+        let pane = PaneModel(directory: folder.appendingPathComponent("2024"))
+        await pane.reloadAndWait()
+        XCTAssertTrue(pane.rows.contains { $0.name == "a.txt" })
+
+        try fm.removeItem(at: archive)
+        await waitUntilGone(folder)
+        XCTAssertFalse(fm.fileExists(atPath: folder.path), "noticed with no pane looking at the zip")
+        XCTAssertFalse(ArchiveBrowsing.isCurrent(folder.appendingPathComponent("2024")))
+
+        await pane.reloadAndWait()
+        await pane.reloadAndWait()
+        XCTAssertEqual(pane.directory.standardizedFileURL.path,
+                       archive.deletingLastPathComponent().standardizedFileURL.path,
+                       "out to where the zip was, not up through the caches")
+    }
+
+    func testANavigationNoticesAnArchiveChangedWithoutAWatch() async throws {
+        // A disk whose changes the kernel does not report: the navigation
+        // itself asks.
+        let archive = try archive(.zip)
+        let folder = try open(archive)
+        try fm.removeItem(at: archive)
+        let pane = PaneModel(directory: folder)
+        await pane.reloadAndWait()
+        await pane.reloadAndWait()
+        XCTAssertFalse(ArchiveBrowsing.isInside(pane.directory))
+    }
+
+    func testBackDoesNotGoIntoADeletedArchive() async throws {
+        let archive = try archive(.zip)
+        let folder = try open(archive)
+        let pane = PaneModel(directory: archive.deletingLastPathComponent())
+        await pane.reloadAndWait()
+        pane.navigate(to: folder)
+        await pane.reloadAndWait()
+        pane.navigate(to: root)
+        await pane.reloadAndWait()
+        XCTAssertTrue(pane.canGoBack)
+
+        try fm.removeItem(at: archive)
+        pane.goBack()
+        await pane.reloadAndWait()
+        XCTAssertFalse(ArchiveBrowsing.isInside(pane.directory),
+                       "Back steps over the archive, as over a deleted folder")
+        XCTAssertEqual(pane.directory.standardizedFileURL.path,
+                       archive.deletingLastPathComponent().standardizedFileURL.path)
     }
 
     func testUpFromTheTopLandsBesideTheArchiveOnIt() async throws {
@@ -213,6 +275,38 @@ final class ArchiveBrowsingTests: XCTestCase {
         XCTAssertEqual(mode(copiedDir.appendingPathComponent("notes.txt")), 0o640)
         XCTAssertEqual(mode(copiedDir.appendingPathComponent("bin/run")), 0o4755,
                        "the setuid bit is restored on the copy")
+    }
+
+    func testACopyOutLeavesTheManifestsBehind() throws {
+        // An app copied out of a zip came out "damaged": every folder of the
+        // copy held a __DIPTYCH.json the app's signature does not seal.
+        let src = root.appendingPathComponent("Tool.app")
+        let locked = src.appendingPathComponent("Contents/Locked")
+        try fm.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: locked.appendingPathComponent("f"))
+        // A file of the archive's own that happens to have the name: kept.
+        try Data("mine".utf8).write(to: src.appendingPathComponent("Contents/__DIPTYCH.json"))
+        XCTAssertEqual(chmod(locked.path, 0o555), 0)
+        let zip = root.appendingPathComponent("tool.zip")
+        do { try Archiving.create([src], at: zip, options: Archiving.Options()) }
+        catch { return XCTFail(error.message) }
+        XCTAssertEqual(chmod(locked.path, 0o755), 0)
+
+        let folder = try open(zip)
+        let copied = root.appendingPathComponent("out/Tool.app")
+        try fm.createDirectory(at: copied.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.copyItem(at: folder.appendingPathComponent("Tool.app"), to: copied)
+        ArchiveBrowsing.unlockCopy(at: copied, from: folder.appendingPathComponent("Tool.app"))
+
+        let names = try XCTUnwrap(fm.enumerator(atPath: copied.path)?.allObjects as? [String])
+        XCTAssertEqual(names.sorted(), ["Contents", "Contents/Locked", "Contents/Locked/f",
+                                        "Contents/__DIPTYCH.json"],
+                       "nothing but what the archive holds")
+        XCTAssertEqual(text(copied.appendingPathComponent("Contents/__DIPTYCH.json")), "mine")
+        var info = stat()
+        lstat(copied.appendingPathComponent("Contents/Locked").path, &info)
+        XCTAssertEqual(info.st_mode & 0o7777, 0o555, "the folder's own mode, once emptied of ours")
+        chmod(copied.appendingPathComponent("Contents/Locked").path, 0o755)
     }
 
     func testArchivesAndImagesOpenAsFolders() {

@@ -476,7 +476,10 @@ final class PaneModel {
                 updateHistoryFlags()
                 return nil
             }
-            if FileManager.default.fileExists(atPath: history[next].url.path) {
+            // Inside an archive since deleted or changed counts as gone, as a
+            // deleted folder does -- its unpacked copy may not be gone yet.
+            let url = history[next].url
+            if FileManager.default.fileExists(atPath: url.path), ArchiveBrowsing.isCurrent(url) {
                 historyIndex = next
                 updateHistoryFlags()
                 return history[next]
@@ -556,7 +559,7 @@ final class PaneModel {
     /// are still there.
     var recentElsewhere: [URL] {
         recent.filter { $0.standardizedFileURL.path != directory.standardizedFileURL.path
-            && FileManager.default.fileExists(atPath: $0.path) }
+            && FileManager.default.fileExists(atPath: $0.path) && ArchiveBrowsing.isCurrent($0) }
     }
 
     private func updateHistoryFlags() {
@@ -759,6 +762,9 @@ final class PaneModel {
     /// The closest folder above `url` that still exists -- much less jarring
     /// than jumping to the home directory from somewhere deep.
     static func nearestExistingAncestor(of url: URL) -> URL {
+        // Inside an archive that has gone: from where the archive was, not up
+        // through the caches it was unpacked into.
+        if let landing = ArchiveBrowsing.landing(for: url) { return landing }
         let fm = FileManager.default
         var candidate = url.deletingLastPathComponent()
 
@@ -1371,6 +1377,14 @@ final class PaneModel {
 
         loadTask = Task { [weak self] in
             do {
+                // Inside an archive since deleted or changed: its copy goes
+                // first, so the listing below fails as it would for a folder
+                // that was deleted, and the pane steps out. Off the main
+                // thread, since a large unpacked tree takes a while to remove.
+                if ArchiveBrowsing.isInside(target) {
+                    await BlockingWork.run { ArchiveBrowsing.retireStale() }
+                    guard !Task.isCancelled else { return }
+                }
                 // Asked of the folder itself: the pane's facts are still
                 // those of where it came from, on arriving at a server.
                 // A folder on a server is listed again first, so that its rows are
@@ -1378,6 +1392,9 @@ final class PaneModel {
                 if RemoteBrowsing.isInside(target) {
                     do {
                         try await RemoteBrowsing.refresh(target)
+                    } catch where RemoteErrors.isNotFound(error) {
+                        // Its copy here is gone too: the listing below fails,
+                        // and the pane steps out as for a deleted folder.
                     } catch {
                         self?.owner?.flash("Could not list the folder on the server: "
                                            + error.localizedDescription)

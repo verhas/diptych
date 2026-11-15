@@ -137,6 +137,10 @@ actor ReconnectingRemote: RemoteListing {
         do {
             return try await request(used.remote)
         } catch {
+            // The server said no -- "no such file", "permission denied". The
+            // connection is fine; dropping it and asking again was a reconnect
+            // for every folder that had been deleted there.
+            if RemoteErrors.isServerAnswer(error) { throw error }
             if !idempotent, await Self.answers(used) { throw error }
             await drop(used)
             return try await request(try await current().remote)

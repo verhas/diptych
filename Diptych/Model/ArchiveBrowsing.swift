@@ -52,6 +52,13 @@ nonisolated enum ArchiveBrowsing {
     private final class Registry: @unchecked Sendable {
         let lock = NSLock()
         var opened: [Opened] = []
+        /// Archives whose unpacked copy was thrown away because the archive
+        /// went or changed. Kept only to say where a pane that was inside one
+        /// stood, so that it can step out to where the archive was rather than
+        /// into the caches.
+        var retired: [Opened] = []
+        /// One watch on each opened archive, by its holder's path.
+        var watches: [String: DispatchSourceFileSystemObject] = [:]
         var cacheRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "Diptych")
             .appendingPathComponent("Opened Archives")
@@ -96,6 +103,17 @@ nonisolated enum ArchiveBrowsing {
         }
     }
 
+    /// The thrown-away archive `url` was in, for saying where it stood.
+    private static func retired(containing url: URL) -> Opened? {
+        let path = resolved(url.path)
+        return registry.lock.withLock {
+            registry.retired.last { opened in
+                let root = resolved(opened.root.path)
+                return path == root || path.hasPrefix(root + "/")
+            }
+        }
+    }
+
     /// Where the pane is, as a person would say it: inside the archive --
     /// and inside the archive that one came out of, for a zip in a zip.
     /// Anything else as it is.
@@ -104,7 +122,7 @@ nonisolated enum ArchiveBrowsing {
         if let remote = RemoteBrowsing.shown(url) { return remote }
         var url = url
         for _ in 0..<16 {
-            guard let opened = opened(containing: url) else { break }
+            guard let opened = opened(containing: url) ?? retired(containing: url) else { break }
             let rest = String(resolved(url.path).dropFirst(resolved(opened.root.path).count))
             url = URL(fileURLWithPath: opened.archive.path + rest)
         }
@@ -180,12 +198,109 @@ nonisolated enum ArchiveBrowsing {
         let holder = cacheRoot.appendingPathComponent(UUID().uuidString)
         let source = try ArchiveSource.build(archive: archive, kind: kind, into: holder,
                                              password: password, job: job)
-        registry.lock.withLock {
-            registry.opened.removeAll { $0.archive.standardizedFileURL == archive.standardizedFileURL }
-            registry.opened.append(Opened(archive: archive, root: source.root, holder: holder,
-                                          stamp: stamp))
+        // An earlier copy of this archive, from before it changed, goes:
+        // a pane still showing it is showing what the archive no longer holds.
+        let earlier = registry.lock.withLock {
+            registry.opened.filter { $0.archive.standardizedFileURL == archive.standardizedFileURL }
         }
+        for opened in earlier { retire(opened) }
+        let opened = Opened(archive: archive, root: source.root, holder: holder, stamp: stamp)
+        registry.lock.withLock { registry.opened.append(opened) }
+        watch(opened)
         return source.root
+    }
+
+    // MARK: - When the archive goes
+
+    /// Whether the archive `url` is in -- and the one that came out of, for a
+    /// zip in a zip -- is still where it was and unchanged. True of anything
+    /// not inside an archive.
+    static func isCurrent(_ url: URL) -> Bool {
+        var url = url
+        for _ in 0..<16 {
+            guard isInside(url) else { return true }
+            guard let opened = opened(containing: url), Stamp(opened.archive) == opened.stamp
+            else { return false }
+            url = opened.archive
+        }
+        return true
+    }
+
+    /// Throws away the unpacked copy of every archive that has been deleted,
+    /// moved, renamed or changed since it was opened. Panes inside one see
+    /// their folder go, as they would a real folder's, and step out of it.
+    /// Cheap -- a `stat` per opened archive -- so it is asked on every
+    /// navigation too, for disks whose changes the kernel does not report.
+    /// True when anything was thrown away.
+    @discardableResult
+    static func retireStale() -> Bool {
+        var any = false
+        // Outer archives first: an inner one's archive is in the outer's copy,
+        // so it goes with it and is caught on the next turn of the loop.
+        for _ in 0..<16 {
+            let stale = registry.lock.withLock { registry.opened }
+                .filter { !isCurrent($0.root) }
+            guard !stale.isEmpty else { return any }
+            for opened in stale { retire(opened) }
+            any = true
+        }
+        return any
+    }
+
+    private static func retire(_ opened: Opened) {
+        let watch = registry.lock.withLock { () -> DispatchSourceFileSystemObject? in
+            registry.opened.removeAll { $0.holder == opened.holder }
+            registry.retired.removeAll { $0.holder == opened.holder }
+            registry.retired.append(opened)
+            if registry.retired.count > 64 { registry.retired.removeFirst() }
+            return registry.watches.removeValue(forKey: opened.holder.path)
+        }
+        watch?.cancel()
+        remove(opened.holder)
+    }
+
+    private static let watchQueue = DispatchQueue(label: "Diptych.ArchiveBrowsing.watch")
+
+    /// The kernel says when the archive file itself is deleted, renamed --
+    /// moved to the Trash is a rename -- or written. Nothing has to be looking
+    /// at the folder it is in for that to be noticed.
+    private static func watch(_ opened: Opened) {
+        let descriptor = Darwin.open(opened.archive.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.delete, .rename, .write, .extend, .attrib, .revoke],
+            queue: watchQueue)
+        source.setEventHandler { retireStale() }
+        source.setCancelHandler { Darwin.close(descriptor) }
+        let replaced = registry.lock.withLock {
+            let old = registry.watches[opened.holder.path]
+            registry.watches[opened.holder.path] = source
+            return old
+        }
+        replaced?.cancel()
+        source.resume()
+    }
+
+    /// Where a pane inside a thrown-away archive goes: the nearest folder that
+    /// is there, counted from where the archive was -- not up through the
+    /// caches. Nil for a path that is not inside an archive.
+    static func landing(for url: URL) -> URL? {
+        guard isInside(url) else { return nil }
+        let shown = shown(url)
+        // Not known at all: a leftover from a crash. Home, as for any folder
+        // with nothing left above it.
+        guard !isInside(shown) else { return FileManager.default.homeDirectoryForCurrentUser }
+        var candidate = shown.deletingLastPathComponent()
+        while candidate.pathComponents.count > 1 {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+               isDirectory.boolValue, !isInside(candidate) {
+                return candidate
+            }
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
     }
 
     // MARK: - Tidying
@@ -211,6 +326,11 @@ nonisolated enum ArchiveBrowsing {
     /// Gives a copy taken out of any manifest-backed source -- an opened archive,
     /// a server's shadow -- the modes its manifests record, item by item, rather
     /// than the read-only lock the copy it came from carries.
+    ///
+    /// And leaves our manifests behind. They sit beside the files in the source
+    /// tree, so copying a folder copied them too: one `__DIPTYCH.json` in every
+    /// folder of the copy. In an app that is fatal -- the files no longer match
+    /// what its signature seals, and macOS calls it damaged.
     nonisolated static func applyListedModes(at target: URL, from source: URL) {
         let manager = FileManager()
         // Every item copied, paired with where it came from.
@@ -221,6 +341,23 @@ nonisolated enum ArchiveBrowsing {
                               source.appendingPathComponent(relative)))
             }
         }
+        // Only the manifest each source folder really has -- found by its
+        // marker, as the listing finds it -- so an archive's own file that
+        // merely shares the name is kept. The copied folder is still locked
+        // as the cache was, so it is opened for writing first; its own mode
+        // is set below, after.
+        var removed = Set<String>()
+        for (target, source) in pairs {
+            var info = stat()
+            guard lstat(target.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+                  let fileName = BrowserManifestStore.located(in: source)?.fileName else { continue }
+            let manifest = target.appendingPathComponent(fileName)
+            guard lstat(manifest.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { continue }
+            var folder = stat()
+            if lstat(target.path, &folder) == 0 { chmod(target.path, (folder.st_mode & 0o7777) | 0o700) }
+            if unlink(manifest.path) == 0 { removed.insert(manifest.path) }
+        }
+        pairs.removeAll { removed.contains($0.target.path) }
         // One manifest read per source directory, not per item.
         var modes: [String: [String: mode_t]] = [:]
         func mode(of item: URL) -> mode_t? {
@@ -249,7 +386,13 @@ nonisolated enum ArchiveBrowsing {
     /// Everything unpacked, gone. Called when Diptych starts, for what a
     /// crash left, and when it quits.
     static func removeAll() {
-        registry.lock.withLock { registry.opened.removeAll() }
+        let watches = registry.lock.withLock { () -> [DispatchSourceFileSystemObject] in
+            registry.opened.removeAll()
+            registry.retired.removeAll()
+            defer { registry.watches.removeAll() }
+            return Array(registry.watches.values)
+        }
+        for watch in watches { watch.cancel() }
         remove(cacheRoot)
     }
 

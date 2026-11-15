@@ -130,6 +130,13 @@ final class ArchiveSource: BrowserSource, @unchecked Sendable {
             var manifest = BrowserManifest(source: "archive",
                                            nodes: nodes.sorted { $0.name < $1.name })
             manifest.origin = ["path": archive.path, "sha256": sha, "holder": holder.path]
+            // A folder the archive holds read-only is unpacked read-only, and
+            // its manifest could not be written: the whole archive failed to
+            // open. Writable for now; `lock` sets every folder's mode after.
+            var info = stat()
+            if lstat(folder.path, &info) == 0, info.st_mode & 0o200 == 0 {
+                chmod(folder.path, (info.st_mode & 0o7777) | 0o700)
+            }
             do { try BrowserManifestStore.write(manifest, named: fileName, in: folder) }
             catch { throw Failure(message: error.localizedDescription) }
         }

@@ -136,6 +136,9 @@ enum DiptychCommands {
             flatStopped: pane.isFlat ? pane.flatStopped : nil,
             flatUnreadableFolders: pane.isFlat && !pane.flatUnreadable.isEmpty
                 ? pane.flatUnreadable.map(\.path) : nil,
+            loading: pane.isLoading ? true : nil,
+            navigatingTo: pane.loadingDirectory.map { RemoteBrowsing.reportedPath($0) },
+            openingArchive: pane.openingArchive?.name,
             entries: pane.rows.filter { !$0.isParent }.map(DiptychData.FileEntry.init))
     }
 

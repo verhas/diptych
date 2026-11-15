@@ -4035,6 +4035,13 @@ final class AppModel {
     }
 
     private func shouldMove(_ urls: [URL], to destination: URL) -> Bool {
+        // Out of an opened archive it is always a copy -- what Finder does
+        // with anything it cannot take away. The unpacked tree is locked and
+        // sits in the caches, on the same disk, so the volume rule below said
+        // move; the move then failed with "you don't have permission to
+        // access" the folder it was dropped into. Command does not change it:
+        // there is no moving out of a read-only archive.
+        if urls.contains(where: ArchiveBrowsing.isInside) { return false }
         let modifiers = NSEvent.modifierFlags
         if modifiers.contains(.option) { return false }   // Option forces a copy
         if modifiers.contains(.command) { return true }   // Command forces a move

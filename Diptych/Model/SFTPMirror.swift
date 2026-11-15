@@ -43,8 +43,19 @@ actor SFTPMirror {
     /// case-insensitive disk cannot hold both.
     @discardableResult
     func populate(_ path: String) async throws -> [String] {
-        let entries = try await remote.entries(in: path)
         let folder = localURL(for: path)
+        let entries: [SFTPEntry]
+        do {
+            entries = try await remote.entries(in: path)
+        } catch where RemoteErrors.isNotFound(error) {
+            // Gone from the server, so gone from here: a pane inside it then
+            // finds its folder deleted, as with a folder on this Mac, and
+            // steps out of it -- rather than showing what the server no longer
+            // has. Unless something was changed here and not yet sent: that is
+            // kept, and the folder with it.
+            if !Self.hasLocalEdits(in: folder) { ArchiveBrowsing.remove(folder) }
+            throw error
+        }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let previous = BrowserManifestStore.read(in: folder)?.nodes ?? []
@@ -249,6 +260,25 @@ actor SFTPMirror {
     }
 
     /// Whether a fetched file was changed here since it was fetched or last sent.
+    /// Whether anything in `folder` or below it was changed here and not yet
+    /// sent to the server.
+    static func hasLocalEdits(in folder: URL) -> Bool {
+        var folders = [folder]
+        var seen = 0
+        while let next = folders.popLast(), seen < 10_000 {
+            seen += 1
+            for node in BrowserManifestStore.read(in: next)?.nodes ?? [] {
+                let url = next.appendingPathComponent(node.name)
+                if node.kind == .directory {
+                    folders.append(url)
+                } else if locallyChanged(node, at: url) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     static func locallyChanged(_ node: BrowserManifest.Node?, at url: URL) -> Bool {
         guard let node, case .file = node.backing,
               let recorded = node.attribute(BrowserManifest.Attribute.localModified)?.dateValue,

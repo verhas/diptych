@@ -1093,6 +1093,51 @@ Space on a mailbox -- an `.mbox` file, or the folder Mail exports -- lists its
 messages by date, sender and subject; each opens in place.
 `make-mail-samples.sh` makes sample messages and mailboxes.
 
+## Previewing crash reports
+
+Space on an `.ips` file -- the reports macOS writes to
+`~/Library/Logs/DiagnosticReports` -- shows which program stopped, its
+version and the Mac and system it ran on, and what stopped it: the exception
+and what it means in words (a Swift check that failed, such as an overflow or
+an unwrapped nil, memory it may not touch, an abort), the termination reason
+and what the libraries said as they gave up. Then the stack of the thread
+that crashed, the program's own frames picked out, with file and line where
+the report has them. The other threads and the libraries loaded are folded
+away. Reports that are not crashes are shown as they are.
+
+## Previewing provisioning profiles
+
+Space on a `.mobileprovision` or `.provisionprofile` shows the profile's
+name, the app and team it is for, its kind (development, ad hoc, App Store,
+Developer ID, in-house), when it was made and when it expires -- expired in
+red -- the devices it lists, its entitlements with the well-known ones in
+words, and the certificates allowed to sign with it. Apple's signature on it
+is checked: that it matches the contents and leads to Apple's root, without
+going to the network.
+
+## Previewing web locations and shortcuts
+
+Space on a `.webloc`, `.inetloc` (or `.fileloc`, `.ftploc`, `.afploc`) or a
+Windows `.url` shows the address it opens -- a link for an ordinary web
+address -- the app that opens it, and the address taken apart: the site, the
+path, the query with the tracking parameters named. It warns when the
+address is not what it looks like: a user name before the "@" that looks
+like a site, a site name in letters beyond plain Latin, a program or
+installer at the end, a file on another computer -- which on Windows sends
+the user's sign-in there -- or an icon fetched from one. Old Finder
+locations that keep the address only in the resource fork are read too.
+
+## Previewing Java properties
+
+Space on a `.properties` file shows its keys and values as Java reads them:
+escapes such as `\u00e9` decoded, lines continued with a backslash joined,
+`=`, `:` and blanks as separators. Comments stay where they are. A key set
+twice is marked and the value that loses struck through, blanks at the end of
+a value and escaped line breaks are made visible, and a broken `\u` escape --
+which stops Java loading the file -- is pointed out. The language of a
+`Messages_de.properties` bundle is named.
+`make-small-samples.sh` makes a sample of each of these four kinds.
+
 ## Previewing programs, libraries and scripts
 
 Finder calls four different things a "Unix executable file", and Quick Look
@@ -2975,12 +3020,21 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
   the archive and it lands with the archive's own permissions -- the write
   bits and any setuid, setgid or sticky bit restored, not the read-only lock
   -- and the archive's quarantine, owned by you, exactly as Extract gives it.
+  The manifests stay behind, so an app copied out is the app as signed.
+  Dropped elsewhere it is always a copy, never a move, whatever the volume:
+  nothing can be taken out of an archive.
 - **The path bar names it inside the archive** --
   `~/Downloads/photos.zip/2024` -- and typing or Option-clicking such a path
   goes there. Up from its top lands next to the archive, with the archive
   selected.
 - Opened again while it has not changed, it is shown at once; changed, it is
-  unpacked again. Everything unpacked goes when Diptych quits, and anything a
+  unpacked again.
+- **When the archive goes, so does what was unpacked from it** -- deleted,
+  moved, renamed or rewritten, here or by any other app. A pane inside it
+  steps out to where the archive was, as from a folder that was deleted, and
+  Back and the recent folders skip it. The same holds for a folder on an SFTP
+  server: deleted there, it is gone here once the server says so, while a
+  server that cannot be reached keeps showing what it last listed. Everything unpacked goes when Diptych quits, and anything a
   crash left when it starts. A pane left inside one is saved as next to it.
 - An encrypted one asks for its password; a downloaded one's quarantine goes
   on everything in it.
@@ -3674,7 +3728,7 @@ window go to "the" Diptych, which only means something if there is one.
 | Tool | Does |
 | --- | --- |
 | `list_windows` | Every open window: browser windows with each pane's directory, the active side, and whether it is in single-pane mode (only the active pane shown), plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
-| `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting |
+| `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting; while the pane is reading its listing, going to another folder or unpacking an archive, which -- its list takes no clicks meanwhile |
 | `get_selection` | The files currently selected in a pane |
 | `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
 | `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
