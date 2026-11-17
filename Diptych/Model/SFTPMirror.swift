@@ -8,8 +8,8 @@ import Foundation
 /// directory loader's manifest overlay shows the server's permissions, owner
 /// and dates, and the panes work on real folders. A file is a placeholder
 /// until its bytes are fetched: the manifest says so with a `.none` backing,
-/// and `materialize` fetches them. Nothing is written back yet, so the shadow
-/// is read-only, as an archive is.
+/// and `materialize` fetches them. Unlike an archive's copy the shadow is
+/// writable: what is changed here is sent to the server.
 actor SFTPMirror {
 
     let root: URL

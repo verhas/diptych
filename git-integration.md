@@ -1,15 +1,19 @@
 # Git integration — design
 
-The plan for Diptych's Git support, settled in discussion before any code was
-written. This file exists so the work can be picked up cold: it records the
-decisions **and the reasons**, because most of the reasons are the sort that
-look arbitrary once the argument that produced them is forgotten.
+Diptych's Git support: what it does, and **why it does it that way**. Most of
+the reasons look arbitrary once the argument that produced them is forgotten,
+so they are kept here with the decisions, and with the bugs that changed them.
 
-**Slices one and two are implemented.** Detection and settings, cached status,
-colours, the Git column, branch with ahead/behind; and the three verbs --
-Track this file / Never track this, Send my work, Get the latest -- with the
-conflict dialog. Still design only: the setup checklist as a visible panel,
-Earlier versions, and the diff viewer.
+**Status, as of 2.0.0.** Written as a plan on 10 September 2026, built in the
+days after it, and shipped in 1.1.0. Everything in sections 1–5 and 7 is in
+the app; section 6, the setup checklist, exists only inside Copy Details.
+What came later, release by release, is in section 9; what is still not built
+is in section 10.
+
+The code: `GitTool` (finding and running the program), `GitService` (one
+cached status per repository, the checklist, diagnostics), `GitStatus` (the
+porcelain parser and the states), `GitActions` (track, send, get, check, and
+the clash handling), and `GitFolderReport` (the folder preview).
 
 ## Who it is for
 
@@ -427,7 +431,9 @@ Describe what you changed:
 ```
 
 * Both lists have checkboxes and a tri-state select-all, so a partial send is
-  possible. Mechanically `git commit -- <ticked paths>`.
+  possible. Planned as `git commit -- <ticked paths>`; built as an index that
+  holds exactly the ticked paths and a commit with no pathspec, for the reason
+  given under *Stop tracking this* above.
 * **New files start unticked.** The recovery from forgetting is one click; the
   recovery from over-sharing a private draft or a 2 GB export is a phone call to
   the helper. The section must be visually loud when non-empty, so it reads as
@@ -647,6 +653,13 @@ ahead/behind git rev-list --count --left-right @{u}...HEAD
 A missing piece names *who fixes it* instead of printing `fatal: no upstream
 configured for branch 'main'`.
 
+**Built only halfway.** `GitService.setup(for:)` asks exactly these questions,
+but the answers go only into the diagnostics that Copy Details puts on the
+clipboard; there is no panel that shows the ticks. The pane footer covers the
+part people meet every day: the branch, what is not sent, what they do not
+have, and when that was checked. The folder preview (2.0.0) shows the branch,
+the shared copy it follows, and the ahead and behind counts.
+
 ## 7. Every failure is forwardable
 
 The user's next action after a failure is to send it to their helper. So every
@@ -684,7 +697,10 @@ Not oversights:
   because two sentences with nothing in common still share all their spaces.
   Where the two files have the same name in different folders, the header shows
   the part of the paths that differs. Comparing a file with itself is refused
-  rather than answered. Comparing folders is not built.
+  rather than answered. The window has since grown well past this: it edits,
+  folders are compared too (Compare Folders), PDFs and pictures by what they
+  show, and a single file against its committed version (section 9) -- none
+  of it through Git's own diff.
 * merge conflict *resolution*. Detect the state, refuse further operations,
   explain.
 * local-only checkpointing. There is no way to save without publishing; for
@@ -697,36 +713,53 @@ and runs their code. Developers accept this; for this audience it deserves a
 line in the documentation. `--no-verify` is not a good default — it also skips
 legitimate checks.
 
-## 9. Order of work
+## 9. What came after the first release
 
-**Slice one — done.**
+The original plan built in two slices -- status and colours, then the three
+verbs -- both inside 1.1.0. What followed:
 
-1. `GitRepository`: detection, one repo-wide cached `status`, invalidation,
-   deadline, per-repo serialisation
-2. Settings: off by default, detection with the disclosure and warning, path
-   override restricted to a file named `git`, Copy Details
-3. Name colours and a Git column
-4. Branch, with "N changes not sent / N you don't have", in the pane status bar
-5. The setup checklist
+* **Renames and moves stay tracked** (1.2.0). The rename field, the Info
+  window, F6 and drags tell Git to follow the move -- and so, as they came
+  later, do Rename Many and the Rename submenu's transforms (`GitService.followMove`); described under
+  *Renaming and moving* above.
+* **Choosing the Git program is not one way** (1.6.0). Settings ▸ Version
+  Tracking offers *Find it automatically* or *Use a program I choose*, with
+  *Choose Another…*. A chosen program is stored as chosen, not resolved:
+  picking Homebrew's `/opt/homebrew/bin/git` used to store the versioned
+  Cellar folder it links to, which `brew upgrade` deletes, silently switching
+  version tracking off.
+* **Text Edit shows what changed since the last commit** (1.8.0), as IntelliJ
+  does: green beside added lines, blue beside changed ones, a red wedge where
+  lines went. The committed text is `git show HEAD:./name`, read again
+  whenever the window comes to the front, because a commit made elsewhere
+  moves the base.
+* **Compare a file with its committed version** (1.12.3). ⌘D with one file
+  selected in a single pane compares it with what the last commit holds:
+  local, no fetch. A folder, or a file Git does not track, has no committed
+  version, and Compare says so.
+* **The folder preview** (2.0.0). Space on a folder in a repository adds the
+  branch, the shared copy it follows with the ahead and behind counts, the
+  uncommitted changes -- only the folder's own when it is not the top of the
+  repository -- and the last commits. Read with `rev-parse`, `status
+  --porcelain=v2` and `log`, all local, under `GIT_OPTIONAL_LOCKS=0`. The log
+  is not limited to `.` at the top of the repository, because a path filter
+  leaves out commits that change no file, and the preview should show every
+  commit the branch has.
 
-**Then**: Earlier versions window, with Quick Look of an old version
-(`show REV:path` into the existing preview scratch directory) and Restore.
+## 10. Not built
 
-**Then**: Send my work, Get the latest, conflicts.
-
-**Then**: word-level diff viewer (`diff --word-diff=porcelain`) — read-only
-first. Prose diffs read like tracked changes, where line diffs of a reflowed
-paragraph are unreadable. Making it editable later turns it into the merge tool
-that option (b) above deliberately leaves to the user.
-
-## Estimates
-
-| Piece | Estimate |
-| --- | --- |
-| `GitRepository` — discovery, parsing, caching, timeouts, serialisation | 1–1.5 days |
-| Colours, Git column, branch, settings switch | ~1 day |
-| Earlier versions window with Quick Look of old versions | ~1 day |
-| Send / Get the latest / restore, with confirmations and honest errors | 1.5–2 days |
-| Word diff viewer | ~1 day |
-
-About a week for all of it; slice one is about two days.
+* **Earlier versions** -- a window of a file's commits, each one open to
+  Quick Look (`show REV:path` into the preview scratch folder), Compare and
+  Restore. *File ▸ Previous Versions…* exists, but reads APFS snapshots and
+  Time Machine, not Git.
+* **The setup checklist as something to look at**, rather than a part of Copy
+  Details (section 6).
+* **A word-level diff** from `git diff --word-diff=porcelain`. Less needed
+  than planned: the comparison window marks the changed words in a rewritten
+  line itself.
+* **A repository that holds both spellings of a name** -- left by a rename
+  made before 1.2.0, or by another tool on a case-sensitive disk -- is not
+  detected. The fix is `git rm --cached` on the spelling that is not on disk.
+* **Hooks run.** `commit` and `push` run the repository's hooks (section 8);
+  the README mentions only that hooks are inherited, and nothing in the send
+  dialog says that pressing it can run a colleague's code.
