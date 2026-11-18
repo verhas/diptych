@@ -1,0 +1,2292 @@
+{
+ "vscode": "1.146.0",
+ "vscodeLicense": "MIT License\n\nCopyright (c) 2015 - present Microsoft Corporation\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+ "languages": [
+  {
+   "id": "bat",
+   "names": [
+    "Batch"
+   ],
+   "extensions": [
+    "bat",
+    "cmd"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "bat"
+  },
+  {
+   "id": "bibtex",
+   "names": [
+    "BibTeX"
+   ],
+   "extensions": [
+    "bib"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "latex"
+  },
+  {
+   "id": "c",
+   "names": [
+    "C"
+   ],
+   "extensions": [
+    "c",
+    "i"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "cpp"
+  },
+  {
+   "id": "clojure",
+   "names": [
+    "Clojure"
+   ],
+   "extensions": [
+    "clj",
+    "cljs",
+    "cljc",
+    "cljx",
+    "clojure",
+    "edn"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "clojure"
+  },
+  {
+   "id": "coffeescript",
+   "names": [
+    "CoffeeScript"
+   ],
+   "extensions": [
+    "coffee",
+    "cson",
+    "iced"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "coffeescript"
+  },
+  {
+   "id": "cpp",
+   "names": [
+    "C++"
+   ],
+   "extensions": [
+    "cpp",
+    "cppm",
+    "cc",
+    "ccm",
+    "cxx",
+    "cxxm",
+    "c++",
+    "c++m",
+    "hpp",
+    "hh",
+    "hxx",
+    "h++",
+    "h",
+    "ii",
+    "ino",
+    "inl",
+    "ipp",
+    "ixx",
+    "mpp",
+    "mxx",
+    "tpp",
+    "txx",
+    "hpp.in",
+    "h.in"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "cpp"
+  },
+  {
+   "id": "csharp",
+   "names": [
+    "C#"
+   ],
+   "extensions": [
+    "cs",
+    "csx",
+    "cake"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "csharp"
+  },
+  {
+   "id": "css",
+   "names": [
+    "CSS"
+   ],
+   "extensions": [
+    "css"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "css"
+  },
+  {
+   "id": "dart",
+   "names": [
+    "Dart"
+   ],
+   "extensions": [
+    "dart"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "dart"
+  },
+  {
+   "id": "diff",
+   "names": [
+    "Diff"
+   ],
+   "extensions": [
+    "diff",
+    "patch",
+    "rej"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "diff"
+  },
+  {
+   "id": "dockercompose",
+   "names": [
+    "Compose"
+   ],
+   "extensions": [],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "yaml"
+  },
+  {
+   "id": "dockerfile",
+   "names": [
+    "Docker"
+   ],
+   "extensions": [
+    "dockerfile",
+    "containerfile"
+   ],
+   "filenames": [
+    "Dockerfile",
+    "Containerfile"
+   ],
+   "firstLine": null,
+   "extension": "docker"
+  },
+  {
+   "id": "dotenv",
+   "names": [
+    "Dotenv"
+   ],
+   "extensions": [
+    "env"
+   ],
+   "filenames": [
+    ".env",
+    ".flaskenv",
+    "user-dirs.dirs"
+   ],
+   "firstLine": null,
+   "extension": "dotenv"
+  },
+  {
+   "id": "fsharp",
+   "names": [
+    "F#"
+   ],
+   "extensions": [
+    "fs",
+    "fsi",
+    "fsx",
+    "fsscript"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "fsharp"
+  },
+  {
+   "id": "git-commit",
+   "names": [
+    "Git Commit Message"
+   ],
+   "extensions": [],
+   "filenames": [
+    "COMMIT_EDITMSG",
+    "MERGE_MSG"
+   ],
+   "firstLine": null,
+   "extension": "git-base"
+  },
+  {
+   "id": "git-rebase",
+   "names": [
+    "Git Rebase Message"
+   ],
+   "extensions": [],
+   "filenames": [
+    "git-rebase-todo"
+   ],
+   "firstLine": null,
+   "extension": "git-base"
+  },
+  {
+   "id": "go",
+   "names": [
+    "Go"
+   ],
+   "extensions": [
+    "go"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "go"
+  },
+  {
+   "id": "groovy",
+   "names": [
+    "Groovy"
+   ],
+   "extensions": [
+    "groovy",
+    "gvy",
+    "gradle",
+    "jenkinsfile",
+    "nf"
+   ],
+   "filenames": [
+    "Jenkinsfile"
+   ],
+   "firstLine": "^#!.*\\bgroovy\\b",
+   "extension": "groovy"
+  },
+  {
+   "id": "handlebars",
+   "names": [
+    "Handlebars"
+   ],
+   "extensions": [
+    "handlebars",
+    "hbs",
+    "hjs"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "handlebars"
+  },
+  {
+   "id": "hlsl",
+   "names": [
+    "HLSL"
+   ],
+   "extensions": [
+    "hlsl",
+    "hlsli",
+    "fx",
+    "fxh",
+    "vsh",
+    "psh",
+    "cginc",
+    "compute"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "hlsl"
+  },
+  {
+   "id": "html",
+   "names": [
+    "HTML"
+   ],
+   "extensions": [
+    "html",
+    "htm",
+    "shtml",
+    "xhtml",
+    "xht",
+    "mdoc",
+    "jsp",
+    "asp",
+    "aspx",
+    "jshtm",
+    "volt",
+    "ejs",
+    "rhtml"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "html"
+  },
+  {
+   "id": "ignore",
+   "names": [
+    "Ignore"
+   ],
+   "extensions": [
+    "gitignore_global",
+    "gitignore",
+    "git-blame-ignore-revs"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "git-base"
+  },
+  {
+   "id": "ini",
+   "names": [
+    "Ini"
+   ],
+   "extensions": [
+    "ini"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "ini"
+  },
+  {
+   "id": "jade",
+   "names": [
+    "Pug"
+   ],
+   "extensions": [
+    "pug",
+    "jade"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "pug"
+  },
+  {
+   "id": "java",
+   "names": [
+    "Java"
+   ],
+   "extensions": [
+    "java",
+    "jav"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "java"
+  },
+  {
+   "id": "javascript",
+   "names": [
+    "JavaScript"
+   ],
+   "extensions": [
+    "js",
+    "es6",
+    "mjs",
+    "cjs",
+    "pac"
+   ],
+   "filenames": [
+    "jakefile"
+   ],
+   "firstLine": "^#!.*\\bnode",
+   "extension": "javascript"
+  },
+  {
+   "id": "javascriptreact",
+   "names": [
+    "JavaScript JSX"
+   ],
+   "extensions": [
+    "jsx"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "javascript"
+  },
+  {
+   "id": "json",
+   "names": [
+    "JSON"
+   ],
+   "extensions": [
+    "json",
+    "bowerrc",
+    "jscsrc",
+    "webmanifest",
+    "js.map",
+    "css.map",
+    "ts.map",
+    "har",
+    "jslintrc",
+    "jsonld",
+    "geojson",
+    "ipynb",
+    "vuerc",
+    "tsbuildinfo"
+   ],
+   "filenames": [
+    "composer.lock",
+    ".watchmanconfig"
+   ],
+   "firstLine": null,
+   "extension": "json"
+  },
+  {
+   "id": "jsonc",
+   "names": [
+    "JSON with Comments"
+   ],
+   "extensions": [
+    "jsonc",
+    "eslintrc",
+    "eslintrc.json",
+    "jsfmtrc",
+    "jshintrc",
+    "swcrc",
+    "hintrc",
+    "babelrc",
+    "toolset.jsonc"
+   ],
+   "filenames": [
+    "babel.config.json",
+    "bun.lock",
+    ".babelrc.json",
+    ".ember-cli",
+    "typedoc.json",
+    "tsconfig.json",
+    "jsconfig.json"
+   ],
+   "firstLine": null,
+   "extension": "json"
+  },
+  {
+   "id": "jsonl",
+   "names": [
+    "JSON Lines"
+   ],
+   "extensions": [
+    "jsonl",
+    "ndjson"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "json"
+  },
+  {
+   "id": "julia",
+   "names": [
+    "Julia"
+   ],
+   "extensions": [
+    "jl"
+   ],
+   "filenames": [],
+   "firstLine": "^#!\\s*/.*\\bjulia[0-9.-]*\\b",
+   "extension": "julia"
+  },
+  {
+   "id": "latex",
+   "names": [
+    "LaTeX"
+   ],
+   "extensions": [
+    "tex",
+    "ltx",
+    "ctx"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "latex"
+  },
+  {
+   "id": "less",
+   "names": [
+    "Less"
+   ],
+   "extensions": [
+    "less"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "less"
+  },
+  {
+   "id": "log",
+   "names": [
+    "Log"
+   ],
+   "extensions": [
+    "log",
+    "*.log.?"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "log"
+  },
+  {
+   "id": "lua",
+   "names": [
+    "Lua"
+   ],
+   "extensions": [
+    "lua"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "lua"
+  },
+  {
+   "id": "makefile",
+   "names": [
+    "Makefile"
+   ],
+   "extensions": [
+    "mak",
+    "mk"
+   ],
+   "filenames": [
+    "Makefile",
+    "makefile",
+    "GNUmakefile",
+    "OCamlMakefile"
+   ],
+   "firstLine": "^#!\\s*/usr/bin/make",
+   "extension": "make"
+  },
+  {
+   "id": "markdown",
+   "names": [
+    "Markdown"
+   ],
+   "extensions": [
+    "md",
+    "mkd",
+    "mkdn",
+    "mdwn",
+    "mdown",
+    "markdown",
+    "markdn",
+    "mdtxt",
+    "mdtext",
+    "litcoffee",
+    "ron",
+    "ronn",
+    "workbook"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "markdown-basics"
+  },
+  {
+   "id": "objective-c",
+   "names": [
+    "Objective-C"
+   ],
+   "extensions": [
+    "m"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "objective-c"
+  },
+  {
+   "id": "objective-cpp",
+   "names": [
+    "Objective-C++"
+   ],
+   "extensions": [
+    "mm"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "objective-c"
+  },
+  {
+   "id": "perl",
+   "names": [
+    "Perl"
+   ],
+   "extensions": [
+    "pl",
+    "pm",
+    "pod",
+    "t",
+    "pl",
+    "psgi"
+   ],
+   "filenames": [],
+   "firstLine": "^#!.*\\bperl\\b",
+   "extension": "perl"
+  },
+  {
+   "id": "php",
+   "names": [
+    "PHP"
+   ],
+   "extensions": [
+    "php",
+    "php4",
+    "php5",
+    "phtml",
+    "ctp"
+   ],
+   "filenames": [],
+   "firstLine": "^#!\\s*/.*\\bphp\\b",
+   "extension": "php"
+  },
+  {
+   "id": "powershell",
+   "names": [
+    "PowerShell"
+   ],
+   "extensions": [
+    "ps1",
+    "psm1",
+    "psd1",
+    "pssc",
+    "psrc"
+   ],
+   "filenames": [],
+   "firstLine": "^#!\\s*/.*\\bpwsh\\b",
+   "extension": "powershell"
+  },
+  {
+   "id": "properties",
+   "names": [
+    "Properties"
+   ],
+   "extensions": [
+    "conf",
+    "properties",
+    "cfg",
+    "directory",
+    "gitattributes",
+    "gitconfig",
+    "gitmodules",
+    "editorconfig",
+    "repo"
+   ],
+   "filenames": [
+    "gitconfig"
+   ],
+   "firstLine": null,
+   "extension": "ini"
+  },
+  {
+   "id": "python",
+   "names": [
+    "Python"
+   ],
+   "extensions": [
+    "py",
+    "rpy",
+    "pyw",
+    "cpy",
+    "gyp",
+    "gypi",
+    "pyi",
+    "ipy",
+    "pyt"
+   ],
+   "filenames": [
+    "SConstruct",
+    "SConscript"
+   ],
+   "firstLine": "^#!\\s*/?.*\\bpython[0-9.-]*\\b",
+   "extension": "python"
+  },
+  {
+   "id": "r",
+   "names": [
+    "R"
+   ],
+   "extensions": [
+    "r",
+    "rhistory",
+    "rprofile",
+    "rt"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "r"
+  },
+  {
+   "id": "raku",
+   "names": [
+    "Raku"
+   ],
+   "extensions": [
+    "raku",
+    "rakumod",
+    "rakutest",
+    "rakudoc",
+    "nqp",
+    "p6",
+    "pl6",
+    "pm6"
+   ],
+   "filenames": [],
+   "firstLine": "(^#!.*\\bperl6\\b)|use\\s+v6|raku|=begin\\spod|my\\sclass",
+   "extension": "perl"
+  },
+  {
+   "id": "razor",
+   "names": [
+    "Razor"
+   ],
+   "extensions": [
+    "cshtml",
+    "razor"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "razor"
+  },
+  {
+   "id": "restructuredtext",
+   "names": [
+    "reStructuredText"
+   ],
+   "extensions": [
+    "rst"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "restructuredtext"
+  },
+  {
+   "id": "ruby",
+   "names": [
+    "Ruby"
+   ],
+   "extensions": [
+    "rb",
+    "rbx",
+    "rjs",
+    "gemspec",
+    "rake",
+    "ru",
+    "erb",
+    "podspec",
+    "rbi"
+   ],
+   "filenames": [
+    "rakefile",
+    "gemfile",
+    "guardfile",
+    "podfile",
+    "capfile",
+    "cheffile",
+    "hobofile",
+    "vagrantfile",
+    "appraisals",
+    "rantfile",
+    "berksfile",
+    "berksfile.lock",
+    "thorfile",
+    "puppetfile",
+    "dangerfile",
+    "brewfile",
+    "fastfile",
+    "appfile",
+    "deliverfile",
+    "matchfile",
+    "scanfile",
+    "snapfile",
+    "gymfile"
+   ],
+   "firstLine": "^#!\\s*/.*\\bruby\\b",
+   "extension": "ruby"
+  },
+  {
+   "id": "rust",
+   "names": [
+    "Rust"
+   ],
+   "extensions": [
+    "rs"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "rust"
+  },
+  {
+   "id": "scss",
+   "names": [
+    "SCSS"
+   ],
+   "extensions": [
+    "scss"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "scss"
+  },
+  {
+   "id": "shaderlab",
+   "names": [
+    "ShaderLab"
+   ],
+   "extensions": [
+    "shader"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "shaderlab"
+  },
+  {
+   "id": "shellscript",
+   "names": [
+    "Shell Script"
+   ],
+   "extensions": [
+    "sh",
+    "bash",
+    "bashrc",
+    "bash_aliases",
+    "bash_profile",
+    "bash_login",
+    "ebuild",
+    "eclass",
+    "profile",
+    "bash_logout",
+    "xprofile",
+    "xsession",
+    "xsessionrc",
+    "xsession",
+    "zsh",
+    "zshrc",
+    "zprofile",
+    "zlogin",
+    "zlogout",
+    "zshenv",
+    "zsh-theme",
+    "fish",
+    "ksh",
+    "csh",
+    "cshrc",
+    "tcshrc",
+    "yashrc",
+    "yash_profile"
+   ],
+   "filenames": [
+    "APKBUILD",
+    "PKGBUILD",
+    ".envrc",
+    ".hushlogin",
+    "zshrc",
+    "zshenv",
+    "zlogin",
+    "zprofile",
+    "zlogout",
+    "bashrc_Apple_Terminal",
+    "zshrc_Apple_Terminal"
+   ],
+   "firstLine": "^#!.*\\b(bash|fish|zsh|sh|ksh|dtksh|pdksh|mksh|ash|dash|yash|sh|csh|jcsh|tcsh|itcsh).*|^#\\s*-\\*-[^*]*mode:\\s*shell-script[^*]*-\\*-",
+   "extension": "shellscript"
+  },
+  {
+   "id": "sql",
+   "names": [
+    "MS SQL"
+   ],
+   "extensions": [
+    "sql",
+    "dsql"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "sql"
+  },
+  {
+   "id": "swift",
+   "names": [
+    "Swift"
+   ],
+   "extensions": [
+    "swift"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "swift"
+  },
+  {
+   "id": "tex",
+   "names": [
+    "TeX"
+   ],
+   "extensions": [
+    "sty",
+    "cls",
+    "bbx",
+    "cbx"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "latex"
+  },
+  {
+   "id": "typescript",
+   "names": [
+    "TypeScript"
+   ],
+   "extensions": [
+    "ts",
+    "cts",
+    "mts"
+   ],
+   "filenames": [],
+   "firstLine": "^#!.*\\b(deno|bun|ts-node)\\b",
+   "extension": "typescript-basics"
+  },
+  {
+   "id": "typescriptreact",
+   "names": [
+    "TypeScript JSX"
+   ],
+   "extensions": [
+    "tsx"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "typescript-basics"
+  },
+  {
+   "id": "vb",
+   "names": [
+    "Visual Basic"
+   ],
+   "extensions": [
+    "vb",
+    "brs",
+    "vbs",
+    "bas",
+    "vba"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "vb"
+  },
+  {
+   "id": "xml",
+   "names": [
+    "XML"
+   ],
+   "extensions": [
+    "xml",
+    "xsd",
+    "ascx",
+    "atom",
+    "axml",
+    "axaml",
+    "bpmn",
+    "cpt",
+    "csl",
+    "csproj",
+    "csproj.user",
+    "dita",
+    "ditamap",
+    "dtd",
+    "ent",
+    "mod",
+    "dtml",
+    "fsproj",
+    "fxml",
+    "iml",
+    "isml",
+    "jmx",
+    "launch",
+    "menu",
+    "mxml",
+    "nuspec",
+    "opml",
+    "owl",
+    "proj",
+    "props",
+    "pt",
+    "publishsettings",
+    "pubxml",
+    "pubxml.user",
+    "rbxlx",
+    "rbxmx",
+    "rdf",
+    "rng",
+    "rss",
+    "shproj",
+    "slnx",
+    "storyboard",
+    "svg",
+    "targets",
+    "tld",
+    "tmx",
+    "vbproj",
+    "vbproj.user",
+    "vcxproj",
+    "vcxproj.filters",
+    "wixproj",
+    "wsdl",
+    "wxi",
+    "wxl",
+    "wxs",
+    "xaml",
+    "xbl",
+    "xib",
+    "xlf",
+    "xliff",
+    "xpdl",
+    "xul",
+    "xoml"
+   ],
+   "filenames": [],
+   "firstLine": "(\\<\\?xml.*)|(\\<svg)|(\\<\\!doctype\\s+svg)",
+   "extension": "xml"
+  },
+  {
+   "id": "xsl",
+   "names": [
+    "XSL"
+   ],
+   "extensions": [
+    "xsl",
+    "xslt"
+   ],
+   "filenames": [],
+   "firstLine": null,
+   "extension": "xml"
+  },
+  {
+   "id": "yaml",
+   "names": [
+    "YAML"
+   ],
+   "extensions": [
+    "yaml",
+    "yml",
+    "eyaml",
+    "eyml",
+    "cff",
+    "yaml-tmlanguage",
+    "yaml-tmpreferences",
+    "yaml-tmtheme",
+    "winget"
+   ],
+   "filenames": [],
+   "firstLine": "^#cloud-config",
+   "extension": "yaml"
+  }
+ ],
+ "grammars": [
+  {
+   "scope": "source.asp.vb.net",
+   "language": "vb",
+   "embedded": {},
+   "extension": "vb"
+  },
+  {
+   "scope": "source.batchfile",
+   "language": "bat",
+   "embedded": {},
+   "extension": "bat"
+  },
+  {
+   "scope": "source.c",
+   "language": "c",
+   "embedded": {},
+   "extension": "cpp"
+  },
+  {
+   "scope": "source.c.platform",
+   "language": null,
+   "embedded": {},
+   "extension": "cpp"
+  },
+  {
+   "scope": "source.clojure",
+   "language": "clojure",
+   "embedded": {},
+   "extension": "clojure"
+  },
+  {
+   "scope": "source.coffee",
+   "language": "coffeescript",
+   "embedded": {},
+   "extension": "coffeescript"
+  },
+  {
+   "scope": "source.cpp",
+   "language": "cpp",
+   "embedded": {},
+   "extension": "cpp"
+  },
+  {
+   "scope": "source.cs",
+   "language": "csharp",
+   "embedded": {},
+   "extension": "csharp"
+  },
+  {
+   "scope": "source.css",
+   "language": "css",
+   "embedded": {},
+   "extension": "css"
+  },
+  {
+   "scope": "source.css.less",
+   "language": "less",
+   "embedded": {},
+   "extension": "less"
+  },
+  {
+   "scope": "source.css.scss",
+   "language": "scss",
+   "embedded": {},
+   "extension": "scss"
+  },
+  {
+   "scope": "source.dart",
+   "language": "dart",
+   "embedded": {},
+   "extension": "dart"
+  },
+  {
+   "scope": "source.diff",
+   "language": "diff",
+   "embedded": {},
+   "extension": "diff"
+  },
+  {
+   "scope": "source.dockerfile",
+   "language": "dockerfile",
+   "embedded": {},
+   "extension": "docker"
+  },
+  {
+   "scope": "source.dotenv",
+   "language": "dotenv",
+   "embedded": {},
+   "extension": "dotenv"
+  },
+  {
+   "scope": "source.fsharp",
+   "language": "fsharp",
+   "embedded": {},
+   "extension": "fsharp"
+  },
+  {
+   "scope": "source.go",
+   "language": "go",
+   "embedded": {},
+   "extension": "go"
+  },
+  {
+   "scope": "source.groovy",
+   "language": "groovy",
+   "embedded": {},
+   "extension": "groovy"
+  },
+  {
+   "scope": "source.hlsl",
+   "language": "hlsl",
+   "embedded": {},
+   "extension": "hlsl"
+  },
+  {
+   "scope": "source.ignore",
+   "language": "ignore",
+   "embedded": {},
+   "extension": "git-base"
+  },
+  {
+   "scope": "source.ini",
+   "language": "ini",
+   "embedded": {},
+   "extension": "ini"
+  },
+  {
+   "scope": "source.ini",
+   "language": "properties",
+   "embedded": {},
+   "extension": "ini"
+  },
+  {
+   "scope": "source.java",
+   "language": "java",
+   "embedded": {},
+   "extension": "java"
+  },
+  {
+   "scope": "source.js",
+   "language": "javascript",
+   "embedded": {
+    "meta.tag.js": "jsx-tags",
+    "meta.tag.without-attributes.js": "jsx-tags",
+    "meta.tag.attributes.js": "javascript",
+    "meta.embedded.expression.js": "javascript"
+   },
+   "extension": "javascript"
+  },
+  {
+   "scope": "source.js.jsx",
+   "language": "javascriptreact",
+   "embedded": {
+    "meta.tag.js": "jsx-tags",
+    "meta.tag.without-attributes.js": "jsx-tags",
+    "meta.tag.attributes.js.jsx": "javascriptreact",
+    "meta.embedded.expression.js": "javascriptreact"
+   },
+   "extension": "javascript"
+  },
+  {
+   "scope": "source.json",
+   "language": "json",
+   "embedded": {},
+   "extension": "json"
+  },
+  {
+   "scope": "source.json.comments",
+   "language": "jsonc",
+   "embedded": {},
+   "extension": "json"
+  },
+  {
+   "scope": "source.json.lines",
+   "language": "jsonl",
+   "embedded": {},
+   "extension": "json"
+  },
+  {
+   "scope": "source.julia",
+   "language": "julia",
+   "embedded": {
+    "meta.embedded.inline.cpp": "cpp",
+    "meta.embedded.inline.javascript": "javascript",
+    "meta.embedded.inline.python": "python",
+    "meta.embedded.inline.r": "r",
+    "meta.embedded.inline.sql": "sql"
+   },
+   "extension": "julia"
+  },
+  {
+   "scope": "source.lua",
+   "language": "lua",
+   "embedded": {},
+   "extension": "lua"
+  },
+  {
+   "scope": "source.makefile",
+   "language": "makefile",
+   "embedded": {},
+   "extension": "make"
+  },
+  {
+   "scope": "source.objc",
+   "language": "objective-c",
+   "embedded": {},
+   "extension": "objective-c"
+  },
+  {
+   "scope": "source.objcpp",
+   "language": "objective-cpp",
+   "embedded": {},
+   "extension": "objective-c"
+  },
+  {
+   "scope": "source.perl",
+   "language": "perl",
+   "embedded": {},
+   "extension": "perl"
+  },
+  {
+   "scope": "source.perl.6",
+   "language": "raku",
+   "embedded": {},
+   "extension": "perl"
+  },
+  {
+   "scope": "source.php",
+   "language": "php",
+   "embedded": {},
+   "extension": "php"
+  },
+  {
+   "scope": "source.powershell",
+   "language": "powershell",
+   "embedded": {},
+   "extension": "powershell"
+  },
+  {
+   "scope": "source.python",
+   "language": "python",
+   "embedded": {},
+   "extension": "python"
+  },
+  {
+   "scope": "source.r",
+   "language": "r",
+   "embedded": {},
+   "extension": "r"
+  },
+  {
+   "scope": "source.regexp.python",
+   "language": null,
+   "embedded": {},
+   "extension": "python"
+  },
+  {
+   "scope": "source.rst",
+   "language": "restructuredtext",
+   "embedded": {},
+   "extension": "restructuredtext"
+  },
+  {
+   "scope": "source.ruby",
+   "language": "ruby",
+   "embedded": {},
+   "extension": "ruby"
+  },
+  {
+   "scope": "source.rust",
+   "language": "rust",
+   "embedded": {},
+   "extension": "rust"
+  },
+  {
+   "scope": "source.sassdoc",
+   "language": null,
+   "embedded": {},
+   "extension": "scss"
+  },
+  {
+   "scope": "source.shaderlab",
+   "language": "shaderlab",
+   "embedded": {},
+   "extension": "shaderlab"
+  },
+  {
+   "scope": "source.shell",
+   "language": "shellscript",
+   "embedded": {},
+   "extension": "shellscript"
+  },
+  {
+   "scope": "source.sql",
+   "language": "sql",
+   "embedded": {},
+   "extension": "sql"
+  },
+  {
+   "scope": "source.swift",
+   "language": "swift",
+   "embedded": {},
+   "extension": "swift"
+  },
+  {
+   "scope": "source.ts",
+   "language": "typescript",
+   "embedded": {},
+   "extension": "typescript-basics"
+  },
+  {
+   "scope": "source.tsx",
+   "language": "typescriptreact",
+   "embedded": {
+    "meta.tag.tsx": "jsx-tags",
+    "meta.tag.without-attributes.tsx": "jsx-tags",
+    "meta.tag.attributes.tsx": "typescriptreact",
+    "meta.embedded.expression.tsx": "typescriptreact"
+   },
+   "extension": "typescript-basics"
+  },
+  {
+   "scope": "source.yaml",
+   "language": "dockercompose",
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml",
+   "language": "yaml",
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml.1.0",
+   "language": null,
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml.1.1",
+   "language": null,
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml.1.2",
+   "language": null,
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml.1.3",
+   "language": null,
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "source.yaml.embedded",
+   "language": null,
+   "embedded": {},
+   "extension": "yaml"
+  },
+  {
+   "scope": "text.bibtex",
+   "language": "bibtex",
+   "embedded": {},
+   "extension": "latex"
+  },
+  {
+   "scope": "text.git-commit",
+   "language": "git-commit",
+   "embedded": {},
+   "extension": "git-base"
+  },
+  {
+   "scope": "text.git-rebase",
+   "language": "git-rebase",
+   "embedded": {},
+   "extension": "git-base"
+  },
+  {
+   "scope": "text.html.basic",
+   "language": null,
+   "embedded": {
+    "text.html": "html",
+    "source.css": "css",
+    "source.js": "javascript",
+    "source.python": "python",
+    "source.smarty": "smarty"
+   },
+   "extension": "html"
+  },
+  {
+   "scope": "text.html.cshtml",
+   "language": "razor",
+   "embedded": {
+    "section.embedded.source.cshtml": "csharp",
+    "source.css": "css",
+    "source.js": "javascript"
+   },
+   "extension": "razor"
+  },
+  {
+   "scope": "text.html.derivative",
+   "language": "html",
+   "embedded": {
+    "text.html": "html",
+    "source.css": "css",
+    "source.js": "javascript",
+    "source.python": "python",
+    "source.smarty": "smarty"
+   },
+   "extension": "html"
+  },
+  {
+   "scope": "text.html.handlebars",
+   "language": "handlebars",
+   "embedded": {},
+   "extension": "handlebars"
+  },
+  {
+   "scope": "text.html.markdown",
+   "language": "markdown",
+   "embedded": {
+    "meta.embedded.block.html": "html",
+    "source.js": "javascript",
+    "source.css": "css",
+    "meta.embedded.block.frontmatter": "yaml",
+    "meta.embedded.block.css": "css",
+    "meta.embedded.block.ini": "ini",
+    "meta.embedded.block.java": "java",
+    "meta.embedded.block.lua": "lua",
+    "meta.embedded.block.makefile": "makefile",
+    "meta.embedded.block.perl": "perl",
+    "meta.embedded.block.r": "r",
+    "meta.embedded.block.ruby": "ruby",
+    "meta.embedded.block.php": "php",
+    "meta.embedded.block.sql": "sql",
+    "meta.embedded.block.vs_net": "vs_net",
+    "meta.embedded.block.xml": "xml",
+    "meta.embedded.block.xsl": "xsl",
+    "meta.embedded.block.yaml": "yaml",
+    "meta.embedded.block.dosbatch": "dosbatch",
+    "meta.embedded.block.clojure": "clojure",
+    "meta.embedded.block.coffee": "coffee",
+    "meta.embedded.block.c": "c",
+    "meta.embedded.block.cpp": "cpp",
+    "meta.embedded.block.diff": "diff",
+    "meta.embedded.block.dockerfile": "dockerfile",
+    "meta.embedded.block.go": "go",
+    "meta.embedded.block.groovy": "groovy",
+    "meta.embedded.block.pug": "jade",
+    "meta.embedded.block.ignore": "ignore",
+    "meta.embedded.block.javascript": "javascript",
+    "meta.embedded.block.json": "json",
+    "meta.embedded.block.jsonc": "jsonc",
+    "meta.embedded.block.jsonl": "jsonl",
+    "meta.embedded.block.latex": "latex",
+    "meta.embedded.block.less": "less",
+    "meta.embedded.block.objc": "objc",
+    "meta.embedded.block.scss": "scss",
+    "meta.embedded.block.perl6": "perl6",
+    "meta.embedded.block.powershell": "powershell",
+    "meta.embedded.block.python": "python",
+    "meta.embedded.block.restructuredtext": "restructuredtext",
+    "meta.embedded.block.rust": "rust",
+    "meta.embedded.block.scala": "scala",
+    "meta.embedded.block.shellscript": "shellscript",
+    "meta.embedded.block.typescript": "typescript",
+    "meta.embedded.block.typescriptreact": "typescriptreact",
+    "meta.embedded.block.csharp": "csharp",
+    "meta.embedded.block.fsharp": "fsharp"
+   },
+   "extension": "markdown-basics"
+  },
+  {
+   "scope": "text.html.markdown.math",
+   "language": "markdown-math",
+   "embedded": {},
+   "extension": "markdown-math"
+  },
+  {
+   "scope": "text.html.markdown.prompt",
+   "language": "prompt",
+   "embedded": {},
+   "extension": "prompt-basics"
+  },
+  {
+   "scope": "text.html.markdown.prompt",
+   "language": "instructions",
+   "embedded": {},
+   "extension": "prompt-basics"
+  },
+  {
+   "scope": "text.html.markdown.prompt",
+   "language": "chatagent",
+   "embedded": {},
+   "extension": "prompt-basics"
+  },
+  {
+   "scope": "text.html.markdown.prompt",
+   "language": "skill",
+   "embedded": {},
+   "extension": "prompt-basics"
+  },
+  {
+   "scope": "text.html.php",
+   "language": "php",
+   "embedded": {
+    "text.html": "html",
+    "source.php": "php",
+    "source.sql": "sql",
+    "text.xml": "xml",
+    "source.js": "javascript",
+    "source.json": "json",
+    "source.css": "css"
+   },
+   "extension": "php"
+  },
+  {
+   "scope": "text.log",
+   "language": "log",
+   "embedded": {},
+   "extension": "log"
+  },
+  {
+   "scope": "text.pug",
+   "language": "jade",
+   "embedded": {},
+   "extension": "pug"
+  },
+  {
+   "scope": "text.searchResult",
+   "language": "search-result",
+   "embedded": {},
+   "extension": "search-result"
+  },
+  {
+   "scope": "text.tex",
+   "language": "tex",
+   "embedded": {},
+   "extension": "latex"
+  },
+  {
+   "scope": "text.tex.latex",
+   "language": "latex",
+   "embedded": {
+    "source.cpp": "cpp_embedded_latex",
+    "source.css": "css",
+    "text.html": "html",
+    "source.java": "java",
+    "source.js": "javascript",
+    "source.julia": "julia",
+    "source.lua": "lua",
+    "source.python": "python",
+    "source.ruby": "ruby",
+    "source.ts": "typescript",
+    "text.xml": "xml",
+    "source.yaml": "yaml",
+    "meta.embedded.markdown_latex_combined": "markdown_latex_combined"
+   },
+   "extension": "latex"
+  },
+  {
+   "scope": "text.tex.markdown_latex_combined",
+   "language": "markdown_latex_combined",
+   "embedded": {},
+   "extension": "latex"
+  },
+  {
+   "scope": "text.xml",
+   "language": "xml",
+   "embedded": {},
+   "extension": "xml"
+  },
+  {
+   "scope": "text.xml.xsl",
+   "language": "xsl",
+   "embedded": {},
+   "extension": "xml"
+  }
+ ],
+ "sources": {
+  "bat": [
+   {
+    "name": "mmims/language-batchfile",
+    "url": "https://github.com/mmims/language-batchfile",
+    "commit": "6154ae25a24e01ac9329e7bcf958e093cd8733a9",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.7.6",
+    "notice": "mmims/language-batchfile 0.7.6 - MIT\nhttps://github.com/mmims/language-batchfile\n\nThe MIT License (MIT)\n\nCopyright (c) 2021 Michael Mims\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
+   }
+  ],
+  "clojure": [
+   {
+    "name": "atom/language-clojure",
+    "url": "https://github.com/atom/language-clojure",
+    "commit": "45bdb881501d0b8f8b707ca1d3fcc8b4b99fca03",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.22.8",
+    "notice": "atom/language-clojure 0.22.8 - MIT\nhttps://github.com/atom/language-clojure\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/mmcgrana/textmate-clojure and distributed under the\nfollowing license, located in `LICENSE.md`:\n\nThe MIT License (MIT)\n\nCopyright (c) 2010- Mark McGranaghan\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "coffeescript": [
+   {
+    "name": "atom/language-coffee-script",
+    "url": "https://github.com/atom/language-coffee-script",
+    "commit": "0f6db9143663e18b1ad00667820f46747dba495e",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.49.3",
+    "notice": "atom/language-coffee-script 0.49.3 - MIT\nhttps://github.com/atom/language-coffee-script\n\nThe MIT License (MIT)\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/jashkenas/coffee-script-tmbundle and distributed under the\nfollowing license, located in `LICENSE`:\n\nCopyright (c) 2009-2014 Jeremy Ashkenas\n\nPermission is hereby granted, free of charge, to any person\nobtaining a copy of this software and associated documentation\nfiles (the \"Software\"), to deal in the Software without\nrestriction, including without limitation the rights to use,\ncopy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the\nSoftware is furnished to do so, subject to the following\nconditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES\nOF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT\nHOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,\nWHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING\nFROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR\nOTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "cpp": [
+   {
+    "name": "jeff-hykin/better-cpp-syntax",
+    "url": "https://github.com/jeff-hykin/better-cpp-syntax",
+    "commit": "071dd6ecc9eda347bd84c8aa0e0b557396cb6a40",
+    "license": "MIT",
+    "licenseDetail": "MIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
+    "version": "1.27.1",
+    "notice": "jeff-hykin/better-cpp-syntax 1.17.4 - MIT\nhttps://github.com/jeff-hykin/better-cpp-syntax\n\nMIT License,,Copyright (c) 2019 Jeff Hykin,,Permission is hereby granted, free of charge, to any person obtaining a copy,of this software and associated documentation files (the \"Software\"), to deal,in the Software without restriction, including without limitation the rights,to use, copy, modify, merge, publish, distribute, sublicense, and/or sell,copies of the Software, and to permit persons to whom the Software is,furnished to do so, subject to the following conditions:,,The above copyright notice and this permission notice shall be included in all,copies or substantial portions of the Software.,,THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR,IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE,AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER,LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE,SOFTWARE."
+   },
+   {
+    "name": "jeff-hykin/better-c-syntax",
+    "url": "https://github.com/jeff-hykin/better-c-syntax",
+    "commit": "34712a6106a4ffb0a04d2fa836fd28ff6c5849a4",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.13.2",
+    "notice": "jeff-hykin/better-c-syntax 1.13.2 - MIT\nhttps://github.com/jeff-hykin/better-c-syntax\n\nMIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   },
+   {
+    "name": "textmate/c.tmbundle",
+    "url": "https://github.com/textmate/c.tmbundle",
+    "commit": "60daf83b9d45329524f7847a75e9298b3aae5805",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-c.tmbundle authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/c.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/c.tmbundle\n\nCopyright (c) textmate-c.tmbundle authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   },
+   {
+    "name": "NVIDIA/cuda-cpp-grammar",
+    "url": "https://github.com/NVIDIA/cuda-cpp-grammar",
+    "commit": "81e88eaec5170aa8585736c63627c73e3589998c",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.0.0",
+    "notice": "NVIDIA/cuda-cpp-grammar 0.0.0 - MIT\nhttps://github.com/NVIDIA/cuda-cpp-grammar\n\nThe MIT License (MIT)\n\nCopyright 2021 NVIDIA Corporation\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "csharp": [
+   {
+    "name": "dotnet/csharp-tmLanguage",
+    "url": "https://github.com/dotnet/csharp-tmLanguage",
+    "commit": "c2719309e91d2e26be21fce0ecaaca86c7b48ce4",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.1.0",
+    "notice": "dotnet/csharp-tmLanguage 0.1.0 - MIT\nhttps://github.com/dotnet/csharp-tmLanguage\n\nMIT License\n\nCopyright (c) 2016 .NET Foundation\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "css": [
+   {
+    "name": "microsoft/vscode-css",
+    "url": "https://github.com/microsoft/vscode-css",
+    "commit": "de9e6beee756760f31b15efbd782735fc25de3db",
+    "license": "MIT License",
+    "licenseDetail": "MIT License\n\nCopyright (c) Microsoft Corporation.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n--------------------------------------------------------------------\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/textmate/css.tmbundle and distributed under the following\nlicense, located in `README.mdown`:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.",
+    "version": "0.0.0",
+    "notice": "microsoft/vscode-css 0.0.0 - MIT License\nhttps://github.com/microsoft/vscode-css\n\nMIT License\n\nCopyright (c) Microsoft Corporation.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "dart": [
+   {
+    "name": "dart-lang/dart-syntax-highlight",
+    "url": "https://github.com/dart-lang/dart-syntax-highlight",
+    "commit": "b308b4b3502c8639149e63d74844da51031b5f47",
+    "license": "BSD",
+    "licenseDetail": "Copyright 2020, the Dart project authors.\n\nRedistribution and use in source and binary forms, with or without\nmodification, are permitted provided that the following conditions are\nmet:\n\n    * Redistributions of source code must retain the above copyright\n    notice, this list of conditions and the following disclaimer.\n    * Redistributions in binary form must reproduce the above\n    copyright notice, this list of conditions and the following\n    disclaimer in the documentation and/or other materials provided\n    with the distribution.\n    * Neither the name of Google LLC nor the names of its\n    contributors may be used to endorse or promote products derived\n    from this software without specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n\"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\nLIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\nA PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\nOWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\nSPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\nLIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\nDATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\nTHEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\nOF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
+    "version": "0.0.0",
+    "notice": "dart-lang/dart-syntax-highlight 0.0.0 - BSD\nhttps://github.com/dart-lang/dart-syntax-highlight\n\nCopyright 2020, the Dart project authors.\n\nRedistribution and use in source and binary forms, with or without\nmodification, are permitted provided that the following conditions are\nmet:\n\n    * Redistributions of source code must retain the above copyright\n    notice, this list of conditions and the following disclaimer.\n    * Redistributions in binary form must reproduce the above\n    copyright notice, this list of conditions and the following\n    disclaimer in the documentation and/or other materials provided\n    with the distribution.\n    * Neither the name of Google LLC nor the names of its\n    contributors may be used to endorse or promote products derived\n    from this software without specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n\"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\nLIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\nA PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\nOWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\nSPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\nLIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\nDATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\nTHEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\nOF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
+   }
+  ],
+  "diff": [
+   {
+    "name": "textmate/diff.tmbundle",
+    "url": "https://github.com/textmate/diff.tmbundle",
+    "commit": "0593bb775eab1824af97ef2172fd38822abd97d7",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-diff.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/diff.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/diff.tmbundle\n\nCopyright (c) textmate-diff.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "docker": [
+   {
+    "name": "language-docker",
+    "url": "https://github.com/moby/moby",
+    "commit": "bea959c7b793b32a893820b97c4eadc7c87fabb0",
+    "license": "Apache-2.0",
+    "licenseDetail": "",
+    "version": "28.3.3",
+    "notice": "language-docker 28.3.3 - Apache-2.0\nhttps://github.com/moby/moby\n\nApache License\n                           Version 2.0, January 2004\n                        https://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   1. Definitions.\n\n      \"License\" shall mean the terms and conditions for use, reproduction,\n      and distribution as defined by Sections 1 through 9 of this document.\n\n      \"Licensor\" shall mean the copyright owner or entity authorized by\n      the copyright owner that is granting the License.\n\n      \"Legal Entity\" shall mean the union of the acting entity and all\n      other entities that control, are controlled by, or are under common\n      control with that entity. For the purposes of this definition,\n      \"control\" means (i) the power, direct or indirect, to cause the\n      direction or management of such entity, whether by contract or\n      otherwise, or (ii) ownership of fifty percent (50%) or more of the\n      outstanding shares, or (iii) beneficial ownership of such entity.\n\n      \"You\" (or \"Your\") shall mean an individual or Legal Entity\n      exercising permissions granted by this License.\n\n      \"Source\" form shall mean the preferred form for making modifications,\n      including but not limited to software source code, documentation\n      source, and configuration files.\n\n      \"Object\" form shall mean any form resulting from mechanical\n      transformation or translation of a Source form, including but\n      not limited to compiled object code, generated documentation,\n      and conversions to other media types.\n\n      \"Work\" shall mean the work of authorship, whether in Source or\n      Object form, made available under the License, as indicated by a\n      copyright notice that is included in or attached to the work\n      (an example is provided in the Appendix below).\n\n      \"Derivative Works\" shall mean any work, whether in Source or Object\n      form, that is based on (or derived from) the Work and for which the\n      editorial revisions, annotations, elaborations, or other modifications\n      represent, as a whole, an original work of authorship. For the purposes\n      of this License, Derivative Works shall not include works that remain\n      separable from, or merely link (or bind by name) to the interfaces of,\n      the Work and Derivative Works thereof.\n\n      \"Contribution\" shall mean any work of authorship, including\n      the original version of the Work and any modifications or additions\n      to that Work or Derivative Works thereof, that is intentionally\n      submitted to Licensor for inclusion in the Work by the copyright owner\n      or by an individual or Legal Entity authorized to submit on behalf of\n      the copyright owner. For the purposes of this definition, \"submitted\"\n      means any form of electronic, verbal, or written communication sent\n      to the Licensor or its representatives, including but not limited to\n      communication on electronic mailing lists, source code control systems,\n      and issue tracking systems that are managed by, or on behalf of, the\n      Licensor for the purpose of discussing and improving the Work, but\n      excluding communication that is conspicuously marked or otherwise\n      designated in writing by the copyright owner as \"Not a Contribution.\"\n\n      \"Contributor\" shall mean Licensor and any individual or Legal Entity\n      on behalf of whom a Contribution has been received by Licensor and\n      subsequently incorporated within the Work.\n\n   2. Grant of Copyright License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      copyright license to reproduce, prepare Derivative Works of,\n      publicly display, publicly perform, sublicense, and distribute the\n      Work and such Derivative Works in Source or Object form.\n\n   3. Grant of Patent License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      (except as stated in this section) patent license to make, have made,\n      use, offer to sell, sell, import, and otherwise transfer the Work,\n      where such license applies only to those patent claims licensable\n      by such Contributor that are necessarily infringed by their\n      Contribution(s) alone or by combination of their Contribution(s)\n      with the Work to which such Contribution(s) was submitted. If You\n      institute patent litigation against any entity (including a\n      cross-claim or counterclaim in a lawsuit) alleging that the Work\n      or a Contribution incorporated within the Work constitutes direct\n      or contributory patent infringement, then any patent licenses\n      granted to You under this License for that Work shall terminate\n      as of the date such litigation is filed.\n\n   4. Redistribution. You may reproduce and distribute copies of the\n      Work or Derivative Works thereof in any medium, with or without\n      modifications, and in Source or Object form, provided that You\n      meet the following conditions:\n\n      (a) You must give any other recipients of the Work or\n          Derivative Works a copy of this License; and\n\n      (b) You must cause any modified files to carry prominent notices\n          stating that You changed the files; and\n\n      (c) You must retain, in the Source form of any Derivative Works\n          that You distribute, all copyright, patent, trademark, and\n          attribution notices from the Source form of the Work,\n          excluding those notices that do not pertain to any part of\n          the Derivative Works; and\n\n      (d) If the Work includes a \"NOTICE\" text file as part of its\n          distribution, then any Derivative Works that You distribute must\n          include a readable copy of the attribution notices contained\n          within such NOTICE file, excluding those notices that do not\n          pertain to any part of the Derivative Works, in at least one\n          of the following places: within a NOTICE text file distributed\n          as part of the Derivative Works; within the Source form or\n          documentation, if provided along with the Derivative Works; or,\n          within a display generated by the Derivative Works, if and\n          wherever such third-party notices normally appear. The contents\n          of the NOTICE file are for informational purposes only and\n          do not modify the License. You may add Your own attribution\n          notices within Derivative Works that You distribute, alongside\n          or as an addendum to the NOTICE text from the Work, provided\n          that such additional attribution notices cannot be construed\n          as modifying the License.\n\n      You may add Your own copyright statement to Your modifications and\n      may provide additional or different license terms and conditions\n      for use, reproduction, or distribution of Your modifications, or\n      for any such Derivative Works as a whole, provided Your use,\n      reproduction, and distribution of the Work otherwise complies with\n      the conditions stated in this License.\n\n   5. Submission of Contributions. Unless You explicitly state otherwise,\n      any Contribution intentionally submitted for inclusion in the Work\n      by You to the Licensor shall be under the terms and conditions of\n      this License, without any additional terms or conditions.\n      Notwithstanding the above, nothing herein shall supersede or modify\n      the terms of any separate license agreement you may have executed\n      with Licensor regarding such Contributions.\n\n   6. Trademarks. This License does not grant permission to use the trade\n      names, trademarks, service marks, or product names of the Licensor,\n      except as required for reasonable and customary use in describing the\n      origin of the Work and reproducing the content of the NOTICE file.\n\n   7. Disclaimer of Warranty. Unless required by applicable law or\n      agreed to in writing, Licensor provides the Work (and each\n      Contributor provides its Contributions) on an \"AS IS\" BASIS,\n      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n      implied, including, without limitation, any warranties or conditions\n      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n      PARTICULAR PURPOSE. You are solely responsible for determining the\n      appropriateness of using or redistributing the Work and assume any\n      risks associated with Your exercise of permissions under this License.\n\n   8. Limitation of Liability. In no event and under no legal theory,\n      whether in tort (including negligence), contract, or otherwise,\n      unless required by applicable law (such as deliberate and grossly\n      negligent acts) or agreed to in writing, shall any Contributor be\n      liable to You for damages, including any direct, indirect, special,\n      incidental, or consequential damages of any character arising as a\n      result of this License or out of the use or inability to use the\n      Work (including but not limited to damages for loss of goodwill,\n      work stoppage, computer failure or malfunction, or any and all\n      other commercial damages or losses), even if such Contributor\n      has been advised of the possibility of such damages.\n\n   9. Accepting Warranty or Additional Liability. While redistributing\n      the Work or Derivative Works thereof, You may choose to offer,\n      and charge a fee for, acceptance of support, warranty, indemnity,\n      or other liability obligations and/or rights consistent with this\n      License. However, in accepting such obligations, You may act only\n      on Your own behalf and on Your sole responsibility, not on behalf\n      of any other Contributor, and only if You agree to indemnify,\n      defend, and hold each Contributor harmless for any liability\n      incurred by, or claims asserted against, such Contributor by reason\n      of your accepting any such warranty or additional liability.\n\n   END OF TERMS AND CONDITIONS\n\n   Copyright 2013-2018 Docker, Inc.\n\n   Licensed under the Apache License, Version 2.0 (the \"License\");\n   you may not use this file except in compliance with the License.\n   You may obtain a copy of the License at\n\n       https://www.apache.org/licenses/LICENSE-2.0\n\n   Unless required by applicable law or agreed to in writing, software\n   distributed under the License is distributed on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n   See the License for the specific language governing permissions and\n   limitations under the License."
+   }
+  ],
+  "dotenv": [
+   {
+    "name": "dotenv-org/dotenv-vscode",
+    "url": "https://github.com/dotenv-org/dotenv-vscode",
+    "commit": "e7e41baa5b23e01c1ff0567a4e596c24860e7def",
+    "license": "MIT License",
+    "licenseDetail": "MIT License\n\nCopyright (c) 2022 Scott Motte\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
+    "version": "0.26.0",
+    "notice": "dotenv-org/dotenv-vscode 0.26.0 - MIT License\nhttps://github.com/dotenv-org/dotenv-vscode\n\nMIT License\n\nCopyright (c) 2022 Scott Motte\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "fsharp": [
+   {
+    "name": "ionide/ionide-fsgrammar",
+    "url": "https://github.com/ionide/ionide-fsgrammar",
+    "commit": "0cb968a4b8fdb2e0656b95342cdffbeff04a1248",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.0.0",
+    "notice": "ionide/ionide-fsgrammar 0.0.0 - MIT\nhttps://github.com/ionide/ionide-fsgrammar\n\nThe MIT License (MIT)\n\nCopyright (c) 2015 Krzysztof Cieslak\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
+   }
+  ],
+  "git-base": [
+   {
+    "name": "textmate/git.tmbundle",
+    "url": "https://github.com/textmate/git.tmbundle",
+    "commit": "5870cf3f8abad3a6637bdf69250b5d2ded427dc4",
+    "license": "MIT",
+    "licenseDetail": "Copyright (c) 2008 Tim Harper\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\"\nSoftware\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "version": "0.0.0",
+    "notice": "textmate/git.tmbundle 0.0.0 - MIT\nhttps://github.com/textmate/git.tmbundle\n\nThe MIT License (MIT)\n\nCopyright (c) 2008 Tim Harper\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\"\nSoftware\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   },
+   {
+    "name": "walles/git-commit-message-plus",
+    "url": "https://github.com/walles/git-commit-message-plus",
+    "commit": "35a079dea5a91b087021b40c01a6bb4eb0337a87",
+    "license": "MIT",
+    "licenseDetail": "Copyright (c) 2023 Johan Walles <johan.walles@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\"\nSoftware\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "version": "1.0.0",
+    "notice": "walles/git-commit-message-plus 1.0.0 - MIT\nhttps://github.com/walles/git-commit-message-plus\n\nThe MIT License (MIT)\n\nCopyright (c) 2023 Johan Walles <johan.walles@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\"\nSoftware\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "go": [
+   {
+    "name": "go-syntax",
+    "url": "https://github.com/worlpaker/go-syntax",
+    "commit": "c74e22eb9ef32958e3edd130ea750ce78d8b8241",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.8.6",
+    "notice": "go-syntax 0.8.6 - MIT\nhttps://github.com/worlpaker/go-syntax\n\nMIT License\n\nCopyright (c) 2023 Furkan Ozalp\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "groovy": [
+   {
+    "name": "textmate/groovy.tmbundle",
+    "url": "https://github.com/textmate/groovy.tmbundle",
+    "commit": "85d8f7c97ae473ccb9473f6c8d27e4ec957f4be1",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-groovy.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/groovy.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/groovy.tmbundle\n\nCopyright (c) textmate-groovy.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "handlebars": [
+   {
+    "name": "daaain/Handlebars",
+    "url": "https://github.com/daaain/Handlebars",
+    "commit": "0ffd0a2d95bfc052c3ff29a3eb4dd3749957b466",
+    "license": "MIT",
+    "licenseDetail": "-- Credits\n\nAdapted from the great sublime-text-handlebars package by Nicholas Westlake.\n\nThanks a lot to all the generous contributors (in alphabetical order): @bittersweetryan, @bradcliffe, @calumbrodie, @duncanbeevers, @hlvnst, @jonschlinkert, @Krutius, @samselikoff, @utkarshkukreti, @zeppelin\n\n-- License\n\n(The MIT License)\n\nCopyright (c) daaain/Handlebars project authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "version": "1.10.0",
+    "notice": "daaain/Handlebars 1.8.0 - MIT\nhttps://github.com/daaain/Handlebars\n\n-- Credits\n\nAdapted from the great sublime-text-handlebars package by Nicholas Westlake.\n\nThanks a lot to all the generous contributors (in alphabetical order): @bittersweetryan, @bradcliffe, @calumbrodie, @duncanbeevers, @hlvnst, @jonschlinkert, @Krutius, @samselikoff, @utkarshkukreti, @zeppelin\n\n-- License\n\n(The MIT License)\n\nCopyright (c) daaain/Handlebars project authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "hlsl": [
+   {
+    "name": "shaders-tmLanguage",
+    "url": "https://github.com/tgjones/shaders-tmLanguage",
+    "commit": "87c0dca3a39170dbd7ee7e277db4f915fb2de14a",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.1.0",
+    "notice": "shaders-tmLanguage 0.1.0 - MIT\nhttps://github.com/tgjones/shaders-tmLanguage\n\nMIT License\n\nCopyright (c) 2017 Tim Jones\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "html": [
+   {
+    "name": "textmate/html.tmbundle",
+    "url": "https://github.com/textmate/html.tmbundle",
+    "commit": "0c3d5ee54de3a993f747f54186b73a4d2d3c44a2",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-html.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/html.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/html.tmbundle\n\nCopyright (c) textmate-html.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "ini": [
+   {
+    "name": "textmate/ini.tmbundle",
+    "url": "https://github.com/textmate/ini.tmbundle",
+    "commit": "2af0cbb0704940f967152616f2f1ff0aae6287a6",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-ini.tmbundle project authors\n\nIf not otherwise specified (see below), files in this folder fall under the following license: \n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information, \nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added \nto the base-name name of the original file, and an extension of txt, html, or similar. For example \n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/ini.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/ini.tmbundle\n\nCopyright (c) textmate-ini.tmbundle project authors\n\nIf not otherwise specified (see below), files in this folder fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "java": [
+   {
+    "name": "redhat-developer/vscode-java",
+    "url": "https://github.com/redhat-developer/vscode-java",
+    "commit": "f09b712f5d6d6339e765f58c8dfab3f78a378183",
+    "license": "MIT",
+    "licenseDetail": "Copyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n--------------------------------------------------------------------\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/textmate/java.tmbundle and distributed under the following\nlicense, located in `README.mdown`:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.",
+    "version": "1.26.0",
+    "notice": "redhat-developer/vscode-java 1.26.0 - MIT\nhttps://github.com/redhat-developer/vscode-java\n\nThe MIT License (MIT)\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "javascript": [
+   {
+    "name": "microsoft/TypeScript-TmLanguage",
+    "url": "https://github.com/microsoft/TypeScript-TmLanguage",
+    "commit": "3133e3d914db9a2bb8812119f9273727a305f16b",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.0.1",
+    "notice": "microsoft/TypeScript-TmLanguage 0.0.1 - MIT\nhttps://github.com/microsoft/TypeScript-TmLanguage\n\nCopyright (c) Microsoft Corporation\nAll rights reserved.\n\nMIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
+   },
+   {
+    "name": "textmate/javascript.tmbundle",
+    "url": "https://github.com/textmate/javascript.tmbundle",
+    "commit": "fccf0af0c95430a42e1bf98f0c7a4723a53283e7",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-javascript.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/javascript.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/javascript.tmbundle\n\nCopyright (c) textmate-javascript.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "json": [
+   {
+    "name": "microsoft/vscode-JSON.tmLanguage",
+    "url": "https://github.com/microsoft/vscode-JSON.tmLanguage",
+    "commit": "9bd83f1c252b375e957203f21793316203f61f70",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.0.0",
+    "notice": "microsoft/vscode-JSON.tmLanguage 0.0.0 - MIT\nhttps://github.com/microsoft/vscode-JSON.tmLanguage\n\nvscode-JSON.tmLanguage\n\nCopyright (c) Microsoft Corporation\n\nAll rights reserved.\n\nMIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated\ndocumentation files (the \"\"Software\"\"), to deal in the Software without restriction, including without limitation\nthe rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,\nand to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED\nTO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL\nTHE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF\nCONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   },
+   {
+    "name": "jeff-hykin/better-snippet-syntax",
+    "url": "https://github.com/jeff-hykin/better-snippet-syntax",
+    "commit": "2b1bb124cb2b9c75c3c80eae1b8f3a043841d654",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.0.2",
+    "notice": "jeff-hykin/better-snippet-syntax 1.0.2 - MIT\nhttps://github.com/jeff-hykin/better-snippet-syntax\n\nMIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "julia": [
+   {
+    "name": "JuliaEditorSupport/atom-language-julia",
+    "url": "https://github.com/JuliaEditorSupport/atom-language-julia",
+    "commit": "dbaa99358d1dbc2fc6c337f0f6571060dbc4ee1f",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.23.0",
+    "notice": "JuliaEditorSupport/atom-language-julia 0.23.0 - MIT\nhttps://github.com/JuliaEditorSupport/atom-language-julia\n\nThe atom-language-julia package is licensed under the MIT \"Expat\" License:\n\n> Copyright (c) 2015\n>\n> Permission is hereby granted, free of charge, to any person obtaining\n> a copy of this software and associated documentation files (the\n> \"Software\"), to deal in the Software without restriction, including\n> without limitation the rights to use, copy, modify, merge, publish,\n> distribute, sublicense, and/or sell copies of the Software, and to\n> permit persons to whom the Software is furnished to do so, subject to\n> the following conditions:\n>\n> The above copyright notice and this permission notice shall be\n> included in all copies or substantial portions of the Software.\n>\n> THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\n> EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\n> MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n> IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\n> CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\n> TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\n> SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "latex": [
+   {
+    "name": "jlelong/vscode-latex-basics",
+    "url": "https://github.com/jlelong/vscode-latex-basics",
+    "commit": "76dc409348227db00f6779772f7763dc90cdf22e",
+    "license": "MIT",
+    "licenseDetail": "Copyright (c) vscode-latex-basics authors\n\nIf not otherwise specified (see below), files in this repository fall under the MIT License\n\n\nThe file syntaxes/LaTeX.tmLanguage.json is based on https://github.com/textmate/latex.tmbundle/blob/master/Syntaxes/LaTeX.plist\nbut has been largely modified. The original file falls under the following license\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nThe file syntaxes/markdown-latex-combined.tmLanguage.json is generated from the Markdown grammar\nincluded in VSCode and falls under the license described in markdown-latex-combined-license.txt.\n\nThe file syntaxes/cpp-grammar-bailout.tmLanguage.json is generated from https://github.com/jeff-hykin/better-cpp-syntax\nand falls under the license described in cpp-bailout-license.txt.",
+    "version": "1.16.0",
+    "notice": "jlelong/vscode-latex-basics 1.16.0 - MIT\nhttps://github.com/jlelong/vscode-latex-basics\n\nCopyright (c) vscode-latex-basics authors\n\nIf not otherwise specified (see below), files in this repository fall under the MIT License\n\n\nThe file syntaxes/LaTeX.tmLanguage.json is based on https://github.com/textmate/latex.tmbundle/blob/master/Syntaxes/LaTeX.plist\nbut has been largely modified. The original file falls under the following license\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nThe file syntaxes/markdown-latex-combined.tmLanguage.json is generated from the Markdown grammar\nincluded in VSCode and falls under the license described in markdown-latex-combined-license.txt.\n\nThe file syntaxes/cpp-grammar-bailout.tmLanguage.json is generated from https://github.com/jeff-hykin/better-cpp-syntax\nand falls under the license described in cpp-bailout-license.txt."
+   }
+  ],
+  "less": [
+   {
+    "name": "language-less",
+    "url": "https://github.com/radium-v/Better-Less",
+    "commit": "63c0cba9792e49e255cce0f6dd03250fb30591e6",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.6.1",
+    "notice": "language-less 0.6.1 - MIT\nhttps://github.com/radium-v/Better-Less\n\nMIT License\n\nCopyright (c) 2017 John Kreitlow\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "log": [
+   {
+    "name": "vscode-logfile-highlighter",
+    "url": "https://github.com/emilast/vscode-logfile-highlighter",
+    "commit": "396c8552ff99d0e07142fdd940d75dae212dd28c",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "3.4.0",
+    "notice": "vscode-logfile-highlighter 3.4.0 - MIT\nhttps://github.com/emilast/vscode-logfile-highlighter\n\nThe MIT License (MIT)\n\nCopyright (c) 2015 emilast\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "lua": [
+   {
+    "name": "sumneko/lua.tmbundle",
+    "url": "https://github.com/sumneko/lua.tmbundle",
+    "commit": "b295d83bf0e91b5d3a69eb097f9ed351623b95be",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) sumneko-lua.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "1.0.0",
+    "notice": "sumneko/lua.tmbundle 1.0.0 - TextMate Bundle License\nhttps://github.com/sumneko/lua.tmbundle\n\nCopyright (c) sumneko-lua.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "make": [
+   {
+    "name": "fadeevab/make.tmbundle",
+    "url": "https://github.com/fadeevab/make.tmbundle",
+    "commit": "1d4c0b541959995db098df751ffc129da39a294b",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-make.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "fadeevab/make.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/fadeevab/make.tmbundle\n\nCopyright (c) textmate-make.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "markdown-basics": [
+   {
+    "name": "textmate/markdown.tmbundle",
+    "url": "https://github.com/textmate/markdown.tmbundle",
+    "commit": "11cf764606cb2cde54badb5d0e5a0758a8871c4b",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) markdown.tmbundle authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/markdown.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/markdown.tmbundle\n\nCopyright (c) markdown.tmbundle authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   },
+   {
+    "name": "microsoft/vscode-markdown-tm-grammar",
+    "url": "https://github.com/microsoft/vscode-markdown-tm-grammar",
+    "commit": "0812fc4b190efc17bfed0d5b4ff918eff8e4e377",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.0.0",
+    "notice": "microsoft/vscode-markdown-tm-grammar 1.0.0 - MIT\nhttps://github.com/microsoft/vscode-markdown-tm-grammar\n\nThe MIT License (MIT)\n\nCopyright (c) Microsoft 2018\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "markdown-math": [
+   {
+    "name": "James-Yu/LaTeX-Workshop",
+    "url": "https://github.com/James-Yu/LaTeX-Workshop",
+    "commit": "e4cd86f1731546c2cdde0cc93717ca3fec2da0ba",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "8.19.1",
+    "notice": "James-Yu/LaTeX-Workshop 8.19.1 - MIT\nhttps://github.com/James-Yu/LaTeX-Workshop\n\nThe MIT License (MIT)\n\nCopyright (c) 2016 James Yu\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "objective-c": [
+   {
+    "name": "jeff-hykin/better-objcpp-syntax",
+    "url": "https://github.com/jeff-hykin/better-objcpp-syntax",
+    "commit": "5a7eb15eee382dd5aa388bc04fdb60a0d2128e14",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.1.0",
+    "notice": "jeff-hykin/better-objcpp-syntax 0.1.0 - MIT\nhttps://github.com/jeff-hykin/better-objcpp-syntax\n\nMIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   },
+   {
+    "name": "jeff-hykin/better-objc-syntax",
+    "url": "https://github.com/jeff-hykin/better-objc-syntax",
+    "commit": "119b75fb1f4d3e8726fa62588e3b935e0b719294",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.2.0",
+    "notice": "jeff-hykin/better-objc-syntax 0.2.0 - MIT\nhttps://github.com/jeff-hykin/better-objc-syntax\n\nMIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "perl": [
+   {
+    "name": "textmate/perl.tmbundle",
+    "url": "https://github.com/textmate/perl.tmbundle",
+    "commit": "a85927a902d6e5d7805f56a653f324d34dfad53a",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-perl.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/perl.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/perl.tmbundle\n\nCopyright (c) textmate-perl.tmbundle project authors\n\nIf not otherwise specified (see below), files in this repository fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "php": [
+   {
+    "name": "language-php",
+    "url": "https://github.com/KapitanOczywisty/language-php",
+    "commit": "d94fd6b7dff1613d34bc0d36328f9982e65bd545",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.49.0",
+    "notice": "language-php 0.49.0 - MIT\nhttps://github.com/KapitanOczywisty/language-php\n\nThe MIT License (MIT)\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/textmate/php.tmbundle and distributed under the following\nlicense, located in `README.mdown`:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose."
+   }
+  ],
+  "powershell": [
+   {
+    "name": "PowerShell/EditorSyntax",
+    "url": "https://github.com/PowerShell/EditorSyntax",
+    "commit": "23eed76d483c887a1608609e9dd57e09666411cc",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.0.0",
+    "notice": "PowerShell/EditorSyntax 1.0.0 - MIT\nhttps://github.com/PowerShell/EditorSyntax\n\nCopyright (c) Microsoft Corporation\n\nAll rights reserved.\n\nMIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "prompt-basics": [],
+  "pug": [
+   {
+    "name": "davidrios/pug-tmbundle",
+    "url": "https://github.com/davidrios/pug-tmbundle",
+    "commit": "ae1dd60ca4aa4b45617f236d584216cd8d19eecf",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.0.0",
+    "notice": "davidrios/pug-tmbundle 0.0.0 - MIT\nhttps://github.com/davidrios/pug-tmbundle\n\nThe MIT License (MIT)\n\nCopyright (c) 2016 David Rios\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "python": [
+   {
+    "name": "MagicStack/MagicPython",
+    "url": "https://github.com/MagicStack/MagicPython",
+    "commit": "7d0f2b22a5ad8fccbd7341bc7b7a715169283044",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.1.1",
+    "notice": "MagicStack/MagicPython 1.1.1 - MIT\nhttps://github.com/MagicStack/MagicPython\n\nThe MIT License\n\nCopyright (c) 2015-present MagicStack Inc.  http://magic.io\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
+   }
+  ],
+  "r": [
+   {
+    "name": "REditorSupport/vscode-R",
+    "url": "https://github.com/REditorSupport/vscode-R-syntax",
+    "commit": "b199996070723eefbe7a61e0384b2ae4768eb7f0",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.1.1",
+    "notice": "REditorSupport/vscode-R 0.1.1 - MIT\nhttps://github.com/REditorSupport/vscode-R-syntax\n\nMIT License\n\nCopyright (c) 2025 REditorSupport\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "razor": [
+   {
+    "name": "dotnet/razor",
+    "url": "https://github.com/dotnet/roslyn",
+    "commit": "79e211a2e4287f9f7508089b81311b2c7fdc169f",
+    "license": "MIT",
+    "licenseDetail": "MIT License\n\nCopyright (c) .NET Foundation and Contributors\nAll Rights Reserved\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
+    "version": "1.0.0",
+    "notice": "dotnet/razor 1.0.0 - MIT\nhttps://github.com/dotnet/roslyn\n\nMIT License\n\nCopyright (c) .NET Foundation and Contributors\nAll Rights Reserved\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "restructuredtext": [
+   {
+    "name": "trond-snekvik/vscode-rst",
+    "url": "https://github.com/trond-snekvik/vscode-rst",
+    "commit": "7f2d6bb4e20642b60f2979afcb594cfe4b48117a",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.5.3",
+    "notice": "trond-snekvik/vscode-rst 1.5.3 - MIT\nhttps://github.com/trond-snekvik/vscode-rst\n\nThe MIT License (MIT)\n\nCopyright 2021 Trond Snekvik\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "ruby": [
+   {
+    "name": "Shopify/ruby-lsp",
+    "url": "https://github.com/Shopify/ruby-lsp",
+    "commit": "e044408a069f43c892143f19c389628eebffbd01",
+    "license": "MIT License",
+    "licenseDetail": "The MIT License (MIT)\n\nCopyright (c) 2022-present, Shopify Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n\n================================================================================\nThe following files and related configuration in package.json are based on a\nsequence of adaptions: grammars/ruby.cson.json, grammars/erb.cson.json,\nlanguages/erb.json.\n\nCopyright (c) 2016 Peng Lv\nCopyright (c) 2017-2019 Stafford Brunk\nhttps://github.com/rubyide/vscode-ruby\n\n    Released under the MIT license\n    https://github.com/rubyide/vscode-ruby/blob/main/LICENSE.txt\n\nCopyright (c) 2014 GitHub Inc.\nhttps://github.com/atom/language-ruby\n\n    Released under the MIT license\n    https://github.com/atom/language-ruby/blob/master/LICENSE.md\n\nhttps://github.com/textmate/ruby.tmbundle\n    https://github.com/textmate/ruby.tmbundle#license",
+    "version": "0.0.0",
+    "notice": "Shopify/ruby-lsp 0.0.0 - MIT License\nhttps://github.com/Shopify/ruby-lsp\n\nThe MIT License (MIT)\n\nCopyright (c) 2022-present, Shopify Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n\n================================================================================\nThe following files and related configuration in package.json are based on a\nsequence of adaptions: grammars/ruby.cson.json, grammars/erb.cson.json,\nlanguages/erb.json.\n\nCopyright (c) 2016 Peng Lv\nCopyright (c) 2017-2019 Stafford Brunk\nhttps://github.com/rubyide/vscode-ruby\n\n    Released under the MIT license\n    https://github.com/rubyide/vscode-ruby/blob/main/LICENSE.txt\n\nCopyright (c) 2014 GitHub Inc.\nhttps://github.com/atom/language-ruby\n\n    Released under the MIT license\n    https://github.com/atom/language-ruby/blob/master/LICENSE.md\n\nhttps://github.com/textmate/ruby.tmbundle\n    https://github.com/textmate/ruby.tmbundle#license"
+   }
+  ],
+  "rust": [
+   {
+    "name": "rust-syntax",
+    "url": "https://github.com/dustypomerleau/rust-syntax",
+    "commit": "ca34cf382a7b250144f2ccb99ff9af96912c79f2",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.6.1",
+    "notice": "rust-syntax 0.6.1 - MIT\nhttps://github.com/dustypomerleau/rust-syntax\n\nMIT License\n\nCopyright (c) 2020 Dustin Pomerleau\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "scss": [
+   {
+    "name": "atom/language-sass",
+    "url": "https://github.com/atom/language-sass",
+    "commit": "303bbf0c250fe380b9e57375598cfd916110758b",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.61.4",
+    "notice": "atom/language-sass 0.62.1 - MIT\nhttps://github.com/atom/language-sass\n\nThe MIT License (MIT)\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/alexsancho/Sass.tmbundle and distributed under the following\nlicense, located in `LICENSE.md`:\n\nCopyright (c) 2012 Alex Sancho, http://alexsancho.name/\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "search-result": [],
+  "shaderlab": [
+   {
+    "name": "shaders-tmLanguage",
+    "url": "https://github.com/tgjones/shaders-tmLanguage",
+    "commit": "c72c8b39380ba5a86c58ceed053b5d965ebf38b3",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.1.0",
+    "notice": "shaders-tmLanguage 0.1.0 - MIT\nhttps://github.com/tgjones/shaders-tmLanguage\n\nMIT License\n\nCopyright (c) 2017 Tim Jones\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "shellscript": [
+   {
+    "name": "jeff-hykin/better-shell-syntax",
+    "url": "https://github.com/jeff-hykin/better-shell-syntax",
+    "commit": "35020b0bd79a90d3b262b4c13a8bb0b33adc1f45",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.8.7",
+    "notice": "jeff-hykin/better-shell-syntax 1.8.7 - MIT\nhttps://github.com/jeff-hykin/better-shell-syntax\n\nMIT License\n\nCopyright (c) 2019 Jeff Hykin\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+   }
+  ],
+  "sql": [
+   {
+    "name": "microsoft/vscode-mssql",
+    "url": "https://github.com/microsoft/vscode-mssql",
+    "commit": "684648ee5414eb2d9df22b0392ef05079f91e44e",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.0.0",
+    "notice": "microsoft/vscode-mssql 1.0.0 - MIT\nhttps://github.com/microsoft/vscode-mssql\n\n------------------------------------------ START OF LICENSE -----------------------------------------\nvscode-mssql\nCopyright (c) Microsoft Corporation\nAll rights reserved.\nMIT License\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"\"Software\"\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\nCopyright (c) 2016 Microsoft\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\nTHE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n----------------------------------------------- END OF LICENSE -----------------------------------------"
+   }
+  ],
+  "swift": [
+   {
+    "name": "jtbandes/swift-tmlanguage",
+    "url": "https://github.com/jtbandes/swift-tmlanguage",
+    "commit": "2be007b6bc88e54a0edfd3c313ff31276edc923d",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "",
+    "notice": "jtbandes/swift-tmlanguage  - MIT\nhttps://github.com/jtbandes/swift-tmlanguage\n\nThe MIT License (MIT)\n\nCopyright 2023 Jacob Bandes-Storch\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   },
+   {
+    "name": "vscode-swift",
+    "url": "https://github.com/owensd/vscode-swift",
+    "commit": "cec27af6662e3799120b208e64483efdfe5521f5",
+    "license": "MIT",
+    "licenseDetail": "The MIT License (MIT)\n\nCopyright (c) 2015 David Owens II\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "version": "0.0.1",
+    "notice": "vscode-swift 0.0.1 - MIT\nhttps://github.com/owensd/vscode-swift\n\nThe MIT License (MIT)\n\nCopyright (c) 2015 David Owens II\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ],
+  "typescript-basics": [
+   {
+    "name": "TypeScript-TmLanguage",
+    "url": "https://github.com/microsoft/TypeScript-TmLanguage",
+    "commit": "48f608692aa6d6ad7bd65b478187906c798234a8",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "1.0.0",
+    "notice": "microsoft/TypeScript-TmLanguage 0.0.1 - MIT\nhttps://github.com/microsoft/TypeScript-TmLanguage\n\nCopyright (c) Microsoft Corporation\nAll rights reserved.\n\nMIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE."
+   }
+  ],
+  "vb": [
+   {
+    "name": "textmate/asp.vb.net.tmbundle",
+    "url": "https://github.com/textmate/asp.vb.net.tmbundle",
+    "commit": "72d44550b3286d0382d7be0624140cf97857ff69",
+    "license": "TextMate Bundle License",
+    "licenseDetail": "Copyright (c) textmate-asp.vb.net.tmbundle project authors\n\nIf not otherwise specified (see below), files in this folder fall under the following license: \n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information, \nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added \nto the base-name name of the original file, and an extension of txt, html, or similar. For example \n\"tidy\" is accompanied by \"tidy-license.txt\".",
+    "version": "0.0.0",
+    "notice": "textmate/asp.vb.net.tmbundle 0.0.0 - TextMate Bundle License\nhttps://github.com/textmate/asp.vb.net.tmbundle\n\nCopyright (c) textmate-asp.vb.net.tmbundle project authors\n\nIf not otherwise specified (see below), files in this folder fall under the following license:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose.\n\nAn exception is made for files in readable text which contain their own license information,\nor files where an accompanying file exists (in the same directory) with a \"-license\" suffix added\nto the base-name name of the original file, and an extension of txt, html, or similar. For example\n\"tidy\" is accompanied by \"tidy-license.txt\"."
+   }
+  ],
+  "xml": [
+   {
+    "name": "atom/language-xml",
+    "url": "https://github.com/atom/language-xml",
+    "commit": "7bc75dfe779ad5b35d9bf4013d9181864358cb49",
+    "license": "MIT",
+    "licenseDetail": "",
+    "version": "0.35.2",
+    "notice": "atom/language-xml 0.35.2 - MIT\nhttps://github.com/atom/language-xml\n\nThe MIT License (MIT)\n\nCopyright (c) 2014 GitHub Inc.\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n\nThis package was derived from a TextMate bundle located at\nhttps://github.com/textmate/xml.tmbundle and distributed under the following\nlicense, located in `README.mdown`:\n\nPermission to copy, use, modify, sell and distribute this\nsoftware is granted. This software is provided \"as is\" without\nexpress or implied warranty, and with no claim as to its\nsuitability for any purpose."
+   }
+  ],
+  "yaml": [
+   {
+    "name": "RedCMD/YAML-Syntax-Highlighter",
+    "url": "https://github.com/RedCMD/YAML-Syntax-Highlighter",
+    "commit": "53d38bbc66b704803de54ffce5b251bf97211c60",
+    "license": "MIT",
+    "licenseDetail": "MIT License\n\nCopyright 2024 RedCMD\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+    "version": "1.3.2",
+    "notice": "RedCMD/YAML-Syntax-Highlighter 1.3.2 - MIT\nhttps://github.com/RedCMD/YAML-Syntax-Highlighter\n\nMIT License\n\nCopyright 2024 RedCMD\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+   }
+  ]
+ }
+}

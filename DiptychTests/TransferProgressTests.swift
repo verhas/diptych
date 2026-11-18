@@ -99,6 +99,41 @@ final class TransferProgressTests: XCTestCase {
         }
     }
 
+    func testAReadOnlyFolderWithALinkInItIsCopiedWhole() throws {
+        // Copied out of an opened archive, whose folders are locked r-x: the
+        // copy stopped at the first symbolic link with "Permission denied" --
+        // copyfile puts links in after it has finished with their folder --
+        // and left folders nobody could delete.
+        try makeFile("locked/f.txt")
+        try makeFile("locked/sub/g.txt")
+        let locked = root.appendingPathComponent("locked")
+        try fm.createSymbolicLink(atPath: locked.appendingPathComponent("link").path,
+                                  withDestinationPath: "sub")
+        for folder in ["locked/sub", "locked"] {
+            XCTAssertEqual(chmod(root.appendingPathComponent(folder).path, 0o500), 0)
+        }
+        defer {
+            for folder in ["locked", "locked/sub", "copy", "copy/sub"] {
+                chmod(root.appendingPathComponent(folder).path, 0o700)
+            }
+        }
+
+        let copy = root.appendingPathComponent("copy")
+        let result = FileOperations.copyWithProgress(locked, to: copy, monitor: TransferMonitor())
+
+        guard case .done = result else { return XCTFail("\(result)") }
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: copy.appendingPathComponent("link").path),
+                       "sub")
+        XCTAssertTrue(fm.fileExists(atPath: copy.appendingPathComponent("sub/g.txt").path))
+        func mode(_ path: String) -> mode_t {
+            var info = stat()
+            lstat(root.appendingPathComponent(path).path, &info)
+            return info.st_mode & 0o7777
+        }
+        XCTAssertEqual(mode("copy"), 0o500, "the source's mode, once the copy is done")
+        XCTAssertEqual(mode("copy/sub"), 0o500)
+    }
+
     func testAnAlreadyCancelledCopyWritesNothing() throws {
         let source = try makeFile("src.bin", kilobytes: 64)
         let target = root.appendingPathComponent("dst.bin")

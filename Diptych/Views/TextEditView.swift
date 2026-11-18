@@ -53,7 +53,8 @@ struct TextEditView: View {
                                 formats: store.configuration.textFormats,
                                 showsTree: link.showsTree && StructureTree.supports(document.format),
                                 style: store.configuration.textStyle,
-                                emphasis: link.emphasis)
+                                emphasis: link.emphasis,
+                                showsInvisibles: link.showsInvisibles)
             }
         }
         .navigationTitle(title)
@@ -134,6 +135,18 @@ struct TextEditView: View {
             Toggle("Wrap lines", isOn: $wraps)
                 .toggleStyle(.checkbox)
                 .disabled(link.showsTree)
+            Toggle(isOn: $link.showsInvisibles) {
+                Image(systemName: "paragraphsign")
+            }
+            .toggleStyle(.button)
+            .disabled(link.showsTree)
+            .help(link.showsInvisibles ? "Hide invisible characters" : "Show invisible characters "
+                  + "\u{2014} control codes, byte-order marks, zero-width and direction marks \u{2014} in frames")
+            if link.invisibleCount > 0 {
+                Text(link.invisibleCount == 1 ? "1 invisible" : "\(link.invisibleCount) invisible")
+                    .foregroundStyle(.orange)
+                    .help("Characters that show nothing or change how the text around them shows")
+            }
             Button {
                 store.configuration.textLineNumbers = store.configuration.textLineNumbers.next
             } label: {
@@ -288,6 +301,11 @@ final class EditorLink {
     @ObservationIgnored weak var controller: TextEditController?
     /// The tree in place of the text.
     var showsTree = false
+    /// Invisible characters shown as framed names; on when the file opens
+    /// with any in it.
+    var showsInvisibles = false
+    /// How many the text has now.
+    var invisibleCount = 0
     /// Which structure around the caret is shaded: 0 none, 1 the smallest.
     /// The window's own, gone when it closes.
     var emphasis = ConfigStore.shared.configuration.textStyle.emphasisStart
@@ -330,6 +348,7 @@ struct PlainTextEditor: NSViewRepresentable {
     let showsTree: Bool
     let style: TextStyle
     let emphasis: Int
+    let showsInvisibles: Bool
 
     func makeNSView(context: Context) -> NSView {
         let controller = TextEditController(document: document)
@@ -365,6 +384,7 @@ struct PlainTextEditor: NSViewRepresentable {
         link.controller = controller
         controller.link = link
         document.currentText = { [weak text] in text?.string ?? "" }
+        document.currentStorage = { [weak text] in text?.textStorage?.mutableString }
         context.coordinator.shownRevision = -1
         controller.lineNumbers = lineNumbers
         apply(wraps: wraps, to: controller.scrollView, text: text)
@@ -383,6 +403,12 @@ struct PlainTextEditor: NSViewRepresentable {
         if context.coordinator.shownRevision != document.revision {
             context.coordinator.shownRevision = document.revision
             controller.loaded(text: document.saved)
+            // Shown whenever the file comes with any: what cannot be seen
+            // cannot be kept or deleted on purpose.
+            let found = controller.invisibleCount > 0
+            if link.showsInvisibles != found {
+                DispatchQueue.main.async { link.showsInvisibles = found }
+            }
             text.undoManager?.removeAllActions()
             let end = (text.string as NSString).length
             text.setSelectedRange(NSRange(location: end, length: 0))
@@ -399,6 +425,7 @@ struct PlainTextEditor: NSViewRepresentable {
         apply(wraps: wraps, to: scroll, text: text)
         controller.setTreeShown(showsTree)
         controller.emphasis = emphasis
+        controller.showsInvisibles = showsInvisibles
         // Settings' indentation and pairs: the tree reads its style again.
         controller.applyTabWidth()
         if style != context.coordinator.style {

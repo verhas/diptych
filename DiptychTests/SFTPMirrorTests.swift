@@ -19,10 +19,17 @@ final class SFTPMirrorTests: XCTestCase {
 
         /// Run while a listing is on its way: what happens here meanwhile.
         var duringListing: (() -> Void)?
+        /// Folders deleted on the server: listing one is "no such file".
+        var gone: Set<String> = []
+        /// A server that cannot be reached: every listing fails, saying nothing
+        /// about the folder.
+        var unreachable = false
 
         func entries(in path: String) async throws -> [SFTPEntry] {
             duringListing?()
             duringListing = nil
+            if unreachable { throw URLError(.cannotConnectToHost) }
+            if gone.contains(path) { throw RemoteNotFound() }
             return (folders[path] ?? []).map { entry in
                 let child = path == "/" ? "/" + entry.name : path + "/" + entry.name
                 return SFTPEntry(name: entry.name, kind: entry.kind, size: entry.size,
@@ -181,7 +188,9 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(note?.attribute(BrowserManifest.Attribute.size)?.intValue, 12)
         XCTAssertEqual(note?.attribute(BrowserManifest.Attribute.mode)?.intValue, 0o644)
         XCTAssertEqual(note?.backing, BrowserManifest.Backing.none)
-        XCTAssertEqual(BrowserManifestStore.read(in: folder)?.origin["host"], "nas")
+        XCTAssertEqual(BrowserManifestStore.read(in: folder)?.origin["path"], "sftp://nas")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(),
+                       ["note.txt", "photos"], "nothing of Diptych's in the shadow")
     }
 
     /// Two files of one folder fetched at once, as before an archive is made of
@@ -320,32 +329,29 @@ final class SFTPMirrorTests: XCTestCase {
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.nodes.count, 1)
     }
 
-    func testAServerNamedLikeTheManifestGetsAnotherManifestName() async throws {
+    func testAServerFileNamedLikeTheOldManifestIsAnOrdinaryFile() async throws {
         let server = FakeServer(folders: ["/d": [SFTPEntry(name: "__DIPTYCH.json", kind: .file)]])
         let shadow = mirror(server)
         try await shadow.populate("/d")
         let folder = await shadow.localURL(for: "/d")
-        XCTAssertEqual(BrowserManifestStore.located(in: folder)?.fileName, "__1DIPTYCH.json")
         XCTAssertEqual(BrowserManifestStore.read(in: folder)?.nodes.map(\.name), ["__DIPTYCH.json"])
     }
 
-    /// An unchanged folder must not be written again: the pane reloads on any
-    /// change in its folder, so a rewrite would start a reload loop.
+    /// An unchanged folder must not be written again: a pane showing it lists
+    /// it again on every change, and that listing comes back here -- a loop.
     func testAnUnchangedFolderIsNotWrittenAgain() async throws {
         let server = FakeServer(folders: ["/d": [SFTPEntry(name: "a.txt", kind: .file, size: 1)]])
         let shadow = mirror(server)
         try await shadow.populate("/d")
         let folder = await shadow.localURL(for: "/d")
-        let manifest = BrowserManifestStore.located(in: folder)!.fileName
-        let before = try FileManager.default.attributesOfItem(
-            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
+        let manifest = try XCTUnwrap(BrowserManifestStore.read(in: folder))
+        XCTAssertFalse(try BrowserManifestStore.write(manifest, in: folder),
+                       "the same listing again is no change")
 
-        try await Task.sleep(for: .seconds(1.1))
+        server.folders["/d"] = [SFTPEntry(name: "a.txt", kind: .file, size: 2)]
         try await shadow.populate("/d")
-
-        let after = try FileManager.default.attributesOfItem(
-            atPath: folder.appendingPathComponent(manifest).path)[.modificationDate] as? Date
-        XCTAssertEqual(before, after)
+        XCTAssertEqual(BrowserManifestStore.node(named: "a.txt", in: folder)?
+            .attribute(BrowserManifest.Attribute.size)?.intValue, 2)
     }
 
     // MARK: - Editing here, sending back
@@ -379,6 +385,51 @@ final class SFTPMirrorTests: XCTestCase {
         let readable = try await shadow.materialize("/d/r.txt")
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: writable.path)[.posixPermissions] as? Int, 0o600)
         XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: readable.path)[.posixPermissions] as? Int, 0o400)
+    }
+
+    // MARK: - A folder deleted on the server
+
+    func testAFolderGoneFromTheServerGoesFromHereToo() async throws {
+        // A pane inside it showed what the server no longer had, and Back
+        // went into it again. Its copy going is what makes the pane step out.
+        let server = FakeServer(folders: ["/home": [SFTPEntry(name: "old", kind: .directory)],
+                                          "/home/old": [SFTPEntry(name: "a.txt", kind: .file, size: 1)]])
+        let shadow = mirror(server)
+        _ = try await shadow.populate("/home")
+        _ = try await shadow.populate("/home/old")
+        let folder = await shadow.localURL(for: "/home/old")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.path))
+
+        server.gone = ["/home/old"]
+        do {
+            _ = try await shadow.populate("/home/old")
+            XCTFail("listing a deleted folder succeeded")
+        } catch {
+            XCTAssertTrue(RemoteErrors.isNotFound(error))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.deletingLastPathComponent().path),
+                      "the folder above stays, for the pane to step out to")
+    }
+
+    func testAServerThatCannotBeReachedKeepsTheFolder() async throws {
+        let server = FakeServer(folders: ["/home": [SFTPEntry(name: "a.txt", kind: .file, size: 1)]])
+        let shadow = mirror(server)
+        _ = try await shadow.populate("/home")
+        server.unreachable = true
+        _ = try? await shadow.populate("/home")
+        let folder = await shadow.localURL(for: "/home")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent("a.txt").path),
+                      "offline is not deleted")
+    }
+
+    func testAFolderGoneFromTheServerKeepsAnEditNotYetSent() async throws {
+        let (server, shadow) = try await editable()
+        _ = try await edit(shadow, "/d/a.txt", to: "edited here")
+        server.gone = ["/d"]
+        _ = try? await shadow.populate("/d")
+        let file = await shadow.localURL(for: "/d/a.txt")
+        XCTAssertEqual(try Data(contentsOf: file), Data("edited here".utf8))
     }
 
     func testASavedEditIsSentWhenTheServersCopyIsUnchanged() async throws {

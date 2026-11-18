@@ -497,6 +497,9 @@ final class BatchOperationsModel {
     /// row's source is that row's target.
     private var dependencies: [UUID: Set<UUID>] = [:]
 
+    /// Who proposed it, for the journal: what it does is credited to them.
+    var origin: Journal.Origin = .agent
+
     init(batchId: UUID = UUID(), rows: [BatchOperationRow]) {
         self.batchId = batchId
         self.rows = rows
@@ -624,6 +627,10 @@ final class BatchOperationsModel {
     /// grouped by kind into one `FileHistory.record*` call each, since one
     /// undo entry cannot mix different `Action` cases.
     func execute() async {
+        await Journal.$origin.withValue(origin) { await executeRows() }
+    }
+
+    private func executeRows() async {
         guard canExecute else { return }
         status = .executing
         revalidate()

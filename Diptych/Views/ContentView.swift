@@ -180,6 +180,7 @@ struct ContentView: View {
             model.openExifWindow = { openWindow(id: DiptychApp.exifWindowID, value: $0) }
             model.openVideoWindow = { openWindow(id: DiptychApp.videoWindowID, value: $0) }
             model.openBinaryWindow = { openWindow(id: DiptychApp.binaryWindowID, value: $0) }
+            model.openDatabaseWindow = { openWindow(id: DiptychApp.databaseWindowID, value: $0) }
             model.openTextWindow = { openWindow(id: DiptychApp.textWindowID, value: $0) }
             model.openRenameWindow = { openWindow(id: DiptychApp.renameWindowID, value: $0) }
             model.openRenameReplaceWindow = {
@@ -188,6 +189,9 @@ struct ContentView: View {
             model.openDiffWindow = { openWindow(id: DiptychApp.diffWindowID, value: $0) }
             model.openDirectoryDiffWindow = {
                 openWindow(id: DiptychApp.directoryDiffWindowID, value: $0)
+            }
+            if JournalWindowModel.openWindow == nil {
+                JournalWindowModel.openWindow = { openWindow(id: DiptychApp.journalWindowID) }
             }
             if RunLauncher.openWindow == nil {
                 RunLauncher.openWindow = { openWindow(id: DiptychApp.runWindowID) }
@@ -463,6 +467,21 @@ struct ContentView: View {
             }
             .help(model.isSinglePane ? "Show both panes" : "Show only the active pane")
 
+        // The active pane's view, shown as chosen -- as Finder's toolbar shows it.
+        case .iconView, .placedIconView, .listView:
+            let display: AppModel.PaneDisplay = kind == .iconView ? .icons
+                : kind == .placedIconView ? .placedIcons : .list
+            Toggle(isOn: Binding(get: { model.activeDisplay == display },
+                                 set: { if $0 { model.show(display) } })) {
+                if kind == .placedIconView {
+                    Label { Text(kind.title) } icon: { Image(nsImage: ToolbarGlyph.placedIcons) }
+                } else {
+                    Label(kind.title, systemImage: kind.symbol)
+                }
+            }
+            .toggleStyle(.button)
+            .help(kind.explanation)
+
         case .hiddenFiles:
             Toggle(isOn: Bindable(model).showHidden) {
                 Label("Hidden Files", systemImage: model.showHidden ? "eye" : "eye.slash")
@@ -486,6 +505,9 @@ struct ContentView: View {
         case .hiddenFiles:     model.showHidden.toggle()
         case .refresh:         model.refreshActivePane()
         case .directorySizes:  model.calculateDirectorySizes()
+        case .iconView:        model.show(.icons)
+        case .placedIconView:  model.show(.placedIcons)
+        case .listView:        model.show(.list)
         case .swapPanes:       model.swapPanes()
         case .sameFolder:      model.syncPanes()
         case .back:            model.goBack()
@@ -995,10 +1017,11 @@ struct DialogSheet: View {
                     Spacer()
                     Button("Cancel") { model.dialog = nil }
                         .keyboardShortcut(.cancelAction)
-                    Button("JPEG") { model.saveClipboardImage(as: .jpeg) }
-                    Button("PDF") { model.saveClipboardImage(as: .pdf) }
-                    Button("PNG") { model.saveClipboardImage(as: .png) }
-                        .keyboardShortcut(.defaultAction)
+                    ForEach([Configuration.ClipboardImageFormat.jpeg, .pdf, .png]) { format in
+                        Button(format.title) { model.saveClipboardImage(as: format) }
+                            .keyboardShortcut(format == model.suggestedClipboardFormat
+                                              ? .defaultAction : nil)
+                    }
                 }
 
             case .conflict:

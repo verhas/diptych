@@ -40,10 +40,14 @@ struct SidebarEntry: Identifiable, Hashable, Sendable {
     /// A volume's size and the room left on it, in bytes, when it says.
     var capacity: Int64?
     var available: Int64?
+    /// Asked, and not answered yet: a disk spinning up, a server slow to
+    /// reply. Its row shows "??" meanwhile, and the rest of the list is not
+    /// kept waiting.
+    var spacePending = false
 
     /// "2 TB, 340 GB free", for a volume that says both.
     var spaceText: String? {
-        guard let capacity, capacity > 0 else { return nil }
+        guard let capacity, capacity > 0 else { return spacePending ? "??" : nil }
         let total = ByteCountFormatter.string(fromByteCount: capacity, countStyle: .file)
         guard let available else { return total }
         return total + ", "
@@ -108,12 +112,27 @@ final class VolumeList {
         }
         enumerating = true
         Task { [weak self] in
-            let (found, servers) = await BlockingWork.run {
-                // A connected SFTP server is a volume too, as far as the sidebar goes.
-                (VolumeList.enumerate() + RemoteBrowsing.sidebarEntries(), ServerVolumes.mounted())
+            let (mounted, remote, servers) = await BlockingWork.run {
+                (VolumeList.enumerate(), RemoteBrowsing.sidebarEntries(), ServerVolumes.mounted())
             }
             guard let self else { return }
-            self.volumes = found
+            // What each disk holds is asked of it apart, below; until it
+            // answers, a row shows the room it last said, or "??".
+            let paths = Set(mounted.map(\.url.path))
+            self.room = self.room.filter { paths.contains($0.key) }
+            let shown = mounted.map { entry in
+                var entry = entry
+                if let room = self.room[entry.url.path] {
+                    entry.capacity = room.capacity
+                    entry.available = room.available
+                } else {
+                    entry.spacePending = true
+                }
+                return entry
+            }
+            // A connected SFTP server is a volume too, as far as the sidebar goes.
+            self.volumes = shown + remote
+            for entry in mounted { self.measure(entry) }
             self.servers = servers
             // Remembered, whoever mounted them, so a pane left on one can
             // bring it back after it is gone.
@@ -131,12 +150,77 @@ final class VolumeList {
     @ObservationIgnored private var enumerating = false
     @ObservationIgnored private var again = false
 
+    /// A volume's size and the room left on it.
+    struct Room: Sendable, Equatable {
+        var capacity: Int64?
+        var available: Int64?
+    }
+
+    /// What each mounted volume last said, by mount point.
+    @ObservationIgnored private var room: [String: Room] = [:]
+    /// The volumes asked and not answered yet.
+    @ObservationIgnored private var measuring: Set<String> = []
+
+    /// Asks one volume how big it is and how much room is left.
+    ///
+    /// The free space macOS would make room for -- purgeable space counted --
+    /// is asked of the system's space keeper, and a backup disk in the middle
+    /// of a backup, a disk spinning up or a server gone quiet can take minutes
+    /// to answer, or never do. So each volume is asked on a thread of its own:
+    /// it keeps no thread from anything else in Diptych, and the list, the
+    /// other volumes and the panes do not wait for it. A volume still not
+    /// answering is not asked again until it does.
+    private func measure(_ entry: SidebarEntry) {
+        let url = entry.url
+        let path = url.path
+        guard measuring.insert(path).inserted else { return }
+        let isNetwork = entry.isNetwork
+        let thread = Thread {
+            let room = VolumeList.room(of: url, isNetwork: isNetwork)
+            Task { @MainActor in VolumeList.shared.heard(room, from: path) }
+        }
+        thread.name = "dev.verhas.Diptych.volume-room"
+        thread.qualityOfService = .utility
+        thread.start()
+    }
+
+    private func heard(_ room: Room, from path: String) {
+        measuring.remove(path)
+        // Unmounted meanwhile: nothing to show it on, nothing to keep.
+        guard let index = volumes.firstIndex(where: { $0.kind == .volume && $0.url.path == path })
+        else { return }
+        self.room[path] = room
+        // Unchanged, the sidebar is not drawn again for it.
+        guard volumes[index].spacePending || volumes[index].capacity != room.capacity
+              || volumes[index].available != room.available else { return }
+        volumes[index].capacity = room.capacity
+        volumes[index].available = room.available
+        volumes[index].spacePending = false
+    }
+
+    nonisolated static func room(of url: URL, isNetwork: Bool) -> Room {
+        let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey,
+                                                       .volumeAvailableCapacityKey])
+        // What a local disk can still take counts what macOS would clear to
+        // make room -- purgeable space -- as Finder does; a server only says
+        // what is free.
+        var available = values?.volumeAvailableCapacity.map(Int64.init)
+        if !isNetwork,
+           let important = (try? url.resourceValues(
+               forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+               .volumeAvailableCapacityForImportantUsage, important > 0 {
+            available = important
+        }
+        return Room(capacity: values?.volumeTotalCapacity.map(Int64.init), available: available)
+    }
+
+    /// The mounted volumes, without their size and room: asking those is what
+    /// can keep a slow disk from answering at all.
     private nonisolated static func enumerate() -> [SidebarEntry] {
         let keys: [URLResourceKey] = [
             .volumeLocalizedNameKey, .volumeIsBrowsableKey, .volumeIsEjectableKey,
             .volumeIsRemovableKey, .volumeIsRootFileSystemKey, .volumeIsInternalKey,
-            .volumeIsLocalKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
-            .volumeIsReadOnlyKey,
+            .volumeIsLocalKey, .volumeIsReadOnlyKey,
         ]
         // A private instance rather than `.default`, so this is unambiguously
         // ours to call from another thread.
@@ -146,25 +230,12 @@ final class VolumeList {
         return urls.compactMap { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             guard values?.volumeIsBrowsable ?? true else { return nil }
-
-            // What a local disk can still take counts what macOS would clear
-            // to make room -- purgeable space -- as Finder does; a server only
-            // says what is free.
-            var available = values?.volumeAvailableCapacity.map(Int64.init)
-            if values?.volumeIsLocal != false,
-               let important = (try? url.resourceValues(
-                   forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
-                   .volumeAvailableCapacityForImportantUsage, important > 0 {
-                available = important
-            }
             return SidebarEntry(kind: .volume,
                                 url: url,
                                 name: values?.volumeLocalizedName ?? url.lastPathComponent,
                                 isEjectable: Self.isEjectable(values),
                                 isNetwork: values?.volumeIsLocal == false,
-                                isReadOnly: values?.volumeIsReadOnly == true,
-                                capacity: values?.volumeTotalCapacity.map(Int64.init),
-                                available: available)
+                                isReadOnly: values?.volumeIsReadOnly == true)
         }
     }
 

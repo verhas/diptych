@@ -7,6 +7,7 @@ enum NSWorkspaceOpener {
     /// Hand the file to whatever app owns it, exactly as double-clicking in
     /// Finder would.
     static func open(_ url: URL) {
+        Task { @MainActor in JournalViewing.opened([url]) }
         NSWorkspace.shared.open(url)
     }
 
@@ -68,11 +69,12 @@ enum IconCache {
 
     private static var cache: [String: NSImage] = [:]
 
-    static func icon(for item: FileItem) -> NSImage {
+    /// At the size a list row draws it, unless the icon view asks for its own.
+    static func icon(for item: FileItem, side requested: CGFloat? = nil) -> NSImage {
         // The size is part of the key. Without it, zooming served the images
         // cached at the old size for the rest of the session -- the same shape
         // of bug as a folder whose custom icon changed.
-        let side = PaneFont.iconSize
+        let side = requested ?? PaneFont.iconSize
         let key: String
         if item.isDirectory || item.isPackage {
             key = "path:" + item.url.path
@@ -87,14 +89,56 @@ enum IconCache {
                 : "ext:\(ext):\(item.isExecutable ? "x" : "-")"
         }
 
-        let sized = "\(Int(side)):" + key
+        // A plain folder with a coloured tag is drawn in that colour. macOS 26
+        // colours a folder by its tag only once Customize Folder has switched
+        // its custom icon on; otherwise it stays blue while the row beside it
+        // is red. A customised folder is left as macOS draws it -- already in
+        // the tag's colour, or a picture of someone's choosing -- and so is a
+        // package: an app keeps its own icon.
+        let tint = item.isDirectory && !item.isPackage
+            && ConfigStore.shared.configuration.tagColourFolderIcons
+            ? item.tagColourName.flatMap(Self.tagColour) : nil
+        let sized = "\(Int(side)):" + (tint == nil ? "" : "tag:\(item.tagColourName ?? ""):") + key
         if let hit = cache[sized] { return hit }
 
-
-        let image = NSWorkspace.shared.icon(forFile: item.url.path)
+        var image = NSWorkspace.shared.icon(forFile: item.url.path)
+        if let tint, !FolderIcon.isCustomised(item.url.path) {
+            image = tinted(image, with: tint)
+        }
         image.size = NSSize(width: side, height: side)
         cache[sized] = image
         return image
+    }
+
+    /// The colours Finder gives its tags.
+    private static func tagColour(_ name: String) -> NSColor? {
+        switch name {
+        case "Red":    .systemRed
+        case "Orange": .systemOrange
+        case "Yellow": .systemYellow
+        case "Green":  .systemGreen
+        case "Blue":   .systemBlue
+        case "Purple": .systemPurple
+        case "Gray":   .systemGray
+        default:       nil
+        }
+    }
+
+    /// The icon in grey, then the colour laid over it: the folder's own light
+    /// and shade stay, in the tag's colour, pale the way Finder's coloured
+    /// folders are. Laying the colour straight over the blue would mix the two
+    /// -- yellow came out olive -- and the outline is the icon's own.
+    private static func tinted(_ icon: NSImage, with colour: NSColor) -> NSImage {
+        let size = icon.size.width > 0 ? icon.size : NSSize(width: 128, height: 128)
+        return NSImage(size: size, flipped: false) { rect in
+            icon.draw(in: rect)
+            NSColor.white.set()
+            rect.fill(using: .saturation)
+            colour.set()
+            rect.fill(using: .overlay)
+            icon.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)
+            return true
+        }
     }
 
     /// Throw away what we remember about one item, or everything when the item

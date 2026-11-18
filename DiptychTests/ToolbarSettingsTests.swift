@@ -25,7 +25,8 @@ final class ToolbarSettingsTests: XCTestCase {
         XCTAssertLessThan(shown.count, ToolbarButton.allCases.count / 2,
                           "and most start switched off")
         XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .left),
-                       [.singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles])
+                       [.singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles,
+                        .iconView, .placedIconView, .listView])
         XCTAssertEqual(ConfigStore.shared.configuration.toolbarButtons(on: .right),
                        [.sendWork, .getLatest, .checkForChanges])
     }

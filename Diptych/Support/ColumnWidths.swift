@@ -36,25 +36,23 @@ enum ColumnWidths {
         NotificationCenter.default.addObserver(
             forName: NSTableView.columnDidResizeNotification,
             object: nil, queue: .main
-        ) { _ in
-            // The notification carries the NSTableView, but AppKit objects are
-            // not Sendable and the block is, so the object cannot come across.
-            // Finding the table again on this side costs nothing and keeps the
-            // concurrency checker satisfied.
-            MainActor.assumeIsolated { recordFromFrontmostTable() }
+        ) { note in
+            guard let table = note.object as? NSTableView else { return }
+            MainActor.assumeIsolated { resized(table) }
         }
     }
 
     private static var observing = false
 
-    private static func recordFromFrontmostTable() {
-        let windows = [NSApp.keyWindow].compactMap { $0 } + NSApp.windows
-        for window in windows {
-            if let table = tables(in: window).first {
-                record(from: table)
-                return
-            }
-        }
+    /// Only a column the user is dragging is remembered. AppKit says columns
+    /// resized for its own reasons too -- the window growing, the last column
+    /// filling the space, a table laid out again when a folder loads -- and
+    /// writing those down changed the settings with nobody touching them.
+    private static func resized(_ table: NSTableView) {
+        guard let header = table.headerView, header.resizedColumn >= 0,
+              let window = table.window,
+              tables(in: window).contains(where: { $0 === table }) else { return }
+        record(from: table)
     }
 
     private static func record(from table: NSTableView) {
@@ -68,6 +66,7 @@ enum ColumnWidths {
             widths[column.rawValue] = Double(table.tableColumns[index].width)
         }
         // ConfigStore debounces the write, so a live drag costs one save.
+        guard widths != ConfigStore.shared.configuration.columnWidths else { return }
         ConfigStore.shared.configuration.columnWidths = widths
     }
 

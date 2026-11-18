@@ -1,15 +1,25 @@
 import Foundation
-import MCP
 
-/// A deliberately curated, scalar subset of `Configuration` an MCP client can
-/// read and change -- not everything in Settings. Left out on purpose:
-/// structural things with their own editing rules and that are really a
-/// dragging/arranging job, not a "turn this on or off" one (columnOrder,
-/// enabledColumns, columnWidths, toolbar, favourites); and MCP's own
-/// enable/port/token, since changing those over the very connection making
-/// the call could cut it off mid-request.
+/// A deliberately curated, scalar subset of `Configuration` that can be read
+/// and changed from outside -- by an agent, by Siri or a shortcut -- not
+/// everything in Settings. Left out on purpose: structural things with their
+/// own editing rules and that are really a dragging/arranging job, not a
+/// "turn this on or off" one (columnOrder, enabledColumns, columnWidths,
+/// toolbar, favourites); and the switches and keys that let anything in from
+/// outside at all -- MCP's enable/port/token, Siri and Shortcuts' own switch
+/// -- since what is let in must not be able to let itself in further, or cut
+/// off the connection it is asking over.
 @MainActor
-enum MCPSettings {
+enum DiptychSettings {
+
+    /// A setting's value: on or off, or one of its words.
+    enum Value: Equatable, Sendable {
+        case bool(Bool)
+        case string(String)
+
+        var boolValue: Bool? { if case .bool(let on) = self { on } else { nil } }
+        var stringValue: String? { if case .string(let text) = self { text } else { nil } }
+    }
 
     struct Item {
         let key: String
@@ -115,6 +125,10 @@ enum MCPSettings {
         bool("soundsEnabled", "Play a sound after copy/move/trash finishes.", \.soundsEnabled),
         bool("foldersFirst", "Directories above files, rather than everything in one sequence.",
              \.foldersFirst),
+        bool("tagColourRows", "A colour tag colours the background of its row.",
+             \.tagColourRows),
+        bool("tagColourFolderIcons", "A colour tag colours a plain folder's icon.",
+             \.tagColourFolderIcons),
         bool("nameSeparatorEnabled",
              "Put a separator character between words in a suggested name.",
              \.nameSeparatorEnabled),

@@ -15,32 +15,50 @@ final class ConfigStore {
 
     static let url = StateStore.directory.appendingPathComponent("config.json")
 
+    /// Assigned only when something in it changes. A write of the same
+    /// settings -- the column widths, recorded again on every relayout --
+    /// told everything that reads them they had changed: the menus were
+    /// rebuilt several times a second while one was open, and the Window
+    /// menu's list of windows went from under the pointer.
     var configuration: Configuration {
-        didSet {
-            guard configuration != oldValue else { return }
-            // The panes redraw themselves -- they read the font during body --
-            // but the row height lives on the NSTableView underneath, which no
-            // amount of SwiftUI invalidation reaches.
-            if configuration.fontSize != oldValue.fontSize
-                || configuration.fontName != oldValue.fontName {
-                RowHeights.applyEverywhere()
-            }
-            if configuration.mcpServerEnabled != oldValue.mcpServerEnabled
-                || configuration.mcpServerPort != oldValue.mcpServerPort {
-                let enabled = configuration.mcpServerEnabled
-                let port = configuration.mcpServerPort
-                let token = MCPTokenStore.shared.token
-                Task { await MCPServer.shared.applyConfiguration(
-                    enabled: enabled, port: port, token: token) }
-            }
-            // The light/dark theme is applied to the whole application, so
-            // every window follows it, not only the one that changed the
-            // setting.
-            if configuration.appearanceTheme != oldValue.appearanceTheme {
-                AppAppearance.apply(configuration.appearanceTheme)
-            }
-            scheduleSave()
+        get {
+            access(keyPath: \.configuration)
+            return stored
         }
+        set {
+            guard newValue != stored else { return }
+            let oldValue = stored
+            withMutation(keyPath: \.configuration) { stored = newValue }
+            changed(from: oldValue)
+        }
+    }
+
+    @ObservationIgnored private var stored = Configuration()
+
+    private func changed(from oldValue: Configuration) {
+        JournalActivity.settingsChanged(from: oldValue, to: configuration)
+        // The panes redraw themselves -- they read the font during body --
+        // but the row height lives on the NSTableView underneath, which no
+        // amount of SwiftUI invalidation reaches.
+        if configuration.fontSize != oldValue.fontSize
+            || configuration.fontName != oldValue.fontName {
+            RowHeights.applyEverywhere()
+        }
+        if configuration.mcpServerEnabled != oldValue.mcpServerEnabled
+            || configuration.mcpServerPort != oldValue.mcpServerPort {
+            let enabled = configuration.mcpServerEnabled
+            let port = configuration.mcpServerPort
+            let token = MCPTokenStore.shared.token
+            Task { await MCPServer.shared.applyConfiguration(
+                enabled: enabled, port: port, token: token) }
+        }
+        // The light/dark theme is applied to the whole application, so
+        // every window follows it, not only the one that changed the
+        // setting.
+        if configuration.appearanceTheme != oldValue.appearanceTheme {
+            AppAppearance.apply(configuration.appearanceTheme)
+        }
+        scheduleSave()
     }
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -70,7 +88,7 @@ final class ConfigStore {
             loaded = Configuration()
         }
         loaded.normalise()
-        configuration = loaded
+        stored = loaded
         // `didSet` does not run for an assignment in init, so the saved theme
         // is applied here, once, at launch.
         AppAppearance.apply(loaded.appearanceTheme)

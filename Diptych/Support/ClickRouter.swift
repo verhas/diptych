@@ -60,6 +60,21 @@ final class ClickRouter {
                     return true
                 }
                 if onHeader { return nil }
+                // In an icon view: the icon under the pointer selected first,
+                // as Finder does, and the click held back a turn so the view's
+                // one menu is drawn for it before it opens.
+                let held = MainActor.assumeIsolated {
+                    self?.selectIconForMenu(windowNumber: number, location: location) ?? false
+                }
+                if held {
+                    nonisolated(unsafe) let replay = event
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            NSApp.window(withWindowNumber: number)?.sendEvent(replay)
+                        }
+                    }
+                    return nil
+                }
                 let handled = MainActor.assumeIsolated {
                     self?.anticipateNewFromClipboard(windowNumber: number, location: location)
                     return self?.offerFolderMenu(windowNumber: number, location: location) ?? false
@@ -102,10 +117,8 @@ final class ClickRouter {
               let hit = Self.view(in: content, at: location),
               !isInsideEditor(hit),
               let table = enclosingTable(of: hit),
-              let index = TableFinder.tables(in: window).firstIndex(of: table)
+              let pane = TableFinder.pane(of: table, in: window)
         else { return nil }
-        let tables = TableFinder.tables(in: window)
-        let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
         return (model, table, pane)
     }
 
@@ -122,11 +135,8 @@ final class ClickRouter {
     /// The pane whose table has this header.
     private func pane(of header: NSTableHeaderView, windowNumber: Int) -> PaneModel? {
         guard let window = NSApp.window(withWindowNumber: windowNumber),
-              let model = models.lazy.compactMap(\.model).first(where: { $0.window === window }),
               let table = header.tableView else { return nil }
-        let tables = TableFinder.tables(in: window)
-        guard let index = tables.firstIndex(of: table) else { return nil }
-        return tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
+        return TableFinder.pane(of: table, in: window)
     }
 
     /// Every menu a right-click on a pane opens offers New from Clipboard, for
@@ -167,6 +177,33 @@ final class ClickRouter {
 
         FolderMenu.shared.show(for: model, pane: pane)
         return true
+    }
+
+    /// A right-click in an icon view: the icon under it becomes the selection
+    /// unless it is already part of it; on empty space, nothing is selected.
+    /// True when the selection changed, so the menu must wait for a redraw.
+    /// A click sent back to the window does not come through here again --
+    /// a window's own `sendEvent` passes no local monitor.
+    private func selectIconForMenu(windowNumber: Int, location: NSPoint) -> Bool {
+        guard let window = NSApp.window(withWindowNumber: windowNumber),
+              let model = models.lazy.compactMap(\.model).first(where: { $0.window === window })
+        else { return false }
+        for pane in model.visiblePanes where pane.viewStyle == .icons {
+            guard let surface = pane.iconSurface, let layout = pane.iconLayout,
+                  surface.convert(surface.visibleRect, to: nil).contains(location) else { continue }
+            model.clickedAwayFromTable()
+            if !model.isSinglePane { model.focus(pane === model.left ? .left : .right) }
+            let wanted: Set<FileItem.ID>
+            if let id = layout.item(at: surface.convert(location, from: nil)) {
+                wanted = pane.selection.contains(id) ? pane.selection : [id]
+            } else {
+                wanted = []
+            }
+            guard wanted != pane.selection else { return false }
+            pane.selection = wanted
+            return true
+        }
+        return false
     }
 
     private func cancelPendingEdits() {
@@ -216,15 +253,14 @@ final class ClickRouter {
             return false
         }
 
-        let tables = TableFinder.tables(in: window)
-        guard let table = enclosingTable(of: hit), let index = tables.firstIndex(of: table) else {
-            // Clicked the path bar, the toolbar, the status line: still ends an
-            // edit in progress.
+        guard let table = enclosingTable(of: hit),
+              let pane = TableFinder.pane(of: table, in: window) else {
+            // Clicked the path bar, the toolbar, the status line -- or an icon
+            // view, which keeps its own clicks: still ends an edit in progress
+            // elsewhere.
             model.clickedAwayFromTable()
             return false
         }
-
-        let pane = tables.count == 1 ? model.active : (index == 0 ? model.left : model.right)
 
         // The keyboard follows the click into the list.
         //

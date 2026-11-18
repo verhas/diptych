@@ -64,6 +64,9 @@ actor FileOperations {
             /// copyfile reports COPIED per file rather than per tree.
             var finished: Int64 = 0
             var current: Int64 = 0
+            /// Folders made writable while they are filled, and the modes
+            /// they are to end with.
+            var lockLater: [String: mode_t] = [:]
             init(monitor: TransferMonitor, base: Int64) {
                 self.monitor = monitor
                 self.base = base
@@ -79,6 +82,25 @@ actor FileOperations {
             let context = Unmanaged<Context>.fromOpaque(ctx).takeUnretainedValue()
 
             if context.monitor.isCancelled { return COPYFILE_QUIT }
+
+            // A folder is given its source's mode as soon as it is made, and
+            // again once copyfile has finished with it -- after which it may
+            // still put a symbolic link in it: links come last. From a
+            // read-only folder -- an opened archive's, locked -- the folder
+            // could then not be filled, the copy stopped at the first link
+            // with "Permission denied", and what was left could not even be
+            // deleted. So each folder stays writable by its owner until the
+            // whole copy is done, and gets its mode then.
+            if what == COPYFILE_RECURSE_DIR || what == COPYFILE_RECURSE_DIR_CLEANUP,
+               stage == COPYFILE_FINISH, let destination {
+                var info = stat()
+                if lstat(destination, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+                   info.st_mode & 0o700 != 0o700 {
+                    let path = String(cString: destination)
+                    context.lockLater[path] = info.st_mode & 0o7777
+                    chmod(destination, (info.st_mode & 0o7777) | 0o700)
+                }
+            }
 
             // Errors must stop it. Returning COPYFILE_CONTINUE from an error
             // stage tells copyfile to carry on regardless, and the whole call
@@ -126,7 +148,17 @@ actor FileOperations {
         let flags = copyfile_flags_t(COPYFILE_ALL | COPYFILE_RECURSIVE
                                      | COPYFILE_NOFOLLOW | COPYFILE_EXCL)
         let result = copyfile(source.path, target.path, state, flags)
+        let failure = errno
         monitor.flush()
+
+        // Deepest first, so that locking a folder never stops one inside it
+        // from being locked. Only once it all worked: a copy that stopped part
+        // way stays writable, so that it can be deleted.
+        if result == 0 {
+            for (path, mode) in context.lockLater.sorted(by: { $0.key.count > $1.key.count }) {
+                chmod(path, mode)
+            }
+        }
 
         if result == 0 {
             // copyfile sets the modification date and leaves the creation
@@ -138,7 +170,7 @@ actor FileOperations {
             return .done(bytes: moved)
         }
         if monitor.isCancelled { return .cancelled }
-        return .failed(String(cString: strerror(errno)))
+        return .failed(String(cString: strerror(failure)))
     }
 
     enum TransferResult {

@@ -84,8 +84,8 @@ final class TrashTests: XCTestCase {
 
     @MainActor
     func testRecordAndLookUpAnOriginalLocation() throws {
-        let store = root.appendingPathComponent("origins.json")
-        let originals = TrashOriginals(store: store)
+        let store = LocalDatabase.records(at: root.appendingPathComponent("records.sqlite"))
+        let originals = TrashOriginals(database: store)
 
         // The trashed file has to exist, since loading forgets ones that are gone.
         let trashed = root.appendingPathComponent("note.txt")
@@ -99,27 +99,27 @@ final class TrashTests: XCTestCase {
 
     @MainActor
     func testOriginalsPersistAndForgetWhatIsGone() throws {
-        let store = root.appendingPathComponent("origins.json")
+        let store = LocalDatabase.records(at: root.appendingPathComponent("records.sqlite"))
         let present = root.appendingPathComponent("present.txt")
         try Data("x".utf8).write(to: present)
         let gone = root.appendingPathComponent("gone.txt")   // never created
 
-        TrashOriginals(store: store).record([
+        TrashOriginals(database: store).record([
             (original: URL(fileURLWithPath: "/a/present.txt"), trashed: present),
             (original: URL(fileURLWithPath: "/a/gone.txt"), trashed: gone),
         ])
 
-        // A fresh instance reads the file back, keeping the present one and
+        // A fresh instance reads the records back, keeping the present one and
         // forgetting the one whose trashed file is not there.
-        let reloaded = TrashOriginals(store: store)
+        let reloaded = TrashOriginals(database: store)
         XCTAssertEqual(reloaded.original(of: present), "/a/present.txt")
         XCTAssertNil(reloaded.original(of: gone))
     }
 
     @MainActor
     func testRenamingATrashedFileCarriesItsOriginOver() throws {
-        let store = root.appendingPathComponent("origins.json")
-        let originals = TrashOriginals(store: store)
+        let store = LocalDatabase.records(at: root.appendingPathComponent("records.sqlite"))
+        let originals = TrashOriginals(database: store)
 
         let old = root.appendingPathComponent("note.txt")
         try Data("x".utf8).write(to: old)

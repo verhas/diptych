@@ -91,22 +91,21 @@ enum DirectoryLoader {
         return items
     }
 
-    /// Inside an archive opened as a folder each directory carries a manifest
-    /// of the archive's own metadata. The files were extracted and then
-    /// locked read-only, so their on-disk permissions, owner and group are not
-    /// the archive's; the manifest's are overlaid instead, and the manifest
-    /// file itself is hidden. A directory with no manifest -- every ordinary
-    /// one -- is left untouched and pays only a name check.
+    /// Inside an archive opened as a folder, or a server's shadow, the cache
+    /// keeps a manifest of each directory's own metadata. The files were
+    /// extracted and then locked read-only, so their on-disk permissions,
+    /// owner and group are not the archive's; the manifest's are overlaid
+    /// instead. A directory outside every such source -- every ordinary one --
+    /// is left untouched and pays only a look at the registered roots.
     static func browserOverlay(_ items: [FileItem], in directory: URL) -> [FileItem] {
-        guard items.contains(where: { BrowserManifestStore.number(of: $0.name) != nil }),
-              let located = BrowserManifestStore.located(in: directory) else { return items }
-        let byName = Dictionary(located.manifest.nodes.map { ($0.name, $0) },
+        guard BrowserManifestStore.isManaged(directory),
+              let manifest = BrowserManifestStore.read(in: directory) else { return items }
+        let byName = Dictionary(manifest.nodes.map { ($0.name, $0) },
                                 uniquingKeysWith: { first, _ in first })
         let onServer = RemoteBrowsing.isInside(directory)
         var result: [FileItem] = []
         result.reserveCapacity(items.count)
         for var item in items {
-            if item.name == located.fileName { continue }  // our own manifest
             if let node = byName[item.name] {
                 if onServer, !item.isDirectory {
                     let changedThere = node.attribute(BrowserManifest.Attribute.serverChanged)?

@@ -27,6 +27,10 @@ final class FolderPreview: NSObject, NSWindowDelegate {
     nonisolated static func shows(_ url: URL) -> Bool {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey,
                                                        .isSymbolicLinkKey])
+        // Folders that are one document: Quick Look's panel shows their page.
+        let ext = url.pathExtension.lowercased()
+        if ["sparsebundle", "pkg", "mpkg"].contains(ext) { return false }
+        if ext == "mbox", FileManager.default.fileExists(atPath: url.appendingPathComponent("mbox").path) { return false }
         return values?.isDirectory == true && values?.isPackage != true
             && values?.isSymbolicLink != true
     }

@@ -17,7 +17,8 @@ struct CellView: View {
     /// Table has no per-row background, so each cell paints its own; together
     /// they read as one band.
     private var tagTint: Color? {
-        item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
+        guard ConfigStore.shared.configuration.tagColourRows else { return nil }
+        return item.tagColourName.map { Self.colour(of: $0).opacity(0.28) }
     }
 
     /// True while a drag is spring-loading this exact row: hovering here is
@@ -131,11 +132,14 @@ struct CellView: View {
 
     /// Worked out: teal, a colour no other column uses for a value. About
     /// to change -- the total from before, or one still growing -- orange.
+    /// A total kept from an earlier measuring the same, by how it was then;
+    /// the cell fades it by its age.
     static func colour(of size: DirectorySizes.Shown) -> Color {
         switch size {
         case .waiting:  .secondary
         case .updating: .orange
         case .done:     .teal
+        case .remembered(_, let complete): complete ? .teal : .orange
         // Not a total: a warning colour, so it is not read as a size.
         case .unknown:  .red
         }
@@ -143,8 +147,9 @@ struct CellView: View {
 
     private var plainText: some View {
         Text(folderSize?.text ?? item.text(for: column))
-            .foregroundStyle(folderSize.map { AnyShapeStyle(Self.colour(of: $0)) }
-                             ?? AnyShapeStyle(.secondary))
+            .foregroundStyle(folderSize.map {
+                AnyShapeStyle(Self.colour(of: $0).opacity(DirectorySizes.shared.freshness(for: item.url)))
+            } ?? AnyShapeStyle(.secondary))
             .lineLimit(1)
             .truncationMode(.middle)
             .monospacedDigit()

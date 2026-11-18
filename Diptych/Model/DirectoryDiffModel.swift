@@ -13,6 +13,10 @@ final class DirectoryDiffModel {
     private(set) var isLoading = false
     private(set) var failure: String?
 
+    /// What Apple Intelligence says the two folders differ in, asked in the
+    /// background each time a comparison finishes.
+    let explanation = DifferenceExplanation()
+
     /// No multiple selection: a comparison is opened for one pair at a time.
     var selection: DirectoryComparison.Pair.ID? {
         didSet { if !isCorrectingSelection { correctSelectionForFilter() } }
@@ -170,9 +174,12 @@ final class DirectoryDiffModel {
             if let selection, !pairs.contains(where: { $0.id == selection }) {
                 self.selection = nil
             }
+            explanation.explain(DifferenceExplainer.folders(left: left, right: right,
+                                                            pairs: pairs, options: options))
         } catch {
             pairs = []
             failure = "These folders could not be compared: \(error.localizedDescription)"
+            explanation.clear()
         }
         isLoading = false
     }

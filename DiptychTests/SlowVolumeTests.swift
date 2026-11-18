@@ -114,6 +114,31 @@ final class SlowVolumeTests: XCTestCase {
         XCTAssertNil(SidebarEntry(kind: .favourite, url: folder, name: "f").spaceText)
     }
 
+    func testAVolumeNotAnsweredYetSaysSo() {
+        var entry = SidebarEntry(kind: .volume, url: URL(fileURLWithPath: "/Volumes/x"), name: "x")
+        XCTAssertNil(entry.spaceText, "nothing asked, nothing said")
+        entry.spacePending = true
+        XCTAssertEqual(entry.spaceText, "??")
+    }
+
+    func testTheStartupDiskSaysItsRoomWhenAskedApart() {
+        let room = VolumeList.room(of: URL(fileURLWithPath: "/"), isNetwork: false)
+        XCTAssertGreaterThan(room.capacity ?? 0, 0)
+        XCTAssertGreaterThan(room.available ?? 0, 0)
+        XCTAssertLessThanOrEqual(room.available ?? 0, room.capacity ?? 0)
+    }
+
+    func testTheSidebarListsVolumesAndFillsInTheirRoom() async throws {
+        let list = VolumeList.shared
+        list.reload()
+        let deadline = Date() + 20
+        while list.volumes.first(where: { $0.url.path == "/" })?.capacity == nil {
+            guard Date() < deadline else { return XCTFail("the startup disk never said its room") }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertNotEqual(list.volumes.first { $0.url.path == "/" }?.spaceText, "??")
+    }
+
     // MARK: - Read-only volumes
 
     func testAReadOnlyVolumeIsNamedAsTheReasonAndTheBinaryViewTakesNoEdits() async throws {

@@ -38,6 +38,7 @@ enum OpenWith {
 
     /// Open `file` in `app` now, without changing what the default is.
     static func open(_ file: URL, with app: URL) {
+        JournalViewing.opened([file], with: app)
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.open([file], withApplicationAt: app, configuration: configuration)
     }

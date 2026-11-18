@@ -5,6 +5,27 @@ import NIOCore
 import NIOPosix
 @preconcurrency import NIOSSH
 
+/// What a failed request to a server means.
+nonisolated enum RemoteErrors {
+    /// The server answered that there is nothing at that path: it was
+    /// deleted, moved or renamed there. Not a server that cannot be reached,
+    /// which says nothing about the folder at all.
+    static func isNotFound(_ error: Error) -> Bool {
+        if error is RemoteNotFound { return true }
+        return (error as? SFTPMessage.Status)?.errorCode == .noSuchFile
+    }
+
+    /// The server answered, however it answered: the connection works, and
+    /// asking again over a new one would only get the same answer.
+    static func isServerAnswer(_ error: Error) -> Bool {
+        error is RemoteNotFound || error is SFTPMessage.Status
+    }
+}
+
+/// Nothing at that path on the server. What a test's server says; a real one
+/// says it with a status Citadel throws.
+nonisolated struct RemoteNotFound: Error {}
+
 // SFTP: a file server reached over SSH and browsed without mounting it.
 //
 // macOS cannot mount SFTP by itself, so Diptych talks to the server through

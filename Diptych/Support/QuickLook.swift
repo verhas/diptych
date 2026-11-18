@@ -37,12 +37,14 @@ final class QuickLookController: NSObject {
         if urls.count == 1, FolderPreview.shows(urls[0]) {
             self.owner = owner
             shownURLs = urls
+            JournalViewing.previewing(urls)
             FolderPreview.shared.show(urls[0], owner: owner, pane: owner?.active)
             return
         }
 
         items = urls.map(previewable)
         shownURLs = urls
+        JournalViewing.previewing(urls)
         self.owner = owner
         panel.dataSource = self
         panel.delegate = self
@@ -93,6 +95,7 @@ final class QuickLookController: NSObject {
         FolderPreview.shared.close()
         if panelIsVisible { QLPreviewPanel.shared().orderOut(nil) }
         shownURLs = []
+        JournalViewing.previewClosed()
         clearScratch()
     }
 
@@ -112,6 +115,7 @@ final class QuickLookController: NSObject {
         // `force` is for files changed in place, which must be read again.
         if !force, urls == shownURLs { return }
         shownURLs = urls
+        JournalViewing.previewing(urls)
 
         // Nothing left to show -- the last file in the folder was just
         // deleted. Closing is honest; a panel reading "No items selected"
@@ -171,6 +175,15 @@ final class QuickLookController: NSObject {
 
     private func previewable(_ url: URL) -> URL {
         if let rendered = linkReport(for: url) { return rendered }
+        if let rendered = bundleReport(for: url) { return rendered }
+        if let rendered = packageReport(for: url) { return rendered }
+        if let rendered = diskImageReport(for: url) { return rendered }
+        if let rendered = mailReport(for: url) { return rendered }
+        if let rendered = crashReport(for: url) { return rendered }
+        if let rendered = provisioningReport(for: url) { return rendered }
+        if let rendered = locationReport(for: url) { return rendered }
+        if let rendered = propertiesReport(for: url) { return rendered }
+        if let rendered = sqliteReport(for: url) { return rendered }
         if let rendered = listingReport(for: url) { return rendered }
         if url.lastPathComponent == ".DS_Store", let rendered = dsStoreReport(for: url) {
             return rendered
@@ -178,6 +191,17 @@ final class QuickLookController: NSObject {
         if url.pathExtension.lowercased() == "plist", let rendered = plistReport(for: url) {
             return rendered
         }
+        if CertificateReport.handles(url), let rendered = certificateReport(for: url) {
+            return rendered
+        }
+        if KeyStoreReport.extensions.contains(url.pathExtension.lowercased()),
+           let rendered = keyStoreReport(for: url) {
+            return rendered
+        }
+        if url.pathExtension.lowercased() == "class", let rendered = classFileReport(for: url) {
+            return rendered
+        }
+        if let rendered = executableReport(for: url) { return rendered }
         if ["tif", "tiff"].contains(url.pathExtension.lowercased()),
            let rendered = oldJPEGTiffReport(for: url) {
             return rendered
@@ -186,6 +210,7 @@ final class QuickLookController: NSObject {
            let rendered = markdownReport(for: url) {
             return rendered
         }
+        if let rendered = sourceReport(for: url) { return rendered }
         if let type = UTType(filenameExtension: url.pathExtension), type.isDeclared,
            Self.renderable.contains(where: { type.conforms(to: $0) }) {
             // Quick Look reads plain text as UTF-8 or by its mark, and shows a
@@ -255,6 +280,123 @@ final class QuickLookController: NSObject {
         return target
     }
 
+    /// Certificates, requests, revocation lists and keys -- PEM, DER, PKCS#7,
+    /// SSH -- as what each is for and how they fit together. A `.key` or `.pub`
+    /// that holds no key is left to Quick Look: Keynote and Publisher use them.
+    private func certificateReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= CertificateFile.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let html = CertificateReport.html(for: data, url: url) else { return nil }
+        let folder = scratch.appendingPathComponent(
+            "certificate" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A key store -- JKS, JCEKS or PKCS#12 -- as its aliases and their
+    /// certificates. Only read: no password is asked for, no key decrypted.
+    private func keyStoreReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= KeyStore.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let html = KeyStoreReport.html(for: data, name: url.lastPathComponent,
+                                       path: url.deletingLastPathComponent().path)
+        let folder = scratch.appendingPathComponent(
+            "keystore" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A Java class file -- a name and a size to Quick Look -- as the outline
+    /// of its source: declaration, fields, methods, and the Java release.
+    private func classFileReport(for url: URL) -> URL? {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              size > 0, size <= ClassFile.maximumSize,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        let html = ClassFileReport.html(for: data, name: url.lastPathComponent,
+                                        path: url.deletingLastPathComponent().path)
+        // Named after the class file, in a folder of its own per path: two
+        // Main.class files in one session do not overwrite each other.
+        let folder = scratch.appendingPathComponent(
+            "class" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else {
+            return nil
+        }
+        return target
+    }
+
+    /// A Mach-O or ELF binary, a script, or text marked executable -- all a
+    /// "Unix executable file" with a name and a size to Quick Look -- as what
+    /// it is, what it needs, and whether it would run. The contents decide;
+    /// the name only says whether to look: no extension, one binaries use, or
+    /// one no application claims (`libc.so.6`).
+    private func executableReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard ext.isEmpty || ExecutableReport.extensions.contains(ext)
+                || UTType(filenameExtension: ext)?.isDeclared != true else { return nil }
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+              values.isRegularFile == true, let size = values.fileSize, size > 0,
+              let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+        let name = url.lastPathComponent, path = url.deletingLastPathComponent().path
+        let html: String
+        if MachOFile.looksLikeMachO(data) {
+            do {
+                html = ExecutableReport.html(for: try MachOFile(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Mach-O file", name: name, path: path, size: size)
+            }
+        } else if ELF.looksLikeELF(data) {
+            do {
+                html = ExecutableReport.html(for: try ELF(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "ELF file", name: name, path: path, size: size)
+            }
+        } else if PEFile.looksLikePE(data) {
+            do {
+                html = ExecutableReport.html(for: try PEFile(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Windows program", name: name, path: path, size: size)
+            }
+        } else if ArArchive.looksLikeArchive(data) {
+            do {
+                html = ExecutableReport.html(for: try ArArchive(data: data), name: name, path: path, size: size)
+            } catch {
+                html = ExecutableReport.html(failure: error, kind: "Library", name: name, path: path, size: size)
+            }
+        } else if ext == "obj", let machine = COFFObject.machine(of: data) {
+            html = ExecutableReport.html(objectFile: data, machine: machine, name: name, path: path)
+        } else if BatchFile.extensions.contains(ext) {
+            guard let text = readableText(at: url) else { return nil }
+            html = ExecutableReport.html(for: BatchFile(data: data.prefix(4 * 1024 * 1024), text: text),
+                                         name: name, path: path, size: size)
+        } else {
+            // Text: a script by its #! line, or a plain file only when marked
+            // executable, and without an extension that says what it is.
+            let executable = FileManager.default.isExecutableFile(atPath: url.path)
+            guard Script.startsLikeScript(data) || (executable && ext.isEmpty),
+                  let text = readableText(at: url) else { return nil }
+            html = ExecutableReport.html(for: Script(data: data.prefix(4096), text: text, executable: executable),
+                                         name: name, path: path, size: size)
+        }
+        let folder = scratch.appendingPathComponent(
+            "executable" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(name + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return target
+    }
+
     /// A TIFF of old-style JPEG pages, which macOS shows only as a thumbnail:
     /// its pages, taken out of it.
     private func oldJPEGTiffReport(for url: URL) -> URL? {
@@ -294,6 +436,10 @@ final class QuickLookController: NSObject {
     /// Pages already built, so moving up and down a pane does not read the same
     /// folder again on every keystroke.
     private var listings: [String: URL] = [:]
+    /// Bundles whose seal and size are worked out, by path.
+    private var bundles: [String: URL] = [:]
+    /// Pages finished in the background -- disk images, mailboxes -- by kind and path.
+    private var finished: [String: URL] = [:]
     private var reading: Set<String> = []
 
     /// A folder or an archive, listed.
@@ -331,15 +477,25 @@ final class QuickLookController: NSObject {
         guard !reading.contains(url.path) else { return }
         reading.insert(url.path)
 
+        // A Java archive says what it is above what is in it: its manifest,
+        // signature, module and the Java its classes need.
+        let isJar = kind == .archive && JarArchive.extensions.contains(url.pathExtension.lowercased())
+        // A folder in a repository says how it stands, when Git is on.
+        let git = kind == .folder && GitService.shared.isEnabled ? GitService.shared.tool?.url : nil
         Task { [weak self] in
-            let result = await BlockingWork.run {
-                kind == .folder ? Listing.folder(at: url) : Listing.archive(at: url)
+            let html = await BlockingWork.run { () -> String in
+                let result = kind == .folder ? Listing.folder(at: url) : Listing.archive(at: url)
+                guard isJar else {
+                    let extra = git.flatMap { GitFolderReport.read(url, git: $0) }.map { GitFolderReport.section($0) } ?? ""
+                    return ListingReport.html(for: result, name: url.lastPathComponent, path: url.path,
+                                              kind: kind, extra: extra)
+                }
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+                return JarReport.html(for: JarArchive.read(url), listing: result, url: url, size: size)
             }
             guard let self else { return }
             reading.remove(url.path)
-            write(ListingReport.html(for: result, name: url.lastPathComponent,
-                                     path: url.path, kind: kind),
-                  to: target)
+            write(html, to: target)
             listings[url.path] = target
             // Only if the panel is still showing this very thing: by now the
             // cursor may have moved on, and redrawing then would drag it back.
@@ -347,6 +503,262 @@ final class QuickLookController: NSObject {
                 QLPreviewPanel.shared().reloadData()
             }
         }
+    }
+
+    /// An application or another bundle of code: at once what its Info.plist
+    /// and signature say, then -- every file hashed and counted -- whether it
+    /// is still as signed, and how big it is.
+    private func bundleReport(for url: URL) -> URL? {
+        guard AppBundle.extensions.contains(url.pathExtension.lowercased()),
+              (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+              let bundle = try? AppBundle.read(url) else { return nil }
+        if let ready = bundles[url.path] { return ready }
+        let folder = scratch.appendingPathComponent("bundle" + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        let icon = Self.iconPNG(for: url)
+        write(BundleReport.html(for: bundle, seal: nil, size: nil, icon: icon), to: target)
+        guard !reading.contains(url.path) else { return target }
+        reading.insert(url.path)
+        Task { [weak self] in
+            let html = await BlockingWork.run { () -> String? in
+                guard let checked = try? AppBundle.read(url, verify: true) else { return nil }
+                return BundleReport.html(for: checked, seal: checked.seal(), size: AppBundle.size(of: url), icon: icon)
+            }
+            guard let self else { return }
+            reading.remove(url.path)
+            guard let html else { return }
+            write(html, to: target)
+            bundles[url.path] = target
+            if isVisible, items.contains(target) { QLPreviewPanel.shared().reloadData() }
+        }
+        return target
+    }
+
+    /// An installer package: what it installs, where, who signed it, and the
+    /// scripts it runs. Read from the archive; nothing is extracted or run.
+    private func packageReport(for url: URL) -> URL? {
+        guard InstallerPackage.extensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        let html: String
+        if values.isDirectory == true {
+            guard let package = try? InstallerPackage(bundle: url) else { return nil }
+            html = PackageReport.html(for: package, size: AppBundle.size(of: url).bytes)
+        } else {
+            guard let size = values.fileSize, size > 0, size <= InstallerPackage.maximumSize,
+                  let data = try? Data(contentsOf: url, options: .alwaysMapped),
+                  InstallerPackage.looksLikePackage(data) else { return nil }
+            do {
+                html = PackageReport.html(for: try InstallerPackage(url: url, data: data), size: Int64(size))
+            } catch {
+                html = PackageReport.html(failure: error, url: url, size: Int64(size))
+            }
+        }
+        return page(html, kind: "package", for: url)
+    }
+
+    /// A disk image, without attaching it: at once what its trailer says,
+    /// then -- its volumes read, its signed bytes hashed -- the rest.
+    private func diskImageReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard DiskImage.extensions.contains(ext),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        if let ready = finished["image" + url.path] { return ready }
+        let quick: DiskImage, full: @Sendable () -> String
+        if values.isDirectory == true {
+            guard ext == "sparsebundle", let image = try? DiskImage(bundle: url, listing: false) else { return nil }
+            quick = image
+            full = { (try? DiskImage(bundle: url)).map { DiskImageReport.html(for: $0, checking: false) } ?? "" }
+        } else {
+            guard let size = values.fileSize, size >= 512,
+                  let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+            // A raw image says what it is only in the partitions and volumes
+            // read in the background: an .img or .iso that turns out to be
+            // none is left to Quick Look.
+            guard DiskImage.looksLikeImage(data) || ["dmg", "cdr", "iso", "img", "toast"].contains(ext),
+                  let image = try? DiskImage(url: url, data: data, verify: false, listing: false) else {
+                return ext == "dmg" ? page(DiskImageReport.html(failure: DiskImage.Problem.damaged("It is not a disk image."),
+                                                                url: url, size: Int64(size)), kind: "image", for: url) : nil
+            }
+            if image.format == "UDRW" || image.format == "ISO" {
+                guard let read = try? DiskImage(url: url, data: data, verify: false) else { return nil }
+                return page(DiskImageReport.html(for: read, checking: false), kind: "image", for: url)
+            }
+            quick = image
+            full = {
+                do {
+                    let data = try Data(contentsOf: url, options: .alwaysMapped)
+                    return DiskImageReport.html(for: try DiskImage(url: url, data: data, verify: true), checking: false)
+                } catch {
+                    return DiskImageReport.html(failure: error, url: url, size: Int64(size))
+                }
+            }
+        }
+        let target = page(DiskImageReport.html(for: quick, checking: true), kind: "image", for: url)
+        if let target { finish(target, key: "image" + url.path, work: full) }
+        return target
+    }
+
+    /// An e-mail message, or a mailbox of them. A mailbox can be large: its
+    /// list is made in the background.
+    private func mailReport(for url: URL) -> URL? {
+        let ext = url.pathExtension.lowercased()
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) else { return nil }
+        if MailMessage.extensions.contains(ext), values.isDirectory != true {
+            guard let size = values.fileSize, size > 0, size <= MailMessage.maximumSize,
+                  let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            return page(MailReport.html(for: MailMessage(data: data), url: url), kind: "mail", for: url)
+        }
+        // Mail exports a mailbox as a folder with the messages in "mbox".
+        var file = url
+        if values.isDirectory == true {
+            guard ext == "mbox" else { return nil }
+            file = url.appendingPathComponent("mbox")
+        } else if !Mailbox.extensions.contains(ext) {
+            guard ext.isEmpty, let size = values.fileSize, size > 0,
+                  let handle = try? FileHandle(forReadingFrom: url),
+                  let head = try? handle.read(upToCount: 1024), Mailbox.looksLikeMailbox(head) else { return nil }
+            try? handle.close()
+        }
+        guard FileManager.default.isReadableFile(atPath: file.path) else { return nil }
+        if let ready = finished["mail" + url.path] { return ready }
+        let mailbox = file
+        let target = page(MailReport.html(reading: url), kind: "mail", for: url)
+        if let target {
+            finish(target, key: "mail" + url.path) {
+                guard let data = try? Data(contentsOf: mailbox, options: .alwaysMapped) else { return "" }
+                return MailReport.html(for: Mailbox(data: data), url: url)
+            }
+        }
+        return target
+    }
+
+    /// A page named after the file, in a folder of its own per path.
+    /// A file of a kind read in one go, its size checked first.
+    private func small(_ url: URL, extensions: Set<String>, limit: Int) -> (data: Data, size: Int)? {
+        guard extensions.contains(url.pathExtension.lowercased()),
+              let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]), values.isDirectory != true,
+              let size = values.fileSize, size <= limit,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+        return (data, size)
+    }
+
+    /// A diagnostic report: what crashed, why in words, and the stack.
+    private func crashReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: CrashLog.extensions, limit: CrashLog.maximumSize),
+              size > 0 else { return nil }
+        let html: String
+        do {
+            html = CrashReport.html(for: try CrashLog(data: data), url: url, size: size)
+        } catch {
+            html = CrashReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "crash", for: url)
+    }
+
+    /// A provisioning profile: app, team, expiry, devices, entitlements,
+    /// certificates, and whether Apple's signature on it holds.
+    private func provisioningReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: ProvisioningProfile.extensions, limit: ProvisioningProfile.maximumSize),
+              size > 0 else { return nil }
+        let html: String
+        do {
+            html = ProvisioningReport.html(for: try ProvisioningProfile(data: data), url: url, size: size)
+        } catch {
+            html = ProvisioningReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "profile", for: url)
+    }
+
+    /// A `.webloc`, `.inetloc` or Windows `.url`: where it goes, and with what.
+    private func locationReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: InternetLocation.extensions, limit: InternetLocation.maximumSize) else {
+            return nil
+        }
+        let html: String
+        do {
+            let location: InternetLocation
+            if url.pathExtension.lowercased() == "url" {
+                location = try InternetLocation(windows: data)
+            } else {
+                let fork = data.isEmpty ? try? Data(contentsOf: url.appendingPathComponent("..namedfork/rsrc")) : nil
+                location = try InternetLocation(finder: data, resourceFork: fork)
+            }
+            var opener: String?
+            if let target = URL(string: location.target.trimmingCharacters(in: .whitespaces)), target.scheme != nil,
+               let app = NSWorkspace.shared.urlForApplication(toOpen: target) {
+                opener = FileManager.default.displayName(atPath: app.path)
+            }
+            html = LocationReport.html(for: location, url: url, size: size, opener: opener)
+        } catch InternetLocation.Problem.notAShortcut {
+            return nil // a text file that happens to end in .url: shown as text
+        } catch {
+            html = LocationReport.html(failure: error, url: url, size: size)
+        }
+        return page(html, kind: "location", for: url)
+    }
+
+    /// Java properties: keys and values as Java reads them, comments kept.
+    /// A SQLite database, whatever it is called: known by its first bytes.
+    /// Counting rows can take a while, so the summary is made in the
+    /// background; the Database window is where it is looked through.
+    private func sqliteReport(for url: URL) -> URL? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, (values.fileSize ?? 0) >= 100,
+              SQLiteDatabase.looksLikeSQLite(url) else { return nil }
+        let key = "sqlite" + url.path
+        if let ready = finished[key] { return ready }
+        let size = values.fileSize.map(Int64.init)
+        let quick = KeyStoreReport.page(title: url.lastPathComponent, body: ExecutableReport.style
+            + "<h1>\(ExecutableReport.escape(url.lastPathComponent))</h1><p class=lead>SQLite database</p>"
+            + "<p class=dim>Reading its tables\u{2026}</p>")
+        let target = page(quick, kind: "sqlite", for: url)
+        if let target { finish(target, key: key) { SQLiteReport.html(for: url, size: size) } }
+        return target
+    }
+
+    private func propertiesReport(for url: URL) -> URL? {
+        guard let (data, size) = small(url, extensions: JavaProperties.extensions, limit: JavaProperties.maximumSize),
+              JavaProperties.looksLikeText(data) else { return nil }
+        return page(PropertiesReport.html(for: JavaProperties(data: data), url: url, size: size), kind: "properties", for: url)
+    }
+
+    private func page(_ html: String, kind: String, for url: URL) -> URL? {
+        let folder = scratch.appendingPathComponent(kind + url.path.replacingOccurrences(of: "/", with: "_"))
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let target = folder.appendingPathComponent(url.lastPathComponent + ".html")
+        guard (try? html.write(to: target, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return target
+    }
+
+    /// The finished page, made in the background, written over the quick
+    /// one -- and shown, if the panel still shows it.
+    private func finish(_ target: URL, key: String, work: @escaping @Sendable () -> String) {
+        guard !reading.contains(key) else { return }
+        reading.insert(key)
+        Task { [weak self] in
+            let html = await BlockingWork.run(work)
+            guard let self else { return }
+            reading.remove(key)
+            guard !html.isEmpty else { return }
+            write(html, to: target)
+            finished[key] = target
+            if isVisible, items.contains(target) { QLPreviewPanel.shared().reloadData() }
+        }
+    }
+
+    /// The icon Finder shows, as a 128-point PNG for the page.
+    private static func iconPNG(for url: URL) -> Data? {
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        let size = NSSize(width: 128, height: 128)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 128, pixelsHigh: 128, bitsPerSample: 8,
+                                         samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
     }
 
     private func write(_ html: String, to target: URL) {
@@ -388,6 +800,42 @@ final class QuickLookController: NSObject {
     }
 
     /// The bytes of a text file to preview, when it is small enough to copy.
+    /// Source text in a language Diptych has a grammar for, coloured. HTML
+    /// is left to Quick Look, which shows the page; a picture that is text
+    /// (SVG) too. The plain page at once, the coloured one when it is made.
+    private func sourceReport(for url: URL) -> URL? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, let size = values.fileSize, size > 0 else { return nil }
+        if let type = UTType(filenameExtension: url.pathExtension),
+           [.html, .image, .pdf, .propertyList].contains(where: { type.conforms(to: $0) }) { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        let data = (try? handle.read(upToCount: SourceReport.mostBytes)) ?? Data()
+        try? handle.close()
+        guard let reading = TextEncodings.reading(of: data.prefix(8000), at: url, fallback: .utf8) else { return nil }
+        let text = TextEncodings.decodeForShowing(data, reading)
+        let firstLine = text.prefix(200).split(separator: "\n", maxSplits: 1).first.map(String.init)
+        guard let language = SourceReport.language(for: url, firstLine: firstLine),
+              !["html", "markdown"].contains(language.id) else { return nil }
+        let key = "source" + url.path
+        if let ready = finished[key] { return ready }
+        let truncated = size > data.count
+        // JSON and XML get a Format button -- not when cut short, which would
+        // not parse -- and open formatted when written as very long lines.
+        let formatted = truncated ? nil : PrettyText.format(text, languageID: language.id)
+        let showFormatted = formatted != nil
+            && text.split(separator: "\n", omittingEmptySubsequences: true).contains { $0.utf16.count > 1000 }
+        let target = page(SourceReport.html(text: text, url: url, language: language, size: size,
+                                            truncated: truncated, coloured: false, formatted: formatted,
+                                            showFormatted: showFormatted), kind: "source", for: url)
+        if let target {
+            finish(target, key: key) {
+                SourceReport.html(text: text, url: url, language: language, size: size, truncated: truncated,
+                                  formatted: formatted, showFormatted: showFormatted)
+            }
+        }
+        return target
+    }
+
     private func textData(at url: URL) -> Data? {
         let limit = 4 * 1024 * 1024
         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
@@ -444,6 +892,8 @@ final class QuickLookController: NSObject {
         // The pages went with it, so a folder looked at again is read again
         // rather than served from a file that is no longer there.
         listings.removeAll()
+        bundles.removeAll()
+        finished.removeAll()
     }
 }
 

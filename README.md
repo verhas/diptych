@@ -56,6 +56,8 @@ developer account.
 | `⇧⌘.` | show/hide hidden files (as in Finder; plain `⌘.` is the system's "cancel") |
 | `⇧⌘F` | flat view: the active pane's folder and everything under it as one list, filtered by an expression -- see [Flat view](#flat-view) |
 | `⌘N` / `⌘T` | new window / new tab -- each with its own two panes, titled by folder |
+| `⌥⇥` | the next of Diptych's windows: the smaller ones first -- Info, Compare, Text Edit, Runs, the Journal -- brought in front together, so several stay side by side; the two-pane windows last, taking the keyboard from behind them rather than covering them. With one two-pane window and nothing else open, it swaps the panes |
+| `⌘Q` | in a two-pane window: quit Diptych, asking first if Settings ▸ Behaviour says to. In any other window -- a comparison, Runs, Text Edit, Settings -- close that window, as if it were an application of its own; the menu then says *Close Window*, with *Quit Diptych* under it, without a key. Quitting from the Dock or at logout is unchanged |
 | `Space` | Quick Look preview; arrow keys keep walking the listing and the preview follows. Space or Escape closes it. Files the system has no preview for (`.env`, `.gitconfig`, extension-less scripts) are shown as text when they sniff as text. F2 works with the preview open, so you can look at a scan and name it |
 | `⌘C` `⌘X` `⌘V` | copy / cut / paste files, via the system pasteboard (works with Finder both ways); `⌘V` with text or a picture makes a new file of it |
 | `⌘[` `⌘]` | back / forward through the active pane's directory history |
@@ -89,20 +91,27 @@ Keyboard > Use F1, F2, etc. as standard function keys*.
 
 ## State
 
-`~/.diptych` is a directory. Session state lives in `~/.diptych/state.json`:
-JSON, pretty-printed, keys sorted, slashes unescaped. Each window gets a slot,
-holding its frame, both panes' directories and sort order, which pane was
-active, and the toolbar toggles. An older single-file `~/.diptych` is converted
-on first launch rather than discarded.
+`~/.diptych` is a directory, and what is in it -- every file and folder, the
+version that brought it and, for those gone, what replaced it -- is in
+[DIPTYCH_STORAGE.md](DIPTYCH_STORAGE.md).
 
-Configuration will get its own files in that directory, in a format that takes
-comments -- TOML is the obvious candidate, and unlike YAML it needs only a small
-parser. JSON stays where it is: state is written by the app and read by nobody.
+Session state lives in `~/.diptych/diptych.sqlite`, in three tables:
+`window_state` (each window's frame, which pane was active, the toolbar
+toggles), `pane_state` (each pane's folder, sort order and view) and
+`pane_recent` (each pane's recent folders, in order). Up to 1.13 it was
+`~/.diptych/state.json`, and before 1.0.0 the file `~/.diptych` itself;
+either is brought in at the first start and deleted, not discarded.
+
+Settings stay in `~/.diptych/config.json`, a file meant to be read and edited:
+it is read once, at start, and a setting the Settings window gets wrong can
+be put right there.
 
 The extension point is `PaneState` in `Model/AppState.swift`. Add a property
-there plus a line in `PaneModel.snapshot` and `restore`, and it is saved,
-reloaded, and carried across a pane swap -- the store, the window code and the
-JSON handling need no changes.
+there, a line in `PaneModel.snapshot` and `restore`, a column of
+`pane_state` -- added with `ALTER TABLE` in `LocalDatabase.records`, since the
+table is already in everyone's file -- and its place in `StateStore.write` and
+`read`, and it is saved, reloaded, and carried across a pane swap; the window
+code needs no change.
 
 ## Unreadable folders
 
@@ -228,7 +237,7 @@ of the time -- so a keystroke aimed at a file took a favourite instead, and a
 keystroke aimed at a favourite could take files. Removing a favourite is rare and
 cannot be undone; it does not deserve a shortcut. Volumes cannot be
 reordered; their order belongs to the system. Favourites are global and live in `config.json`;
-whether the sidebar is open is per window, in `state.json`.
+whether the sidebar is open is per window, in the window's state.
 
 Ejectable volumes carry an eject button, and an Eject item in their context
 menu. Ejectability is not `volumeIsEjectable`: external APFS disks routinely
@@ -302,8 +311,8 @@ there: `⌫`/`⌦` and `⌘⌫`/`⌘⌦` both run Delete Immediately, still with
 confirmation that permanent deletion warrants.
 
 The **Original Location** column is filled from two places. First, **Diptych's
-own record** of what it moved to the Trash (`TrashOriginals`, a small JSON file
-in `~/.diptych`), which is exact and needs no permission. For anything Finder or
+own record** of what it moved to the Trash (`TrashOriginals`, a table in
+`~/.diptych/diptych.sqlite`), which is exact and needs no permission. For anything Finder or
 another app trashed, Diptych falls back to **Finder's own "Put Back" record**,
 which macOS keeps in a private, undocumented store -- the `ptbL`/`ptbN` records
 inside the Trash folder's `.DS_Store` -- with no public API and only readable
@@ -311,7 +320,7 @@ with Full Disk Access (which Diptych asks for the moment a Trash is opened).
 `TrashPutBack` reads it through the bounds-checked `DSStore` decoder,
 pulling the original path straight out of each put-back bookmark without
 resolving it against the disk, and never writes it back; the most that can go
-wrong is a dash, or rarely a wrong path, never a crash. The JSON record forgets
+wrong is a dash, or rarely a wrong path, never a crash. Diptych's record forgets
 an entry once its trashed file is gone -- the Trash emptied, the file put back,
 or deleted immediately -- so it does not grow without bound. `Trash` says where
 a volume's Trash is and what counts as one; the column itself is the
@@ -360,7 +369,7 @@ is one keystroke.
 connected and grey when not. A click connects one, or opens it if it is. Its
 eject button disconnects it, and its context menu has **Connect When Diptych
 Starts**, which mounts it at launch without opening anything. The list lives in
-`~/.diptych/servers.json`, readable by you alone.
+`~/.diptych/diptych.sqlite`, readable by you alone.
 
 **A pane left on a server comes back to it.** When a pane arrives at a folder on
 a server that is not connected -- at startup, or from the history -- Diptych
@@ -406,7 +415,10 @@ so this works for them as well.
 - **NFS asks for no password:** the server goes by your user number, and a
   refused folder says so, with the number.
 - **The sidebar shows each volume's size and free space**, looked at again each
-  minute while Diptych is in front. A server's volume gets a network-drive icon
+  minute while Diptych is in front. Each volume is asked on its own, in the
+  background: one slow to answer -- a backup disk in the middle of a backup,
+  a disk spinning up, a server gone quiet -- shows `??` until it does, and
+  nothing else waits for it. A server's volume gets a network-drive icon
   rather than asking the server for its own, which takes seconds each.
 
 **To try it out**, `test-servers/` has a script that sets up SMB (read-write
@@ -542,6 +554,17 @@ A file carrying one of the seven colour tags gets that colour behind its whole
 row, not just a dot. With several colour tags the first one wins -- a row has
 one background. Tags are read for every listing, not only when the Tags column
 is switched on, since the colour is part of drawing the row.
+
+A folder's icon takes the colour too. macOS colours a folder by its tag only
+once Finder's *Customize Folder* has switched its custom icon on, so a plain
+tagged folder would stay blue beside a red row; Diptych draws it in the tag's
+colour. A customised folder is shown as macOS draws it, and an app or other
+package keeps its own icon.
+
+Settings ▸ Appearance ▸ *Tag colours* switches each off by itself: the row's
+colour, and the folder icon's. Both are on by default; with both off, tags
+change nothing in the listing -- they are still on the files, and in the Tags
+column.
 
 ## History and filtering
 
@@ -908,6 +931,334 @@ format found in the wild, and a file manager that crashed on a file it merely
 tried to preview would be worse than one that previews nothing. One of the 130
 files here turned out to hold sixteen bytes of ASCII reading `Input length = 1`;
 it is reported as not being a `.DS_Store`, which is exactly what it is not.
+
+## Previewing a Java class file
+
+Quick Look shows a `.class` file as a name and a size. Space in Diptych shows
+what is in it, the way the source would write it:
+
+- **What it was compiled for**: the Java release -- class-file version 52 is
+  Java 8, 65 is Java 21 -- and whether it uses preview features.
+- **The declaration**: package, annotations, modifiers, generics, what it
+  extends, implements and permits. A record shows its components, an enum its
+  constants, a nested class the modifiers it has inside its outer class.
+- **Fields, constructors and methods** with their generic types, constant
+  values (`= 4`, `= 'q'`, `= "text"`), varargs and `throws`. Parameter names
+  appear when the class was compiled with them (`-g`, which Maven and Gradle
+  use by default, or `-parameters`).
+- **`module-info.class`** as the module declaration it came from.
+- Folded away: what the compiler made (lambda bodies, bridges, `$VALUES`),
+  the classes it uses, and the string literals in its code.
+
+The file is only read, never loaded, and no JDK is needed. A file that is
+damaged or is not a class file gets a page that says what is wrong with it.
+
+## Previewing a key store
+
+Space on a `.jks`, `.jceks`, `.keystore`, `.ks`, `.truststore`, `.p12` or
+`.pfx` shows what is in it rather than a name and a size: each alias, whether
+it is a private key, a secret key or a trusted certificate, and its
+certificates down the chain -- subject, issuer, validity (expired and
+expiring-within-30-days marked), key type and size, signature algorithm,
+alternative names, serial and fingerprints. The format is recognised from the
+bytes, whatever the extension: JKS, JCEKS and PKCS#12.
+
+**The password is never asked for.** Two are tried because they are the
+defaults -- none at all, and Java's `changeit` -- and when one fits, the page
+says so plainly: a store anybody can open is worth knowing about.
+
+- **JKS and JCEKS** keep certificates in the clear, so they are always shown.
+  With a default password the store's integrity check is made as well.
+- **PKCS#12** usually encrypts its certificates. They are shown when a default
+  password opens them -- confirmed by the store's own MAC, or, in a store
+  without one, by decrypting to well-formed certificates. Otherwise the page
+  lists what is kept unencrypted (often the keys' aliases) and says which part
+  stayed shut and with what algorithm.
+- **Keys are never decrypted**, only described: how they are protected, and
+  in red when a PKCS#12 keeps one unencrypted.
+
+PBES2 (AES, PBKDF2 with HMAC-SHA1/256/384/512), the older PKCS#12
+algorithms (Triple DES, RC2), MACs with SHA-1 to SHA-512, and BER as some
+Windows exports write it are read; a JCEKS secret key, a serialized Java
+object, is stepped over by reading the class descriptions the stream carries.
+
+`make-java-samples.sh` makes one of each kind -- and a `.ear`, and compiled
+classes -- from a made-up certificate authority, for trying this by hand.
+
+## Previewing certificates and keys
+
+Space on a `.crt`, `.cer`, `.pem`, `.der`, `.cert`, `.csr`, `.req`, `.crl`,
+`.p7b`, `.p7c`, `.key` or `.pub` file -- or on `id_ed25519`, `id_rsa` and the
+other `id_*` files, or `authorized_keys` -- shows what is in it, item by item,
+whether the file is PEM, DER, PKCS#7 or one of SSH's own forms:
+
+- **Certificates**: subject, issuer, validity (expired, not yet valid and
+  expiring within 30 days marked), key, signature algorithm, alternative names
+  (IPv6 written short), key usage, whether it is a CA, serial and fingerprints.
+- **Chains**: in a file of several certificates each says which one issued it
+  and which it issued; the page says whether they form one chain in order --
+  what a server should send -- are out of order, or are a bundle of unrelated
+  certificates. A certificate revoked by a CRL in the same file is marked.
+- **Private keys**: the container (PKCS#8, PKCS#1, SEC1, OpenSSH), type and
+  size, and whether a password protects it and how -- **never the key**. When
+  the file also holds certificates, the page says which one the key belongs
+  to, or that none does: the usual mistake of a certificate paired with the
+  wrong key shows at a glance. The public half is worked out for that alone.
+- **Requests, revocation lists, public keys, EC and DH parameters**: what each
+  is for -- a request's subject and names, a CRL's revoked serials with dates
+  and reasons, and whether its next update is overdue.
+- **SSH**: public keys with type, size, comment and the SHA-256 fingerprint
+  exactly as `ssh-keygen -l` prints it; `authorized_keys` with each key's
+  options; RFC 4716 files; private keys with their passphrase protection and
+  -- when there is none -- their comment; SSH certificates with key ID,
+  principals, validity, permissions and the signing CA's fingerprint.
+
+A `.key` or `.pub` that is not a key -- Keynote and Publisher use those
+extensions -- previews as it always did. `make-certificate-samples.sh` makes
+one of everything from a made-up CA, for trying this by hand.
+
+## Previewing applications
+
+Quick Look shows an application as its icon. Space on an `.app` -- or an
+app extension, XPC service, framework, plug-in, kernel or system extension,
+screen saver, Audio Unit -- shows instead:
+
+- **What it is**: name, version and build, identifier, category, copyright,
+  the macOS and processors it needs, the Xcode and SDK it was built with, and
+  what it was made with when that is Electron, Qt, Flutter, Java, Python or
+  Mac Catalyst. A menu bar app, a background app and an iPhone app are named
+  as such.
+- **Who signed it**: the certificate chain or ad hoc, Team ID, hardened
+  runtime, sandbox, entitlements, and whether a notarization ticket is
+  stapled.
+- **Whether it is as signed**: the Info.plist, the main executable's pages and
+  every file the seal lists are hashed and compared, as macOS does when it
+  says an app "is damaged and can't be opened"; changed and missing files are
+  listed. This and the size follow a moment after the page opens.
+- **What it will ask for**: camera, microphone, Desktop folder, controlling
+  other apps, …, each with the reason the app gives.
+- **What is inside**: frameworks, extensions, login items, privileged helpers,
+  launch agents and daemons, XPC services, each with its version and its
+  signing team -- and a note when parts are signed by another team.
+- **Where it came from**: the Mac App Store, or downloaded with which browser,
+  when and from where, and whether it has been opened since.
+
+Nothing is opened, launched or registered, and nothing is asked online.
+`make-bundle-samples.sh` makes sample apps -- one changed after signing, one
+unsigned, one marked as downloaded -- for trying it by hand.
+
+## Previewing installer packages
+
+Space on a `.pkg` shows what it would do before you run it:
+
+- **What it is**: title, identifier, version, the macOS and processors it
+  needs, whether it installs only on the startup disk, what it checks first,
+  and whether the Mac restarts or logs out afterwards.
+- **Who signed it**: the certificate chain, the signing time, and whether the
+  table of contents still hashes as signed and the signature verifies with the
+  signer's key; whether a notarization ticket is stapled.
+- **The scripts it runs**: preinstall, postinstall and the helpers beside
+  them, in full, with a note when they run as root -- and the Installer
+  JavaScript of a product package.
+- **What it installs, and where**: the places it writes to, with file counts
+  and sizes; launch daemons and agents, privileged helpers, kernel and system
+  extensions and setuid programs called out; every file from its bill of
+  materials, with mode and owner.
+- **Components and choices** of a product package; the apps and bundles it
+  carries, with their versions.
+
+Nothing is extracted or installed. Old bundle packages (folders) are read
+too. `make-package-samples.sh` makes a component package, a product package
+and a scripts-only package for trying it by hand.
+
+## Previewing disk images
+
+Space on a `.dmg` -- or a `.sparseimage`, `.sparsebundle`, `.asif`, `.iso`,
+`.cdr` -- shows it without attaching it:
+
+- **What kind**: UDZO, ULFO, ULMO, UDRO, raw, sparse, ASIF; its disk size and
+  what it takes on disk; encrypted or not (no password is asked for).
+- **Its signature**: who signed it, and -- a moment after the page opens --
+  whether the image is still as signed; whether a notarization ticket is
+  stapled.
+- **What is on it**: the partitions, and for APFS and Mac OS Extended
+  volumes the volume's name, how many files and folders it holds, and what is
+  at its top -- the app, the link to Applications, the background folder.
+- **The license agreement** it shows before it opens, when it has one.
+
+`make-disk-image-samples.sh` makes images in each format, one signed and one
+changed after signing, and an encrypted one.
+
+## Previewing e-mail
+
+Space on an `.eml` or `.emlx` shows the message: its headers decoded, its
+text (HTML read as text -- no picture or anything else is loaded from the
+web), its attachments with sizes and pictures shown, and messages attached to
+it. It points out what is worth a second look: a sender the receiving server
+could not confirm (SPF, DKIM, DMARC), answers going to another domain, links
+that show one address and go to another, attachments that run code when
+opened. S/MIME and OpenPGP signatures and encryption are named.
+
+Space on a mailbox -- an `.mbox` file, or the folder Mail exports -- lists its
+messages by date, sender and subject; each opens in place.
+`make-mail-samples.sh` makes sample messages and mailboxes.
+
+## Previewing crash reports
+
+Space on an `.ips` file -- the reports macOS writes to
+`~/Library/Logs/DiagnosticReports` -- shows which program stopped, its
+version and the Mac and system it ran on, and what stopped it: the exception
+and what it means in words (a Swift check that failed, such as an overflow or
+an unwrapped nil, memory it may not touch, an abort), the termination reason
+and what the libraries said as they gave up. Then the stack of the thread
+that crashed, the program's own frames picked out, with file and line where
+the report has them. The other threads and the libraries loaded are folded
+away. Reports that are not crashes are shown as they are.
+
+## Previewing provisioning profiles
+
+Space on a `.mobileprovision` or `.provisionprofile` shows the profile's
+name, the app and team it is for, its kind (development, ad hoc, App Store,
+Developer ID, in-house), when it was made and when it expires -- expired in
+red -- the devices it lists, its entitlements with the well-known ones in
+words, and the certificates allowed to sign with it. Apple's signature on it
+is checked: that it matches the contents and leads to Apple's root, without
+going to the network.
+
+## Previewing web locations and shortcuts
+
+Space on a `.webloc`, `.inetloc` (or `.fileloc`, `.ftploc`, `.afploc`) or a
+Windows `.url` shows the address it opens -- a link for an ordinary web
+address -- the app that opens it, and the address taken apart: the site, the
+path, the query with the tracking parameters named. It warns when the
+address is not what it looks like: a user name before the "@" that looks
+like a site, a site name in letters beyond plain Latin, a program or
+installer at the end, a file on another computer -- which on Windows sends
+the user's sign-in there -- or an icon fetched from one. Old Finder
+locations that keep the address only in the resource fork are read too.
+
+## Previewing Java properties
+
+Space on a `.properties` file shows its keys and values as Java reads them:
+escapes such as `\u00e9` decoded, lines continued with a backslash joined,
+`=`, `:` and blanks as separators. Comments stay where they are. A key set
+twice is marked and the value that loses struck through, blanks at the end of
+a value and escaped line breaks are made visible, and a broken `\u` escape --
+which stops Java loading the file -- is pointed out. The language of a
+`Messages_de.properties` bundle is named.
+`make-small-samples.sh` makes a sample of each of these four kinds.
+
+## Previewing Java archives
+
+Space on a `.jar`, `.war` or `.ear` shows, above the list of what is in it,
+what the archive says about itself, read from the zip without unpacking it:
+the manifest -- the class `java -jar` starts, the module name, whether it is
+multi-release, its class path and version -- the Maven artifact it was built
+as, its `module-info` (what it requires and exports), and which Java its
+classes need, with the classes for newer releases in `META-INF/versions`
+counted apart. A signed archive says by whom, when (and whether a timestamp
+authority vouches for that), whether the signature still holds, and whether
+the manifest is the one that was signed: a jar changed after signing is
+caught. A web application lists its `web.xml` and libraries, an enterprise
+application its modules. `make-jar-samples.sh` makes a signed, a tampered
+and a web sample.
+
+## Previewing a folder in a Git repository
+
+When version tracking is on, Space on a folder inside a Git repository adds
+how it stands above the listing, in the panes' own words: the branch -- or
+that none is checked out -- whether it is linked to a shared copy, how many
+commits of yours are not sent and how many newer ones there are to get, what
+is changed and not committed (in that folder, for one below the top), and the
+last few commits.
+
+## Previewing a SQLite database
+
+Space on a SQLite database -- whatever it is called: Mail's, Photos', an
+app's `.db` -- shows its tables and views, how many rows each holds, the
+first few rows, and the statements that made them. Right-click ▸ **Edit**
+opens it in the **Database window**: the tables in a sidebar, the rows of the
+one chosen fetched as you scroll, sorted by clicking a column, filtered by
+text in any column or by a condition in SQL, a row's every value shown whole
+below -- JSON laid out, a picture shown, a blob as bytes -- ⌘C to copy rows
+and **Export CSV** for all of them. **Query** runs a `SELECT` of your own.
+
+Nothing is ever written: the database is not even opened. It and its write-
+ahead log are cloned into a private folder -- instant on APFS -- and the clone
+is read, so what an app has not yet folded into the file is seen, and the app
+using it is not disturbed.
+
+## Previewing source code
+
+Space on source code shows it coloured by its language -- some sixty of them,
+from Swift, Python, C and Java to shell scripts, SQL, Dockerfiles and
+Makefiles -- with line numbers, light or dark as the Mac is. The language is
+told by the file's name, its extension or its first line (`#!/usr/bin/env
+python3`). Text Edit colours the same files the same way, and an edit
+recolours only the lines it changed. The colouring comes from the TextMate
+grammars Visual Studio Code uses (`make-grammars.sh`); HTML is still shown as
+the page it is.
+
+**JSON and XML have a Format button**, which lays them out one value or
+element to a line, indented, and **Show as Written** puts them back. A file
+written as very long lines -- an API's answer, a minified configuration --
+opens formatted. JSON is re-spaced token by token, so nothing but the space
+changes: the keys stay in their order, numbers as written, every escape as
+it was; JSON with comments keeps them. XML is laid out by macOS's own parser,
+which never reads an external DTD or entity. A file that does not parse, or
+is cut short because it is too big to show whole, has no button.
+
+## Previewing programs, libraries and scripts
+
+Finder calls four different things a "Unix executable file", and Quick Look
+shows a name and a size for all of them. Space on one -- or on a `.dylib`,
+`.so`, `.o`, `.a` or `.bundle` file, or a Windows `.exe`, `.dll`, `.sys`,
+`.efi`, `.lib`, `.obj`, `.bat` or `.cmd` -- shows which it is, from its
+contents:
+
+- **Mac programs and libraries (Mach-O)**: each architecture of a universal
+  binary (Apple silicon, Intel), what kind of file it is, the macOS it needs
+  and the SDK and tools it was built with, its UUID, the libraries it links
+  and where `@rpath` looks, and its segments. The code signature: who signed
+  it -- Apple, a Developer ID, a development certificate, ad hoc or the
+  linker -- with the certificate chain and the time of signing, the
+  identifier, Team ID, hardened runtime and entitlements, the well-known ones
+  in words. Every page of code is hashed and compared with the signature, as
+  the kernel does, so a program changed after signing is caught. The page
+  warns when the program will not run here: unsigned on Apple silicon, Intel
+  only (Rosetta), 32-bit, or needing a newer macOS.
+- **Linux and other ELF programs**: system, processor, executable or shared
+  library, static or dynamic and its loader, the libraries it needs, the
+  glibc version it needs, build ID, and whether its symbols were stripped.
+- **Scripts**: the interpreter, followed through `env` to where it is on this
+  Mac, and the mistakes behind a puzzling "command not found": Windows line
+  endings in the `#!` line, a byte-order mark before it, an interpreter that
+  is not installed or not a full path, a line Linux would not split. Then the
+  script itself, with line numbers.
+- **Text marked executable** without a `#!` line: the text, with a note.
+- **Windows programs and DLLs**: processor, console or windowed, the Windows
+  it needs, the version, product, company and description from its version
+  resource, whether its manifest asks for administrator rights, ASLR, DEP and
+  Control Flow Guard, the DLLs it uses and the functions it exports, a .NET
+  assembly's runtime, and the Authenticode signature: who signed it, the
+  certificate chain, the time, and whether the file still hashes as signed.
+  MS-DOS and 16-bit Windows programs are named as such.
+- **Libraries**: a Windows import library and the DLL it stands for, a
+  static library (`.lib`, `.a`) with its members and their processors, a
+  Windows object file.
+- **Batch files**: cmd.exe's pitfalls -- a byte-order mark it reads as part of
+  the first command, LF line endings that make GOTO and CALL miss their
+  labels, non-ASCII text without `chcp 65001` -- then the file.
+
+A script's page says what happens when it is started, on this Mac and, when
+that differs, on Linux: it runs, and with which program; it does not, and
+why; or it runs only in some way. Invisible characters in the text are named
+in frames, as Text Edit shows them.
+
+Nothing is run, and nothing is sent anywhere: notarization, which Apple
+checks online, is left to the Info window's Signature tab.
+`make-executable-samples.sh` makes one of each for trying it by hand; the
+Windows ones are signed by a made-up CA with `sign-pe-sample.py`.
 
 ## The Rename menu
 
@@ -1329,6 +1680,17 @@ that is not there.
 There is find, jumping between differences, *only what differs*, *ignore
 spacing*, and wrapping that applies to both sides or to neither.
 
+**Apple Intelligence explains the difference**, in a box under the line with
+find and the count of differences, with Settings ▸ **Use Apple Intelligence**
+on. It is asked in the background as soon as the two files are compared, and
+again when the comparison changes -- *ignore spacing*, a file changed
+elsewhere, or a pause in typing on the unlocked side. What the model reads is
+the diff itself: each change with two lines around it, long lines cut at 200
+characters, about 6,000 characters in all, and asked once more with half as
+much if that is still too long. It is the model on this Mac, never Private
+Cloud Compute, so the files do not leave it. Two identical files have nothing
+to explain, and the box is not there.
+
 - **A padlock on each side, and only one opens.** To edit the other file, save,
   close and compare again -- editing both halves at once makes it easy to lose
   track of which is which. Return splits a line, Backspace at its start joins
@@ -1558,6 +1920,18 @@ are dot-folders themselves, they are opened by default.
 plus **Only differences** and **Ignore missing** (what exists on one side
 only).
 
+**A summary from Apple Intelligence** sits between the checkboxes and the
+list, with Settings ▸ **Use Apple Intelligence** on: a few sentences on how the
+two folders differ -- what was added, removed or changed, and a pattern if
+there is one, such as one side being a newer copy. It is asked in the
+background each time a comparison finishes, and the list can be used while it
+comes. The model is told the folders' names, what was compared, the counts, and
+each pair that is not the same: its path, the letters above in words, the two
+sizes and which side is newer. A folder found on one side only is one line, not
+a line per file in it. Only file names and these facts are sent, never what is
+in the files, and only to the model on this Mac. Two folders that are the same
+get no summary.
+
 - **⌘D**, or a double-click on a pair of folders, compares just those two.
   On a pair of files it opens the two-file comparison above.
 - **⇧⌘I**, or **Properties**, shows the two sides' permissions, owner,
@@ -1720,8 +2094,9 @@ in -- and any other file in Bin Edit. **Edit ▸ Binary Edit** opens a text file
 in Bin Edit too. A binary property list counts as text: Text Edit shows it as
 XML. Beyond typing, undo, find and replace (⌘F), wrapping and Save (⌘S) it
 edits by lines as IntelliJ does, and for JSON, XML and YAML it colours, pairs,
-indents, formats and shows the file as a tree -- see below. It is careful
-where general editors are not:
+indents, formats and shows the file as a tree -- see below. Source code in
+some sixty other languages is coloured by its TextMate grammar (see
+*Previewing source code*). It is careful where general editors are not:
 
 * Nothing rewrites what is typed: no curly quotes, no dashes from double
   hyphens, no spelling correction, no link detection. In a script or a CSV each
@@ -1732,6 +2107,14 @@ where general editors are not:
   encoding is refused rather than mangled.
 * A file changed by something else since it was opened is not overwritten
   without asking. A file that cannot be written to opens read-only and says so.
+* **Invisible characters** -- control codes, a byte-order mark, zero-width
+  spaces and joiners, the marks and overrides that turn text right to left,
+  line separators -- are shown as their names in orange frames (`BOM`, `ZWSP`,
+  `RLO`, `ESC`, …) whenever the file has any; the ¶ button in the bar turns
+  this off and on, and the bar says how many there are. Shown, they do
+  nothing: a right-to-left override no longer reverses the text after it, a
+  line separator breaks no line. A byte-order mark is part of the text: it is
+  saved when it is there, and deleting it takes it out of the file.
 * A binary file is not opened; the window points to Bin Edit.
 * A file open in a comparison is refused, and the other way round, because two
   windows saving one file would each overwrite the other without a word.
@@ -2696,24 +3079,43 @@ whatever Settings says -- shows what is in it in the pane, as a folder.
   are locked on disk too -- directories unwritable, files `r--` -- so not even
   another app can save over the copy. Extract it, or copy a file out, to
   change it.
-- **The listing is the archive's, not the copy's.** Beside the files in each
-  folder sits a small manifest -- `__DIPTYCH.json`, or `__1DIPTYCH.json` and
-  on up where the archive itself has a file of that name -- holding what the
-  archive recorded: the permissions, owner and group the extracted copy could
-  not keep, such as a setuid bit or a group you are not in. The pane shows
-  those, read from the manifest, over the real names and sizes on disk. The
-  manifest is hidden -- it is not listed, and Quick Look of a folder inside
-  the archive does not show it.
+- **The listing is the archive's, not the copy's.** For each folder Diptych
+  keeps a manifest of what the archive recorded -- the permissions, owner and
+  group the extracted copy could not keep, such as a setuid bit or a group
+  you are not in -- and the pane shows those over the real names and sizes on
+  disk. The manifests are in `~/.diptych/cache.sqlite` (readable only by
+  you), not in the unpacked tree: nothing of Diptych's is beside the files,
+  so whatever is copied or dragged out -- to Finder too -- holds exactly what
+  the archive does. A server's shadow folders are kept the same way. The
+  cache holds nothing that cannot be worked out again: removed, it is made
+  again.
 - **A copy out is an extract.** Copy or drag a file, or a whole folder, out of
   the archive and it lands with the archive's own permissions -- the write
   bits and any setuid, setgid or sticky bit restored, not the read-only lock
   -- and the archive's quarantine, owned by you, exactly as Extract gives it.
+  An app copied out is the app as signed. A drag to Finder, or to any other
+  app, gets the same: it is handed a copy made for it -- cloned, so instant
+  for a folder of any size -- with the archive's permissions and quarantine,
+  never the locked cache itself. So does Copy (⌘C) and a paste in Finder:
+  the copy is made at the paste, however much later, and one still on the
+  clipboard when Diptych quits is made then, so it outlives the archive's
+  unpacked files. A paste back into Diptych copies from the archive itself.
+  The copies are cleared after a day, and when Diptych starts -- but never
+  one the clipboard still holds.
+  Dropped elsewhere it is always a copy, never a move, whatever the volume:
+  nothing can be taken out of an archive.
 - **The path bar names it inside the archive** --
   `~/Downloads/photos.zip/2024` -- and typing or Option-clicking such a path
   goes there. Up from its top lands next to the archive, with the archive
   selected.
 - Opened again while it has not changed, it is shown at once; changed, it is
-  unpacked again. Everything unpacked goes when Diptych quits, and anything a
+  unpacked again.
+- **When the archive goes, so does what was unpacked from it** -- deleted,
+  moved, renamed or rewritten, here or by any other app. A pane inside it
+  steps out to where the archive was, as from a folder that was deleted, and
+  Back and the recent folders skip it. The same holds for a folder on an SFTP
+  server: deleted there, it is gone here once the server says so, while a
+  server that cannot be reached keeps showing what it last listed. Everything unpacked goes when Diptych quits, and anything a
   crash left when it starts. A pane left inside one is saved as next to it.
 - An encrypted one asks for its password; a downloaded one's quarantine goes
   on everything in it.
@@ -3122,22 +3524,34 @@ by default.
   pane uses, so it is not taken for a file's size. One about to change -- the
   total from before while it is worked out again, or one still growing -- is
   **orange**. `??` is a folder asked for that nothing is known about yet.
+- **Kept, and fading**: every total is kept in `~/.diptych/cache.sqlite` with
+  the time it was measured and whether it was finished or still growing then.
+  A folder measured before -- in an earlier session, or from another folder
+  above it -- shows its total without being asked, teal if it was finished
+  and orange if it was caught part way, and fainter the older it is: it was
+  true when it was measured, not necessarily now. After **Settings ▸
+  Behaviour ▸ Folder Sizes** -- a week unless changed, from a day to 90 days
+  -- it is no longer shown, and is deleted at the next start. The Info window
+  says how long ago a total was measured.
+- **Measured again**: ∑ or Calculate Directory Sizes reads every folder again,
+  those already measured included; until a folder has been read, its kept
+  total stands in for it, in orange, and counts in the folders above.
 - **An estimate, early**: a folder shows a total as soon as its own files are
   counted, and it grows as the folders in it are read. A folder already known
   counts at what it was until it has been read again; whenever a folder's total
   changes, every folder above it changes by as much.
 - **In the background**: it goes on while the pane goes elsewhere, and the
-  totals are there when it comes back. They are kept in memory only, for as
-  long as Diptych runs. The Info window of a folder shows the same total, and
-  follows it.
+  totals are there when it comes back. The Info window of a folder shows the
+  same total, and follows it.
 - **One at a time**: one reader per volume, so two calculations never compete
   for a disk; asking again while one is under way queues behind it. A volume
   mounted inside a folder, and the targets of links, are not counted. Sizes
   are the files' own lengths, as the Size column shows files.
 - **Sorted by Size**, a folder goes by its total as far as it is worked out,
   so while a calculation runs the rows move as the totals grow.
-- **View ▸ Clear Directory Sizes** forgets every total and stops what is
-  being worked out; the folders show `--` again, here and in the Info window.
+- **View ▸ Clear Directory Sizes** -- or *Forget All Sizes* in the setting --
+  forgets every total, kept ones too, and stops what is being worked out; the
+  folders show `--` again, here and in the Info window.
 
 ## Values edited in place
 
@@ -3407,12 +3821,14 @@ window go to "the" Diptych, which only means something if there is one.
 | Tool | Does |
 | --- | --- |
 | `list_windows` | Every open window: browser windows with each pane's directory, the active side, and whether it is in single-pane mode (only the active pane shown), plus Info / Compare / Bin Edit / Text Edit / Rename Many / EXIF / Settings windows with what each is showing |
-| `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting |
+| `get_pane` | A pane's current directory and listing; for a flat view, its expression and whether its walk is still collecting; while the pane is reading its listing, going to another folder or unpacking an archive, which -- its list takes no clicks meanwhile |
 | `get_selection` | The files currently selected in a pane |
 | `get_text_diff` | What an open Compare (file diff) window is comparing, whether it's a byte comparison, which side (if any) is unlocked for editing, and whether it has unsaved edits |
 | `get_directory_diff` | What an open Compare Folders window is comparing: the two roots, the options results on screen were actually produced with, and the rename pairs diptych's own content-matching found |
 | `select_items` | Replaces a pane's selection with given paths, visibly, in the GUI |
 | `set_active_pane` | Makes a window's left or right pane the focused one |
+| `show_folder` | Shows a folder in a pane, as typing its path would -- leaving a flat view first |
+| `set_pane_view` | Shows a pane as `icons` (name order), `placedIcons` (where they were placed) or `list`; that pane only |
 | `open_diff` | Opens a Compare or Compare Folders window on two explicit paths; for two folders, the comparison options (permissions, ACL, attributes, dates, ownership, hidden recursion) can be set explicitly, and for two files, so can `ignoreWhitespace`/`wraps` -- reopening a pair already open updates that window instead of refusing |
 | `open_info_window` | Opens the Info window for one explicit path |
 | `open_exif_editor` | Opens the EXIF editor on explicit JPEG/HEIC paths, which may be in different folders -- something a right-click on one pane's selection cannot do. Nothing is written by the tool: you edit, tick and save (or cancel) in the window, and a save is one EXIF Change in Undo. A path that is missing, a folder, or another kind of file is reported, and then nothing is opened |
@@ -3425,6 +3841,8 @@ window go to "the" Diptych, which only means something if there is one.
 | `list_runs` | The kept runs (Run ▸), counted back from the latest -- 1 is the last run; `from`/`to` choose a range, 1-10 by default: run id, command line, folder, running / finished / failed / stopped / interrupted, exit code, start, timing (`real`, `user`, `sys`), whether its tab is open, and which tab is in front (`focused`). Starting a run is deliberately not offered |
 | `get_run_output` | What a run printed, as plain text without the terminal's colours, with its state and timing -- also after its tab is closed; the last 400 lines by default, up to 5000 -- so "why did that build fail?" needs no copy and paste |
 | `get_batch_status` | Where a proposed batch stands -- reviewing, executing, finished or cancelled -- and, once it has run, each row's outcome and whether it failed |
+| `search_journal` | The journal (see [The journal](#the-journal)), newest first: words of what was done or of any path, `from`/`to` dates, `kind`, `category` (change, content, attributes, navigation, settings, window, run, app, request), `origin` (you, agent, shortcuts, undo, redo, run), `folder`, and `withFiles` for each entry's files -- "what did I do to the tax folder last week?". Read-only |
+| `journal_stats` | What the journal adds up to between `from` and `to`: entries and files, by kind, by who, per day, the busiest folders |
 
 None of these read or write file *contents*, and none return diff content
 either -- deliberately: a shell already does `diff`/`cmp` better than an MCP
@@ -3434,6 +3852,53 @@ terminal has no way to see: what is selected, what a pane is browsing, what
 window is open showing what and with which options, whether an edit is
 unsaved, plus diptych's own rename-detection -- and being able to act back
 into the window the person is actually looking at.
+
+### Siri, Shortcuts and Spotlight
+
+The same commands are offered as **App Intents**, so Siri, the Shortcuts app
+and Spotlight can use them -- off until **Settings ▸ Agents ▸ Allow Siri,
+Shortcuts and Spotlight to use Diptych** is ticked. Both ways in go through
+one layer, `DiptychCommands`, so they do the same thing by the same rules:
+
+- **Files are never changed** from there. Copying, moving, trashing, deleting,
+  renaming and new folders are only *proposed*, in the review window an
+  agent's batch opens in, with the same extra question for anything written
+  over or deleted for good.
+- **Nothing is run** and no file is read; runs can be listed and their output
+  read, as an agent can.
+- **Settings** are the same curated list an agent may change -- not this
+  switch, nor agent access. Changing one, or closing a window, asks first.
+- **Every request** shows in the activity console, as *Siri/Shortcuts:* and
+  the command; a refused one too, while the switch is off.
+- There is no token: macOS itself decides who may call an app's intents --
+  you, through Siri, Shortcuts or Spotlight.
+
+What a shortcut gets back is usable: the files a pane lists or has selected
+come as files to pass on, and everything else as the same JSON an agent gets.
+
+| Intent | Does |
+| --- | --- |
+| Get Diptych Info, List Diptych Windows | As `get_diptych_info`, `list_windows` |
+| Get Files in Diptych Pane, Get Folder Shown, Get Files Selected | The pane's files, its folder, the selection -- as files |
+| Get Diptych File / Folder Comparison | As `get_text_diff`, `get_directory_diff` |
+| List Diptych Runs, Get Diptych Run Output | As `list_runs`, `get_run_output`; run 1 is the latest |
+| List Diptych Settings, Change Diptych Setting | As `list_settings`, `set_setting`; changing asks first |
+| Show Folder, Make Pane Active, Set Pane View | As `show_folder`, `set_active_pane`, `set_pane_view` |
+| Select Files, Show / Leave Flat View | As `select_items`, `show_flat_view` |
+| Compare, Show Info, Edit EXIF | As `open_diff`, `open_info_window`, `open_exif_editor` |
+| Close Diptych Window | As `close_window`, after asking |
+| Propose File Operation | Copy, move, trash, delete, rename or a new folder, proposed for review |
+| Propose File Operations | Any batch, as JSON with the fields `propose_file_operations` takes |
+| Get Diptych Batch Status | As `get_batch_status` |
+| Search Diptych Journal, Get Diptych Journal Statistics | As `search_journal`, `journal_stats` |
+| Open Diptych Journal | Opens the Journal window, searching for the words given |
+
+Siri knows ten of them by phrase, with *Diptych* in each: *"What's selected in
+Diptych"*, *"Which folder is Diptych showing"*, *"What's in the Diptych
+pane"*, *"Did my last Diptych run finish"*, *"What did my last Diptych run
+print"*, *"What windows are open in Diptych"*, *"Show Diptych as icons"*,
+*"Switch to the left pane in Diptych"*, *"What is Diptych comparing"* and
+*"Which version of Diptych is running"*. Every other intent is in Shortcuts.
 
 ### The agent terminal
 
@@ -3558,6 +4023,68 @@ The design document this was built from, `DIPTYCH_MCP_PROPOSAL.md` -- the
 reasoning behind what is and is not exposed -- is in the git history and in
 the 1.4.x source archives; it is no longer kept up to date. Not built yet:
 bind-address configurability.
+
+## The journal
+
+Diptych remembers what it did, for months: every copy, move, rename, trashing,
+deletion and change -- permissions, tags, dates, contents, icon positions -- on
+this Mac and on servers, every undo and redo, every run, and every batch an
+agent or a shortcut proposed and you executed. One entry per operation, with
+the files it touched: where each was, and where it went.
+
+- **Everything else, too.** Each entry has a category, and Settings ▸
+  Behaviour ▸ Journal can leave any of them out; none is left out by default:
+
+  | Category | What |
+  |---|---|
+  | File Changes | copies, moves, renames, trashing, deletions, changes, undo, redo |
+  | Contents Read | files opened (and with which app), Quick Look, contents copied to the clipboard |
+  | Names and Details Read | folders opened, selections, Info |
+  | Navigation | list or icons, icon arrangement, sort, filter, flat view, the keyboard going to the other pane, one or two panes, sidebar, hidden files, new tab, swapping panes |
+  | Settings | each setting changed, from what to what |
+  | Windows | every window opened and closed, by its title |
+  | Runs | scripts and commands run |
+  | Diptych Started or Quit | each start, with the version, and each quit |
+  | Agent and Shortcuts Requests | every MCP tool call and Shortcuts action, and those refused |
+
+  Only what was settled on: a selection is recorded once it has stood for
+  three seconds, a preview once it has been on screen for a second and a
+  half, a filter, a sort, a setting or the pane with the keyboard once it
+  has stood still for a moment -- running the arrow keys down a folder is
+  not two hundred entries, and typing a filter of ten letters is one.
+  Only file changes and runs go to Spotlight.
+- **Window ▸ Journal** (`⌥⌘J`) searches it: any word of what was done, of a
+  name or of a path, each word as the start of one. Narrow it to a period, a
+  category, a kind, or who did it -- you, an agent, Siri/Shortcuts, an undo,
+  a run. **Statistics** sums it up: per day, by category, by kind, by who,
+  the busiest folders.
+- **It only remembers.** A row offers *Where It Was* and *Where It Is*, shown
+  in a pane; nothing is undone from the journal -- weeks later the files have
+  moved on. Undo stays the history of the session.
+- **Kept in `~/.diptych/journal.sqlite`**, readable only by you, for 90 days
+  unless Settings ▸ Behaviour ▸ Journal says otherwise; *Delete Journal…*
+  empties it. A server's paths are kept whole: `user@host:/path`.
+- **Agents and shortcuts can read it, never change it**: MCP's
+  `search_journal` and `journal_stats`, and the matching Shortcuts actions.
+
+### In Spotlight
+
+Two switches under the journal's settings, both off until you turn them on --
+Spotlight is read by anyone at the Mac, and by Siri:
+
+- **Show journal entries in Spotlight.** Typing *moved tax* finds the entry;
+  opening it opens the Journal on it. Each expires when the journal would
+  purge it.
+- **Add the files Diptych shows to Spotlight.** Every file a pane lists
+  becomes a Diptych record carrying what Spotlight does not know by itself:
+  the town a picture or video was taken near -- from Diptych's own list of
+  towns, with region and country, the same as the flat view's `city` --
+  the camera, lens and date taken, and the tags. Typing *Budapest* then finds
+  the pictures taken there, as Diptych records next to the files themselves;
+  opening one shows the file in a pane. A file is read again only when its
+  date or size changes; a file gone from a listing loses its record. Never a
+  server's files, an archive's, or the Trash's. *Remove File Records from
+  Spotlight* takes them all out.
 
 ## Copying, with progress
 
@@ -3741,6 +4268,15 @@ and the move intent is remembered against the pasteboard's change count -- if
 anything else writes to the pasteboard, the cut lapses and a paste copies.
 With no files on the pasteboard but text or a picture, `⌘V` (and Paste in the
 menus) makes a file of it, exactly as **New from Clipboard** does.
+
+**What the new file is saved as.** A picture is saved in the format chosen in
+Settings ▸ *Save a picture as*. With **Ask each time**, the dialog offers
+first -- Return chooses it -- whichever of PNG, JPEG and PDF most pictures in
+the folder already are; PNG when there are none, and PNG, then JPEG, on a tie.
+Text gets the extension of what Apple Intelligence says it is -- Markdown,
+JSON, YAML, CSV, a shell script, Python, Swift and twenty more -- and `.txt`
+when it is none of those, or Apple Intelligence is off. A picture never takes
+its extension from the model: the format is the one chosen.
 
 Right-click **Copy** does the same as `⌘C`; its submenu copies *text* instead:
 
@@ -4191,7 +4727,8 @@ greyed, when scripts are off or none of them suits what is selected.
 **File ▸ Get Scripts…** -- also a button under the setting -- lists the scripts
 that come with Diptych: making a zip, showing every detail `ls` knows, the two
 that make a script editable and read-only again, one that shows what a
-script sees, and **Explain with an Agent**, below. Tick the ones you want; **Show Source** shows one in full, and
+script sees, **Explain with an Agent**, and four that use **Apple
+Intelligence** instead of an agent, both below. Tick the ones you want; **Show Source** shows one in full, and
 **Compare with Yours** opens the two-file comparison when something of that name
 is already installed. They are inside the application, signed with it, so
 **nothing is downloaded**. Installing writes each as `r--------`, owned by you,
@@ -4232,6 +4769,50 @@ other files and links the ones that are about the same thing, saying how.
   system's PDFKit. The report is always in English, whatever the
   document's language, with the original wording quoted where it matters;
   `DIPTYCH_REPORT_LANGUAGE` sets another ("German", "Hungarian"…).
+
+### With Apple Intelligence
+
+Four scripts in Get Scripts ask the model **on this Mac** through `fm`, the
+Foundation Models command line that comes with macOS 27 -- always the on-device
+system model, never Private Cloud Compute, so nothing read leaves the Mac and
+nothing has to be installed. `fm` asks once that its terms are agreed to, for
+every user of the Mac: run `sudo fm license` in Terminal; until then each
+script says so and stops.
+
+| Script | Selected | What it does |
+| --- | --- | --- |
+| `apple-ai-explain-pdf.sh` -- **Explain with Apple Intelligence** | PDFs | the report Explain with an Agent writes, beside the PDF, from the same `report.css` |
+| `apple-ai-summarize.sh` -- **Summarize with Apple Intelligence** | text, PDF, Word, RTF, HTML | a few sentences and the key points, in the Runs window |
+| `apple-ai-suggest-name.sh` -- **Suggest a Name with Apple Intelligence** | any file | a name from what is in it, listed, not applied |
+| `apple-ai-describe-image.sh` -- **Describe with Apple Intelligence** | pictures | what it shows, any text in it, and tags |
+
+The model is a small one and reads about four thousand tokens at once -- a few
+pages. A longer document is read **in parts**, each explained or summarised on
+its own and the whole written from those; at most 12 parts for a report and
+10 for a summary, which `DIPTYCH_AI_MAX_PARTS` changes. The report is laid out
+by the script from the model's answers, so every report has the same shape.
+The model cannot open files, so for **related documents** the script reads the
+other PDFs of the folder itself, picks the 10 most like the report's PDF in
+words -- counted in three-letter pieces, which survive a poor scan's misread
+letters -- and shows the model each one beside it: how both begin, and the
+uncommon words they share. A file is linked only when the model says the two
+are about the same matter and what it says they share is in both.
+`DIPTYCH_AI_MAX_COMPARED` sets how many are compared, a few seconds each; 0
+compares none. A small model misses links a larger one would draw from what
+the documents mean; Explain with an Agent finds those. A scanned PDF
+with no text in it is left out. `DIPTYCH_REPORT_LANGUAGE` sets the report's
+language and `DIPTYCH_AI_LANGUAGE` the summary's and description's. The
+instructions to the model are at the top of each script, to rewrite.
+
+**How long a script takes** is kept, every version of it together, in
+`~/.diptych/diptych.sqlite`: a script's tab in the Runs window shows how
+many runs finished, the shortest, average and longest, and the same per file
+it was given -- assuming, boldly, that the time grows with the number of files.
+Only runs that finished count; one that failed or was stopped would make the
+figures say less. While a script runs, a bar beside its timer fills in blue
+towards the time expected for this many files; past it, the bar stands for
+the whole run so far, with the overrun in red on the right. **Reset** beside
+the figures forgets them, without asking.
 
 This is not **Run ▸**. Run ▸ runs a program you right-clicked, with arguments
 you type; Scripts ▸ runs a script from that folder *on* what you right-clicked,
@@ -4319,7 +4900,7 @@ So a script is `r--------` (`400`): select it and press `⌥⌘P` to set that.
 **Nothing lifts these rules**, developer mode included. You are asked before a
 script runs for the first time and again whenever its contents change; the
 approvals are kept, by a hash of the contents, in
-`~/.diptych/scripts-approved.json`. Every rule is checked again at the moment
+`~/.diptych/diptych.sqlite`. Every rule is checked again at the moment
 of running, and a script changed since it was read is refused rather than run.
 
 **The folder is read once, at startup** -- a script that could change between

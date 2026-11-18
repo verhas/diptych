@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 
 /// `@main` marks the process entry point -- Swift's `public static void main`.
@@ -9,6 +10,7 @@ struct DiptychApp: App {
     static let windowGroupID = "diptych.window"
     static let infoWindowID = "diptych.info"
     static let binaryWindowID = "diptych.binary"
+    static let databaseWindowID = "diptych.database"
     static let textWindowID = "diptych.text"
     static let renameWindowID = "diptych.rename"
     static let renameReplaceWindowID = "diptych.renameReplace"
@@ -20,6 +22,7 @@ struct DiptychApp: App {
     static let mcpConsoleWindowID = "diptych.mcpConsole"
     static let batchOperationsWindowID = "diptych.batchOperations"
     static let runWindowID = "diptych.run"
+    static let journalWindowID = "diptych.journal"
     static let siblingsWindowID = "diptych.siblings"
     static let duplicatesWindowID = "diptych.duplicates"
     static let exifWindowID = "diptych.exif"
@@ -66,6 +69,13 @@ struct DiptychApp: App {
             if let url { BinaryView(url: url) }
         }
         .defaultSize(width: 840, height: 560)
+        .restorationBehavior(.disabled)
+
+        // One Database window per file, for the same reason.
+        WindowGroup(id: DiptychApp.databaseWindowID, for: URL.self) { $url in
+            if let url { DatabaseView(url: url) }
+        }
+        .defaultSize(width: 1000, height: 640)
         .restorationBehavior(.disabled)
 
         // One Text Edit per file: asking again for the same file brings its
@@ -249,6 +259,16 @@ struct DiptychApp: App {
         .defaultSize(width: 820, height: 520)
         .restorationBehavior(.disabled)
 
+        // What Diptych did, kept for months: one window for the process.
+        Window("Journal", id: DiptychApp.journalWindowID) {
+            JournalView()
+        }
+        // Listed in the Window menu by SwiftUI, beside Runs and the other
+        // windows of their own, with its key.
+        .keyboardShortcut("j", modifiers: [.command, .option])
+        .defaultSize(width: 900, height: 620)
+        .restorationBehavior(.disabled)
+
         // Adds "Settings..." (Cmd-,) to the app menu in the standard place.
         Settings {
             SettingsView()
@@ -306,6 +326,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { FileViewer.shared.installHandlers() }
     }
 
+    /// A Diptych record chosen in Spotlight: a file is shown in a pane, a
+    /// journal entry opens the Journal on it.
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        guard userActivity.activityType == CSSearchableItemActionType,
+              let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String
+        else { return false }
+        return SpotlightRecords.open(identifier)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // MCP tool calls implicitly address "the" Diptych window (no session
         // binding exists yet to say which one), so there can only be one
@@ -324,6 +354,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Copies kept for undoing a change to a file's contents, by a
         // Diptych that has since quit: its history went with it.
         DispatchQueue.global(qos: .utility).async { UndoSnapshots.removeAbandoned() }
+        Journal.startKeeping()
+        if !isRunningTests {
+            SpotlightRecords.shared.start()
+            JournalActivity.started()
+        }
         if !isRunningTests, let bundleID = Bundle.main.bundleIdentifier {
             let myPID = ProcessInfo.processInfo.processIdentifier
             let other = NSRunningApplication
@@ -371,8 +406,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if !isRunningTests {
+            // Opened first: 1.x's JSON records are brought into it and deleted
+            // before anything reads them.
+            _ = LocalDatabase.records
+            // Folder sizes older than the setting allows are of no more use.
+            DirectorySizes.purgeExpired()
             // What a crash left of archives opened as folders.
-            Task.detached(priority: .utility) { ArchiveBrowsing.removeAll() }
+            // Copies the clipboard still holds from the last run are kept.
+            let onClipboard = MainActor.assumeIsolated { Clipboard.handedOutPaths() }
+            Task.detached(priority: .utility) {
+                ArchiveBrowsing.removeAll()
+                // Copies handed to drags in the last run: not at quit, since
+                // whatever they were dropped on may still be reading them.
+                ArchiveBrowsing.removeHandedOut(keeping: onClipboard)
+            }
             Task.detached(priority: .utility) { RemoteBrowsing.removeAll() }
             MainActor.assumeIsolated {
                 StartupWarnings.start()
@@ -393,6 +440,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Archives opened as folders were unpacked for this run only.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            // Archive items on the clipboard get their copies first: a paste
+            // after this finds those, the unpacked archives being gone.
+            MainActor.assumeIsolated { Clipboard.settleArchiveItems() }
             ArchiveBrowsing.removeAll()
             RemoteBrowsing.removeAll()
         }
@@ -400,6 +450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // app rather than being left to notice their terminal has gone.
         MainActor.assumeIsolated {
             for model in KeyRouter.shared.allModels { model.terminal?.terminate() }
+            JournalActivity.quitting()
         }
         Task { await MCPServer.shared.shutdown() }
     }
@@ -436,6 +487,19 @@ struct FileCommands: Commands {
         // The standard About panel, with the slogan under the version.
         CommandGroup(replacing: .appInfo) {
             Button("About Diptych") { AboutPanel.show() }
+        }
+        // ⌘Q quits from a two-pane window and closes any other window, as if
+        // that were an application of its own (see QuitShortcut). Then the
+        // menu says what the key will do, and Quit stays a click away, with
+        // no key. Which one is decided again when the key is pressed, so a
+        // menu drawn a moment early cannot make it do the other thing.
+        CommandGroup(replacing: .appTermination) {
+            let closes = QuitShortcut.windowToClose != nil
+            Button(closes ? "Close Window" : "Quit Diptych") { QuitShortcut.perform() }
+                .keyboardShortcut("q")
+            if closes {
+                Button("Quit Diptych") { NSApp.terminate(nil) }
+            }
         }
         // Under About, above Settings, where macOS apps keep it.
         CommandGroup(after: .appInfo) {
@@ -761,6 +825,30 @@ struct FileCommands: Commands {
         // built-in one -- it sits next to it, and macOS then has nowhere to put
         // Show Tab Bar and the other window-tab commands.
         CommandGroup(after: .sidebar) {
+            // The active pane only -- each pane of each tab has its own. In the
+            // toolbar's order, numbered as Finder numbers its views, with
+            // Control: Command-2 is one pane or two here.
+            Toggle("as Icons", isOn: Binding(
+                get: { model?.activeDisplay == .icons },
+                set: { if $0 { model?.show(.icons) } }))
+                .keyboardShortcut("1", modifiers: [.command, .control])
+                .disabled(model == nil)
+            Toggle("as Placed Icons", isOn: Binding(
+                get: { model?.activeDisplay == .placedIcons },
+                set: { if $0 { model?.show(.placedIcons) } }))
+                .keyboardShortcut("2", modifiers: [.command, .control])
+                .disabled(model == nil)
+            Toggle("as List", isOn: Binding(
+                get: { model?.activeDisplay == .list },
+                set: { if $0 { model?.show(.list) } }))
+                .keyboardShortcut("3", modifiers: [.command, .control])
+                .disabled(model == nil)
+            // Finder's name: the placed icons onto the grid, in no new order.
+            Button("Clean Up") { model?.cleanUpIcons() }
+                .disabled(model?.canCleanUpIcons != true)
+
+            Divider()
+
             Button(model?.sidebarVisible == true ? "Hide Sidebar" : "Show Sidebar") {
                 model?.sidebarVisible.toggle()
             }

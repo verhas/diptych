@@ -151,6 +151,7 @@ nonisolated enum RemoteBrowsing {
         SudoPasswords.shared.forget(server.key)
         Task.detached { await server.close() }
         try? FileManager.default.removeItem(at: server.root)
+        BrowserManifestStore.forget(under: server.root)
         return true
     }
 
@@ -167,6 +168,7 @@ nonisolated enum RemoteBrowsing {
         }
         SudoPasswords.shared.forgetAll()
         try? FileManager.default.removeItem(at: cacheRoot)
+        BrowserManifestStore.forget(under: cacheRoot)
     }
 
     // MARK: - Where things are
@@ -285,6 +287,26 @@ nonisolated enum RemoteBrowsing {
         remote.split(separator: "/").reduce(server.root) { $0.appendingPathComponent(String($1)) }
     }
 
+    /// A path on a server as the journal keeps it: `user@host:/path`, with
+    /// the port when it is not 22.
+    static func address(_ server: Server, _ path: String) -> String {
+        "\(server.user)@\(server.host)" + (server.port == 22 ? "" : ":\(server.port)") + ":" + path
+    }
+
+    /// Any path, a server's shadow path as its address on the server.
+    static func journalPath(_ url: URL) -> String {
+        remotePath(url).map { address($0.0, $0.1) } ?? url.path
+    }
+
+    /// Into the journal, on the main actor, credited to whoever this task
+    /// is working for.
+    private static func journal(_ kind: String, _ told: String, _ files: [Journal.File]) {
+        let origin = Journal.origin
+        Task { @MainActor in
+            Journal.shared.record(kind: kind, told: told, files: files, origin: origin)
+        }
+    }
+
     /// The path on the server that a shadow path stands for, `/home/peter`.
     private static func remotePath(_ url: URL) -> (Server, String)? {
         guard let (server, components) = owning(url) else { return nil }
@@ -330,14 +352,14 @@ nonisolated enum RemoteBrowsing {
     }
 
     /// Whether a name in a shadow folder is Diptych's own and not the server's:
-    /// the manifest, or a file on its way in.
+    /// a file on its way in.
     static func isBookkeeping(_ name: String) -> Bool {
-        BrowserManifestStore.number(of: name) != nil || name.hasPrefix(".downloading-")
+        name.hasPrefix(".downloading-")
     }
 
     /// Copies of the server items among `urls` as the server has them, for a tool
-    /// that reads folders whole, such as an archiver: without the manifests and
-    /// downloads of Diptych's own, and with the server's permissions and dates in
+    /// that reads folders whole, such as an archiver: without the downloads of
+    /// Diptych's own, and with the server's permissions and dates in
     /// place of the cache's. Cloned, so cheap. Items not on a server are given as
     /// they are; `staging` holds the copies, for `removeCopies`. Fetched first.
     static func faithfulCopies(of urls: [URL]) throws -> (urls: [URL], staging: URL?) {
@@ -440,7 +462,7 @@ nonisolated enum RemoteBrowsing {
                 _ = try await server.mirror.populate(path)
                 let children = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
                 try await fetch(children
-                    .filter { BrowserManifestStore.number(of: $0) == nil }
+                    .filter { !isBookkeeping($0) }
                     .map { url.appendingPathComponent($0) })
             } else {
                 try Task.checkCancellation()
@@ -684,6 +706,9 @@ nonisolated enum RemoteBrowsing {
         try await requireAbsent(name, in: folder, server)
         let target = join(folder, name)
         try await server.mirror.rename(path, to: target)
+        journal("Rename", "\"\(url.lastPathComponent)\" was renamed to \"\(name)\" in "
+                    + "\(address(server, folder)).",
+                [Journal.File(before: address(server, path), after: address(server, target))])
         try await refresh(url.deletingLastPathComponent())
         return localURL(on: server, remote: target)
     }
@@ -696,6 +721,10 @@ nonisolated enum RemoteBrowsing {
             guard let (server, path) = remotePath(url) else { continue }
             try await server.mirror.setPermissions(path, mode: mode)
             folders.insert(url.deletingLastPathComponent())
+            journal("Permission Change", "The permissions of \"\(url.lastPathComponent)\" in "
+                        + "\(address(server, parentOf(path))) were set to "
+                        + "\(String(mode & 0o7777, radix: 8)).",
+                    [Journal.File(before: address(server, path), after: address(server, path))])
         }
         for folder in folders {
             try await refresh(folder)
@@ -710,6 +739,9 @@ nonisolated enum RemoteBrowsing {
             guard let (server, path) = remotePath(url) else { continue }
             try await server.mirror.remove(path, isDirectory: SFTPMirror.isDirectory(url))
             folders.insert(url.deletingLastPathComponent())
+            journal("Delete on Server", "\"\(url.lastPathComponent)\" was deleted from "
+                        + "\(address(server, parentOf(path))).",
+                    [Journal.File(before: address(server, path), after: nil)])
         }
         for folder in folders {
             try await refresh(folder)
@@ -728,6 +760,16 @@ nonisolated enum RemoteBrowsing {
                                            isDirectory: SFTPMirror.isDirectory(source),
                                            keepingUpTo: await keptLimit())
         }
+        if !sources.isEmpty {
+            journal("Copy to Server",
+                    sources.count == 1
+                        ? "\"\(sources[0].lastPathComponent)\" was copied to \(address(server, folder))."
+                        : "\(sources.count) items were copied to \(address(server, folder)).",
+                    sources.map {
+                        Journal.File(before: journalPath($0),
+                                     after: address(server, join(folder, $0.lastPathComponent)))
+                    })
+        }
         try await refresh(destination)
     }
 
@@ -742,6 +784,8 @@ nonisolated enum RemoteBrowsing {
         try await server.mirror.upload(source, to: join(folder, name),
                                        isDirectory: SFTPMirror.isDirectory(source),
                                        keepingUpTo: await keptLimit())
+        journal("Copy to Server", "\"\(name)\" was copied to \(address(server, folder)).",
+                [Journal.File(before: journalPath(source), after: address(server, join(folder, name)))])
         try await refresh(parent)
     }
 

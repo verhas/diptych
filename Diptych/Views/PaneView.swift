@@ -41,7 +41,7 @@ struct PaneView: View {
             if pane.isFlat { flatStatus }
             pathBar
             Divider()
-            table
+            if pane.viewStyle == .icons { icons } else { table }
             Divider()
             statusBar
         }
@@ -680,7 +680,10 @@ struct PaneView: View {
                         provider.registerDataRepresentation(
                             forTypeIdentifier: UTType.fileURL.identifier, visibility: .all
                         ) { completion in
-                            completion(item.url.absoluteString.data(using: .utf8), nil)
+                            // Out of an archive, a clean copy of the item:
+                            // whoever receives it copies what is at the path.
+                            let url = ArchiveBrowsing.handOut(item.url)
+                            completion(url.absoluteString.data(using: .utf8), nil)
                             return nil
                         }
                         // Without a suggested name Finder invents one from
@@ -719,6 +722,17 @@ struct PaneView: View {
         // -- entering or leaving a Trash listing. Changing a Table's column
         // *count* in place is what AppKit crashes on; rebuilding sidesteps it.
         .id([columns.contains(.originalLocation), columns.contains(.cache)])
+    }
+
+    /// The folder as big icons; the same menus, notices and rules as the table.
+    private var icons: some View {
+        IconPaneView(pane: pane, model: model, side: side, activate: activate,
+                     focusedSide: $focusedSide,
+                     menu: { ids in AnyView(rowMenu(for: ids)) })
+            .overlay { unreadableNotice }
+            .disabled(pane.isNavigating || pane.openingArchive != nil)
+            .overlay { loadingNotice }
+            .overlay { openingArchiveNotice }
     }
 
     /// An archive being unpacked to be shown: how far, and Stop.
@@ -1506,8 +1520,8 @@ struct PaneView: View {
             // A link to a folder is not what is in it: not counted, as before.
             if item.isSymlink { continue }
             switch DirectorySizes.shared.shown(for: item.url) {
-            case .done(let size)?: bytes += size
-            case .updating(let size)?: bytes += size; growing = true
+            case .done(let size)?, .remembered(let size, true)?: bytes += size
+            case .updating(let size)?, .remembered(let size, false)?: bytes += size; growing = true
             case .waiting?: growing = true
             case .unknown?, nil: uncounted += 1
             }

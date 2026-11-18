@@ -38,6 +38,12 @@ struct DirectoryDiffView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if model.explanation.state != .idle {
+                DifferenceExplanationView(explanation: model.explanation)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                Divider()
+            }
             content
             Divider()
             legend

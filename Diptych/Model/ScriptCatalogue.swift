@@ -14,9 +14,6 @@ final class ScriptCatalogue {
     static let shared = ScriptCatalogue()
 
     static var folder: URL { StateStore.directory.appendingPathComponent("scripts") }
-    private static var approvalsFile: URL {
-        StateStore.directory.appendingPathComponent("scripts-approved.json")
-    }
 
     private(set) var scripts: [ScriptDefinition] = []
     private(set) var problems: [ScriptProblem] = []
@@ -182,23 +179,22 @@ final class ScriptCatalogue {
     }
 
     func approve(_ script: ScriptDefinition) {
-        approved.insert(Self.fingerprint(of: script.contents))
-        Self.write(approved)
+        let fingerprint = Self.fingerprint(of: script.contents)
+        approved.insert(fingerprint)
+        LocalDatabase.records.access {
+            $0.run(Self.approveSQL, .text(fingerprint), .real(Date().timeIntervalSince1970))
+        }
     }
 
+    nonisolated static let approveSQL =
+        "INSERT OR IGNORE INTO script_approval (fingerprint, approved_at) VALUES (?, ?)"
+
+    /// The fingerprints said yes to, in the `script_approval` table of
+    /// `LocalDatabase.records` (1.x: `~/.diptych/scripts-approved.json`).
+    /// Losing them fails safe: the person is asked again.
     private static func readApprovals() -> Set<String> {
-        guard let data = try? Data(contentsOf: approvalsFile),
-              let list = try? JSONDecoder().decode([String].self, from: data) else { return [] }
-        return Set(list)
-    }
-
-    /// Written 0600. Losing this file fails safe: the user is asked again.
-    private static func write(_ approvals: Set<String>) {
-        guard let data = try? JSONEncoder().encode(approvals.sorted()) else { return }
-        try? FileManager.default.createDirectory(at: StateStore.directory,
-                                                 withIntermediateDirectories: true)
-        try? data.write(to: approvalsFile, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                               ofItemAtPath: approvalsFile.path)
+        Set(LocalDatabase.records.access { connection in
+            connection.rows("SELECT fingerprint FROM script_approval") { $0.text(0) ?? "" }
+        })
     }
 }

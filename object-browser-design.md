@@ -1,236 +1,294 @@
 # Object browser architecture
 
-*Status: design + first implementation under way (the manifest format and
-`ArchiveSource`). The pane is not yet pointed at it; the live archive-as-folder
-feature still uses the older direct-extraction path until the wiring lands.*
+*Status, as of 2.0.0: two sources are built and shipped. Opened archives came
+in 1.12.0, and SFTP servers in 1.13.0. Since 2.0.0 their listings are
+kept in `~/.diptych/cache.sqlite`; the `__DIPTYCH.json` file once written
+into every folder is gone. Non-file sources (processes, login items,
+`defaults`) are still only a design. Section "Not built" lists what the
+original plan has that the code does not.*
 
 ## Why
 
-Today a Diptych pane assumes it shows a real directory it can `stat` and
-enumerate. Opening an archive as a folder stretched that: the files are
-unpacked into a cache and the pane lists the cache, so it shows the cache
-copy's permissions and dates (not the archive's), and the files are writable,
+A Diptych pane assumes it shows a real directory it can `stat` and enumerate.
+Opening an archive as a folder stretched that: the files are unpacked into a
+cache and the pane lists the cache. On its own, that shows the cache copy's
+permissions and dates, not the archive's. The files would also be writable,
 which lures someone into editing a copy that is thrown away.
 
-The fix is to stop inferring a listing from a real directory and instead take
-it from a **manifest** the source produces: display metadata (names,
-permissions, owner, dates) comes from the manifest, and the actual bytes for
-Open / Quick Look / copy-out live in an opaque backing store that the display
-never reads metadata from. Once display is decoupled from the backing files,
-read-only protection becomes free, and — the larger point — the same mechanism
+The fix is to stop inferring a listing from a real directory and take it from
+a **manifest** that the source produces. Display metadata (names,
+permissions, owner, dates, sizes) comes from the manifest. The bytes for
+Open, Quick Look and copy-out live in a backing store whose own metadata the
+display never reads. Once display is decoupled from the backing files,
+read-only protection comes free. The larger point is that the same mechanism
 can list things that are not files at all.
 
 ## The one rule
 
 **Object browser inside, two-pane file manager outside.** The architecture is
-a general object browser; version 1 ships exactly one object type, the local
-file system, plus manifest-backed file sources (archives now; SFTP and disk
-images later). A simple user never sees the word "manifest" or "source": an
-archive looks like a folder, the columns are the usual file columns, and the
-File menu is the usual verbs. The generalization lives in **how a listing and
-its metadata are produced**, never in what the ordinary user is shown. Version
-2.0.0 may add non-file sources (processes, login items, `defaults` domains…);
-they appear only where someone goes looking for them, and the default
-experience is unchanged.
+a general object browser, but what ships is the local file system plus two
+manifest-backed file sources: archives and SFTP servers. A user never sees
+the word "manifest" or "source". An archive looks like a folder, a server
+looks like a volume, the columns are the usual file columns, and the File
+menu has the usual verbs. The generalisation lives in **how a listing and its
+metadata are produced**, never in what an ordinary user is shown. Non-file
+sources, if they come, appear only where someone goes looking for them, and
+the default experience stays the same.
 
-Everything below is chosen so that v2 needs new *sources*, not a new *format*
-and not a new *pane*.
+Everything below is chosen so that a new kind of thing needs a new *source*,
+not a new *format* or a new *pane*.
 
 ## Layers
 
 ```
-          ┌──────────────────────────────────────────┐
-  UI      │ PaneModel · FileItem · columns · File menu │   unchanged for the user
-          └───────────────────────┬────────────────────┘
-                                  │ asks for a listing / a local file
-          ┌───────────────────────┴────────────────────┐
-  Source  │ BrowserSource protocol                      │   the seam
-          │   LocalFileSystemSource   (the identity)    │
-          │   ArchiveSource           (v1)              │
-          │   SFTPSource, DiskImageSource   (later)     │
-          │   ProcessSource, DefaultsSource (v2)        │
-          └───────────────────────┬────────────────────┘
-                                  │ serialized as
-          ┌───────────────────────┴────────────────────┐
-  Format  │ BrowserManifest (JSON): nodes with typed    │   general from day one
-          │ attributes, capabilities, columns, backing  │
-          └─────────────────────────────────────────────┘
+          ┌────────────────────────────────────────────────┐
+  UI      │ PaneModel · FileItem · columns · File menu     │  unchanged for the user
+          └───────────────────────┬────────────────────────┘
+                                  │ lists a real folder, overlaid
+          ┌───────────────────────┴────────────────────────┐
+  Source  │ ArchiveSource   (BrowserSource)                │  the seam
+          │ SFTPMirror      (an actor of its own)          │
+          │ the local file system: the identity, implicit  │
+          └───────────────────────┬────────────────────────┘
+                                  │ writes its listings to
+          ┌───────────────────────┴────────────────────────┐
+  Store   │ BrowserManifestStore over LocalDatabase.cache  │  ~/.diptych/cache.sqlite
+          │ sources · folders · nodes, in typed columns    │
+          └───────────────────────┬────────────────────────┘
+                                  │ read back as
+          ┌───────────────────────┴────────────────────────┐
+  Format  │ BrowserManifest: nodes with typed attributes,  │  in memory; general
+          │ capabilities, columns, backing                 │
+          └────────────────────────────────────────────────┘
 ```
 
-- **Format** is general immediately, so it never has to change to admit a new
-  source kind.
-- **Source** is where each kind lives. v1 implements the file-shaped ones.
-- **UI** keeps the file-manager vocabulary. It maps a manifest `Node` to a
-  `FileItem` for file sources; a future object source would supply its own
-  columns, but that is additive.
+- **Format.** `BrowserManifest` is the in-memory shape of one folder's
+  listing. It is still `Codable` and still general (typed attributes, opaque
+  ids, optional columns), but it is no longer written to a file.
+- **Store.** `BrowserManifestStore` keeps every listing in the cache
+  database, and posts `BrowserManifestStore.changed` when one changes, which
+  is how a pane learns that it should list again.
+- **Source.** Each kind lives here. `BrowserSource` is the protocol;
+  `ArchiveSource` adopts it. `SFTPMirror` produces the same listings but is an
+  actor with its own interface: it lists lazily, fetches on demand, and
+  writes back, none of which the protocol describes.
+- **UI.** It lists the real backing folder and has `DirectoryLoader.browserOverlay`
+  lay the stored listing over it, so a manifest node becomes a `FileItem`
+  with the source's mode, owner, group, dates and size.
 
-## The manifest format
+## The format
 
-One manifest describes **one directory's listing** (not the whole tree), so a
-lazy source can answer a directory at a time (the SFTP model) and a huge
-archive need not be described all at once.
+One listing describes **one directory**, not the whole tree. A lazy source
+can then answer one directory at a time (the SFTP model), and a huge archive
+need not be described all at once.
 
-```jsonc
-{
-  "schema": 1,
-  "source": "archive",                 // "sftp", "process"… later
-  "origin": { "path": "...", "sha256": "...", "holder": "..." },
-  "capabilities": { "writable": false },
-  "columns": null,                     // null = the standard file columns
-  "nodes": [
-    {
-      "id": "2024/invoice.pdf",        // stable within the source
-      "kind": "file",                  // directory | symlink | other | (v2) process, setting…
-      "name": "invoice.pdf",
-      "attributes": {                  // typed; file sources use well-known keys
-        "size":  { "t": "size", "v": 20480 },
-        "mode":  { "t": "mode", "v": 420 },
-        "uid":   { "t": "user", "v": 501 },
-        "gid":   { "t": "user", "v": 20 },
-        "mtime": { "t": "date", "v": 1699900000.0 }
-      },
-      "linkTarget": null,              // for a symlink, shown, never followed off-source
-      "backing": { "t": "file", "v": "store/7/invoice.pdf" }   // or "report", or absent (lazy)
-    }
-  ]
+```swift
+struct BrowserManifest {
+    var source: String                 // "archive", "sftp"; what code dispatches on
+    var origin: [String: String]       // the archive's path and SHA-256, the holder
+    var capabilities: Capabilities     // writable, and room for more true/false ones
+    var columns: [Column]?             // nil: the standard file columns
+    var nodes: [Node]
+}
+
+struct Node {
+    var id: String                     // stable within the source; not necessarily a path
+    var kind: Kind                     // directory, file, symlink, other
+    var name: String
+    var attributes: [String: Value]    // typed: size, mode, user, date, text, number, flag
+    var linkTarget: String?            // shown as text, never followed off the source
+    var backing: Backing               // .file(path), .report, .none (not fetched yet)
 }
 ```
 
-Design points that keep it future-proof:
+Design points that keep it general:
 
-- **Typed attributes, not fixed columns.** File sources use the well-known
-  keys above; a process source would use `pid`, `cpu`, `command`. The value is
-  tagged (`t`) so the UI knows how to render and sort it without knowing the
-  source. v1 maps the file keys onto `FileItem`; nothing else needs the general
-  path yet.
-- **`id` is not a path.** For files it is the path relative to the source root;
-  for a process it would be a pid, for a `defaults` item a domain+key. The UI
-  treats it as opaque.
-- **`backing` is how you get bytes**, separate from how you display. A file
-  points into the opaque store; generated content (a process report, a folder
-  listing) is `report`; a lazy source leaves it absent until materialized. So
-  "open this" never means "re-read its display metadata."
-- **`source` is the listing's type, and the code dispatches on it.** Diptych
-  is not a pluggable host of uniform items whose actions are declared as data
-  — a file, an image, a directory and an archive already behave differently,
-  and a process list would offer a different Kill for a user process than for
-  a system one. So menus and actions are written in code, keyed by this type
+- **Typed attributes, not fixed columns.** File sources use well-known keys
+  (`size`, `mode`, `uid`, `gid`, `owner`, `group`, `mtime`, `btime`, and for
+  servers `sha256`, `localMtime`, `serverChanged`). A process source would use
+  `pid`, `cpu`, `command`. Each value is tagged, so the UI can render and sort
+  it without knowing the source.
+- **`id` is not a path.** For files it is the path relative to the source
+  root. For a process it would be a pid; for a `defaults` item, a domain and
+  a key. The UI treats it as opaque.
+- **`backing` is how you get bytes**, separate from how you display them. A
+  server file that has not been fetched is `.none`: its listing is complete,
+  and its bytes are an empty placeholder until `materialize` fetches them.
+- **`source` is the listing's type, and code dispatches on it.** Diptych is
+  not a pluggable host of uniform items whose actions are declared as data. A
+  file, an image, a directory and an archive already behave differently, and
+  a process list would offer a different Kill for a user process than for a
+  system one. So menus and actions are written in code, keyed by this type
   and reading each node's attributes; they are **not** listed in the manifest.
-- **`capabilities`** carries `writable` (and may grow other true/false
-  capabilities). It does not carry an action list.
-- **`columns`** is `null` for file sources (use the standard ones). A future
-  object source supplies its own; the pane renders what it is told.
+- **`capabilities`** carries `writable`, and may grow other true/false
+  capabilities. It does not carry a list of actions.
+- **`columns`** is nil for both file sources. The one source-specific column
+  that exists, **Cached** for servers, is an ordinary pane column shown only
+  in server listings, not a column the source declares.
+
+## The store
+
+The format was first serialised as a `__DIPTYCH.json` file in every folder of
+the backing tree, hidden from listings. That went wrong in ways that all came
+from the file living *beside* the data:
+
+- **It travelled.** A folder dragged out of an archive took Diptych's
+  manifests with it into Finder. Inside a copied `.app` bundle, a file the
+  signature did not cover made the signature fail.
+- **It needed telling apart** from an archive's own file of the same name.
+  That was handled by escalating to `__1DIPTYCH.json`, `__2DIPTYCH.json` and so
+  on, and every listing, path completion, upload and duplicate search had to
+  filter it out.
+- **It went stale silently.** A folder deleted and made again under the same
+  name kept no listing, or the wrong one.
+
+Since 2.0.0 the listings live in `~/.diptych/cache.sqlite`
+(`LocalDatabase.cache`), in three tables:
+
+| Table | One row per | Holds |
+| --- | --- | --- |
+| `browser_source` | opened archive or server shadow | kind, root (unique), holder, origin path and SHA-256, writable, when opened |
+| `browser_folder` | directory that has been listed | its path relative to the root, **its inode**, when listed |
+| `browser_node` | child of a listed folder | name, position, id, kind, and each well-known attribute in a typed column |
+
+- **A folder's row is good only for the directory it was written for.** Its
+  inode is kept with it. A directory deleted and made again under the same
+  name, by anything, reads as never listed. For a server, a folder with no
+  row means "not listed yet", and it is fetched when it is opened.
+- **Deleting cascades**, so forgetting a source or a folder takes everything
+  under it.
+- **An unchanged listing is not written again**, and a changed one posts
+  `changed` on the main queue with the folder's canonical path. A pane that
+  shows that folder lists it again.
+- **It is a cache.** Nothing in it is the person's own. A database that is
+  lost, damaged, or from an older schema is emptied and made again, and the
+  work is redone. WAL mode; one connection, used under a lock by whichever
+  thread asks.
+- **Lock order:** the store's list of roots is never locked while the
+  database is. A test run uses a database of its own, never the person's.
+
+The same database also keeps measured folder sizes (`folder_size`), which
+is why it went to version 2: a version 1 file is kept and given the new
+table, not emptied. What is the person's own -- servers, approvals, trash
+origins, script timings -- is in a second file, `diptych.sqlite`, which is
+never emptied (`LocalDatabase.records`).
 
 ## The backing store
 
-> **Version 1 uses a locked name-mirror with a manifest overlay, not the
-> indexed store below.** The archive is unpacked into a real directory tree
-> (so copy-out of a whole folder, Quick Look of a folder, and every file
-> operation stay correct with no new code), the tree is locked read-only (so
-> nothing can write over the copy), and each directory carries a manifest the
-> loader overlays for the permissions, owner and group the locked copy cannot
-> show. The indexed store described here needs copy-out to become
-> extract-a-subset first, or copying a folder out would produce an incomplete
-> tree; it is deferred until that is built. The rest of this section is the
-> target design.
+Planned: a **flat, indexed store**. Directories only in a skeleton `tree/`,
+and every file as `store/<n>/<leaf name>`, so that `A.txt` and `a.txt` could
+coexist on a case-insensitive disk and hostile names would be harmless.
 
-Extracted bytes live in a **flat, indexed store**, never a name-mirror of the
-archive:
+Built: a **locked name-mirror**. The indexed store needed copy-out to become
+"extract a subset" first; otherwise copying a folder out would give an
+incomplete tree. The name-mirror made every file operation correct with no
+new code, and it has held up, so the indexed store is still not built.
 
-```
-<holder>/                       (one opened archive, cacheRoot/<UUID>)
-  tree/                         skeleton: directories only, each with a manifest
-    __DIPTYCH.json
-    2024/__DIPTYCH.json
-  store/                        opaque indexed backing files
-    1/report.md   7/invoice.pdf   ...
-```
+**An opened archive** is unpacked once, as the user, into
+`~/Library/Caches/<bundle id>/Opened Archives/<UUID>/<archive name>`. Zip (including `.jar`,
+`.war`, `.ear`, `.ipa`), tar in its compressed forms, Apple Archive, and
+encrypted Apple Archive (with a password) are supported.
 
-- **Opaque index + real leaf name** (`store/7/invoice.pdf`). The index keeps
-  siblings unique even when the archive holds `A.txt` and `a.txt` (which cannot
-  coexist on case-insensitive APFS) or hostile names; the real leaf name
-  preserves the extension so Quick Look and Open pick the right renderer. And
-  because the backing path is visibly a cache path, an external app's Save
-  dialog makes it obvious you are **not** writing into the archive.
-- **`tree/` holds only directories**, so the pane can navigate into them as
-  real folders. Files and symlinks exist only in the manifests; their bytes are
-  in `store/`. Symlinks are shown with their target as data and are never
-  created as live links that could escape the cache (zip-slip is contained the
-  same way: the displayed name is text, the backing path is sanitized).
-- **The manifest file name** is `__DIPTYCH.json`, hidden from the listing. If a
-  real subdirectory in that folder is itself named `__DIPTYCH.json`, the
-  manifest escalates to `__1DIPTYCH.json`, then `__2DIPTYCH.json`; the reader
-  uses the `__(n)DIPTYCH.json` with the largest `n` and hides exactly that one.
-- **Read-only.** The `tree/` directories and `store/` files are `0500`/`0400`,
-  and `capabilities.writable` is false, so nothing in the pane — rename, move,
-  trash, drop, **or editing a permission bit, owner, tag or any in-place
-  field** — is offered. Display metadata comes from the manifest regardless of
-  what the backing files' real modes are, so the honest archive permissions
-  show even though the bytes on disk are locked.
-- Everything under `<holder>` is removed when Diptych quits, and leftovers from
-  a crash at the next launch.
+- The tree is locked read-only, and the folder counts as a read-only volume.
+  So nothing in the pane (rename, move, trash, drop, or changing a permission
+  bit, owner, tag or any other field) is offered, and no other app can
+  quietly write over the copy either.
+- The path bar shows it where the archive is (`~/Downloads/photos.zip/2024`),
+  and Up from its top lands beside the archive, with the archive selected.
+- **It is watched.** An archive that is deleted or changed while it is open
+  retires its unpacked copy. Panes inside it step out to where the archive
+  was, and Back and the recent folders skip the stale copy
+  (`ArchiveBrowsing.isCurrent`, `retireStale`).
+- Opened again unchanged, it is shown at once. Everything goes at quit, and
+  anything a crash left behind goes at the next start.
+
+**A server's shadow** is one per server, rooted at the server's `/`, under
+`~/Library/Caches/<bundle id>/Opened Servers/<user@host>`. Each folder that
+has been listed is a real folder. Each file is an empty placeholder until it
+is fetched, and the stored listing says which is which. Unlike an archive,
+the shadow is **writable**, and it is kept between launches, so fetched files
+need not be fetched again.
 
 ## How the UI stays a file manager
 
-- A pane whose directory is inside a source builds its `FileItem`s from the
-  manifest, not from `stat`, and routes Open / Quick Look / copy-out to the
-  node's backing file. The displayed path reads inside the archive
-  (`~/Downloads/photos.zip/2024`), and Up from the top lands beside the
-  archive. (This wiring is the next increment; the format and `ArchiveSource`
-  come first.)
-- Copy/drag **out** of a source is "materialize this subset" — it applies the
-  archive's recorded owner/mode/quarantine, the same logic Extract already
-  has, so copy-out and Extract become one path.
-- The flat-view query language already filters by fields; pointed at a
-  manifest it filters the same way, and later at arbitrary attributes
-  (`cpu > 50`) for free.
-- The MCP agent reads what a pane shows, so it sees a source's listing through
-  the same mechanism — useful now for archives, and later for "what starts at
-  login?".
+- **Listing.** `DirectoryLoader` lists the real backing folder, then
+  `browserOverlay` lays the stored listing over it if the folder belongs to a
+  registered source. Ordinary folders pay only for a look at the registered
+  roots.
+- **Paths.** An archive item shows as a path inside the archive; a server
+  item as an `sftp://user@host/path` address. That is what the path bar, Copy
+  Path, drags, the MCP tools and scripts are given. The mapping is made where
+  a shown address and a real path meet (`ArchiveBrowsing`, `RemoteBrowsing`),
+  so the pane itself needs no change for either.
+- **Copying out of an archive** gives the copy the modes the manifest records,
+  item by item, and the archive's quarantine, as Extract does
+  (`unlockCopy`). The owner stays the user's. A drop always copies, so a
+  copied app keeps a valid signature.
+- **Dragging out to another app** hands over a clean copy, not the locked
+  cache. Finder, given the cache's own files, copied their lock, and a folder
+  of the copy could then not even be deleted. `handOut` makes an APFS clone
+  beside the unpacked archives, so a folder of any size costs next to nothing,
+  and unlocks it. The same drag read twice within a minute gets the same copy.
+  Dropped back into Diptych, the copy maps back to the archive item
+  (`original(of:)`), but only while that item still exists.
+- **Copy and paste** promises the same copy. ⌘C puts a lazily provided file
+  URL on the pasteboard, plus Diptych's own record of the item. Another app's
+  paste makes the clone at that moment; Diptych's own paste copies from the
+  archive. At quit, copies still promised on the clipboard are made before
+  the unpacked archives go. Handed-out copies are removed when they are a day
+  old and at the next start, except the ones the clipboard holds.
+- **Servers write back.** Copy, move, rename, delete, new folder, mode, owner
+  (through `sudo` if asked) and times are carried out on the server. A file
+  edited in place is sent back on save, but only while the server still has
+  the version that was fetched; otherwise the person chooses. A file the
+  server lists as changed at the same size is compared by a checksum the
+  server works out, not fetched.
+- **The flat view, Find Duplicates, Compare, Quick Look and the MCP tools**
+  work inside both sources because they work on the backing folders.
 
-## Migration plan
+## What is built, against the original plan
 
-1. **Format + `ArchiveSource`** — the manifest types and a source that unpacks
-   an archive, writes per-directory manifests and locks it. *(done)*
-2. **Loader overlay** — the directory loader lists the locked tree and overlays
-   each manifest for the archive's permissions, owner and group, hiding the
-   manifest file. `ArchiveBrowsing.open` builds an `ArchiveSource`. *(done)*
-3. **Indexed store + copy-out as extract-a-subset** — move bytes into the
-   opaque store, and intercept copy/drag out of a source to materialize the
-   selected subtree with the archive's metadata. Together, so folder copy-out
-   stays correct.
-4. **`LocalFileSystemSource`** — express the ordinary file system as the
-   identity source, so there is one code path. Behaviour is unchanged; this is
-   a refactor, done when it buys clarity, not before.
-5. **More file sources** — SFTP (writable: save = upload), disk images.
-   *SFTP, in progress: the connection (keys or password, host keys checked
-   against `~/.ssh/known_hosts` and Diptych's own list) and `SFTPMirror`, the
-   shadow of a server laid out like an opened archive, with placeholders that
-   `materialize` fills on demand. Still to do: wiring the mirror into a pane
-   (the path the pane shows for a remote folder is the open question), and
-   write-back, so that a save uploads.*
-6. **v2 object sources** — processes, login items, `defaults`, each with its
-   own columns and actions, reachable only where someone looks for them.
+1. **Format and `ArchiveSource`.** *Built.*
+2. **Loader overlay.** *Built.*
+3. **Indexed store, and copy-out as extract-a-subset.** *Not built.*
+   Copy-out instead copies from the name-mirror and applies the archive's
+   metadata, and drags and pastes get clones. Nothing has needed the indexed
+   store yet.
+4. **`LocalFileSystemSource`**, the identity source expressed through the
+   protocol. *Not built.* It is a refactor, worth doing only when it buys
+   clarity.
+5. **More file sources.** *SFTP is built*, writable, with conflict checks
+   on save. **Disk images are not a source.** They are mounted by macOS
+   (`hdiutil`) and browsed as the volumes they are, which already shows real
+   metadata. Their Quick Look preview reads the image without mounting it.
+   **SMB, AFP and NFS servers** go through macOS's Connect to Server and are
+   ordinary volumes too.
+6. **Non-file sources.** *Not built.*
+7. **The manifest moves into a database.** *Built, 2.0.0.* This step was not
+   in the original plan.
 
-## What v2 needs that v1 already provides
+## Not built
 
-- Arbitrary typed attributes and source-declared columns — in the format now.
-- Backing as `report` for generated detail views — Diptych already generates
-  HTML reports (folders, plists, `.DS_Store`), so a process report is the same
-  shape.
-- Non-file verbs (kill, enable/disable) — written in code keyed by the
-  listing's type, reading each node's attributes, and surfaced as a context
-  menu; not declared as data in the manifest.
-- Admin elevation for privileged actions — `Privileged.run` already exists.
+- **A pane that lists a source with no real backing directory** (fully
+  virtual navigation). Both sources keep real folders so that today's
+  navigation can be reused.
+- **A live-refresh model for sources whose data changes underneath.**
+  Processes come and go, and FSEvents does not apply, so such a source would
+  have to poll or subscribe. For the two sources that exist, archives are
+  watched for change, and servers are listed again when a folder is opened or
+  refreshed.
+- **Columns declared by the source**, shown in the pane.
+- **An action UI beyond the File menu**, keyed by the listing's type.
+- **Moving `SFTPMirror` onto `BrowserSource`.** The protocol is synchronous,
+  and the mirror's work (listing, fetching, sending) is not. When a third
+  source arrives, the protocol should grow `async` rather than gain an
+  exception.
+- **Bringing 1.13's listings into the database.** Server shadows made by 1.13
+  still contain `__DIPTYCH.json` files. 2.0.0 neither reads nor removes them,
+  so they show in those folders, and the first listing of each folder empties
+  the files fetched before as though it had never seen them. A file edited and
+  not yet sent would lose the edit. This needs a one-time import (or
+  removal) at launch before 2.0.0 is released.
 
-## What v2 still needs (deliberately deferred)
-
-- A pane that lists a source with **no real `tree/` directory** (fully virtual
-  navigation) — v1 uses real skeleton dirs to reuse today's navigation.
-- A **live-refresh** model for sources whose data changes under you (processes
-  come and go); FSEvents does not apply, so such a source polls or subscribes.
-- Provider-declared **columns in the pane UI** (v1 uses the fixed file columns).
-- An **action/write UI** beyond the File menu.
-
-None of these require a format change — only new source implementations and
-additive UI.
+None of these needs a format change; only new source implementations,
+additive UI, and the one migration.

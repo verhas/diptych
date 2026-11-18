@@ -13,6 +13,12 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     case sameFolder
     case hiddenFiles
     case directorySizes
+    // How the active pane shows its folder
+    case iconView
+    /// Kept under the name it was first saved with: a toolbar arranged
+    /// since then still has it.
+    case placedIconView = "arrangeIcons"
+    case listView
 
     // Going places
     case back
@@ -59,6 +65,9 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .sameFolder:      "Same Folder in Other Pane"
         case .hiddenFiles:     "Hidden Files"
         case .directorySizes:  "Calculate Directory Sizes"
+        case .iconView:        "as Icons"
+        case .placedIconView:  "as Placed Icons"
+        case .listView:        "as List"
         case .back:            "Back"
         case .forward:         "Forward"
         case .enclosingFolder: "Enclosing Folder"
@@ -98,6 +107,12 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .sameFolder:      "equal.square"
         case .hiddenFiles:     "eye"
         case .directorySizes:  "sum"
+        // Finder's own toolbar glyphs for the two views.
+        case .iconView:        "square.grid.2x2"
+        // Drawn as the grid with its squares knocked askew -- see
+        // ToolbarGlyph; this is what stands in where only a symbol will do.
+        case .placedIconView:  "rectangle.3.group"
+        case .listView:        "list.bullet"
         case .back:            "chevron.left"
         case .forward:         "chevron.right"
         case .enclosingFolder: "arrow.up"
@@ -141,6 +156,9 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
         case .sameFolder:      "Show this folder in the other pane too"
         case .hiddenFiles:     "Show files whose names begin with a dot"
         case .directorySizes:  "Work out how much is in each folder here, in the Size column"
+        case .iconView:        "Show the active pane's folder as big icons, in name order"
+        case .placedIconView:  "Show the active pane's icons where they were placed, as in Finder"
+        case .listView:        "Show the active pane's folder as a list, with every column"
         case .back:            "Back to where you were"
         case .forward:         "Forward again"
         case .enclosingFolder: "Up one folder"
@@ -179,6 +197,7 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     var isOnByDefault: Bool {
         switch self {
         case .singlePane, .refresh, .swapPanes, .sameFolder, .hiddenFiles,
+             .iconView, .placedIconView, .listView,
              .sendWork, .getLatest, .checkForChanges:
             true
         default:
@@ -203,6 +222,8 @@ enum ToolbarButton: String, Codable, CaseIterable, Identifiable, Sendable {
     var belongsBeside: ToolbarButton? {
         switch self {
         case .checkForChanges: .getLatest
+        case .placedIconView:  .iconView
+        case .listView:        .placedIconView
         default:               nil
         }
     }
@@ -273,4 +294,33 @@ extension Configuration {
     func toolbarButtons(on side: ToolbarSide) -> [ToolbarButton] {
         toolbarSlots.filter { $0.isShown && $0.side == side }.map(\.button)
     }
+}
+
+/// Toolbar pictures no SF Symbol has.
+enum ToolbarGlyph {
+
+    /// The icon view's four squares, knocked askew: icons placed by hand
+    /// rather than in rows. A template, so it takes the toolbar's colour.
+    static let placedIcons: NSImage = {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            // Each square: where its centre is, and how far it is turned.
+            let squares: [(CGFloat, CGFloat, CGFloat)] = [
+                (4.6, 4.4, -9), (13.6, 5.2, 7), (5.2, 13.4, 6), (13.2, 13.8, -5),
+            ]
+            // Outlined, as the grid symbol beside it is.
+            NSColor.black.setStroke()
+            for (x, y, degrees) in squares {
+                let path = NSBezierPath(roundedRect: NSRect(x: -3, y: -3, width: 6, height: 6),
+                                        xRadius: 1.5, yRadius: 1.5)
+                var turn = AffineTransform(rotationByDegrees: degrees)
+                turn.append(AffineTransform(translationByX: x, byY: y))
+                path.transform(using: turn)
+                path.lineWidth = 1.4
+                path.stroke()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
 }

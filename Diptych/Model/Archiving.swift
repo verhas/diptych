@@ -577,7 +577,7 @@ enum Archiving {
         let name = url.lastPathComponent.lowercased()
         if multipartExtensions.contains(where: { name.hasSuffix("." + $0) }) { return .tar }
         switch url.pathExtension.lowercased() {
-        case "zip", "jar", "war", "ipa": return .zip
+        case "zip", "jar", "war", "ear", "ipa": return .zip
         case "tar", "tgz", "tbz", "tbz2", "txz", "taz": return .tar
         case "aar": return .appleArchive
         case "aea": return .appleEncrypted

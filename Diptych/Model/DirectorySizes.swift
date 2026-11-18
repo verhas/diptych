@@ -2,8 +2,15 @@ import Foundation
 import Observation
 
 /// How much is in a folder, everything under it counted, worked out when
-/// asked -- Calculate Directory Sizes -- and kept in memory for as long as
-/// Diptych runs, never on disk.
+/// asked -- Calculate Directory Sizes -- and kept: in memory while Diptych
+/// runs, and in the `folder_size` table of `LocalDatabase.cache`, each total
+/// with when it was measured and whether it was still growing then.
+///
+/// A total kept from before is shown again -- in a later session, or for a
+/// folder not asked about in this one -- fading as it ages, since it was
+/// true when measured and not necessarily now. After Settings ▸ Behaviour ▸
+/// Folder Sizes' days it is no longer shown, and is purged. Asking again
+/// measures the folder again, starting from what was kept.
 ///
 /// An estimate, given early and made better. A folder is read for its own
 /// files and the folders in it; a folder in it already known counts at what
@@ -35,6 +42,9 @@ final class DirectorySizes {
         /// Not known, and not knowable without downloading everything in it:
         /// a folder on a server. Shown as `???`, never as a zero.
         case unknown
+        /// Measured before, not in this session: everything in it when
+        /// `complete`, an estimate caught part way otherwise.
+        case remembered(Int64, complete: Bool)
 
         /// Said beside it where there is room: the Info window.
         var note: String {
@@ -43,6 +53,8 @@ final class DirectorySizes {
             case .updating: "an estimate, being worked out"
             case .done:     "everything in it"
             case .unknown:  "not known: finding out would mean downloading everything in it"
+            case .remembered(_, let complete):
+                complete ? "everything in it, when it was measured" : "an estimate, measured part way"
             }
         }
 
@@ -50,7 +62,7 @@ final class DirectorySizes {
             switch self {
             case .waiting: "??"
             case .unknown: "???"
-            case .updating(let size), .done(let size):
+            case .updating(let size), .done(let size), .remembered(let size, _):
                 ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
             }
         }
@@ -68,12 +80,49 @@ final class DirectorySizes {
                 MainActor.assumeIsolated { DirectorySizes.shared.revision += 1 }
             }
         }
+        // Fading goes on with nothing else changing: the cells look again
+        // every few minutes.
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+            MainActor.assumeIsolated { DirectorySizes.shared.revision += 1 }
+        }
     }
 
-    /// The folder's total as it stands, nil when it was never asked for.
+    /// How long a total is shown, from the setting.
+    static var keepSeconds: TimeInterval {
+        TimeInterval(max(1, ConfigStore.shared.configuration.directorySizeKeepDays)) * 86_400
+    }
+
+    /// The folder's total as it stands; nil when it was never asked for, or
+    /// was measured longer ago than the setting keeps it.
     func shown(for url: URL) -> Shown? {
         _ = revision
-        return store.shown(url.path)
+        guard let shown = store.shown(url.path) else { return nil }
+        if let measured = store.measured(url.path), Date().timeIntervalSince(measured) > Self.keepSeconds {
+            return nil
+        }
+        return shown
+    }
+
+    /// How fresh the folder's total is: 1 when just measured, down to 0.3 at
+    /// the end of the time the setting keeps it -- how strongly it is drawn.
+    func freshness(for url: URL) -> Double {
+        _ = revision
+        guard let measured = store.measured(url.path) else { return 1 }
+        let age = max(0, Date().timeIntervalSince(measured)) / Self.keepSeconds
+        return max(0.3, 1 - 0.7 * min(1, age))
+    }
+
+    /// When the folder's total was measured, if there is one.
+    func measured(for url: URL) -> Date? {
+        _ = revision
+        return store.measured(url.path)
+    }
+
+    /// The kept totals older than the setting allows, deleted.
+    static func purgeExpired() {
+        let before = Date().addingTimeInterval(-keepSeconds)
+        let store = shared.store
+        DispatchQueue.global(qos: .utility).async { store.purge(measuredBefore: before) }
     }
 
     /// The folders whose size is not known, as opposed to not yet worked out.
@@ -87,8 +136,8 @@ final class DirectorySizes {
         store.calculate(folders.map(\.path))
     }
 
-    /// Every total forgotten and every calculation stopped: folders show
-    /// `--` again.
+    /// Every total forgotten -- kept ones too -- and every calculation
+    /// stopped: folders show `--` again.
     func clear() {
         store.clear()
     }
@@ -112,6 +161,8 @@ final class DirectorySizes {
         struct Entry {
             /// Everything under it, as far as known; nil before it is read.
             var size: Int64?
+            /// When `size` was last set.
+            var measured = Date.distantPast
             /// How many readings at or under it are still to come.
             var pending = 0
             let device: dev_t
@@ -148,8 +199,26 @@ final class DirectorySizes {
             }
         }
 
+        /// A total kept from before.
+        struct Remembered {
+            let size: Int64
+            let measured: Date
+            let complete: Bool
+        }
+
         private let lock = NSLock()
         private var entries: [String: Entry] = [:]
+        /// Where totals are kept; nil keeps them in memory only.
+        private let database: LocalDatabase?
+        /// Kept totals read so far, by folder, and the folders whose
+        /// children have been read: one query for a folder's children.
+        private var remembered: [String: Remembered] = [:]
+        /// The folders whose children have been read, and those children.
+        private var keptChildren: [String: [String]] = [:]
+        /// Whether anything at all is kept.
+        private var anythingKept = false
+        /// Folders whose total changed since it was last written.
+        private var dirty: Set<String> = []
         private var workers: [dev_t: Worker] = [:]
         private var publishing = false
         /// Moved on by Clear: a folder read before it is not recorded.
@@ -157,41 +226,129 @@ final class DirectorySizes {
         /// Told when totals have changed; not more than ten times a second.
         var changed: (@Sendable () -> Void)?
 
+        init(database: LocalDatabase? = .cache) {
+            self.database = database
+            anythingKept = database?.access { connection in
+                connection.rows("SELECT EXISTS (SELECT 1 FROM folder_size)") { $0.int(0) == 1 }.first
+            } ?? false
+        }
+
+        /// Locked. The kept total of a folder, its parent's kept children
+        /// read first if they were not.
+        private func rememberedTotal(_ path: String) -> Remembered? {
+            guard database != nil, anythingKept else { return nil }
+            loadChildren(of: (path as NSString).deletingLastPathComponent)
+            return remembered[path]
+        }
+
+        /// Locked. The kept totals of the folders in `parent`, read once.
+        @discardableResult
+        private func loadChildren(of parent: String) -> [String] {
+            guard let database, anythingKept else { return [] }
+            if let known = keptChildren[parent] { return known }
+            let rows = database.access { connection in
+                connection.rows("SELECT path, size, measured_at, complete FROM folder_size WHERE parent = ?",
+                                .text(parent)) { row in
+                    (row.text(0) ?? "", Remembered(size: row.int(1) ?? 0,
+                                                   measured: Date(timeIntervalSince1970: row.real(2) ?? 0),
+                                                   complete: row.int(3) == 1))
+                }
+            }
+            for (folder, kept) in rows { remembered[folder] = kept }
+            keptChildren[parent] = rows.map(\.0)
+            return rows.map(\.0)
+        }
+
+        /// When the folder's total was measured: this session's, or a kept one.
+        func measured(_ path: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = Self.key(path)
+            if let entry = entries[key], entry.size != nil { return entry.measured }
+            if entries[key]?.unknown == true { return nil }
+            return rememberedTotal(key)?.measured
+        }
+
+        /// Kept totals measured before `date`, deleted.
+        func purge(measuredBefore date: Date) {
+            database?.access {
+                $0.run("DELETE FROM folder_size WHERE measured_at < ?", .real(date.timeIntervalSince1970))
+            }
+            lock.lock()
+            remembered = remembered.filter { $0.value.measured >= date }
+            keptChildren = [:]
+            lock.unlock()
+            publish()
+        }
+
+        /// What changed since the last time, written. Off the lock while it
+        /// writes; called after each publication.
+        private func flush() {
+            guard let database else { return }
+            lock.lock()
+            let rows: [[LocalDatabase.Value]] = dirty.compactMap { path in
+                guard let entry = entries[path], let size = entry.size, !entry.unknown else { return nil }
+                return [.text(path), .text((path as NSString).deletingLastPathComponent), .int(size),
+                        .real(entry.measured.timeIntervalSince1970), .int(entry.pending == 0 ? 1 : 0)]
+            }
+            dirty = []
+            if !rows.isEmpty { anythingKept = true }
+            lock.unlock()
+            guard !rows.isEmpty else { return }
+            _ = try? database.transaction { connection in
+                connection.runEach("""
+                    INSERT OR REPLACE INTO folder_size (path, parent, size, measured_at, complete)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, rows)
+            }
+        }
+
         func shown(_ path: String) -> Shown? {
             lock.lock()
             defer { lock.unlock() }
-            guard let entry = entries[Self.key(path)] else { return nil }
-            if entry.unknown { return .unknown }
-            switch (entry.size, entry.pending) {
-            case (nil, 0):            return nil
-            case (nil, _):            return .waiting
-            case (let size?, 0):      return .done(size)
-            case (let size?, _):      return .updating(size)
+            let key = Self.key(path)
+            if let entry = entries[key] {
+                if entry.unknown { return .unknown }
+                switch (entry.size, entry.pending) {
+                case (nil, 0):            break
+                case (nil, _):            return .waiting
+                case (let size?, 0):      return .done(size)
+                case (let size?, _):      return .updating(size)
+                }
             }
+            return rememberedTotal(key).map { .remembered($0.size, complete: $0.complete) }
         }
 
         /// The total as it stands, waiting or not.
         func size(_ path: String) -> Int64? {
             lock.lock()
             defer { lock.unlock() }
-            return entries[Self.key(path)]?.size
+            let key = Self.key(path)
+            return entries[key]?.size ?? rememberedTotal(key)?.size
         }
 
-        /// The total of each of these folders known now, for sorting by it.
-        func sizes(_ paths: [String]) -> [String: Int64] {
+        /// The total of each of these folders known now, for sorting by it:
+        /// kept ones too, when measured after `since`.
+        func sizes(_ paths: [String], since: Date = .distantPast) -> [String: Int64] {
             lock.lock()
             defer { lock.unlock() }
             var sizes: [String: Int64] = [:]
             for path in paths {
-                if let size = entries[Self.key(path)]?.size { sizes[path] = size }
+                let key = Self.key(path)
+                if let entry = entries[key], let size = entry.size {
+                    if entry.measured >= since { sizes[path] = size }
+                } else if let kept = rememberedTotal(key), kept.measured >= since {
+                    sizes[path] = kept.size
+                }
             }
             return sizes
         }
 
+        /// Nothing worked out, being worked out, or kept.
         var isEmpty: Bool {
             lock.lock()
             defer { lock.unlock() }
-            return entries.isEmpty
+            return entries.isEmpty && !anythingKept
         }
 
         func markUnknown(_ paths: [String]) {
@@ -206,8 +363,13 @@ final class DirectorySizes {
         func clear() {
             lock.lock()
             entries = [:]
+            remembered = [:]
+            keptChildren = [:]
+            dirty = []
+            anythingKept = false
             for worker in workers.values { worker.jobs = [] }
             generation += 1
+            database?.access { $0.run("DELETE FROM folder_size") }
             lock.unlock()
             publish()
         }
@@ -254,7 +416,17 @@ final class DirectorySizes {
                 entries[folder]!.pending += 1
                 above.append(folder)
             }
-            entries[path, default: Entry(device: device)].pending += 1
+            if entries[path] == nil {
+                // Measured before: shown as it was until it is read again, and
+                // counted at that in the folders above meanwhile.
+                var entry = Entry(device: device)
+                if let kept = rememberedTotal(path) {
+                    entry.size = kept.size
+                    entry.measured = kept.measured
+                }
+                entries[path] = entry
+            }
+            entries[path]!.pending += 1
             job.readings.append(Reading(path: path, above: above))
         }
 
@@ -295,19 +467,28 @@ final class DirectorySizes {
                 for gone in entries[path]?.folders ?? [] where !still.contains(gone) {
                     forget(gone)
                 }
+                // Kept from an earlier session, which this one never read.
+                for gone in loadChildren(of: path) where !still.contains(gone) {
+                    forget(gone)
+                }
                 entries[path]?.size = new
+                entries[path]?.measured = Date()
                 entries[path]?.folders = found.folders
+                dirty.insert(path)
                 carry(new - old, above: path, device: device)
             } else {
                 // Gone: what it added to the folders above goes with it.
                 carry(-old, above: path, device: device)
-                for folder in entries[path]?.folders ?? [] { forget(folder) }
+                for folder in entries[path]?.folders ?? [] { drop(folder) }
                 entries[path]?.size = nil
                 entries[path]?.folders = []
+                unkeep(path)
             }
             entries[path]?.pending -= 1
             for folder in reading.above where entries[folder] != nil {
                 entries[folder]!.pending = max(0, entries[folder]!.pending - 1)
+                // Its total may be complete now: written again with that.
+                dirty.insert(folder)
             }
             if let entry = entries[path], entry.size == nil, entry.pending == 0 {
                 entries[path] = nil
@@ -316,8 +497,29 @@ final class DirectorySizes {
 
         /// Locked. A folder no longer there, and everything known under it.
         private func forget(_ path: String) {
+            drop(path)
+            unkeep(path)
+        }
+
+        /// Locked. The folder and everything under it, out of this session's totals.
+        private func drop(_ path: String) {
             guard let entry = entries.removeValue(forKey: path) else { return }
-            for folder in entry.folders { forget(folder) }
+            for folder in entry.folders { drop(folder) }
+        }
+
+        /// Locked. Gone from the disk, so from what is kept, with all under it.
+        private func unkeep(_ path: String) {
+            let prefix = path == "/" ? "/" : path + "/"
+            remembered = remembered.filter { $0.key != path && !$0.key.hasPrefix(prefix) }
+            keptChildren = keptChildren.filter { $0.key != path && !$0.key.hasPrefix(prefix) }
+            let parent = (path as NSString).deletingLastPathComponent
+            keptChildren[parent]?.removeAll { $0 == path }
+            dirty.remove(path)
+            database?.access {
+                $0.run("DELETE FROM folder_size WHERE path = ? OR substr(path, 1, ?) = ?",
+                       // SQLite counts code points, not what Swift calls characters.
+                       .text(path), .int(Int64(prefix.unicodeScalars.count)), .text(prefix))
+            }
         }
 
         /// Locked. Every folder above with a total has the change in it too.
@@ -327,6 +529,8 @@ final class DirectorySizes {
                 guard let entry = entries[folder], entry.device == device,
                       let size = entry.size else { continue }
                 entries[folder]!.size = size + difference
+                entries[folder]!.measured = Date()
+                dirty.insert(folder)
             }
         }
 
@@ -340,6 +544,7 @@ final class DirectorySizes {
                 lock.lock()
                 publishing = false
                 lock.unlock()
+                flush()
                 changed?()
             }
         }

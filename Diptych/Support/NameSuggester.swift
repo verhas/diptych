@@ -106,6 +106,8 @@ enum NameSuggester {
     /// the setting that caused it.
     enum Outcome: Equatable, Sendable {
         case name(String)
+        /// A name and what else New from Clipboard asked about the content.
+        case described(Description)
         /// A binary file, an empty one, a picture with nothing Vision could see.
         case nothingToGoOn
         /// More content than the model can read at once.
@@ -120,13 +122,21 @@ enum NameSuggester {
         case failed(String)
 
         var name: String? {
-            if case .name(let name) = self { name } else { nil }
+            switch self {
+            case .name(let name): name
+            case .described(let description): description.name
+            default: nil
+            }
+        }
+
+        var described: Description? {
+            if case .described(let description) = self { description } else { nil }
         }
 
         /// What to tell the user when there is no name. Nil when there is one.
         var explanation: String? {
             switch self {
-            case .name:
+            case .name, .described:
                 nil
             case .nothingToGoOn:
                 "There was nothing in this file to suggest a name from"
@@ -149,6 +159,51 @@ enum NameSuggester {
         }
     }
 
+    /// What New from Clipboard learns about what it is saving, besides a name.
+    ///
+    /// A file that does not exist yet has no extension to say what it is, so
+    /// the model is asked that too. Everything here went through the same
+    /// tidying as a name: it was written from somebody's content.
+    struct Description: Equatable, Sendable {
+        /// Tidied, without an extension, like any suggested name.
+        var name: String
+        /// One of `contentTypes`, or nil when the answer was none of them.
+        var contentType: String?
+        /// One line saying what the content is.
+        var summary: String?
+        /// Lowercase words to file it under: "invoice", "bank transfer".
+        var tags: [String] = []
+
+        /// What the content type calls for. Nil for a picture, whose format
+        /// was chosen in Settings, and for an answer that was no known type.
+        var fileExtension: String? {
+            contentType.flatMap(NameSuggester.fileExtension(forContentType:))
+        }
+    }
+
+    /// What the model may call content, and the extension each one gets.
+    ///
+    /// A fixed list rather than whatever extension the model makes up: the
+    /// content may be written to steer the model, and an extension decides
+    /// what a double-click does. Nothing here opens as an application.
+    static let contentTypes: [(name: String, fileExtension: String?)] = [
+        ("plain text", "txt"), ("Markdown", "md"), ("HTML", "html"), ("XML", "xml"),
+        ("JSON", "json"), ("YAML", "yaml"), ("TOML", "toml"), ("CSV", "csv"),
+        ("tab-separated values", "tsv"), ("SQL", "sql"), ("CSS", "css"), ("LaTeX", "tex"),
+        ("log", "log"), ("diff or patch", "diff"), ("shell script", "sh"),
+        ("Python", "py"), ("Swift", "swift"), ("Java", "java"), ("Kotlin", "kt"),
+        ("JavaScript", "js"), ("TypeScript", "ts"), ("C", "c"), ("C++", "cpp"),
+        ("C#", "cs"), ("Go", "go"), ("Rust", "rs"), ("Ruby", "rb"), ("PHP", "php"),
+        ("picture", nil),
+    ]
+
+    static let contentTypeNames: [String] = contentTypes.map(\.name)
+
+    static func fileExtension(forContentType type: String) -> String? {
+        contentTypes.first { $0.name.caseInsensitiveCompare(type) == .orderedSame }?
+            .fileExtension
+    }
+
     /// A name for this file, without its extension.
     static func suggest(forFile url: URL, style: Style = Style()) async -> Outcome {
         let length = style.excerptLength
@@ -162,12 +217,14 @@ enum NameSuggester {
     }
 
     /// A name for what is on the clipboard. `details` describe the file it
-    /// will become, since there is no file yet to read them from.
+    /// will become, since there is no file yet to read them from. `describing`
+    /// asks for a `Description` as well -- what kind of content, a summary
+    /// and tags -- which takes the model a little longer.
     static func suggest(forText text: String, details: [String: String] = [:],
-                        style: Style = Style()) async -> Outcome {
+                        style: Style = Style(), describing: Bool = false) async -> Outcome {
         let content = excerpt(of: text, length: style.excerptLength)
         guard !content.isEmpty || !style.template.usesContent else { return .nothingToGoOn }
-        return await ask(about: content, details: details, style: style)
+        return await ask(about: content, details: details, style: style, describing: describing)
     }
 
     static func suggest(forImage image: CGImage, details: [String: String] = [:],
@@ -185,20 +242,22 @@ enum NameSuggester {
     /// the first does not -- New from Clipboard's guess made ahead of time
     /// keeps Vision's words when the folder changes under it.
     static func suggest(forPictureDescribedAs words: String?, details: [String: String] = [:],
-                        style: Style = Style()) async -> Outcome {
+                        style: Style = Style(), describing: Bool = false) async -> Outcome {
         guard let words else { return .nothingToGoOn }
-        return await ask(about: words, details: details, style: style)
+        return await ask(about: words, details: details, style: style, describing: describing)
     }
 
     private static func ask(about content: String, details: [String: String],
-                            style: Style) async -> Outcome {
+                            style: Style, describing: Bool = false) async -> Outcome {
         let status = status
         guard status == .ready, #available(macOS 26, *) else { return .unavailable(status) }
         let template = style.template
         let prompt = template.render(content: content, details: details)
         let outcome = await withTaskGroup(of: Outcome.self) { group in
             group.addTask {
-                await Model.name(instructions: template.instructions, prompt: prompt)
+                describing
+                    ? await Model.describe(instructions: template.instructions, prompt: prompt)
+                    : await Model.name(instructions: template.instructions, prompt: prompt)
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(patience))
@@ -208,8 +267,50 @@ enum NameSuggester {
             group.cancelAll()
             return first
         }
-        guard case .name(let raw) = outcome else { return outcome }
-        return tidy(raw, style: style).map(Outcome.name) ?? .unusable
+        switch outcome {
+        case .name(let raw):
+            return tidy(raw, style: style).map(Outcome.name) ?? .unusable
+        case .described(let raw):
+            guard let name = tidy(raw.name, style: style) else { return .unusable }
+            let type = raw.contentType.flatMap { said in
+                contentTypeNames.first { $0.caseInsensitiveCompare(said) == .orderedSame }
+            }
+            return .described(Description(name: name, contentType: type,
+                                          summary: raw.summary.flatMap(tidyCaption),
+                                          tags: tidyTags(raw.tags)))
+        default:
+            return outcome
+        }
+    }
+
+    /// Longest tag worth keeping, and how many.
+    static let longestTag = 30
+    static let mostTags = 5
+
+    /// Short, lowercase, one line each, no repeats: tags are words to file
+    /// something under, and like a name they were written from content that
+    /// may have been written to steer the model.
+    static func tidyTags(_ raw: [String]) -> [String] {
+        var tags: [String] = []
+        for tag in raw {
+            var tidied = tag.unicodeScalars
+                .map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }
+                .joined()
+            for unwanted in unwantedInNames + ["#", ",", ";"] {
+                tidied = tidied.replacingOccurrences(of: unwanted, with: " ")
+            }
+            tidied = tidied.replacingOccurrences(of: "_", with: " ")
+                .split(whereSeparator: \.isWhitespace)
+                .filter { $0.contains { $0.isLetter || $0.isNumber } }
+                .joined(separator: " ")
+                .lowercased()
+            if tidied.count > longestTag { tidied = String(tidied.prefix(longestTag)) }
+            tidied = tidied.trimmingCharacters(in: CharacterSet(charactersIn: " .-'"))
+            guard !tidied.isEmpty, !tags.contains(tidied) else { continue }
+            tags.append(tidied)
+            if tags.count == mostTags { break }
+        }
+        return tags
     }
 
     // MARK: - A description for a photo
@@ -575,6 +676,25 @@ private enum Model {
         var words: [String]
     }
 
+    /// A name and more, for New from Clipboard. The name comes first and is
+    /// described exactly as `Suggestion`'s, so the instructions still decide
+    /// it; the rest is about the content, which the instructions do not cover.
+    @Generable
+    struct Analysis {
+        @Guide(description: "The words of the file name, as the instructions ask.",
+               .count(2...6))
+        var words: [String]
+        @Guide(description: "What kind of content this is.",
+               .anyOf(NameSuggester.contentTypeNames))
+        var contentType: String
+        @Guide(description: "One short sentence saying what the content is.")
+        var summary: String
+        @Guide(description: "Lowercase tags to file the content under, such as invoice, "
+               + "bank transfer, photo or recipe.",
+               .count(1...5))
+        var tags: [String]
+    }
+
     @Generable
     struct Caption {
         @Guide(description: "One short sentence saying what the photo shows.")
@@ -603,6 +723,24 @@ private enum Model {
     /// Both halves are the user's template, filled in: nothing is added to
     /// what they wrote, so what they read in the file is what the model gets.
     static func name(instructions: String, prompt: String) async -> NameSuggester.Outcome {
+        await respond(instructions: instructions, prompt: prompt, generating: Suggestion.self) {
+            .name($0.words.joined(separator: " "))
+        }
+    }
+
+    /// The same question, with the content type, summary and tags as well.
+    static func describe(instructions: String, prompt: String) async -> NameSuggester.Outcome {
+        await respond(instructions: instructions, prompt: prompt, generating: Analysis.self) {
+            .described(NameSuggester.Description(
+                name: $0.words.joined(separator: " "), contentType: $0.contentType,
+                summary: $0.summary, tags: $0.tags))
+        }
+    }
+
+    private static func respond<Content: Generable>(
+        instructions: String, prompt: String, generating type: Content.Type,
+        making outcome: (Content) -> NameSuggester.Outcome
+    ) async -> NameSuggester.Outcome {
         // The system model, by name. Never the Private Cloud Compute one.
         let session = instructions.isEmpty
             ? LanguageModelSession(model: SystemLanguageModel.default)
@@ -610,11 +748,11 @@ private enum Model {
         do {
             let reply = try await session.respond(
                 to: prompt,
-                generating: Suggestion.self,
+                generating: type,
                 // Greedy, so the same file is given the same name every time
                 // rather than a different guess on each press.
                 options: GenerationOptions(samplingMode: .greedy))
-            return .name(reply.content.words.joined(separator: " "))
+            return outcome(reply.content)
         } catch let error as LanguageModelSession.GenerationError {
             switch error {
             case .exceededContextWindowSize: return .tooLong

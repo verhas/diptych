@@ -13,6 +13,8 @@ final class DirectoryDiffModelTests: XCTestCase {
 
     override func setUp() async throws {
         LiveSettings.protect()
+        // From the defaults, not from whatever the person has chosen to compare.
+        ConfigStore.shared.configuration = Configuration()
         root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("DiptychDirDiffModel-\(UUID().uuidString)")
         left = root.appendingPathComponent("left")

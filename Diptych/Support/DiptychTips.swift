@@ -10,7 +10,8 @@ enum DiptychTips {
             + " tell at a glance which side a command like Copy to Other Pane will act from.",
         "plain Tab switches which of the two panes has keyboard focus.",
         "Option-Tab cycles through every window Diptych has open -- Get Info, Compare, Text Edit, Bin"
-            + " Edit, Rename Many, all of them -- not only the two-pane browser windows.",
+            + " Edit, Rename Many, all of them -- the smaller ones first, kept in front of the"
+            + " two-pane windows, which come last and take the keyboard from behind them.",
         "with only one Diptych window open, Option-Tab instead swaps that window's own left and right"
             + " panes, so the key still does something.",
         "the pane filter box takes either a shell pattern like *.txt or, with the RegEx checkbox"
@@ -327,6 +328,39 @@ enum DiptychTips {
         "a .DS_Store file previews as a readable page describing the Finder window state it actually"
             + " stores -- icon positions, window arrangement, visible columns -- instead of showing nothing"
             + " useful at all.",
+        "a .pem, .crt or .key file previews as what is in it -- certificates and how they chain, and which"
+            + " certificate a private key belongs to -- and an SSH key shows the fingerprint ssh-keygen gives.",
+        "a .jks, .p12 or .pfx key store previews as its aliases and their certificates -- who for, issued"
+            + " by whom, until when -- and says when it opens with no password or Java's default changeit.",
+        "a program or library previews as what it is -- Apple silicon or Intel, the macOS it needs, the"
+            + " libraries it links, who signed it -- and whether its code still matches the signature.",
+        "a script previews with what runs it and the #! mistakes that break it, like Windows line endings.",
+        "an app previews with who signed it, what it will ask permission for, what is inside it,"
+            + " where it was downloaded from -- and whether every file in it is still as signed.",
+        "a Windows .exe or .dll previews with its version, the DLLs it uses, and who signed it -- and"
+            + " whether the file still matches that signature.",
+        "an installer package previews with the scripts it runs, in full, where it installs what --"
+            + " launch daemons and setuid programs called out -- and whether it is still as signed.",
+        "a disk image previews without being attached: its format, its signature, and the app and"
+            + " the link to Applications at the top of its volume.",
+        "an e-mail previews as text, nothing loaded from the web -- with a warning for a link that"
+            + " shows one address and goes to another, or a sender the server could not confirm.",
+        "a crash report (.ips) previews as what stopped the program, in words, and the stack of the"
+            + " thread that crashed with the program's own lines picked out.",
+        "a .webloc or Windows .url shortcut previews with the address it really opens -- and a warning"
+            + " when that is a program, a file on another computer, or a site that only looks familiar.",
+        "a .jar previews with the class it runs, its module, the Java its classes need, and whether"
+            + " its signature still holds -- a jar changed after it was signed is caught.",
+        "a SQLite database previews as its tables and row counts; right-click ▸ Edit opens it in the"
+            + " Database window, every row sorted and filtered, without ever writing to it.",
+        "source code previews coloured -- some sixty languages, told by name, extension or #! line --"
+            + " and Text Edit colours it the same way.",
+        "a folder in a Git repository previews with its branch, what is not sent, what is changed"
+            + " and the last commits.",
+        "Text Edit shows invisible characters -- a byte-order mark, zero-width spaces, right-to-left"
+            + " overrides -- as framed names you can see and delete; the \u{00B6} button hides them.",
+        "a Java .class file previews as the outline of its source -- declaration, fields, methods with"
+            + " their generic types, and the Java release it was compiled for -- with no JDK needed.",
         "Quick Look's preview updates live as the selected row changes, and closes itself outright if"
             + " the file it was showing gets deleted out from under it.",
         "the toolbar's buttons, their order, and which of the toolbar's three sections they sit in"
@@ -596,6 +630,10 @@ enum DiptychTips {
         "View ▸ Calculate Directory Sizes, or ∑ in the toolbar, puts every folder's total in the Size"
             + " column, in teal, growing as it reads -- orange while a total is still changing, ?? before"
             + " anything is known.",
+        "a folder size worked out once comes back in later sessions, fading as it ages; Settings ▸"
+            + " Behaviour ▸ Folder Sizes says for how long, a week unless you change it.",
+        "Space on a JSON or XML file written as one long line opens it formatted; the Format button"
+            + " switches between that and the file as written.",
         "holding Option over the path bar turns it into links, one per folder, so you can go up several"
             + " levels in one click.",
         "the circle between Back and Forward lists every folder the pane has been in, most recent first,"
