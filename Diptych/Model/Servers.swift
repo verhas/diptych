@@ -278,7 +278,8 @@ nonisolated enum ServerMounter {
 
 // MARK: - Saved and recent servers
 
-/// A server connected to once, kept in `~/.diptych/servers.json`. Never with
+/// A server connected to once, kept in the `server` table of
+/// `LocalDatabase.records` (1.x: `~/.diptych/servers.json`). Never with
 /// a password: that is the Keychain's, and only if the user asked macOS to
 /// keep it there.
 struct KnownServer: Codable, Identifiable, Equatable, Sendable {
@@ -319,6 +320,10 @@ struct KnownServer: Codable, Identifiable, Equatable, Sendable {
         openAtLogin = try c.decodeIfPresent(Bool.self, forKey: .openAtLogin) ?? false
         lastUsed = try c.decodeIfPresent(Date.self, forKey: .lastUsed) ?? Date()
         mountPoint = try c.decodeIfPresent(String.self, forKey: .mountPoint)
+        // Left out until 2.0.0, so a server's keep-alive and checksum command
+        // were forgotten at every start.
+        keepAliveSeconds = try c.decodeIfPresent(Int.self, forKey: .keepAliveSeconds)
+        hashCommand = try c.decodeIfPresent(String.self, forKey: .hashCommand)
     }
 }
 
@@ -334,14 +339,11 @@ final class ServerStore {
     /// How many unsaved ones are remembered.
     static let recentLimit = 10
 
-    @ObservationIgnored private let file: URL
+    @ObservationIgnored private let database: LocalDatabase
 
-    init(file: URL = StateStore.directory.appendingPathComponent("servers.json")) {
-        self.file = file
-        if let data = try? Data(contentsOf: file),
-           let list = try? Self.decoder.decode([KnownServer].self, from: data) {
-            servers = Self.ordered(list)
-        }
+    init(database: LocalDatabase = .records) {
+        self.database = database
+        servers = Self.ordered(Self.read(from: database))
     }
 
     var saved: [KnownServer] { servers.filter(\.saved) }
@@ -438,11 +440,41 @@ final class ServerStore {
             let dropped = Set(unsaved.dropFirst(Self.recentLimit).map(\.id))
             servers.removeAll { dropped.contains($0.id) }
         }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        guard let data = try? Self.encoder.encode(servers) else { return }
-        try? data.write(to: file, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        let rows = servers.map(Self.values)
+        _ = try? database.transaction { connection in
+            connection.run("DELETE FROM server")
+            connection.runEach(Self.insert, rows)
+        }
+    }
+
+    // MARK: - Kept
+
+    nonisolated static let insert = """
+        INSERT OR REPLACE INTO server (id, address, saved, open_at_login, last_used, mount_point,
+          keep_alive_seconds, hash_command) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+    nonisolated static func values(_ server: KnownServer) -> [LocalDatabase.Value] {
+        [.text(server.id), .text(server.address), .int(server.saved ? 1 : 0), .int(server.openAtLogin ? 1 : 0),
+         .real(server.lastUsed.timeIntervalSince1970), .optional(server.mountPoint),
+         .optional(server.keepAliveSeconds.map(Int64.init)), .optional(server.hashCommand)]
+    }
+
+    private static func read(from database: LocalDatabase) -> [KnownServer] {
+        database.access { connection in
+            connection.rows("""
+                SELECT address, saved, open_at_login, last_used, mount_point, keep_alive_seconds, hash_command
+                FROM server
+                """) { row in
+                var server = KnownServer(address: row.text(0) ?? "", saved: row.int(1) == 1,
+                                         openAtLogin: row.int(2) == 1,
+                                         lastUsed: Date(timeIntervalSince1970: row.real(3) ?? 0),
+                                         mountPoint: row.text(4))
+                server.keepAliveSeconds = row.int(5).map(Int.init)
+                server.hashCommand = row.text(6)
+                return server
+            }
+        }
     }
 
     private static func ordered(_ list: [KnownServer]) -> [KnownServer] {
@@ -453,14 +485,8 @@ final class ServerStore {
         }
     }
 
-    private static let encoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
-
-    private static let decoder: JSONDecoder = {
+    /// How 1.x wrote `servers.json`, for bringing it in.
+    nonisolated static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

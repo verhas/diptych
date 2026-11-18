@@ -5,7 +5,9 @@ import Foundation
 ///
 /// macOS keeps Finder's "Put Back" in a private store with no public API, so
 /// this is Diptych's own record of what *it* trashed -- honest about what it
-/// knows, and blank for anything trashed by Finder or another app.
+/// knows, and blank for anything trashed by Finder or another app. Kept in
+/// the `trash_origin` table of `LocalDatabase.records`; 1.x kept it in
+/// `~/.diptych/trash-origins.json`.
 @MainActor
 final class TrashOriginals {
 
@@ -13,29 +15,33 @@ final class TrashOriginals {
 
     /// Trashed-file path → the path it came from.
     private var origins: [String: String] = [:]
-    private let store: URL?
+    private let database: LocalDatabase?
 
-    /// `store` nil keeps it in memory only -- what the tests and a test run use,
-    /// so ~/.diptych is left alone.
-    init(store: URL? = TrashOriginals.defaultStore) {
-        self.store = store
+    /// `database` nil keeps it in memory only -- what a test run uses, so
+    /// the person's records are left alone.
+    init(database: LocalDatabase? = TrashOriginals.defaultDatabase) {
+        self.database = database
         load()
     }
 
-    nonisolated static var defaultStore: URL? {
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
-        else { return nil }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".diptych/trash-origins.json")
+    nonisolated static var defaultDatabase: LocalDatabase? {
+        LocalDatabase.testing ? nil : .records
     }
 
     /// Record what a trash moved: each trashed file and where it was.
     func record(_ moved: [(original: URL, trashed: URL)]) {
         guard !moved.isEmpty else { return }
+        var rows: [[LocalDatabase.Value]] = []
+        let now = Date().timeIntervalSince1970
         for move in moved {
-            origins[move.trashed.standardizedFileURL.path] = move.original.standardizedFileURL.path
+            let trashed = move.trashed.standardizedFileURL.path
+            let original = move.original.standardizedFileURL.path
+            origins[trashed] = original
+            rows.append([.text(trashed), .text(original), .real(now)])
         }
-        save()
+        _ = try? database?.transaction { connection in
+            connection.runEach(Self.insert, rows)
+        }
     }
 
     /// Where the file now at `trashed` came from, if Diptych knows.
@@ -45,7 +51,9 @@ final class TrashOriginals {
 
     /// Forget a trashed file -- it has been restored or is otherwise gone.
     func forget(_ trashed: URL) {
-        if origins.removeValue(forKey: trashed.standardizedFileURL.path) != nil { save() }
+        let key = trashed.standardizedFileURL.path
+        guard origins.removeValue(forKey: key) != nil else { return }
+        database?.access { $0.run("DELETE FROM trash_origin WHERE trashed = ?", .text(key)) }
     }
 
     /// A trashed file was renamed in place: carry its origin over to the new
@@ -54,26 +62,38 @@ final class TrashOriginals {
     func rename(_ old: URL, to new: URL) {
         let key = old.standardizedFileURL.path
         guard let origin = origins.removeValue(forKey: key) else { return }
-        origins[new.standardizedFileURL.path] = origin
-        save()
+        let newKey = new.standardizedFileURL.path
+        origins[newKey] = origin
+        _ = try? database?.transaction { connection in
+            connection.run("DELETE FROM trash_origin WHERE trashed = ?", .text(key))
+            connection.run(Self.insert, .text(newKey), .text(origin), .real(Date().timeIntervalSince1970))
+        }
     }
+
+    nonisolated static let insert = "INSERT OR REPLACE INTO trash_origin (trashed, original, recorded_at) VALUES (?, ?, ?)"
 
     // MARK: - Persistence
 
     private func load() {
-        guard let store, let data = try? Data(contentsOf: store),
-              let decoded = try? JSONDecoder().decode([String: String].self, from: data)
-        else { return }
+        guard let database else { return }
+        let all = database.access { connection in
+            connection.rows("SELECT trashed, original FROM trash_origin") { row in
+                (row.text(0) ?? "", row.text(1) ?? "")
+            }
+        }
         // Forget entries whose trashed file is gone -- the Trash was emptied, or
         // the file was put back -- so the record does not grow without bound.
-        origins = decoded.filter { FileManager.default.fileExists(atPath: $0.key) }
-    }
-
-    private func save() {
-        guard let store else { return }
-        try? FileManager.default.createDirectory(at: store.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(origins) { try? data.write(to: store) }
+        var gone: [[LocalDatabase.Value]] = []
+        for (trashed, original) in all {
+            if FileManager.default.fileExists(atPath: trashed) {
+                origins[trashed] = original
+            } else {
+                gone.append([.text(trashed)])
+            }
+        }
+        if !gone.isEmpty {
+            _ = try? database.transaction { $0.runEach("DELETE FROM trash_origin WHERE trashed = ?", gone) }
+        }
     }
 }
 

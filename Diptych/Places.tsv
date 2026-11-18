@@ -1,5 +1,5 @@
 # Towns of 15,000 people or more, from GeoNames (https://www.geonames.org), CC BY 4.0.
-# Made by make-places.sh on 2026-11-11. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
+# Made by make-places.sh on 2026-11-17. C: country; R: region; P: GeoNames id, latitude, longitude, country, region, name.
 C	AD	Andorra
 C	AE	United Arab Emirates
 C	AF	Afghanistan
@@ -12547,6 +12547,7 @@ P	11611400	48.4098	9.9514	DE	01	Eselsberg
 P	11951298	48.9600	9.0647	DE	01	Sachsenheim
 P	12035575	50.1793	8.5037	DE	05	Kronberg Tal
 P	12188617	48.8721	9.2733	DE	01	Remseck am Neckar
+P	12495315	50.9847	11.0577	DE	15	Krämpfervorstadt
 P	13526830	52.3364	13.4132	DE	11	Blankenfelde-Mahlow
 P	220782	11.7878	42.8822	DJ	05	Tadjoura
 P	221527	11.9669	43.2884	DJ	04	Obock
@@ -20918,7 +20919,7 @@ P	113646	38.0800	46.2919	IR	33	Tabriz
 P	113659	33.5959	56.9244	IR	40	Tabas
 P	113723	30.4551	53.6510	IR	07	Surian
 P	113797	36.5717	52.0153	IR	35	Nūr
-P	113860	37.3013	49.3150	IR	08	Şowme‘eh Sarā
+P	113860	37.3013	49.3150	IR	08	Ṣowme‘eh Sarā
 P	114049	34.7819	47.5994	IR	13	Sonqor
 P	114106	36.2308	49.9250	IR	38	Eqbāliyeh
 P	114259	29.4514	55.6809	IR	29	Sirjan
@@ -25862,6 +25863,7 @@ P	2338400	6.8194	3.9173	NG	16	Ijebu Ode
 P	2338401	7.6829	4.8177	NG	42	Ijebu-Jesa
 P	2338403	6.9720	3.9994	NG	16	Ijebu-Igbo
 P	2338497	5.8548	6.8594	NG	25	Ihiala
+P	2338612	5.6653	5.7656	NG	36	Amua Ichemidiara
 P	2338630	7.6685	5.1263	NG	54	Igede-Ekiti
 P	2338640	6.0180	7.0203	NG	25	Igbo-Ukwu
 P	2338660	7.4512	8.6081	NG	26	Igbor
@@ -29929,6 +29931,7 @@ P	171830	35.1819	35.9487	SY	14	Bāniyās
 P	171998	33.4710	36.3308	SY	08	Babīlā
 P	172059	33.7249	36.1005	SY	08	Az Zabadānī
 P	172082	36.5874	37.0466	SY	09	I‘zāz
+P	172198	35.3528	36.2643	SY	10	‘Ayn al Kurūm
 P	172256	36.8909	38.3535	SY	09	‘Ayn al ‘Arab
 P	172349	33.6103	36.3107	SY	08	At Tall
 P	172374	35.8376	38.5483	SY	04	Al-Tabqa
@@ -30835,7 +30838,7 @@ P	743166	41.7351	27.2252	TR	39	Kırklareli
 P	743404	40.1983	29.2124	TR	16	Kestel
 P	743439	40.8552	26.6327	TR	22	Keşan
 P	743537	40.1268	39.4342	TR	69	Kelkit
-P	743615	40.2317	32.6839	TR	68	Kazan
+P	743615	40.2317	32.6839	TR	68	Kahramankazan
 P	743624	40.7692	31.3221	TR	93	Kaynaşlı
 P	743818	41.0926	28.3317	TR	34	Kavaklı
 P	743882	41.3781	33.7753	TR	37	Kastamonu

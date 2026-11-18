@@ -819,11 +819,18 @@ final class QuickLookController: NSObject {
         let key = "source" + url.path
         if let ready = finished[key] { return ready }
         let truncated = size > data.count
+        // JSON and XML get a Format button -- not when cut short, which would
+        // not parse -- and open formatted when written as very long lines.
+        let formatted = truncated ? nil : PrettyText.format(text, languageID: language.id)
+        let showFormatted = formatted != nil
+            && text.split(separator: "\n", omittingEmptySubsequences: true).contains { $0.utf16.count > 1000 }
         let target = page(SourceReport.html(text: text, url: url, language: language, size: size,
-                                            truncated: truncated, coloured: false), kind: "source", for: url)
+                                            truncated: truncated, coloured: false, formatted: formatted,
+                                            showFormatted: showFormatted), kind: "source", for: url)
         if let target {
             finish(target, key: key) {
-                SourceReport.html(text: text, url: url, language: language, size: size, truncated: truncated)
+                SourceReport.html(text: text, url: url, language: language, size: size, truncated: truncated,
+                                  formatted: formatted, showFormatted: showFormatted)
             }
         }
         return target

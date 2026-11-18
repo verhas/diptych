@@ -16,9 +16,52 @@ nonisolated enum SourceReport {
     }
 
     /// The page. `coloured` false gives the plain page shown while the
-    /// coloured one is made.
+    /// coloured one is made. With `formatted` -- the text laid out by
+    /// `PrettyText` -- the page holds both, and a Format button switches
+    /// between them; `showFormatted` says which is shown first.
     static func html(text: String, url: URL, language: TextMateRegistry.Language, size: Int,
-                     truncated: Bool, coloured: Bool = true) -> String {
+                     truncated: Bool, coloured: Bool = true, formatted: String? = nil,
+                     showFormatted: Bool = false) -> String {
+        // The one shown first is coloured first, with the whole budget.
+        let first = formatted != nil && showFormatted ? formatted! : text
+        let shownFirst = table(first, language: language, coloured: coloured, budget: budget)
+        let other = formatted.map { formatted -> Table in
+            table(showFormatted ? text : formatted, language: language, coloured: coloured, budget: budget / 2)
+        }
+        let original = showFormatted && formatted != nil ? other! : shownFirst
+        let pretty = formatted == nil ? nil : (showFormatted ? shownFirst : other!)
+
+        let name = url.lastPathComponent
+        var body = "<h1>\(escape(name))</h1>"
+        body += "<p class=lead>\(escape(language.name)), \(original.lines.formatted()) line\(original.lines == 1 ? "" : "s"), "
+            + "\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))</p>"
+        if truncated || original.cut {
+            body += "<p class=note>The first \(original.cut ? "\(mostLines.formatted()) lines" : ByteCountFormatter.string(fromByteCount: Int64(mostBytes), countStyle: .file)) are shown.</p>"
+        }
+        if coloured, !shownFirst.complete || other?.complete == false {
+            body += "<p class=note>Coloured as far as there was time for; the rest is plain. Text Edit colours it all.</p>"
+        }
+        guard let pretty else { return page(title: name, body: body + original.html) }
+        // A checkbox and its label make the button: it works with no script,
+        // which Quick Look's pages may not run.
+        body += """
+            <input type=checkbox id=format class=toggle\(showFormatted ? " checked" : "")>
+            <label for=format class=button><span class=off>Format</span><span class=on>Show as Written</span></label>
+            <div class=written>\(original.html)</div><div class=formatted>\(pretty.html)</div>
+            """
+        return page(title: name, body: body)
+    }
+
+    struct Table {
+        let html: String
+        let lines: Int
+        let cut: Bool
+        let complete: Bool
+    }
+
+    /// The text as a table of numbered lines, coloured for at most `budget`.
+    static func table(_ text: String, language: TextMateRegistry.Language, coloured: Bool,
+                      budget: TimeInterval) -> Table {
         let ns = text as NSString
         var spans: [SyntaxColouring.Span] = []
         var complete = true
@@ -59,24 +102,12 @@ nonisolated enum SourceReport {
             }
         }
         if !current.isEmpty || lines.isEmpty { lines.append(current) }
-        let cut = lines.count >= mostLines
-
-        let name = url.lastPathComponent
-        var body = "<h1>\(escape(name))</h1>"
-        body += "<p class=lead>\(escape(language.name)), \(lines.count.formatted()) line\(lines.count == 1 ? "" : "s"), "
-            + "\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))</p>"
-        if truncated || cut {
-            body += "<p class=note>The first \(cut ? "\(mostLines.formatted()) lines" : ByteCountFormatter.string(fromByteCount: Int64(mostBytes), countStyle: .file)) are shown.</p>"
-        }
-        if coloured, !complete {
-            body += "<p class=note>Coloured as far as there was time for; the rest is plain. Text Edit colours it all.</p>"
-        }
-        body += "<table class=code>"
+        var html = "<table class=code>"
         for (number, line) in lines.enumerated() {
-            body += "<tr><td class=n>\(number + 1)</td><td>\(line.isEmpty ? " " : line)</td></tr>"
+            html += "<tr><td class=n>\(number + 1)</td><td>\(line.isEmpty ? " " : line)</td></tr>"
         }
-        body += "</table>"
-        return page(title: name, body: body)
+        html += "</table>"
+        return Table(html: html, lines: lines.count, cut: lines.count >= mostLines, complete: complete)
     }
 
     static func escape(_ text: String) -> String {
@@ -111,6 +142,13 @@ nonisolated enum SourceReport {
         .keyword { color: var(--keyword); } .comment { color: var(--comment); font-style: italic; }
         .tag { color: var(--tag); } .attribute { color: var(--attribute); } .instruction { color: var(--instruction); }
         .entity { color: var(--entity); } .function { color: var(--function); } .type { color: var(--type); }
+        input.toggle { position: absolute; opacity: 0; pointer-events: none; }
+        label.button { display: inline-block; margin: 0 0 10px; padding: 3px 12px; border-radius: 6px;
+                       background: var(--panel); border: 1px solid var(--dim); cursor: default;
+                       user-select: none; font-size: 12px; }
+        label.button:active { opacity: 0.7; }
+        #format:checked + label .off, #format:not(:checked) + label .on { display: none; }
+        #format:checked ~ .written, #format:not(:checked) ~ .formatted { display: none; }
         </style></head><body>\(body)</body></html>
         """
     }

@@ -1520,8 +1520,8 @@ struct PaneView: View {
             // A link to a folder is not what is in it: not counted, as before.
             if item.isSymlink { continue }
             switch DirectorySizes.shared.shown(for: item.url) {
-            case .done(let size)?: bytes += size
-            case .updating(let size)?: bytes += size; growing = true
+            case .done(let size)?, .remembered(let size, true)?: bytes += size
+            case .updating(let size)?, .remembered(let size, false)?: bytes += size; growing = true
             case .waiting?: growing = true
             case .unknown?, nil: uncounted += 1
             }

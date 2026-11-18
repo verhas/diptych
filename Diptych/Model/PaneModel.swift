@@ -645,7 +645,8 @@ final class PaneModel {
         // sorted again as the totals change.
         if sortOrder.contains(where: { $0.column == .size }), !DirectorySizes.shared.isEmpty {
             let folders = all.indices.filter { all[$0].isDirectory && !all[$0].isParent }
-            let sizes = DirectorySizes.shared.store.sizes(folders.map { all[$0].url.path })
+            let sizes = DirectorySizes.shared.store.sizes(
+                folders.map { all[$0].url.path }, since: Date().addingTimeInterval(-DirectorySizes.keepSeconds))
             for index in folders { all[index].folderTotal = sizes[all[index].url.path] }
         }
         let sorted = all.sorted(using: sortOrder)

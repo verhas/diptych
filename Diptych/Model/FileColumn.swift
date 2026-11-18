@@ -222,6 +222,9 @@ struct Configuration: Codable, Equatable {
     /// Splitting a file into more than this many parts asks the person to
     /// confirm first -- a mistyped size can mean thousands of little files.
     var splitPartWarningThreshold = 20
+    /// How long a folder size from Calculate Directory Sizes is shown, in
+    /// days: it fades over this time, and is then gone and forgotten.
+    var directorySizeKeepDays = 7
 
     /// Sidebar favourites, as paths. Global: a favourite is a favourite in
     /// every window.
@@ -622,6 +625,7 @@ struct Configuration: Codable, Equatable {
             warnRevealingServerCache
         case hiddenMenuItems
         case splitPartWarningThreshold
+        case directorySizeKeepDays
     }
 
     init() {}
@@ -651,6 +655,8 @@ struct Configuration: Codable, Equatable {
             (try? container.decode(Set<String>.self, forKey: .hiddenMenuItems)) ?? []
         splitPartWarningThreshold =
             (try? container.decode(Int.self, forKey: .splitPartWarningThreshold)) ?? 20
+        directorySizeKeepDays =
+            max(1, (try? container.decode(Int.self, forKey: .directorySizeKeepDays)) ?? 7)
         favourites = (try? container.decode([String].self, forKey: .favourites)) ?? []
         foldersFirst = (try? container.decode(Bool.self, forKey: .foldersFirst)) ?? true
         tagColourRows = (try? container.decode(Bool.self, forKey: .tagColourRows)) ?? true

@@ -16,6 +16,14 @@ struct InfoView: View {
         _model = State(initialValue: FileInfoModel(url: url))
     }
 
+    /// What a folder's total is, with how long ago it was measured when that
+    /// was not just now.
+    static func sizeNote(_ size: DirectorySizes.Shown, measured: Date?) -> String {
+        guard let measured, Date().timeIntervalSince(measured) >= 60 else { return size.note }
+        let ago = RelativeDateTimeFormatter().localizedString(for: measured, relativeTo: Date())
+        return "\(size.note), measured \(ago)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             TabView {
@@ -134,7 +142,7 @@ struct InfoView: View {
                             Text(size.text)
                                 .foregroundStyle(CellView.colour(of: size))
                                 .textSelection(.enabled)
-                            Text(size.note)
+                            Text(Self.sizeNote(size, measured: DirectorySizes.shared.measured(for: model.url)))
                                 .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                         }

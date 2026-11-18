@@ -91,20 +91,27 @@ Keyboard > Use F1, F2, etc. as standard function keys*.
 
 ## State
 
-`~/.diptych` is a directory. Session state lives in `~/.diptych/state.json`:
-JSON, pretty-printed, keys sorted, slashes unescaped. Each window gets a slot,
-holding its frame, both panes' directories and sort order, which pane was
-active, and the toolbar toggles. An older single-file `~/.diptych` is converted
-on first launch rather than discarded.
+`~/.diptych` is a directory, and what is in it -- every file and folder, the
+version that brought it and, for those gone, what replaced it -- is in
+[DIPTYCH_STORAGE.md](DIPTYCH_STORAGE.md).
 
-Configuration will get its own files in that directory, in a format that takes
-comments -- TOML is the obvious candidate, and unlike YAML it needs only a small
-parser. JSON stays where it is: state is written by the app and read by nobody.
+Session state lives in `~/.diptych/diptych.sqlite`, in three tables:
+`window_state` (each window's frame, which pane was active, the toolbar
+toggles), `pane_state` (each pane's folder, sort order and view) and
+`pane_recent` (each pane's recent folders, in order). Up to 1.13 it was
+`~/.diptych/state.json`, and before 1.0.0 the file `~/.diptych` itself;
+either is brought in at the first start and deleted, not discarded.
+
+Settings stay in `~/.diptych/config.json`, a file meant to be read and edited:
+it is read once, at start, and a setting the Settings window gets wrong can
+be put right there.
 
 The extension point is `PaneState` in `Model/AppState.swift`. Add a property
-there plus a line in `PaneModel.snapshot` and `restore`, and it is saved,
-reloaded, and carried across a pane swap -- the store, the window code and the
-JSON handling need no changes.
+there, a line in `PaneModel.snapshot` and `restore`, a column of
+`pane_state` -- added with `ALTER TABLE` in `LocalDatabase.records`, since the
+table is already in everyone's file -- and its place in `StateStore.write` and
+`read`, and it is saved, reloaded, and carried across a pane swap; the window
+code needs no change.
 
 ## Unreadable folders
 
@@ -230,7 +237,7 @@ of the time -- so a keystroke aimed at a file took a favourite instead, and a
 keystroke aimed at a favourite could take files. Removing a favourite is rare and
 cannot be undone; it does not deserve a shortcut. Volumes cannot be
 reordered; their order belongs to the system. Favourites are global and live in `config.json`;
-whether the sidebar is open is per window, in `state.json`.
+whether the sidebar is open is per window, in the window's state.
 
 Ejectable volumes carry an eject button, and an Eject item in their context
 menu. Ejectability is not `volumeIsEjectable`: external APFS disks routinely
@@ -304,8 +311,8 @@ there: `⌫`/`⌦` and `⌘⌫`/`⌘⌦` both run Delete Immediately, still with
 confirmation that permanent deletion warrants.
 
 The **Original Location** column is filled from two places. First, **Diptych's
-own record** of what it moved to the Trash (`TrashOriginals`, a small JSON file
-in `~/.diptych`), which is exact and needs no permission. For anything Finder or
+own record** of what it moved to the Trash (`TrashOriginals`, a table in
+`~/.diptych/diptych.sqlite`), which is exact and needs no permission. For anything Finder or
 another app trashed, Diptych falls back to **Finder's own "Put Back" record**,
 which macOS keeps in a private, undocumented store -- the `ptbL`/`ptbN` records
 inside the Trash folder's `.DS_Store` -- with no public API and only readable
@@ -313,7 +320,7 @@ with Full Disk Access (which Diptych asks for the moment a Trash is opened).
 `TrashPutBack` reads it through the bounds-checked `DSStore` decoder,
 pulling the original path straight out of each put-back bookmark without
 resolving it against the disk, and never writes it back; the most that can go
-wrong is a dash, or rarely a wrong path, never a crash. The JSON record forgets
+wrong is a dash, or rarely a wrong path, never a crash. Diptych's record forgets
 an entry once its trashed file is gone -- the Trash emptied, the file put back,
 or deleted immediately -- so it does not grow without bound. `Trash` says where
 a volume's Trash is and what counts as one; the column itself is the
@@ -362,7 +369,7 @@ is one keystroke.
 connected and grey when not. A click connects one, or opens it if it is. Its
 eject button disconnects it, and its context menu has **Connect When Diptych
 Starts**, which mounts it at launch without opening anything. The list lives in
-`~/.diptych/servers.json`, readable by you alone.
+`~/.diptych/diptych.sqlite`, readable by you alone.
 
 **A pane left on a server comes back to it.** When a pane arrives at a folder on
 a server that is not connected -- at startup, or from the history -- Diptych
@@ -408,7 +415,10 @@ so this works for them as well.
 - **NFS asks for no password:** the server goes by your user number, and a
   refused folder says so, with the number.
 - **The sidebar shows each volume's size and free space**, looked at again each
-  minute while Diptych is in front. A server's volume gets a network-drive icon
+  minute while Diptych is in front. Each volume is asked on its own, in the
+  background: one slow to answer -- a backup disk in the middle of a backup,
+  a disk spinning up, a server gone quiet -- shows `??` until it does, and
+  nothing else waits for it. A server's volume gets a network-drive icon
   rather than asking the server for its own, which takes seconds each.
 
 **To try it out**, `test-servers/` has a script that sets up SMB (read-write
@@ -1188,6 +1198,15 @@ python3`). Text Edit colours the same files the same way, and an edit
 recolours only the lines it changed. The colouring comes from the TextMate
 grammars Visual Studio Code uses (`make-grammars.sh`); HTML is still shown as
 the page it is.
+
+**JSON and XML have a Format button**, which lays them out one value or
+element to a line, indented, and **Show as Written** puts them back. A file
+written as very long lines -- an API's answer, a minified configuration --
+opens formatted. JSON is re-spaced token by token, so nothing but the space
+changes: the keys stay in their order, numbers as written, every escape as
+it was; JSON with comments keeps them. XML is laid out by macOS's own parser,
+which never reads an external DTD or entity. A file that does not parse, or
+is cut short because it is too big to show whole, has no button.
 
 ## Previewing programs, libraries and scripts
 
@@ -3505,22 +3524,34 @@ by default.
   pane uses, so it is not taken for a file's size. One about to change -- the
   total from before while it is worked out again, or one still growing -- is
   **orange**. `??` is a folder asked for that nothing is known about yet.
+- **Kept, and fading**: every total is kept in `~/.diptych/cache.sqlite` with
+  the time it was measured and whether it was finished or still growing then.
+  A folder measured before -- in an earlier session, or from another folder
+  above it -- shows its total without being asked, teal if it was finished
+  and orange if it was caught part way, and fainter the older it is: it was
+  true when it was measured, not necessarily now. After **Settings ▸
+  Behaviour ▸ Folder Sizes** -- a week unless changed, from a day to 90 days
+  -- it is no longer shown, and is deleted at the next start. The Info window
+  says how long ago a total was measured.
+- **Measured again**: ∑ or Calculate Directory Sizes reads every folder again,
+  those already measured included; until a folder has been read, its kept
+  total stands in for it, in orange, and counts in the folders above.
 - **An estimate, early**: a folder shows a total as soon as its own files are
   counted, and it grows as the folders in it are read. A folder already known
   counts at what it was until it has been read again; whenever a folder's total
   changes, every folder above it changes by as much.
 - **In the background**: it goes on while the pane goes elsewhere, and the
-  totals are there when it comes back. They are kept in memory only, for as
-  long as Diptych runs. The Info window of a folder shows the same total, and
-  follows it.
+  totals are there when it comes back. The Info window of a folder shows the
+  same total, and follows it.
 - **One at a time**: one reader per volume, so two calculations never compete
   for a disk; asking again while one is under way queues behind it. A volume
   mounted inside a folder, and the targets of links, are not counted. Sizes
   are the files' own lengths, as the Size column shows files.
 - **Sorted by Size**, a folder goes by its total as far as it is worked out,
   so while a calculation runs the rows move as the totals grow.
-- **View ▸ Clear Directory Sizes** forgets every total and stops what is
-  being worked out; the folders show `--` again, here and in the Info window.
+- **View ▸ Clear Directory Sizes** -- or *Forget All Sizes* in the setting --
+  forgets every total, kept ones too, and stops what is being worked out; the
+  folders show `--` again, here and in the Info window.
 
 ## Values edited in place
 
@@ -4774,7 +4805,7 @@ language and `DIPTYCH_AI_LANGUAGE` the summary's and description's. The
 instructions to the model are at the top of each script, to rewrite.
 
 **How long a script takes** is kept, every version of it together, in
-`~/.diptych/script-timings.json`: a script's tab in the Runs window shows how
+`~/.diptych/diptych.sqlite`: a script's tab in the Runs window shows how
 many runs finished, the shortest, average and longest, and the same per file
 it was given -- assuming, boldly, that the time grows with the number of files.
 Only runs that finished count; one that failed or was stopped would make the
@@ -4869,7 +4900,7 @@ So a script is `r--------` (`400`): select it and press `⌥⌘P` to set that.
 **Nothing lifts these rules**, developer mode included. You are asked before a
 script runs for the first time and again whenever its contents change; the
 approvals are kept, by a hash of the contents, in
-`~/.diptych/scripts-approved.json`. Every rule is checked again at the moment
+`~/.diptych/diptych.sqlite`. Every rule is checked again at the moment
 of running, and a script changed since it was read is refused rather than run.
 
 **The folder is read once, at startup** -- a script that could change between

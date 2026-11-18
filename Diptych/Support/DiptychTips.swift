@@ -630,6 +630,10 @@ enum DiptychTips {
         "View ▸ Calculate Directory Sizes, or ∑ in the toolbar, puts every folder's total in the Size"
             + " column, in teal, growing as it reads -- orange while a total is still changing, ?? before"
             + " anything is known.",
+        "a folder size worked out once comes back in later sessions, fading as it ages; Settings ▸"
+            + " Behaviour ▸ Folder Sizes says for how long, a week unless you change it.",
+        "Space on a JSON or XML file written as one long line opens it formatted; the Format button"
+            + " switches between that and the file as written.",
         "holding Option over the path bar turns it into links, one per folder, so you can go up several"
             + " levels in one click.",
         "the circle between Back and Forward lists every folder the pane has been in, most recent first,"

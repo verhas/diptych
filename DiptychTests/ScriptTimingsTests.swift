@@ -6,10 +6,12 @@ import XCTest
 final class ScriptTimingsTests: XCTestCase {
 
     private var folder: URL!
+    private var database: LocalDatabase!
 
     override func setUp() async throws {
         folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScriptTimingsTests-\(UUID().uuidString)")
+        database = LocalDatabase.records(at: folder.appendingPathComponent("records.sqlite"))
     }
 
     override func tearDown() async throws {
@@ -17,7 +19,7 @@ final class ScriptTimingsTests: XCTestCase {
     }
 
     private func store() -> ScriptTimings {
-        ScriptTimings(url: folder.appendingPathComponent("script-timings.json"))
+        ScriptTimings(database: database)
     }
 
     func testCountShortestLongestAndAverage() throws {
@@ -89,7 +91,7 @@ final class ScriptTimingsTests: XCTestCase {
         let timings = store()
         timings.record("a.sh", seconds: 3, files: 1)
         XCTAssertEqual(store().entry(for: "a.sh"), timings.entry(for: "a.sh"))
-        let attributes = try FileManager.default.attributesOfItem(atPath: timings.url.path)
+        let attributes = try FileManager.default.attributesOfItem(atPath: database.url.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
 

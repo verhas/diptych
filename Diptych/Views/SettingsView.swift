@@ -195,6 +195,33 @@ struct BehaviourSettingsView: View {
 
             Divider()
 
+            Text("Folder Sizes").font(.headline)
+            HStack(spacing: 10) {
+                Picker("Show a folder\u{2019}s size for", selection: $store.configuration.directorySizeKeepDays) {
+                    Text("1 day").tag(1)
+                    Text("3 days").tag(3)
+                    Text("1 week").tag(7)
+                    Text("2 weeks").tag(14)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                }
+                .fixedSize()
+                .onChange(of: store.configuration.directorySizeKeepDays) { _, _ in
+                    DirectorySizes.purgeExpired()
+                }
+                Button("Forget All Sizes") { DirectorySizes.shared.clear() }
+            }
+            Text("What Calculate Directory Sizes (\u{2211}) works out is kept in "
+                 + "~/.diptych/cache.sqlite and shown in the Size column again later, fading "
+                 + "as it gets older: it was true when it was measured, not necessarily now. "
+                 + "After this long it is no longer shown, and is forgotten. \u{2211} measures "
+                 + "again, the folders already measured included.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
             Picker("Check for updates", selection: $store.configuration.updateCheckPreference) {
                 Text("At startup, once a day at most").tag(Configuration.UpdateCheckPreference.enabled)
                 Text("Ask at startup").tag(Configuration.UpdateCheckPreference.ask)

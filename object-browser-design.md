@@ -41,7 +41,7 @@ not a new *format* or a new *pane*.
 ## Layers
 
 ```
-          ┌──────────────────────────────────────────────┐
+          ┌────────────────────────────────────────────────┐
   UI      │ PaneModel · FileItem · columns · File menu     │  unchanged for the user
           └───────────────────────┬────────────────────────┘
                                   │ lists a real folder, overlaid
@@ -52,7 +52,7 @@ not a new *format* or a new *pane*.
           └───────────────────────┬────────────────────────┘
                                   │ writes its listings to
           ┌───────────────────────┴────────────────────────┐
-  Store   │ BrowserManifestStore over CacheDatabase        │  ~/.diptych/cache.sqlite
+  Store   │ BrowserManifestStore over LocalDatabase.cache  │  ~/.diptych/cache.sqlite
           │ sources · folders · nodes, in typed columns    │
           └───────────────────────┬────────────────────────┘
                                   │ read back as
@@ -143,7 +143,7 @@ from the file living *beside* the data:
   name kept no listing, or the wrong one.
 
 Since 2.0.0 the listings live in `~/.diptych/cache.sqlite`
-(`CacheDatabase`), in three tables:
+(`LocalDatabase.cache`), in three tables:
 
 | Table | One row per | Holds |
 | --- | --- | --- |
@@ -167,8 +167,11 @@ Since 2.0.0 the listings live in `~/.diptych/cache.sqlite`
 - **Lock order:** the store's list of roots is never locked while the
   database is. A test run uses a database of its own, never the person's.
 
-The database is meant to hold other caches later, starting with measured
-folder sizes.
+The same database also keeps measured folder sizes (`folder_size`), which
+is why it went to version 2: a version 1 file is kept and given the new
+table, not emptied. What is the person's own -- servers, approvals, trash
+origins, script timings -- is in a second file, `diptych.sqlite`, which is
+never emptied (`LocalDatabase.records`).
 
 ## The backing store
 

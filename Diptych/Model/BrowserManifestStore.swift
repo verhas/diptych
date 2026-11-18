@@ -3,7 +3,7 @@ import Darwin
 import SQLite3
 
 /// Where the listings of opened archives and server shadows are kept: in
-/// `CacheDatabase`, not beside the files. A manifest file in every folder
+/// `LocalDatabase.cache`, not beside the files. A manifest file in every folder
 /// went wherever the folder went -- into a copy dragged to Finder, into an
 /// app whose signature then no longer held -- and had to be told apart from
 /// an archive's own file of the same name.
@@ -276,7 +276,7 @@ nonisolated enum BrowserManifestStore {
 
     // MARK: - Internals
 
-    private static var database: CacheDatabase { .shared }
+    private static var database: LocalDatabase { .cache }
 
     /// Registered roots by canonical path, read from the cache once: only a
     /// path under one of them is ever looked up.
@@ -310,7 +310,7 @@ nonisolated enum BrowserManifestStore {
             .map { ($0.value, $0.key) }
     }
 
-    private static func folder(in connection: CacheDatabase.Connection, source: Int64,
+    private static func folder(in connection: LocalDatabase.Connection, source: Int64,
                                path: String) -> (id: Int64, inode: Int64)? {
         connection.rows("SELECT id, inode FROM browser_folder WHERE source_id = ? AND path = ?",
                         .int(source), .text(path)) { ($0.int(0) ?? 0, $0.int(1) ?? 0) }.first
@@ -330,19 +330,19 @@ nonisolated enum BrowserManifestStore {
         """
     private static let columnCount = 17
 
-    private static func rows(in connection: CacheDatabase.Connection,
-                             folder: Int64) -> [[CacheDatabase.Value]] {
+    private static func rows(in connection: LocalDatabase.Connection,
+                             folder: Int64) -> [[LocalDatabase.Value]] {
         connection.rows("SELECT \(columns) FROM browser_node WHERE folder_id = ? ORDER BY position",
                         .int(folder)) { $0.values(count: columnCount) }
     }
 
-    private static func nodes(in connection: CacheDatabase.Connection,
+    private static func nodes(in connection: LocalDatabase.Connection,
                               folder: Int64) -> [BrowserManifest.Node] {
         rows(in: connection, folder: folder).map(node(from:))
     }
 
-    private static func insert(_ rows: [[CacheDatabase.Value]], startingAt first: Int64, into folder: Int64,
-                               _ connection: CacheDatabase.Connection) -> Bool {
+    private static func insert(_ rows: [[LocalDatabase.Value]], startingAt first: Int64, into folder: Int64,
+                               _ connection: LocalDatabase.Connection) -> Bool {
         connection.runEach("""
             INSERT OR REPLACE INTO browser_node(folder_id, position, \(columns))
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -353,11 +353,11 @@ nonisolated enum BrowserManifestStore {
 
     /// The columns of a node, in `columns` order. Attributes other than the
     /// well-known ones have no column and are not kept: no source makes any.
-    private static func values(of node: BrowserManifest.Node) -> [CacheDatabase.Value] {
+    private static func values(of node: BrowserManifest.Node) -> [LocalDatabase.Value] {
         typealias A = BrowserManifest.Attribute
-        func int(_ key: String) -> CacheDatabase.Value { .optional(node.attribute(key)?.intValue) }
-        func text(_ key: String) -> CacheDatabase.Value { .optional(node.attribute(key)?.stringValue) }
-        func date(_ key: String) -> CacheDatabase.Value {
+        func int(_ key: String) -> LocalDatabase.Value { .optional(node.attribute(key)?.intValue) }
+        func text(_ key: String) -> LocalDatabase.Value { .optional(node.attribute(key)?.stringValue) }
+        func date(_ key: String) -> LocalDatabase.Value {
             if case .date(let seconds)? = node.attribute(key) { return .real(seconds) }
             return .null
         }
@@ -376,7 +376,7 @@ nonisolated enum BrowserManifestStore {
                 .int(node.attribute(A.serverChanged)?.boolValue == true ? 1 : 0)]
     }
 
-    private static func node(from values: [CacheDatabase.Value]) -> BrowserManifest.Node {
+    private static func node(from values: [LocalDatabase.Value]) -> BrowserManifest.Node {
         typealias A = BrowserManifest.Attribute
         func text(_ i: Int) -> String? { if case .text(let v) = values[i] { return v }; return nil }
         func int(_ i: Int) -> Int64? { if case .int(let v) = values[i] { return v }; return nil }
@@ -436,9 +436,9 @@ nonisolated private final class LockedRoots: @unchecked Sendable {
     }
 }
 
-extension CacheDatabase.Row {
+extension LocalDatabase.Row {
     /// The first `count` columns as they are stored.
-    nonisolated func values(count: Int) -> [CacheDatabase.Value] {
+    nonisolated func values(count: Int) -> [LocalDatabase.Value] {
         (0..<Int32(count)).map { column in
             switch sqlite3_column_type(statement, column) {
             case SQLITE_INTEGER: .int(sqlite3_column_int64(statement, column))

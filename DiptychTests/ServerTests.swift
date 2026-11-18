@@ -148,32 +148,38 @@ final class ServerTests: XCTestCase {
     // MARK: - Kept between runs
 
     private var file: URL!
+    private var database: LocalDatabase!
 
     override func setUp() async throws {
         file = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("DiptychServers-\(UUID().uuidString)/servers.json")
+            .appendingPathComponent("DiptychServers-\(UUID().uuidString)/records.sqlite")
+        database = LocalDatabase.records(at: file)
     }
 
     override func tearDown() async throws {
+        database = nil
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
     }
 
     func testUsedServersAreKeptMostRecentFirstWithoutPasswords() throws {
-        let store = ServerStore(file: file)
+        let store = ServerStore(database: database)
         store.used(parse("smb://peter:secret@nas/photos")!, mountPoint: URL(fileURLWithPath: "/Volumes/photos"))
         store.used(parse("nfs://host/export")!, mountPoint: nil)
 
-        let again = ServerStore(file: file)
+        let again = ServerStore(database: database)
         XCTAssertEqual(again.servers.map(\.address), ["nfs://host/export", "smb://peter@nas/photos"])
         XCTAssertEqual(again.servers.last?.mountPoint, "/Volumes/photos")
-        let text = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertFalse(text.contains("secret"))
+        // Nowhere in the database's files, the write-ahead log included.
+        for suffix in ["", "-wal"] {
+            let bytes = (try? Data(contentsOf: URL(fileURLWithPath: file.path + suffix))) ?? Data()
+            XCTAssertNil(bytes.range(of: Data("secret".utf8)), suffix)
+        }
         let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions]
         XCTAssertEqual((mode as? NSNumber)?.intValue, 0o600)
     }
 
     func testSavedComeFirstAndOpenAtLoginSavesToo() {
-        let store = ServerStore(file: file)
+        let store = ServerStore(database: database)
         store.used(parse("smb://a/x")!, mountPoint: nil)
         store.used(parse("smb://b/y")!, mountPoint: nil)
         store.setSaved(store.server(for: parse("smb://a/x")!)!, true)
@@ -188,7 +194,7 @@ final class ServerTests: XCTestCase {
     }
 
     func testOnlySoManyRecentOnesAreRemembered() {
-        let store = ServerStore(file: file)
+        let store = ServerStore(database: database)
         store.used(parse("smb://kept/x")!, mountPoint: nil)
         store.setSaved(store.servers[0], true)
         for i in 0..<(ServerStore.recentLimit + 3) {
@@ -199,8 +205,19 @@ final class ServerTests: XCTestCase {
         XCTAssertNil(store.server(for: parse("smb://host0/x")!), "the oldest went")
     }
 
+    func testKeepAliveAndChecksumCommandOutlastARestart() {
+        let store = ServerStore(database: database)
+        let url = parse("sftp://pi@raspberry/home")!
+        store.used(url, mountPoint: nil)
+        store.setKeepAlive(30, for: url)
+        store.setHashCommand("sha256sum", for: url)
+        let again = ServerStore(database: database).server(for: url)
+        XCTAssertEqual(again?.keepAliveSeconds, 30, "1.x forgot it at every start")
+        XCTAssertEqual(again?.hashCommand, "sha256sum")
+    }
+
     func testAVolumeMountedElsewhereIsNoticedNotPromoted() {
-        let store = ServerStore(file: file)
+        let store = ServerStore(database: database)
         store.used(parse("smb://a/x")!, mountPoint: nil)
         store.noticed(URL(string: "smb://b/y")!, mountPoint: URL(fileURLWithPath: "/Volumes/y"))
         XCTAssertEqual(store.servers.first?.address, "smb://a/x")
@@ -209,9 +226,9 @@ final class ServerTests: XCTestCase {
     }
 
     func testAForgottenServerIsGone() {
-        let store = ServerStore(file: file)
+        let store = ServerStore(database: database)
         store.used(parse("smb://a/x")!, mountPoint: nil)
         store.forget(store.servers[0])
-        XCTAssertTrue(ServerStore(file: file).servers.isEmpty)
+        XCTAssertTrue(ServerStore(database: database).servers.isEmpty)
     }
 }

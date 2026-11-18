@@ -12,9 +12,10 @@ import Observation
 /// would make the figures say less.
 ///
 /// Kept by the script's file name, so a new version of a script carries on
-/// where the old one left off. `~/.diptych/script-timings.json`, the person's
-/// alone (0600), like the runs themselves. Only sums are kept, never which
-/// files a script ran on.
+/// where the old one left off. In the `script_timing` table of
+/// `LocalDatabase.records` (1.x: `~/.diptych/script-timings.json`), the
+/// person's alone (0600), like the runs themselves. Only sums are kept, never
+/// which files a script ran on.
 @MainActor
 @Observable
 final class ScriptTimings {
@@ -22,7 +23,7 @@ final class ScriptTimings {
     static let shared = ScriptTimings()
 
     /// One script's figures.
-    struct Entry: Codable, Equatable {
+    nonisolated struct Entry: Codable, Equatable {
         /// Runs that finished.
         var runs = 0
         var shortest: Double = 0
@@ -53,11 +54,11 @@ final class ScriptTimings {
         }
     }
 
-    let url: URL
+    private let database: LocalDatabase
     private(set) var entries: [String: Entry] = [:]
 
-    init(url: URL = StateStore.directory.appendingPathComponent("script-timings.json")) {
-        self.url = url
+    init(database: LocalDatabase = .records) {
+        self.database = database
         load()
     }
 
@@ -67,13 +68,15 @@ final class ScriptTimings {
     func record(_ script: String, seconds: Double, files: Int) {
         guard seconds.isFinite, seconds >= 0 else { return }
         entries[script, default: Entry()].add(seconds: seconds, files: max(0, files))
-        save()
+        if let entry = entries[script] {
+            database.access { $0.run(Self.upsert, Self.values(script, entry)) }
+        }
     }
 
     /// Forgets the figures of this one script.
     func reset(_ script: String) {
         guard entries.removeValue(forKey: script) != nil else { return }
-        save()
+        database.access { $0.run("DELETE FROM script_timing WHERE script = ?", .text(script)) }
     }
 
     /// How long a run on `files` files will likely take: the average per file
@@ -85,24 +88,38 @@ final class ScriptTimings {
         return entry.average
     }
 
-    // MARK: - File
+    // MARK: - Kept
 
-    private func load() {
-        guard let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: Entry].self, from: data)
-        else { return }
-        entries = decoded
+    nonisolated static let upsert = """
+        INSERT OR REPLACE INTO script_timing (script, runs, shortest, longest, total, runs_with_files,
+          shortest_per_file, longest_per_file, total_per_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+    nonisolated static func values(_ script: String, _ entry: Entry) -> [LocalDatabase.Value] {
+        [.text(script), .int(Int64(entry.runs)), .real(entry.shortest), .real(entry.longest), .real(entry.total),
+         .int(Int64(entry.runsWithFiles)), .real(entry.shortestPerFile), .real(entry.longestPerFile),
+         .real(entry.totalPerFile)]
     }
 
-    private func save() {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(entries) else { return }
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700])
-        try? data.write(to: url, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    private func load() {
+        let rows = database.access { connection in
+            connection.rows("""
+                SELECT script, runs, shortest, longest, total, runs_with_files,
+                  shortest_per_file, longest_per_file, total_per_file FROM script_timing
+                """) { row -> (String, Entry) in
+                var entry = Entry()
+                entry.runs = Int(row.int(1) ?? 0)
+                entry.shortest = row.real(2) ?? 0
+                entry.longest = row.real(3) ?? 0
+                entry.total = row.real(4) ?? 0
+                entry.runsWithFiles = Int(row.int(5) ?? 0)
+                entry.shortestPerFile = row.real(6) ?? 0
+                entry.longestPerFile = row.real(7) ?? 0
+                entry.totalPerFile = row.real(8) ?? 0
+                return (row.text(0) ?? "", entry)
+            }
+        }
+        entries = Dictionary(rows, uniquingKeysWith: { first, _ in first })
     }
 
     /// "0.8s", "42s", "3m 05s", "1h 02m" -- short enough for one line of figures.

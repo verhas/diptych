@@ -406,6 +406,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if !isRunningTests {
+            // Opened first: 1.x's JSON records are brought into it and deleted
+            // before anything reads them.
+            _ = LocalDatabase.records
+            // Folder sizes older than the setting allows are of no more use.
+            DirectorySizes.purgeExpired()
             // What a crash left of archives opened as folders.
             // Copies the clipboard still holds from the last run are kept.
             let onClipboard = MainActor.assumeIsolated { Clipboard.handedOutPaths() }

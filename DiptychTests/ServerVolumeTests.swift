@@ -120,7 +120,7 @@ final class ServerVolumeTests: XCTestCase {
         try manager.createDirectory(at: inside, withIntermediateDirectories: true)
 
         // As if it had been connected to, and mounted there.
-        let store = ServerStore(file: folder.appendingPathComponent("servers.json"))
+        let store = ServerStore(database: LocalDatabase.records(at: folder.appendingPathComponent("records.sqlite")))
         store.used(URL(string: "smb://nas/share")!, mountPoint: mountPoint)
 
         let pane = PaneModel(directory: folder)

@@ -10,7 +10,8 @@ SQLite database opens in a **Database window** of its own. Panes show **icons**
 as well as the list, where Finder placed them. A **journal** remembers what
 Diptych did, for months. **Siri, Shortcuts and Spotlight** can use Diptych
 the way an agent does. What is dragged or copied out of an opened archive
-arrives as a **clean copy**.
+arrives as a **clean copy**. **Folder sizes are kept**, and shown again later,
+fading as they age.
 
 ---
 
@@ -104,6 +105,26 @@ arrives as a **clean copy**.
   background until it is done. A line over 10,000 characters -- a minified
   file -- is left plain.
 - Each grammar's licence is in **Diptych ▸ Acknowledgements…**.
+- **JSON and XML have a Format button** in Quick Look: one value or element
+  to a line, indented, and **Show as Written** to go back. A file written as
+  very long lines opens formatted. JSON keeps its keys in their order, its
+  numbers and escapes as written, and its comments; XML never reads an
+  external DTD or entity.
+
+## Folder sizes are kept
+
+- What **Calculate Directory Sizes** (∑) works out is kept, with when it was
+  measured and whether it was finished or still growing then. A folder
+  measured before shows its size again -- in a later session too -- teal if
+  it was finished, orange if it was caught part way, and fainter as it ages,
+  since it was true when it was measured and not necessarily now.
+- **Settings ▸ Behaviour ▸ Folder Sizes** says for how long: a week unless
+  changed, from a day to 90 days. After that a size is no longer shown, and
+  is deleted. *Forget All Sizes* there, and View ▸ Clear Directory Sizes,
+  forget them at once.
+- ∑ measures again, the folders already measured included, showing the kept
+  size until each folder has been read. The Info window says how long ago a
+  size was measured; sorting by Size uses the kept sizes too.
 
 ## A folder in a Git repository
 
@@ -178,6 +199,13 @@ arrives as a **clean copy**.
   opened archive or a server's cache: what it knows of them is kept in
   `~/.diptych/cache.sqlite`.
 
+## The sidebar
+
+- Each volume's size and free space is asked of it in the background, apart
+  from the others. A disk slow to answer -- a Time Machine disk during a
+  backup, a disk spinning up, a server gone quiet -- shows `??` until it does,
+  and the sidebar, the other volumes and the panes no longer wait for it.
+
 ## Servers
 
 - A folder gone from the server is removed from its cache, unless it holds
@@ -204,8 +232,28 @@ arrives as a **clean copy**.
 - MCP's `get_pane` says when a pane is loading, moving or opening an archive;
   `set_pane_view` shows it as icons or a list.
 
+## Diptych's records in one database
+
+- The windows and panes as they were left, where trashed files came from,
+  the servers connected to, how long scripts take, and the scripts approved
+  are kept in `~/.diptych/diptych.sqlite`, readable only by you, instead of
+  five JSON files. `config.json` stays a file, to be edited by hand.
+- **`DIPTYCH_STORAGE.md`**, in the source, says what every file in
+  `~/.diptych` is, since which version, and what replaced the ones gone.
+- A server's keep-alive interval and the checksum command it was found to
+  have are no longer forgotten at every start.
+
 ## Upgrading
 
-Nothing to do. Opened archives and servers' caches are listed afresh into the
-new database the first time they are opened. The Siri, Shortcuts and
+At its first start, Diptych brings `state.json`, `trash-origins.json`,
+`servers.json` and `scripts-approved.json` from `~/.diptych` into
+`diptych.sqlite` and deletes them; a file it cannot read is left where it
+was. Nothing else to do, unless you used an SFTP server with 1.13: before installing
+2.0.0, let every edit made to a server's file reach the server, quit
+Diptych, and delete `~/Library/Caches/dev.verhas.Diptych/Opened Servers`.
+2.0.0 does not read 1.13's record of what was fetched there: it would empty
+the fetched files -- an edit not yet sent among them -- and show a stray
+`__DIPTYCH.json` in every folder. Everything is fetched again when needed.
+
+Opened archives are unpacked afresh, as always. The Siri, Shortcuts and
 Spotlight switches are off until you turn them on.
