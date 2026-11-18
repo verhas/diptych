@@ -11,7 +11,9 @@ as well as the list, where Finder placed them. A **journal** remembers what
 Diptych did, for months. **Siri, Shortcuts and Spotlight** can use Diptych
 the way an agent does. What is dragged or copied out of an opened archive
 arrives as a **clean copy**. **Folder sizes are kept**, and shown again later,
-fading as they age.
+fading as they age. **Apple Intelligence explains comparisons**, with the
+model on this Mac, and **New from Clipboard** saves in the format the folder
+already uses.
 
 ---
 
@@ -180,6 +182,46 @@ fading as they age.
   taken near, the camera, lens and date, the tags. Typing *Budapest* then
   finds the pictures taken there.
 
+## Apple Intelligence explains comparisons
+
+- With Settings ▸ **Use Apple Intelligence** on, **Compare Folders** shows a
+  box between the checkboxes and the list that says in a few sentences what
+  was added, removed or changed, and any pattern, such as one side being a
+  newer copy. It is asked in the background each time a comparison finishes,
+  Refresh included; the list can be used while it is on its way.
+- The model gets file names, sizes, dates and which properties differ, never
+  what is in the files. A folder found on one side only is described once,
+  not file by file.
+- **Comparing two files**, a box under the line with find and the count of
+  differences explains what the changes mean -- a value changed, a section
+  added -- rather than repeating the lines. The model reads the diff: each
+  change with two lines around it, up to about 6,000 characters, and half as
+  much if that is still too much for it.
+- It is asked again when the comparison changes: *ignore spacing*, a file
+  changed elsewhere, or a pause of a second and a half in typing on the
+  unlocked side.
+- Everything here uses the system model on this Mac, named explicitly, never
+  Private Cloud Compute, so nothing is sent anywhere. With **Use Apple
+  Intelligence** off, the comparison windows show no box.
+
+## New from Clipboard
+
+- With *Save a picture as* set to **Ask each time**, the dialog offers first
+  the format most pictures in the folder already are -- PNG, JPEG or PDF -- and
+  Return chooses it. A folder with none of them still offers PNG.
+- With Apple Intelligence on, pasted text is saved as `.md`, `.json`, `.yaml`,
+  `.csv`, `.sh`, `.py`, `.swift` and so on, from what the model on this Mac
+  says the text is, instead of always `.txt`.
+
+## Scripts with Apple Intelligence
+
+- **Get Scripts** has four new ones: *Explain with Apple Intelligence* (a
+  report beside a PDF), *Summarize with Apple Intelligence*, *Suggest a Name
+  with Apple Intelligence* and *Describe with Apple Intelligence* (pictures).
+- They use `fm`, the Foundation Models command line of macOS 27, always with
+  the model on this Mac. Run `sudo fm license` once before the first use. They
+  run only when you run them.
+
 ## Archives
 
 - **Dragging out of an opened archive** -- to Finder, the Desktop, another
@@ -256,4 +298,5 @@ the fetched files -- an edit not yet sent among them -- and show a stray
 `__DIPTYCH.json` in every folder. Everything is fetched again when needed.
 
 Opened archives are unpacked afresh, as always. The Siri, Shortcuts and
-Spotlight switches are off until you turn them on.
+Spotlight switches, and Apple Intelligence, are off until you turn them on. A
+*Save a picture as* setting other than *Ask each time* is used as before.
