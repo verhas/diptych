@@ -37,11 +37,11 @@ out of this plan, to the document named in its notes).
 | 10 | Crash reports `.ips` | 2 | done | 2.0.0 | `CrashLog`, `CrashReport` |
 | 11 | `.mobileprovision` | 2 | done | 2.0.0 | `ProvisioningProfile`, `ProvisioningReport` |
 | 12 | `.webloc` `.inetloc` `.url` | 2 | done | 2.0.0 | `InternetLocation`, `Punycode`, `LocationReport` |
-| 13 | Syntax-formatted text: JSON, YAML, TOML, programming languages, CSS, HTML… | 3 | in progress | 2.0.0 | `TextMateRegex`, `TextMateGrammar`, `TextMateTokenizer`, `SourceColouring`, `SourceReport`; `make-grammars.sh` |
+| 13 | Syntax-formatted text: JSON, YAML, TOML, programming languages, CSS, HTML… | 3 | done | 2.0.0 | `TextMateRegex`, `TextMateGrammar`, `TextMateTokenizer`, `SourceColouring`, `SourceReport`; `make-grammars.sh` |
 | 14 | Git repository folders | 3 | done | 2.0.0 | `GitFolderReport`, in the folder report |
 | 15 | `.properties` | 3 | done | 2.0.0 | `JavaProperties`, `PropertiesReport` |
 | 16 | `.eml` / `.mbox` | 3 | done | 2.0.0 | `MailMessage`, `Mailbox`, `MailReport` |
-| 17 | Where it came from (any file) | 3 | moved | | not a format: `where-it-came-from.md` |
+| 17 | Where it came from (any file) | 3 | done | 2.0.0 | not a format: `where-it-came-from.md`; `FileOrigin` |
 
 Suggested first five for 2.0.0: 1–2, 3–4, 5–6, 7, 8.
 
@@ -333,16 +333,25 @@ Design questions, settled:
       for at most 2 s (768 KB), the rest plain and said so; Text Edit colours
       in 2 s turns in the background until done. Lines over 10,000
       characters are left plain and pass their state on, as VS Code does.
-- [ ] Not done: a choice of language in Text Edit when it guesses wrong;
-      injection grammars (VS Code applies a few, such as Markdown math); the
-      JavaScript regular-expression grammar (a plist, not fetched)
+- [x] Dropped: a choice of language in Text Edit when it guesses wrong --
+      not needed
+- [ ] Not done: injection grammars (VS Code applies a few, such as Markdown
+      math); the JavaScript regular-expression grammar (a plist, not
+      fetched). Colouring only; not planned
 
 What colouring cannot give -- TextMate grammars know tokens, not structure
 -- the data formats keep from parsers of their own:
 
-- [ ] JSON, YAML, TOML: a formatted, collapsible tree (in Text Edit already; not in Quick Look)
-- [ ] A syntax error: line, column and the text around it (in Text Edit already; not in Quick Look)
-- [ ] `.jsonl`: one entry per line, counted
+- [x] JSON, JSON with comments, JSON Lines and XML: a **Format** button in
+      Quick Look, laid out by `StructuredFormatter` as Text Edit's Format
+      Document lays them out; a file written as very long lines opens
+      formatted. A collapsible tree in Quick Look: dropped -- Format is
+      enough, and Text Edit has the tree. YAML and TOML are laid out by
+      their indentation already
+- [x] A syntax error: line, column and what is wrong, over the text (JSON
+      and XML; Text Edit also marks it in the text)
+- [x] `.jsonl` and `.ndjson`: the entries counted, lines that are not JSON
+      named; formatted, one entry after another
 - [x] Brackets and tags that belong together (Text Edit's pairs, kept: JSON, XML, YAML, TOML and
       property lists keep `SyntaxColouring`, which pairs them; the grammars colour everything else)
 
@@ -375,8 +384,8 @@ In the existing folder report.
 
 ## 17. Where it came from (any file)
 
-Moved: not a format but something every file has, so it belongs to all of
-them at once. See `where-it-came-from.md`.
+Not a format but something every file has, so it belongs to all of them at
+once: done in 2.0.0 as described in `where-it-came-from.md`.
 
 ---
 
@@ -386,6 +395,7 @@ Newest first. One line per change: date, format #, what was done.
 
 | Date | # | Done |
 |------|---|------|
+| 2026-11-19 | 13, 17 | Format button on `StructuredFormatter`, shared with Text Edit; syntax errors located; JSON Lines counted and checked; where a downloaded file came from, at the end of its Quick Look page and in the Info window (`FileOrigin`); 15 tests |
 | 2026-11-15 | 13 | TextMate engine: Oniguruma patterns read by ICU, tokenizer with begin/end, begin/while, captures with patterns, back-references, embedded grammars; 79 VS Code grammars with their licences; coloured source in Quick Look and Text Edit, incremental after an edit; 14 tests |
 | 2026-11-15 | 2, 14, 7 | Jar/war/ear header (zip read in place, signature checked with CMS, manifest digest, module, class versions, multi-release); Git section in the folder preview; SQLite summary and Database window on a cloned snapshot; `make-jar-samples.sh`; 20 tests |
 | 2026-11-15 | 7, 13, 17 | Replanned: SQLite gets a native Database window, Quick Look only a summary; JSON/YAML/TOML widened to all syntax-formatted text on TextMate grammars, shared with Text Edit; "where it came from" moved to `where-it-came-from.md` |

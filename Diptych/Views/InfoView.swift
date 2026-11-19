@@ -164,8 +164,44 @@ struct InfoView: View {
                     field("Accessed", model.accessed.map(Self.format) ?? "--")
                     Button("Apply Dates") { model.applyDates() }
                 }
+
+                if !model.isOnServer, let origin = FileOrigin.read(model.url), !origin.isEmpty {
+                    originPanel(origin)
+                }
             }
             .padding(4)
+        }
+    }
+
+    /// Where the file came from: the same account Quick Look ends a report
+    /// with. The attributes themselves are in the Attributes tab, to edit.
+    private func originPanel(_ origin: FileOrigin) -> some View {
+        panel("Where it came from") {
+            ForEach(origin.warnings, id: \.self) { warning in
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Array(origin.whereFrom.enumerated()), id: \.offset) { index, address in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(index == 0 ? "Downloaded" : index == 1 ? "Linked from" : "")
+                        .frame(width: 90, alignment: .trailing).foregroundStyle(.secondary)
+                    if let link = URL(string: address), address.lowercased().hasPrefix("http") {
+                        Link(address, destination: link).lineLimit(2).truncationMode(.middle)
+                    } else {
+                        Text(address).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                    }
+                    Spacer()
+                }
+            }
+            if let text = origin.quarantineText { field("Quarantine", text) }
+            if let text = origin.archiveText { field("", text) }
+            if let data = origin.provenance, let text = Provenance.describe(data) { field("Provenance", text) }
+            if !origin.others.isEmpty {
+                field("Other", origin.others.count == 1
+                      ? "1 more attribute, in the Attributes tab"
+                      : "\(origin.others.count) more attributes, in the Attributes tab")
+            }
         }
     }
 

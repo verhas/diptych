@@ -465,3 +465,90 @@ private nonisolated struct XMLLayout {
         return tag + ">"
     }
 }
+
+// MARK: - Quick Look
+
+extension StructuredFormatter {
+
+    /// What Quick Look's page of a data file adds to the text: the text laid
+    /// out by the Format button -- as Text Edit's Format Document lays it out,
+    /// by the same settings -- and notes worth reading before it.
+    struct Preview: Equatable {
+        var formatted: String?
+        var notes: [String] = []
+    }
+
+    /// For the TextMate language `languageID`: JSON, JSON with comments,
+    /// JSON Lines and XML. A file cut short is not checked -- it would not
+    /// parse -- and gets no Format button.
+    static func preview(_ text: String, languageID: String, style: TextStyle, truncated: Bool) -> Preview {
+        switch languageID {
+        case "json": return truncated ? Preview() : whole(text, as: .json, style: style)
+        case "xml", "xsl": return truncated ? Preview() : whole(text, as: .xml, style: style)
+        case "jsonc": return truncated ? Preview() : commented(text, style: style)
+        case "jsonl": return lines(text, style: style, truncated: truncated)
+        default: return Preview()
+        }
+    }
+
+    /// Laid out, or where it breaks its format.
+    private static func whole(_ text: String, as format: TextFormat, style: TextStyle) -> Preview {
+        switch self.format(text, as: format, style: style) {
+        case .success(let formatted): return Preview(formatted: changed(formatted, from: text))
+        case .failure(.invalid(let problem)):
+            return Preview(notes: ["It is not valid \(format.title): \(place(problem))."])
+        case .failure(.notFormattable): return Preview()
+        }
+    }
+
+    /// JSON with comments: Text Edit's check takes JSON as the standard has
+    /// it, with none, so it is checked as JSON5 is read and laid out with its
+    /// comments where they were.
+    private static func commented(_ text: String, style: TextStyle) -> Preview {
+        guard let data = text.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed, .json5Allowed])) != nil
+        else { return Preview(notes: ["It is not valid JSON with comments."]) }
+        let formatted = JSONLayout(text, indent: style.indent(for: .json), style: style).pretty()
+        return Preview(formatted: changed(formatted, from: text))
+    }
+
+    /// JSON Lines: one value a line. Counted, each line checked, and laid out
+    /// one value after another, a blank line between them.
+    private static func lines(_ text: String, style: TextStyle, truncated: Bool) -> Preview {
+        var entries = 0
+        var broken: [(line: Int, problem: SyntaxProblem)] = []
+        var laidOut: [String] = []
+        let indent = style.indent(for: .json)
+        let all = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, line) in all.enumerated() {
+            let line = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if let problem = StructuredText.analyse(line, as: .json).problem {
+                // The last line of a file cut short is cut too, not broken.
+                if !(truncated && index == all.count - 1) { broken.append((index + 1, problem)) }
+                continue
+            }
+            entries += 1
+            laidOut.append(JSONLayout(line, indent: indent, style: style).pretty())
+        }
+        var notes = ["\(entries.formatted()) entr\(entries == 1 ? "y" : "ies")\(truncated ? " in the part shown" : "")."]
+        if let first = broken.first {
+            let lines = broken.prefix(10).map { String($0.line) }.joined(separator: ", ")
+            notes.append(broken.count == 1
+                         ? "Line \(first.line) is not JSON: \(first.problem.message)."
+                         : "\(broken.count.formatted()) lines are not JSON: \(lines)\(broken.count > 10 ? ", …" : ""). "
+                           + "Line \(first.line): \(first.problem.message).")
+        }
+        let formatted = laidOut.joined(separator: "\n\n")
+        return Preview(formatted: entries == 0 ? nil : changed(formatted, from: text), notes: notes)
+    }
+
+    private static func changed(_ formatted: String, from text: String) -> String? {
+        formatted.trimmingCharacters(in: .whitespacesAndNewlines)
+            == text.trimmingCharacters(in: .whitespacesAndNewlines) ? nil : formatted
+    }
+
+    private static func place(_ problem: SyntaxProblem) -> String {
+        "\(problem.message), line \(problem.line.formatted()), column \(problem.column.formatted())"
+    }
+}

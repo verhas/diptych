@@ -173,7 +173,28 @@ final class QuickLookController: NSObject {
         .image, .pdf, .movie, .audio, .archive, .spreadsheet, .presentation, .font,
     ]
 
+    /// What the panel shows for `url`: a report of Diptych's own, ended with
+    /// where the file came from, or the file itself for Quick Look to show.
     private func previewable(_ url: URL) -> URL {
+        let shown = preview(of: url)
+        guard shown != url, shown.pathExtension == "html" else { return shown }
+        // A folder's page -- an app bundle's says where it came from itself.
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), !isFolder.boolValue,
+              let origin = FileOrigin.read(url), origin.isDownload else { return shown }
+        let section = origin.html(provenanceText: origin.provenance.flatMap(Provenance.describe))
+        origins[shown] = section
+        if let page = try? String(contentsOf: shown, encoding: .utf8) {
+            write(page, to: shown)
+        }
+        return shown
+    }
+
+    /// The origin section of each page shown, for the page made again in the
+    /// background to end with it too.
+    private var origins: [URL: String] = [:]
+
+    private func preview(of url: URL) -> URL {
         if let rendered = linkReport(for: url) { return rendered }
         if let rendered = bundleReport(for: url) { return rendered }
         if let rendered = packageReport(for: url) { return rendered }
@@ -762,6 +783,7 @@ final class QuickLookController: NSObject {
     }
 
     private func write(_ html: String, to target: URL) {
+        let html = origins[target].map { FileOrigin.adding($0, to: html) } ?? html
         try? html.write(to: target, atomically: true, encoding: .utf8)
     }
 
@@ -819,18 +841,22 @@ final class QuickLookController: NSObject {
         let key = "source" + url.path
         if let ready = finished[key] { return ready }
         let truncated = size > data.count
-        // JSON and XML get a Format button -- not when cut short, which would
-        // not parse -- and open formatted when written as very long lines.
-        let formatted = truncated ? nil : PrettyText.format(text, languageID: language.id)
+        // JSON, JSON Lines and XML get a Format button, laid out as Text
+        // Edit's Format Document lays them out, and open formatted when
+        // written as very long lines; one that breaks its format says where.
+        let preview = StructuredFormatter.preview(text, languageID: language.id,
+                                                  style: ConfigStore.shared.configuration.textStyle,
+                                                  truncated: truncated)
+        let formatted = preview.formatted, notes = preview.notes
         let showFormatted = formatted != nil
             && text.split(separator: "\n", omittingEmptySubsequences: true).contains { $0.utf16.count > 1000 }
         let target = page(SourceReport.html(text: text, url: url, language: language, size: size,
                                             truncated: truncated, coloured: false, formatted: formatted,
-                                            showFormatted: showFormatted), kind: "source", for: url)
+                                            showFormatted: showFormatted, notes: notes), kind: "source", for: url)
         if let target {
             finish(target, key: key) {
                 SourceReport.html(text: text, url: url, language: language, size: size, truncated: truncated,
-                                  formatted: formatted, showFormatted: showFormatted)
+                                  formatted: formatted, showFormatted: showFormatted, notes: notes)
             }
         }
         return target
@@ -894,6 +920,7 @@ final class QuickLookController: NSObject {
         listings.removeAll()
         bundles.removeAll()
         finished.removeAll()
+        origins.removeAll()
     }
 }
 

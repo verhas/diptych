@@ -29,8 +29,13 @@ and exits non-zero. `build`, `run`, `release` and `dmg` first run
 changed since it last ran, or a month has passed; without the network the
 build goes on with the list already there.
 
-Requires macOS 15+ and Xcode 26. Signed ad-hoc, so it runs locally without a
-developer account.
+Requires macOS 15+ and Xcode 26. `build.sh` signs every build -- Debug and
+the tests' too -- with the Developer ID certificate when it is in the
+keychain (`DEVELOPER_ID=<sha-1 hash>` picks another), so macOS keeps what it
+was allowed in Privacy & Security from one build to the next instead of
+asking again. Without the certificate, and from Xcode itself, it is signed ad
+hoc, which needs no developer account; macOS then asks again after every
+build.
 
 ## Keys
 
@@ -1199,14 +1204,40 @@ recolours only the lines it changed. The colouring comes from the TextMate
 grammars Visual Studio Code uses (`make-grammars.sh`); HTML is still shown as
 the page it is.
 
-**JSON and XML have a Format button**, which lays them out one value or
-element to a line, indented, and **Show as Written** puts them back. A file
-written as very long lines -- an API's answer, a minified configuration --
-opens formatted. JSON is re-spaced token by token, so nothing but the space
-changes: the keys stay in their order, numbers as written, every escape as
-it was; JSON with comments keeps them. XML is laid out by macOS's own parser,
-which never reads an external DTD or entity. A file that does not parse, or
-is cut short because it is too big to show whole, has no button.
+**JSON, JSON Lines and XML have a Format button**, which lays them out
+exactly as Text Edit's **Format ▸ Format Document** does, by the same
+settings, and **Show as Written** puts them back. A file written as very long
+lines -- an API's answer, a minified configuration -- opens formatted. Nothing
+but the space changes: the keys stay in their order, numbers and escapes as
+written; JSON with comments keeps them. A file that breaks its format has no
+button, and says where: *It is not valid JSON: A value is missing, line 3,
+column 7.* One cut short because it is too big to show whole is not checked.
+
+**JSON Lines** (`.jsonl`, `.ndjson`) says how many entries it holds and which
+lines are not JSON; formatted, each entry is laid out in turn, a blank line
+between them.
+
+## Where a file came from
+
+A file that was downloaded, or that macOS holds in quarantine, has **Where it
+came from** at the end of its Quick Look page, and in the Info window's
+General tab:
+
+- the address it was downloaded from, and the page that linked to it, as links;
+- the quarantine: the app that downloaded it, when, and whether it has been
+  opened since;
+- its provenance -- the app that made or changed it -- in the words the
+  Attributes tab uses;
+- every other extended attribute, by name and size;
+- plain warnings: downloaded and never opened; downloaded from a site whose
+  name uses letters beyond plain Latin, such as a Cyrillic `а` in `аpple.com`.
+
+A file that came out of an opened archive carries the archive's quarantine,
+put on when it was unpacked, and is said to. A file on a server says nothing:
+what is shown is a copy Diptych fetched. App bundles say where they came from
+in their own page. Quick Look shows pictures, PDFs and the like itself, so for
+those it is only in the Info window, which shows it for any file with
+anything attached, its provenance tag included.
 
 ## Previewing programs, libraries and scripts
 

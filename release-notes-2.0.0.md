@@ -13,7 +13,7 @@ the way an agent does. What is dragged or copied out of an opened archive
 arrives as a **clean copy**. **Folder sizes are kept**, and shown again later,
 fading as they age. **Apple Intelligence explains comparisons**, with the
 model on this Mac, and **New from Clipboard** saves in the format the folder
-already uses.
+already uses. A downloaded file says **where it came from**.
 
 ---
 
@@ -107,11 +107,24 @@ already uses.
   background until it is done. A line over 10,000 characters -- a minified
   file -- is left plain.
 - Each grammar's licence is in **Diptych ▸ Acknowledgements…**.
-- **JSON and XML have a Format button** in Quick Look: one value or element
-  to a line, indented, and **Show as Written** to go back. A file written as
-  very long lines opens formatted. JSON keeps its keys in their order, its
-  numbers and escapes as written, and its comments; XML never reads an
-  external DTD or entity.
+- **JSON, JSON Lines and XML have a Format button** in Quick Look, laid out
+  as Text Edit's Format Document lays them out, and **Show as Written** to go
+  back. A file written as very long lines opens formatted. Keys keep their
+  order, numbers and escapes stay as written, comments stay. A file that
+  breaks its format says where: line, column and what is wrong.
+- **JSON Lines** (`.jsonl`, `.ndjson`) says how many entries it holds and
+  which lines are not JSON.
+
+## Where a file came from
+
+- A downloaded file's Quick Look page ends with **where it came from**: the
+  address and the page that linked to it, which app downloaded it and when,
+  whether it has been opened since, the app that made or changed it, and its
+  other extended attributes. The Info window shows the same on its General
+  tab.
+- It warns of a download never opened, and of a site whose name only looks
+  like a familiar one (a Cyrillic `а` in `аpple.com`). A file out of an opened
+  archive is said to carry the archive's quarantine.
 
 ## Folder sizes are kept
 

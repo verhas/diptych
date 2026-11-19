@@ -17,11 +17,12 @@ nonisolated enum SourceReport {
 
     /// The page. `coloured` false gives the plain page shown while the
     /// coloured one is made. With `formatted` -- the text laid out by
-    /// `PrettyText` -- the page holds both, and a Format button switches
-    /// between them; `showFormatted` says which is shown first.
+    /// `StructuredFormatter` -- the page holds both, and a Format button
+    /// switches between them; `showFormatted` says which is shown first.
+    /// `notes` are said under the heading: an entry count, a syntax error.
     static func html(text: String, url: URL, language: TextMateRegistry.Language, size: Int,
                      truncated: Bool, coloured: Bool = true, formatted: String? = nil,
-                     showFormatted: Bool = false) -> String {
+                     showFormatted: Bool = false, notes: [String] = []) -> String {
         // The one shown first is coloured first, with the whole budget.
         let first = formatted != nil && showFormatted ? formatted! : text
         let shownFirst = table(first, language: language, coloured: coloured, budget: budget)
@@ -38,6 +39,7 @@ nonisolated enum SourceReport {
         if truncated || original.cut {
             body += "<p class=note>The first \(original.cut ? "\(mostLines.formatted()) lines" : ByteCountFormatter.string(fromByteCount: Int64(mostBytes), countStyle: .file)) are shown.</p>"
         }
+        for note in notes { body += "<p class=note>\(escape(note))</p>" }
         if coloured, !shownFirst.complete || other?.complete == false {
             body += "<p class=note>Coloured as far as there was time for; the rest is plain. Text Edit colours it all.</p>"
         }

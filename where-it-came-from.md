@@ -1,14 +1,15 @@
 # Where a file came from
 
-Not a file format, so not part of `preview-formats-2.0.md` (item 17 there,
+Not a file format, so not part of `PREVIEW-FORMATS-2.0.md` (item 17 there,
 moved here). Every file can carry its history in extended attributes,
 whatever its format: where it was downloaded from, which app saved it,
 whether macOS still holds it in quarantine. That cuts across all the
 previews -- and the Info window -- rather than being one more of them.
 
-Status: `planned`. Not scheduled for a release yet.
+Status: `done`, in 2.0.0. `FileOrigin` reads it; Quick Look and the Info
+window show it.
 
-## What is already there
+## What was there before
 
 - **Info window, Spotlight section** (`FormatDetails.spotlight`):
   `kMDItemWhereFroms` as "Came from".
@@ -22,32 +23,46 @@ Status: `planned`. Not scheduled for a release yet.
 - **Flat view and agents**: `xattr(...)` in filter expressions, and the
   agent instructions name the attributes.
 
-So the pieces exist, scattered: the bundle preview has the only "origin" a
-preview shows.
+These stay: the Attributes tab is where attributes are edited, the
+Spotlight list shows what Spotlight knows, and the bundle preview keeps its
+own origin part, which also says whether an app runs translocated or came
+from the App Store.
 
-## What is wanted
+## What was made
 
-One account of a file's origin, made once and shown wherever it helps:
+One account of a file's origin, `FileOrigin`, read from the attributes once:
 
-- [ ] `com.apple.metadata:kMDItemWhereFroms`: the download address and the
+- [x] `com.apple.metadata:kMDItemWhereFroms`: the download address and the
       page it was linked from, as links
-- [ ] `com.apple.quarantine`: quarantined or not, by which app, when, whether
-      it has been opened since (the bundle preview's reading, made general)
-- [ ] `com.apple.provenance`: which app made or changed it (`Provenance`)
-- [ ] Other extended attributes: listed by name and size
-- [ ] Plain warnings where they matter: downloaded and never opened; came
-      from a site that only looks like a familiar one (`Punycode`, as the
-      web-location preview warns)
+- [x] `com.apple.quarantine`: quarantined or not, by which app, when, whether
+      it has been opened since (flag `0x40`)
+- [x] `com.apple.provenance`: which app made or changed it, in the words of
+      `Provenance` -- the lookup made as administrator if it was, otherwise
+      the installed apps with the same tag
+- [x] Other extended attributes: listed by name and size; the Finder's own
+      (`FinderInfo`, the resource fork, tags, last-used date) left to the
+      other tabs
+- [x] Plain warnings: downloaded and never opened; downloaded from a site
+      whose name is spelled in punycode, decoded so the lookalike letters
+      show
 
-## Open questions
+## The questions, settled
 
-- Where it is shown. A section at the end of every Quick Look report; a
-  part of the Info window that replaces the scattered rows above; or both,
-  from the one model.
-- Files with no report of their own -- an ordinary PDF, a picture -- that
-  Quick Look previews natively: an origin line over the native preview, or
-  only in Info.
-- Files inside an archive opened as a folder carry the archive's quarantine
-  (put on when unpacked): say that it is the archive's, not the file's own.
-- A file on a server has none of these attributes: say nothing, rather than
-  "no origin".
+- **Where it is shown.** Both, from the one model: a section, *Where it came
+  from*, at the end of every Quick Look page Diptych makes, and a panel on
+  the Info window's General tab.
+- **When.** Quick Look adds the section only for a file that came from
+  elsewhere -- with a download address or a quarantine. Nearly every file an
+  app writes carries a provenance tag, so that alone would put the section
+  under every preview. The Info window shows the panel for any file with
+  anything attached.
+- **Files Quick Look previews itself** -- an ordinary PDF, a picture: only in
+  the Info window. The panel shows Quick Look's own preview, which Diptych
+  cannot add to.
+- **Folders**: no section in Quick Look; an app bundle's page has its own
+  origin part.
+- **Files inside an opened archive** carry the archive's quarantine, put on
+  when it was unpacked: said so, naming the archive, and the "never opened"
+  warning is not given for them.
+- **A file on a server** (an SFTP server's fetched copy): nothing, rather than
+  "no origin" -- its attributes would say how Diptych fetched it.

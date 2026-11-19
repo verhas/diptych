@@ -44,7 +44,8 @@ Usage: ./build.sh [command] [args]
 Everyday commands:
   build              build (Debug) -- what runs with no command at all
   run                build, quit any running copy, and relaunch it
-  test               run the unit tests
+  test [args]        run the unit tests; args go to xcodebuild, such as
+                     -only-testing:DiptychTests/FileOriginTests
   path               print the path of the built .app
   stop               quit a running instance
   clean              delete build products
@@ -150,10 +151,13 @@ build() {
         postprocess=YES
     fi
 
+    choose_signing
     info "Building $SCHEME ($CONFIG)..."
 
+    # The odd expansion is bash 3.2's, under `set -u`: an empty array is
+    # otherwise an unbound variable.
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration "$CONFIG" \
-                  -destination "$DESTINATION" "$PLUGIN_TRUST" \
+                  -destination "$DESTINATION" "$PLUGIN_TRUST" ${SIGNING[@]+"${SIGNING[@]}"} \
                   DEPLOYMENT_POSTPROCESSING="$postprocess" build >"$log" 2>&1; then
         # xcodebuild is extremely chatty. On success, surface only real
         # diagnostics -- lines that start with an absolute source path.
@@ -191,10 +195,14 @@ run_tests() {
 
     generate_release_notes
 
+    choose_signing
     info "Testing $SCHEME..."
 
+    # Signed as `build` signs, so the app the tests run in keeps what macOS
+    # allowed it, and no pop-up waits for someone to click it.
     if xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Debug \
-                  -destination "$DESTINATION" "$PLUGIN_TRUST" test >"$log" 2>&1; then
+                  -destination "$DESTINATION" "$PLUGIN_TRUST" ${SIGNING[@]+"${SIGNING[@]}"} \
+                  test "$@" >"$log" 2>&1; then
         grep -E "^Test Case .*(passed|failed)" "$log" \
             | sed -E "s/^Test Case '-\[[A-Za-z]+ (.*)\]'/    \1/" \
             | sed 's/ (.*seconds).*//' || true
@@ -226,6 +234,40 @@ DEVELOPER_ID="${DEVELOPER_ID:-4F265A5D1E4D6CBA168179118CFC740B60C1778E}"
 developer_id() {
     security find-identity -v -p codesigning 2>/dev/null \
         | awk -v id="$DEVELOPER_ID" 'toupper($2) == toupper(id) { print $2; exit }' || true
+}
+
+# The team the certificate belongs to: the code in parentheses that ends its
+# name, "Developer ID Application: … (TEAMID)".
+developer_team() {
+    security find-identity -v -p codesigning 2>/dev/null \
+        | awk -v id="$DEVELOPER_ID" 'toupper($2) == toupper(id) { print; exit }' \
+        | sed -n 's/.*(\([A-Z0-9]*\))"$/\1/p' || true
+}
+
+# Every build and test run made here -- Debug included -- is signed with the
+# Developer ID, not ad hoc as the project file says. macOS keeps what was
+# allowed in Privacy & Security -- a removable volume, Full Disk Access, the
+# Downloads folder -- for the app's signature: ad hoc, every build is a new
+# app, and asks again. Asked while nobody is at the Mac, a pop-up held the
+# unit tests for twelve hours. Signed with the one certificate, a build is the
+# same app as the last one, and what was allowed stays allowed.
+#
+# No timestamp: a local build needs none, and asking Apple's server for one
+# would make every build wait for the network. `dmg` signs again, with one.
+# Without the certificate, the build stays ad hoc, and says so.
+SIGNING=()
+choose_signing() {
+    local id team
+    id=$(developer_id)
+    team=$(developer_team)
+    if [ -n "$id" ] && [ -n "$team" ]; then
+        SIGNING=(CODE_SIGN_IDENTITY="$id" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$team"
+                 OTHER_CODE_SIGN_FLAGS=--timestamp=none)
+    else
+        SIGNING=()
+        printf '%s==> No Developer ID %s in the keychain: signing ad hoc, so macOS will ask again for what it allowed the last build%s\n' \
+            "$YELLOW" "$DEVELOPER_ID" "$OFF"
+    fi
 }
 
 # For status messages only -- the name, and the hash that is actually used.
@@ -657,7 +699,8 @@ case "${1:-build}" in
         ;;
     path)  app_path ;;
     stop)  stop_app ;;
-    test)     run_tests ;;
+    # Extra arguments go to xcodebuild: ./build.sh test -only-testing:DiptychTests/FileOriginTests
+    test)     shift; run_tests "$@" ;;
     dmg)      make_dmg ;;
     notarize) notarize_dmg ;;
     publish)  publish_release ;;
