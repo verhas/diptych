@@ -18,6 +18,9 @@ attachment, or an entry of a clipboard manager.
   the extension Apple Intelligence suggests, and the name suggested the same
   way. With *Save a picture as* set to **Off**, a dropped picture is saved as
   PNG.
+- What only the app it comes from can read -- a clipboard manager's own
+  reference to its entries -- does not become a file; the picture or the text
+  dragged with it does.
 - **Edit ▸ Undo** takes the new file away again.
 - As with files, nothing can be dropped into a flat view or a read-only
   folder, and Diptych says so.
