@@ -244,8 +244,9 @@ enum Clipboard {
         }
     }
 
-    static func contents() -> Content {
-        let board = NSPasteboard.general
+    /// What is on `board`: the clipboard, or what is being dropped, which
+    /// becomes a file the same way.
+    static func contents(of board: NSPasteboard = .general) -> Content {
         // Images first. A copied picture usually arrives with a text flavour
         // as well -- a file name, a URL -- and saving that instead of the
         // picture would be the wrong answer to "New from Clipboard".
@@ -254,6 +255,12 @@ enum Clipboard {
         if let pdf, let image = NSImage(data: pdf) { return .image(image, pdf: pdf) }
         if let string = board.string(forType: .string), !string.isEmpty { return .text(string) }
         return .nothing
+    }
+
+    /// Whether `contents(of:)` would find something on `board`, told by
+    /// the types alone: asked while a drag moves, it must not make a picture.
+    static func holdsContent(_ board: NSPasteboard) -> Bool {
+        NSImage.canInit(with: board) || board.availableType(from: [.pdf, .string]) != nil
     }
 
     /// Turn a pasted picture into the bytes of a file.

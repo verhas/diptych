@@ -4300,6 +4300,19 @@ anything else writes to the pasteboard, the cut lapses and a paste copies.
 With no files on the pasteboard but text or a picture, `⌘V` (and Paste in the
 menus) makes a file of it, exactly as **New from Clipboard** does.
 
+**Dropping what is not a file.** A drag that carries no file still makes one
+where it is dropped -- in the pane, or in the folder under the pointer:
+
+- A file still to be written -- a picture dragged out of Photos or Safari, a
+  Mail attachment, a picture from a clipboard manager -- is written by the app
+  it comes from and keeps the name and format that app gives it, numbered if
+  the folder already has one of that name.
+- A picture or a text with no such file becomes a file exactly as **New from
+  Clipboard** makes one: the format from Settings, the name suggested the same
+  way. With *Save a picture as* set to **Off**, a dropped picture is a PNG.
+
+Edit ▸ Undo takes the new file away again, as it does for New from Clipboard.
+
 **What the new file is saved as.** A picture is saved in the format chosen in
 Settings ▸ *Save a picture as*. With **Ask each time**, the dialog offers
 first -- Return chooses it -- whichever of PNG, JPEG and PDF most pictures in

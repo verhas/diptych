@@ -1,5 +1,7 @@
 import AppKit
-import CoreSpotlight
+// CSSearchableIndex is not marked Sendable, but Apple documents it as safe to
+// use from any thread; it is handed to the indexing queue.
+@preconcurrency import CoreSpotlight
 import os
 import SQLite3
 import UniformTypeIdentifiers
@@ -39,7 +41,7 @@ final class SpotlightRecords {
 
     nonisolated(unsafe) private let index: CSSearchableIndex
     private let queue = DispatchQueue(label: "Diptych.Spotlight", qos: .utility)
-    nonisolated(unsafe) private let store: IndexedFiles
+    private let store: IndexedFiles
     /// Folders shown and not yet looked at, by path; looked at a moment
     /// later, so a folder refreshed five times in a second is read once.
     private var pending: [String: Shown] = [:]

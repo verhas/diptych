@@ -83,6 +83,9 @@ nonisolated final class LocalDatabase: @unchecked Sendable {
 
     /// Runs `work` with the connection to itself; a nested call from inside
     /// `work` is fine.
+    /// Discardable: a statement run for its effect returns whether it ran,
+    /// and most callers have nothing to do with that.
+    @discardableResult
     func access<T>(_ work: (Connection) throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }

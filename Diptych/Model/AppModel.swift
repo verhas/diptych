@@ -1528,7 +1528,18 @@ final class AppModel {
 
     /// What a pasted picture is waiting to be saved as, while the user is
     /// asked.
-    private var pendingImage: (image: NSImage, pdf: Data?, changeCount: Int)?
+    private var pendingImage: PendingImage?
+
+    /// A picture to be saved, and where.
+    private struct PendingImage {
+        var image: NSImage
+        var pdf: Data?
+        /// The clipboard's, when it came from there.
+        var changeCount: Int?
+        var pane: PaneModel
+        var folder: URL
+        var creation: FileHistory.Creation
+    }
 
     /// The format the "Save the picture as" dialog offers first, Return
     /// choosing it: the one most pictures already in the folder are in.
@@ -1546,37 +1557,61 @@ final class AppModel {
         // Which clipboard this was, so a name guessed for it ahead of time --
         // and only for it -- can be used.
         let changeCount = NSPasteboard.general.changeCount
-        switch Clipboard.contents() {
-        case .nothing:
+        let content = Clipboard.contents()
+        guard content.kind != .empty else {
             flash("There is nothing on the clipboard", error: true)
+            return
+        }
+        makeFile(of: content, in: active, folder: active.directory,
+                 changeCount: changeCount, creation: .clipboard)
+    }
+
+    /// A text or a picture made into a new file in `folder`, which is
+    /// `pane`'s own or a folder shown in it: what New from Clipboard does,
+    /// and what a drop of a picture or a text does.
+    ///
+    /// `changeCount` is the clipboard's, for a name guessed for it ahead of
+    /// time; nil for a drop, which nothing could guess for.
+    private func makeFile(of content: Clipboard.Content, in pane: PaneModel, folder: URL,
+                          changeCount: Int?, creation: FileHistory.Creation) {
+        switch content {
+        case .nothing:
+            return
 
         case .text(let string):
             let data = Data(string.utf8)
             // Already waiting on the model for something else: this one gets
             // the plain name at once rather than a second wait nobody can stop.
             guard namesCanBeSuggested, !isSuggestingName else {
-                write(data, as: suggestedName("untitled.txt"))
+                write(data, as: suggestedName("untitled.txt", in: folder),
+                      in: pane, folder: folder, creation: creation)
                 return
             }
-            let early = ClipboardNamePrefetcher.shared.take(in: active.directory,
-                                                            changeCount: changeCount)
+            let early = changeCount.flatMap {
+                ClipboardNamePrefetcher.shared.take(in: folder, changeCount: $0)
+            }
             // "txt" until the model says what kind of text it is.
-            nameThenWrite(data, extension: "txt", kind: "text",
-                          extensionFromContent: true) { style, details in
+            nameThenWrite(data, extension: "txt", kind: "text", in: pane, folder: folder,
+                          creation: creation, extensionFromContent: true) { style, details in
                 if let early { return await ClipboardNamePrefetcher.wait(for: early) }
                 return await NameSuggester.suggest(forText: string, details: details,
                                                    style: style, describing: true)
             }
 
         case .image(let image, let pdf):
-            let format = ConfigStore.shared.configuration.clipboardImageFormat
+            // Off takes New from Clipboard away; a picture dropped is still
+            // a picture to keep, as the format it most often is.
+            let setting = ConfigStore.shared.configuration.clipboardImageFormat
+            let format: Configuration.ClipboardImageFormat = setting == .off ? .png : setting
             guard format != .ask else {
-                pendingImage = (image, pdf, changeCount)
-                suggestedClipboardFormat = .mostCommon(in: active.directory)
+                pendingImage = PendingImage(image: image, pdf: pdf, changeCount: changeCount,
+                                            pane: pane, folder: folder, creation: creation)
+                suggestedClipboardFormat = .mostCommon(in: folder)
                 dialog = .clipboardFormat
                 return
             }
-            save(image, pdf: pdf, as: format, changeCount: changeCount)
+            save(PendingImage(image: image, pdf: pdf, changeCount: changeCount,
+                              pane: pane, folder: folder, creation: creation), as: format)
         }
     }
 
@@ -1584,33 +1619,42 @@ final class AppModel {
         dialog = nil
         guard let pending = pendingImage else { return }
         pendingImage = nil
-        save(pending.image, pdf: pending.pdf, as: format, changeCount: pending.changeCount)
+        save(pending, as: format)
     }
 
-    private func save(_ image: NSImage, pdf: Data?,
-                      as format: Configuration.ClipboardImageFormat, changeCount: Int) {
-        guard let data = Clipboard.data(for: image, pdf: pdf, as: format) else {
+    private func save(_ pending: PendingImage, as format: Configuration.ClipboardImageFormat) {
+        let (image, folder, changeCount) = (pending.image, pending.folder, pending.changeCount)
+        guard let data = Clipboard.data(for: image, pdf: pending.pdf, as: format) else {
             dialog = .message("That picture could not be saved as \(format.title).")
             return
         }
         guard namesCanBeSuggested, !isSuggestingName,
               let picture = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            write(data, as: suggestedName("untitled.\(format.fileExtension)"))
+            write(data, as: suggestedName("untitled.\(format.fileExtension)", in: folder),
+                  in: pending.pane, folder: folder, creation: pending.creation)
             return
         }
         // Taken out of the NSImage here, on the main actor, since an NSImage
         // may not cross to the queue that does the looking.
         let sendable = NameSuggester.SendableImage(picture)
-        let early = ClipboardNamePrefetcher.shared.take(in: active.directory,
-                                                        changeCount: changeCount)
-        nameThenWrite(data, extension: format.fileExtension, kind: "picture") { style, details in
+        let early = changeCount.flatMap {
+            ClipboardNamePrefetcher.shared.take(in: folder, changeCount: $0)
+        }
+        nameThenWrite(data, extension: format.fileExtension, kind: "picture",
+                      in: pending.pane, folder: folder, creation: pending.creation) { style, details in
             if let early { return await ClipboardNamePrefetcher.wait(for: early) }
             // No guess for this folder, but Vision may well have read the
             // picture already: that half does not depend on where it goes.
-            let said = style.template.usesContent
-                ? await ClipboardNamePrefetcher.shared.pictureWords(
-                    for: sendable, changeCount: changeCount, length: style.excerptLength).value
-                : ""
+            let said: String
+            if !style.template.usesContent {
+                said = ""
+            } else if let changeCount {
+                said = await ClipboardNamePrefetcher.shared.pictureWords(
+                    for: sendable, changeCount: changeCount, length: style.excerptLength).value ?? ""
+            } else {
+                let length = style.excerptLength
+                said = await BlockingWork.run { NameSuggester.describe(sendable, length: length) } ?? ""
+            }
             return await NameSuggester.suggest(forPictureDescribedAs: said,
                                                details: details, style: style,
                                                describing: true)
@@ -1628,19 +1672,19 @@ final class AppModel {
     /// type the model names decides the extension when it names one.
     private func nameThenWrite(
         _ data: Data, extension suffix: String, kind: String,
+        in pane: PaneModel, folder: URL, creation: FileHistory.Creation,
         extensionFromContent: Bool = false,
         asking: @escaping (NameSuggester.Style, [String: String]) async -> NameSuggester.Outcome
     ) {
-        let pane = active
         isSuggestingName = true
         showWhileThinking()
         var style = Self.nameStyle
         // The file it will be, since there is no file yet to ask about.
         let details = NameSuggester.details(
-            name: suggestedName("untitled.\(suffix)", in: pane.directory),
-            folder: pane.directory, bytes: Int64(data.count), kind: kind)
+            name: suggestedName("untitled.\(suffix)", in: folder),
+            folder: folder, bytes: Int64(data.count), kind: kind)
         suggestionTask = Task {
-            let template = await namingTemplate(for: pane.directory)
+            let template = await namingTemplate(for: folder)
             if !Task.isCancelled { showWhileThinking(following: template) }
             style.template = template
             let answer = await asking(style, details)
@@ -1657,15 +1701,21 @@ final class AppModel {
             let stem = stopped ? "untitled" : (answer.name ?? "untitled")
             let chosen = !stopped && extensionFromContent
                 ? (answer.described?.fileExtension ?? suffix) : suffix
-            let name = suggestedName("\(stem).\(chosen)", in: pane.directory)
-            let url = pane.directory.appendingPathComponent(name)
+            let name = suggestedName("\(stem).\(chosen)", in: folder)
+            let url = folder.appendingPathComponent(name)
             do {
-                try await writeNewFile(data, to: url)
+                try await writeNewFile(data, to: url, creation: creation)
             } catch {
                 dialog = .message(error.localizedDescription)
                 return
             }
-            await offerRename(of: url, in: pane)
+            // Dropped on a folder in the listing: there is no row of it to
+            // rename here, and the folder is not opened for it.
+            if folder.standardizedFileURL == pane.directory.standardizedFileURL {
+                await offerRename(of: url, in: pane)
+            } else {
+                flash("Created \(name) in \u{201C}\(folder.lastPathComponent)\u{201D}", error: false)
+            }
             // The file is made either way; this says why it kept the plain name.
             if !stopped, let why = answer.explanation { flash(why) }
         }
@@ -1682,12 +1732,12 @@ final class AppModel {
             excerptLength: configuration.nameExcerptLength)
     }
 
-    private func write(_ data: Data, as name: String) {
-        let pane = active
-        let url = pane.directory.appendingPathComponent(name)
+    private func write(_ data: Data, as name: String, in pane: PaneModel, folder: URL,
+                       creation: FileHistory.Creation) {
+        let url = folder.appendingPathComponent(name)
         Task {
             do {
-                try await writeNewFile(data, to: url)
+                try await writeNewFile(data, to: url, creation: creation)
                 pane.pendingSelection = [url]
                 pane.reload()
                 flash("Created \(name)", error: false)
@@ -1699,7 +1749,8 @@ final class AppModel {
 
     /// Writes a new file from the clipboard, never over one already there. In a
     /// folder on a server it is made on the server, which has no undo history here.
-    private func writeNewFile(_ data: Data, to url: URL) async throws {
+    private func writeNewFile(_ data: Data, to url: URL,
+                              creation: FileHistory.Creation) async throws {
         let folder = url.deletingLastPathComponent()
         if RemoteBrowsing.isInside(folder) {
             _ = try await RemoteBrowsing.createFile(named: url.lastPathComponent, in: folder,
@@ -1707,7 +1758,7 @@ final class AppModel {
             return
         }
         try data.write(to: url, options: .withoutOverwriting)
-        FileHistory.shared.recordCreation(.clipboard, of: [url])
+        FileHistory.shared.recordCreation(creation, of: [url])
     }
 
     // MARK: - Scripts
@@ -3945,8 +3996,10 @@ final class AppModel {
         let pasteboard = NSPasteboard(name: .drag)
         // A copy handed out of an archive is read back as the archive's item,
         // so a drop here is the drop it always was.
+        let promisedFiles = Self.promisedItemFiles(on: pasteboard)
         let files = (pasteboard.readObjects(forClasses: [NSURL.self],
                                             options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+            .filter { !promisedFiles.contains($0.standardizedFileURL.path) }
             .map(ArchiveBrowsing.original(of:))
         // A file on a server is dragged as its sftp:// address; read back here
         // as its copy, while the server is connected.
@@ -3967,7 +4020,7 @@ final class AppModel {
     @discardableResult
     func performPasteboardDrop() -> Bool {
         let urls = dragPasteboardURLs()
-        guard !urls.isEmpty else { return false }
+        guard !urls.isEmpty else { return dropContent() }
 
         if pointerIsOverSidebar() {
             addFavourites(urls)
@@ -3994,6 +4047,159 @@ final class AppModel {
         // A failed drop is what makes AppKit slide the drag image back to
         // where it came from -- the right answer to a drop that moves nothing.
         return drop(urls, into: pane, destination: destination)
+    }
+
+    /// Whether what is being dragged, though no file, can become one here:
+    /// a file still to be written (a picture out of Photos or Safari, an
+    /// attachment in Mail, an entry of a clipboard manager), a picture, or a
+    /// text.
+    func dragCanMakeFile() -> Bool {
+        let board = NSPasteboard(name: .drag)
+        return !Self.filePromises(on: board).isEmpty || Clipboard.holdsContent(board)
+    }
+
+    /// The files promised by a drag, but not those that are only another
+    /// app's own data: Snippad's history list promised a file of its private
+    /// `dev.verhas.snippad.history-item` -- meant for its own lists -- and
+    /// what arrived was `{"ids":[…]}` instead of the picture.
+    nonisolated static func filePromises(on board: NSPasteboard) -> [NSFilePromiseReceiver] {
+        (board.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? [])
+            .filter { !$0.fileTypes.isEmpty && !$0.fileTypes.allSatisfy(isPrivateData) }
+    }
+
+    /// The file addresses of the drag's items that promise a file. SwiftUI
+    /// puts beside a promise the address of the file it is to write -- in
+    /// its cache, named `null`, and empty until the promise is kept -- and
+    /// Diptych, taking it for a dragged file, copied the empty file. The
+    /// promise is what is dropped (or, for another app's own data, nothing).
+    nonisolated static func promisedItemFiles(on board: NSPasteboard) -> Set<String> {
+        let promisedType = NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-content-type")
+        var paths = Set<String>()
+        for item in board.pasteboardItems ?? [] where item.types.contains(promisedType) {
+            guard let address = item.string(forType: .fileURL),
+                  let url = URL(string: address), url.isFileURL else { continue }
+            paths.insert(url.standardizedFileURL.path)
+        }
+        return paths
+    }
+
+    /// A type an app declared for itself that says nothing more than "data":
+    /// no document, picture, text, archive or anything else another app could
+    /// open. A type known only by its name -- dynamic, or not declared on
+    /// this Mac -- is let through: it may be a real document of an app not
+    /// installed here.
+    nonisolated static func isPrivateData(_ identifier: String) -> Bool {
+        guard let type = UTType(identifier), type.isDeclared, !type.isDynamic,
+              !identifier.hasPrefix("public."), !identifier.hasPrefix("com.apple.") else { return false }
+        return type.supertypes.allSatisfy { [UTType.data, .item].contains($0) }
+    }
+
+    /// A drop that carries no file: what it promises is written into the
+    /// folder under the pointer, and a picture or a text becomes a file there
+    /// as New from Clipboard makes one -- named the same way, the picture in
+    /// the format Settings say.
+    private func dropContent() -> Bool {
+        defer { dragOrigin = nil }
+        // A favourite is a place; there is nothing here to make one of.
+        if pointerIsOverSidebar() { return false }
+        let board = NSPasteboard(name: .drag)
+        let pane = paneUnderPointer() ?? active
+        let destination = dropDestination(in: pane)
+        cancelSpringLoad()
+        if pane.isFlat, destination == pane.directory {
+            _ = refusedAsTarget(pane, "dropped into")
+            return false
+        }
+        if refusedAsReadOnly(pane, "dropped into it", serverWritable: true) { return false }
+
+        let promises = Self.filePromises(on: board)
+        // The promised file first: it is the original, under its own name
+        // and in its own format, where the picture beside it is a copy.
+        let content = promises.isEmpty ? Clipboard.contents(of: board) : .nothing
+        guard !promises.isEmpty || content.kind != .empty else { return false }
+
+        activate(pane)
+        if destination == pane.directory { expectArrivals(in: pane, pointerOnly: true) }
+        if promises.isEmpty {
+            makeFile(of: content, in: pane, folder: destination, changeCount: nil,
+                     creation: .dropped)
+        } else {
+            receive(promises, in: pane, folder: destination)
+        }
+        return true
+    }
+
+    /// The promised files, written by the app they come from into a folder
+    /// of their own first, then put into `folder` under a name nothing there
+    /// has yet: the app writing them would otherwise choose, or fail, over a
+    /// file of the same name, and a folder on a server it cannot write at all.
+    private func receive(_ promises: [NSFilePromiseReceiver], in pane: PaneModel, folder: URL) {
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Diptych Drops", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        } catch {
+            dialog = .message(error.localizedDescription)
+            return
+        }
+        // Off the main thread: the app writing the file may take its time.
+        let queue = OperationQueue()
+        queue.qualityOfService = .userInitiated
+        for promise in promises {
+            // @Sendable: called on `queue`. Written plainly, the closure would
+            // be the main actor's, like the method it is in, and Swift checks
+            // that when it runs -- on the queue, which stopped Diptych at the
+            // first picture dropped. It goes to the main actor itself, with
+            // the error's words: the error is not safe to send.
+            promise.receivePromisedFiles(atDestination: staging, options: [:],
+                                         operationQueue: queue) { @Sendable received, error in
+                let failure = error?.localizedDescription
+                Task { @MainActor in
+                    await self.settle(received, failure: failure, from: staging,
+                                      in: pane, folder: folder)
+                }
+            }
+        }
+    }
+
+    /// One promised file arrived (or failed to): moved to where it was dropped.
+    private func settle(_ received: URL, failure: String?, from staging: URL,
+                        in pane: PaneModel, folder: URL) async {
+        defer {
+            // The staging folder goes once the last of the drop has left it.
+            if (try? FileManager.default.contentsOfDirectory(atPath: staging.path))?.isEmpty ?? true {
+                try? FileManager.default.removeItem(at: staging)
+            }
+        }
+        if let failure {
+            try? FileManager.default.removeItem(at: received)
+            dialog = .message("\(received.lastPathComponent) could not be received: " + failure)
+            return
+        }
+        let name = suggestedName(received.lastPathComponent, in: folder)
+        let target = folder.appendingPathComponent(name)
+        do {
+            if RemoteBrowsing.isInside(folder) {
+                let data = try Data(contentsOf: received)
+                try? FileManager.default.removeItem(at: received)
+                try await writeNewFile(data, to: target, creation: .dropped)
+            } else {
+                try FileManager.default.moveItem(at: received, to: target)
+                FileHistory.shared.recordCreation(.dropped, of: [target])
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: received)
+            dialog = .message(error.localizedDescription)
+            return
+        }
+        if folder.standardizedFileURL == pane.directory.standardizedFileURL {
+            pane.pendingSelection = [target]
+            pane.reload()
+            flash("Created \(name)", error: false)
+        } else {
+            flash("Created \(name) in \u{201C}\(folder.lastPathComponent)\u{201D}", error: false)
+        }
     }
 
     /// Where a drag out of one of this window's panes began, and the files

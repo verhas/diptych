@@ -295,6 +295,9 @@ final class FileHistory {
 
     enum Creation: Sendable {
         case newFile, newFolder, clipboard, link
+        /// Made of a picture, a text or a promised file dragged in from
+        /// another app.
+        case dropped
         /// New images made from others: "Convert", "Remove Background".
         case images(String)
         /// Files made from others: "Create Archive", "Extract", "Optimize".
@@ -305,6 +308,7 @@ final class FileHistory {
             case .newFile:   "New File"
             case .newFolder: "New Folder"
             case .clipboard: "New from Clipboard"
+            case .dropped:   "Drop"
             case .link:      "Link"
             case .images(let name), .made(let name): name
             }
@@ -316,6 +320,8 @@ final class FileHistory {
                 "\(names) was created in \(folder)."
             case .clipboard:
                 "\(names) was created in \(folder) from the clipboard."
+            case .dropped:
+                "\(names) was created in \(folder) from what was dropped there."
             case .link:
                 urls.count == 1
                     ? "\(names) was linked in \(folder)."
